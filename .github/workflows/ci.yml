@@ -31,6 +31,10 @@ jobs:
         working-directory: ./app
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma Client
+        working-directory: ./app
+        run: pnpm db:generate
+
       - name: Type check
         working-directory: ./app
         run: pnpm type-check
