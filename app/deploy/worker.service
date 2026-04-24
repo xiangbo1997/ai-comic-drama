@@ -1,0 +1,41 @@
+# systemd unit file：AI Comic Drama Worker 进程
+#
+# 安装：
+#   sudo cp app/deploy/worker.service /etc/systemd/system/ai-comic-drama-worker.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ai-comic-drama-worker
+#
+# 查看日志：
+#   journalctl -u ai-comic-drama-worker -f
+#
+# 前置条件：
+#   - Node.js 20+ 与 pnpm 已安装在 PATH
+#   - /var/app/ai-comic-drama/app 目录已部署代码
+#   - /etc/ai-comic-drama/.env 包含 REDIS_URL / DATABASE_URL / ENCRYPTION_KEY 等
+#
+# 伸缩：
+#   如需多 worker，复制本文件为 ai-comic-drama-worker@.service（template），
+#   并启动 ai-comic-drama-worker@1、@2 …
+
+[Unit]
+Description=AI Comic Drama BullMQ Worker
+After=network.target redis.service postgresql.service
+Wants=redis.service
+
+[Service]
+Type=simple
+User=app
+Group=app
+WorkingDirectory=/var/app/ai-comic-drama/app
+EnvironmentFile=/etc/ai-comic-drama/.env
+ExecStart=/usr/bin/pnpm worker:start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+# 关键：SIGTERM 时给 30 秒让正在执行的 job 完成/让 BullMQ 把 job 放回队列
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

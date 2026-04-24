@@ -1,0 +1,18 @@
+# Project-local Codex config with ECC-style guidance.
+# This file is intentionally minimal so it can coexist with the user's global ~/.codex/config.toml.
+
+[history]
+persistence = "save-all"
+persistent_instructions = """
+Follow the repository root AGENTS.md first.
+
+Use ECC as a supplement:
+1. Prefer TDD for non-trivial changes.
+2. Validate inputs and avoid hardcoded secrets.
+3. Keep changes small, reversible, and documented.
+4. Run verification before closing a task.
+5. Load only the relevant skills from .agents/skills/.
+"""
+
+[features]
+web_search_request = true

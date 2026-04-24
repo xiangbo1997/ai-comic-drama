@@ -1,0 +1,22 @@
+{
+  "name": "ai-comic-drama-poc",
+  "version": "0.1.0",
+  "description": "AI漫剧技术验证 POC",
+  "type": "module",
+  "scripts": {
+    "test:consistency": "npx tsx character-consistency-test.ts",
+    "test:fal": "npx tsx fal-test.ts",
+    "test:video": "npx tsx video-generation-test.ts",
+    "test:tts": "npx tsx tts-test.ts",
+    "test:all": "npm run test:consistency && npm run test:video && npm run test:tts"
+  },
+  "dependencies": {
+    "replicate": "^1.0.0",
+    "@fal-ai/client": "^1.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

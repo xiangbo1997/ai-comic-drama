@@ -1,0 +1,25 @@
+# 依赖和构建产物
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# 环境配置
+.env
+.env.local
+.env.*.local
+
+# 数据库迁移（自动生成）
+prisma/migrations/
+
+# 锁文件
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# 日志
+*.log
+
+# shadcn/ui 组件（已格式化）
+src/components/ui/

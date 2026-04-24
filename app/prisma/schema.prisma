@@ -1,0 +1,614 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 用户表
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String?   // 密码哈希（邮箱登录）
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  credits       Int       @default(100) // 初始积分
+  inviteCode    String    @unique @default(cuid()) // 用户专属邀请码
+  invitedBy     String?   // 邀请人ID
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  projects      Project[]
+  characters    Character[]
+  tags          Tag[]      // 用户自定义标签
+  checkins      Checkin[]
+  invitations   Invitation[] @relation("Inviter") // 我邀请的人
+  orders        Order[]
+  subscriptions Subscription[]
+  aiConfigs     UserAIConfig[]
+  generationPreference UserGenerationPreference?
+  customProviders AIProvider[] // 用户自定义的 AI 提供商
+  workflowRuns  WorkflowRun[]
+}
+
+// 签到记录
+model Checkin {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date // 签到日期
+  credits   Int      @default(5) // 获得积分
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+// NextAuth 账户
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+// NextAuth 会话
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// 验证令牌
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// 项目/作品
+model Project {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      ProjectStatus @default(DRAFT)
+  inputText   String?  @db.Text // 原始输入文本
+  style       String   @default("anime") // 风格: anime, realistic, etc.
+  aspectRatio String   @default("9:16") // 比例
+  // Stage 1.9：生成参数（用户可调），结构参考 types/project.ts#GenerationParams
+  // 默认 {} 对老项目完全兼容；字段缺失则回落到各 Agent 内部硬编码
+  generationParams Json @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  scenes       Scene[]
+  characters   ProjectCharacter[]
+  workflowRuns WorkflowRun[]
+}
+
+enum ProjectStatus {
+  DRAFT
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// 分镜/场景
+model Scene {
+  id          String   @id @default(cuid())
+  order       Int      // 顺序
+  shotType    String?  // 景别: 特写/中景/远景
+  description String   @db.Text // 画面描述
+  dialogue    String?  @db.Text // 对话
+  narration   String?  @db.Text // 旁白
+  emotion     String?  // 情感
+  duration    Int      @default(3) // 预估时长(秒)
+
+  // 生成结果
+  imageUrl    String?  // 生成的图片URL
+  videoUrl    String?  // 生成的视频URL
+  audioUrl    String?  // 生成的音频URL
+
+  // 生成状态
+  imageStatus GenerationStatus @default(PENDING)
+  videoStatus GenerationStatus @default(PENDING)
+  audioStatus GenerationStatus @default(PENDING)
+
+  // 角色一致性：用户选择用于图像生成的角色
+  selectedCharacterId String?  // 选择的角色ID（从场景的多个角色中选择一个用于图像生成）- 向后兼容
+  selectedCharacter   Character? @relation("SceneSelectedCharacter", fields: [selectedCharacterId], references: [id], onDelete: SetNull)
+  selectedCharacterIds String[] @default([]) // 多选角色ID数组（用于多角色场景）
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  sceneCharacters SceneCharacter[]
+}
+
+enum GenerationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// 角色
+model Character {
+  id          String   @id @default(cuid())
+  name        String
+  gender      String?
+  age         String?
+  description String?  @db.Text // 外貌描述（自由文本，向后兼容）
+  voiceId     String?  // TTS 音色ID
+  voiceProvider String? // TTS 服务商
+
+  // 参考图（向后兼容，新数据同步写入 referenceAssets）
+  referenceImages String[] // 参考图URL数组
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projects    ProjectCharacter[]
+  scenes      SceneCharacter[]
+  asSelectedIn Scene[] @relation("SceneSelectedCharacter")
+  tags        CharacterTag[]
+  appearance  CharacterAppearance?
+  referenceAssets CharacterReferenceAsset[]
+  faceEmbeddings  CharacterFaceEmbedding[]
+}
+
+// 角色结构化外貌
+model CharacterAppearance {
+  id            String   @id @default(cuid())
+  characterId   String   @unique
+  character     Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  hairStyle     String?
+  hairColor     String?
+  faceShape     String?
+  eyeColor      String?
+  bodyType      String?
+  height        String?
+  skinTone      String?
+  clothingPresets Json?  // [{name, description, imageRef?}]
+  accessories   String?
+  freeText      String?  @db.Text
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// 角色参考资产
+model CharacterReferenceAsset {
+  id            String   @id @default(cuid())
+  characterId   String
+  character     Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  url           String
+  sourceType    String   @default("upload") // upload | ai_generated | canonical
+  isCanonical   Boolean  @default(false)
+  pose          String?  // front | side | back | 3quarter
+  qualityScore  Float?
+  mimeType      String?
+  width         Int?
+  height        Int?
+
+  createdAt     DateTime @default(now())
+
+  @@index([characterId])
+}
+
+// 角色人脸 Embedding
+model CharacterFaceEmbedding {
+  id            String   @id @default(cuid())
+  characterId   String
+  character     Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  embedding     Float[]  // 512-dim ArcFace vector
+  modelVersion  String
+  sourceAssetId String?
+
+  createdAt     DateTime @default(now())
+
+  @@index([characterId])
+}
+
+// 角色标签
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   // 标签名称
+  category  String?  // 分类：style(风格)/gender(性别)/role(角色类型)/other
+  color     String?  // 标签颜色（十六进制）
+  order     Int      @default(0) // 排序
+  isSystem  Boolean  @default(false) // 是否为系统预设标签
+
+  userId    String?  // 用户自定义标签的所属用户
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  characters CharacterTag[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([name, isSystem]) // 系统标签名唯一
+  @@index([userId])
+}
+
+// 角色-标签关联
+model CharacterTag {
+  characterId String
+  tagId       String
+
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  tag         Tag       @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([characterId, tagId])
+}
+
+// 项目-角色关联
+model ProjectCharacter {
+  id          String   @id @default(cuid())
+  projectId   String
+  characterId String
+
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, characterId])
+}
+
+// 场景-角色关联
+model SceneCharacter {
+  id          String   @id @default(cuid())
+  sceneId     String
+  characterId String
+  dialogue    String?  @db.Text // 该角色在此场景的台词
+
+  scene       Scene     @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([sceneId, characterId])
+}
+
+// 生成任务队列
+model GenerationTask {
+  id          String   @id @default(cuid())
+  type        TaskType
+  status      GenerationStatus @default(PENDING)
+  input       Json     // 输入参数
+  output      Json?    // 输出结果
+  error       String?  // 错误信息
+  cost        Float    @default(0) // 消耗积分
+
+  // 关联
+  projectId   String?
+  sceneId     String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  attempts    GenerationAttempt[]
+}
+
+// 生成尝试记录
+model GenerationAttempt {
+  id              String   @id @default(cuid())
+  taskId          String
+  task            GenerationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  attemptNumber   Int
+  provider        String
+  model           String
+  strategy        String   // prompt_only | reference_edit | face_id
+  seed            Int?
+  referenceAssetIds String[]
+
+  // 验证结果
+  similarityScores Json?
+  faceCount       Int?
+  passedValidation Boolean?
+  failureReason   String?
+
+  outputUrl       String?
+  createdAt       DateTime @default(now())
+
+  @@index([taskId])
+}
+
+enum TaskType {
+  SCRIPT_PARSE    // 剧本拆解
+  IMAGE_GENERATE  // 图像生成
+  VIDEO_GENERATE  // 视频生成
+  AUDIO_GENERATE  // 音频生成
+  EXPORT          // 导出
+}
+
+// 邀请记录
+model Invitation {
+  id          String   @id @default(cuid())
+  inviterId   String   // 邀请人ID
+  inviteeId   String   // 被邀请人ID
+  inviteeEmail String  // 被邀请人邮箱
+  credits     Int      @default(50) // 奖励积分
+  status      InvitationStatus @default(PENDING)
+  createdAt   DateTime @default(now())
+  completedAt DateTime? // 完成时间（被邀请人注册时）
+
+  inviter     User     @relation("Inviter", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@unique([inviterId, inviteeEmail])
+}
+
+enum InvitationStatus {
+  PENDING    // 待注册
+  COMPLETED  // 已完成
+  EXPIRED    // 已过期
+}
+
+// 订单表
+model Order {
+  id          String      @id @default(cuid())
+  orderNo     String      @unique // 订单号
+  userId      String
+  type        OrderType   // 订单类型
+  productId   String      // 商品ID（积分包ID或订阅计划ID）
+  productName String      // 商品名称
+  amount      Float       // 支付金额（元）
+  credits     Int         // 获得积分
+  status      OrderStatus @default(PENDING)
+
+  // 支付信息
+  paymentMethod PaymentMethod? // 支付方式
+  paymentId   String?     // 支付流水号
+  paidAt      DateTime?   // 支付时间
+
+  // 订阅相关
+  subscriptionId String?  // 订阅ID
+  expiresAt   DateTime?   // 订阅到期时间
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([orderNo])
+}
+
+enum OrderType {
+  CREDITS       // 积分包
+  SUBSCRIPTION  // 订阅
+}
+
+enum OrderStatus {
+  PENDING       // 待支付
+  PAID          // 已支付
+  CANCELLED     // 已取消
+  REFUNDED      // 已退款
+  EXPIRED       // 已过期
+}
+
+enum PaymentMethod {
+  WECHAT        // 微信支付
+  ALIPAY        // 支付宝
+  STRIPE        // Stripe（国际）
+}
+
+// 订阅表
+model Subscription {
+  id          String            @id @default(cuid())
+  userId      String
+  planId      String            // 订阅计划ID
+  planName    String            // 计划名称
+  status      SubscriptionStatus @default(ACTIVE)
+
+  // 周期信息
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+
+  // 积分发放
+  creditsPerPeriod   Int       // 每周期积分
+  lastCreditAt       DateTime? // 上次发放时间
+
+  // 取消信息
+  cancelledAt DateTime?
+  cancelReason String?
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+enum SubscriptionStatus {
+  ACTIVE        // 活跃
+  CANCELLED     // 已取消
+  EXPIRED       // 已过期
+  PAST_DUE      // 逾期
+}
+
+// ============ AI 模型管理 ============
+
+// AI 服务提供商（系统预置 + 用户自定义）
+model AIProvider {
+  id          String     @id @default(cuid())
+  name        String     // 显示名称
+  slug        String     @unique // 唯一标识
+  category    AICategory // 分类
+  description String?    // 描述
+  baseUrl     String?    // API 基础 URL
+  apiProtocol String?    // 默认 API 协议（openai, claude, gemini 等）
+  models      Json       // 支持的模型列表 [{id, name, description, costPerUnit}]
+  configSchema Json?     // 配置项 schema（用于前端动态表单）
+  isActive    Boolean    @default(true)
+  sortOrder   Int        @default(0)
+  isCustom    Boolean    @default(false) // 是否为用户自定义提供商
+  userId      String?    // 自定义提供商的所属用户（null 表示系统预置）
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user        User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userConfigs UserAIConfig[]
+
+  @@index([userId])
+}
+
+enum AICategory {
+  LLM       // 大语言模型
+  IMAGE     // 图像生成
+  VIDEO     // 视频生成
+  TTS       // 语音合成
+}
+
+// 用户 AI 配置
+model UserAIConfig {
+  id            String      @id @default(cuid())
+  userId        String
+  providerId    String
+  apiKey        String      // AES-256 加密后的 API Key
+  apiKeyIv      String      // 加密 IV
+  customBaseUrl String?     // 自定义中转节点 URL（覆盖提供商默认 baseUrl）
+  apiProtocol   String?     // API 协议类型（openai, claude, gemini 等），null 表示使用提供商默认协议
+  customModels  Json?       // 用户自定义模型列表 [{id, name, protocol?}]
+  extraConfig   Json?       // 额外配置（如 App ID、Secret 等）
+  selectedModel String?     // 当前选择的模型 ID
+  authType      AuthType    @default(API_KEY) // 认证方式
+  tokenExpiresAt DateTime?  // token 过期时间（ChatGPT token 等有时效的凭证）
+  isEnabled     Boolean     @default(true)
+  isDefault     Boolean     @default(false) // 是否为该分类的默认
+  lastTestedAt  DateTime?   // 上次测试时间
+  testStatus    TestStatus? // 测试状态
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider AIProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, providerId])
+  @@index([userId])
+}
+
+enum TestStatus {
+  SUCCESS
+  FAILED
+  PENDING
+}
+
+// 认证方式
+enum AuthType {
+  API_KEY         // 标准 API Key（默认）
+  CHATGPT_TOKEN   // ChatGPT access_token + 自部署代理
+  OAUTH           // OAuth 认证（预留）
+}
+
+// 用户生成偏好设置
+model UserGenerationPreference {
+  id              String          @id @default(cuid())
+  userId          String          @unique
+  defaultLLM      String?         // 默认 LLM 配置 ID
+  defaultImage    String?         // 默认图像配置 ID
+  defaultVideo    String?         // 默认视频配置 ID
+  defaultTTS      String?         // 默认 TTS 配置 ID
+  concurrencyMode ConcurrencyMode @default(PARALLEL)
+  maxConcurrent   Int             @default(3) // 最大并发数
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum ConcurrencyMode {
+  SERIAL    // 串行
+  PARALLEL  // 并行
+}
+
+// ============ Agent Workflow ============
+
+// Workflow 运行记录
+model WorkflowRun {
+  id          String         @id @default(cuid())
+  projectId   String
+  userId      String
+  status      WorkflowStatus @default(PENDING)
+  currentStep String?
+  config      Json           // WorkflowConfig
+  artifacts   Json           @default("{}") // Artifact 引用
+  error       String?        @db.Text
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  steps   WorkflowStepRun[]
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([status])
+}
+
+// Workflow 步骤执行记录
+model WorkflowStepRun {
+  id            String   @id @default(cuid())
+  workflowRunId String
+  step          String   // WorkflowStep enum value
+  agentName     String
+  status        String   @default("pending")
+  input         Json?
+  output        Json?
+  reasoning     String?  @db.Text // Agent 推理过程
+  attempts      Int      @default(0)
+  tokensUsed    Int      @default(0)
+  error         String?  @db.Text
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  workflowRun WorkflowRun @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@index([workflowRunId])
+  @@index([step])
+}
+
+enum WorkflowStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  PAUSED
+}

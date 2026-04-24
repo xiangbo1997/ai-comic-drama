@@ -1,0 +1,96 @@
+# 依赖
+node_modules/
+.pnp
+.pnp.js
+
+# 测试
+coverage/
+*.lcov
+.nyc_output
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# 生产
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# 调试
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# 环境变量（敏感信息）
+.env
+.env*.local
+.env.production
+.env.development
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# 操作系统
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Prisma
+*.db
+*.db-journal
+
+# 任务队列
+dump.rdb
+
+# Claude Code 工作文件（保留 CLAUDE.md）
+.claude/*.json
+.claude/*.jsonl
+.claude/context-*.json
+.claude/operations-log.md
+.claude/review-report.md
+.claude/testing.md
+.claude/verification.md
+
+# Codex 工作文件（保留 config.toml 和 AGENTS.md）
+.codex/context-*.json
+.codex/operations-log.md
+.codex/plan.md
+.codex/verification.md
+.codex/review-report.md
+.codex/testing.md
+
+# 临时文件
+*.tmp
+*.temp
+temp/
+tmp/
+
+# 用户上传文件（如果本地存储）
+uploads/
+public/uploads/
+
+# FFmpeg 临时文件
+*.mp4.tmp
+*.wav.tmp
+.ace-tool/
