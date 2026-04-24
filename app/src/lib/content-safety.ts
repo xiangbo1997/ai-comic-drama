@@ -233,7 +233,7 @@ class AliyunContentSafetyService {
     method: string,
     path: string,
     headers: Record<string, string>,
-    body: string
+    _body: string
   ): string {
     const canonicalHeaders = Object.keys(headers)
       .filter((k) => k.startsWith("x-acs-"))

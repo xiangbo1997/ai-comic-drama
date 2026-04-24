@@ -2,16 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Plus,
-  Trash2,
-  Edit2,
-  Loader2,
-  X,
-  User,
-  Wand2,
-  Upload,
-} from "lucide-react";
+import { Plus, Trash2, Edit2, Loader2, X, User, Wand2 } from "lucide-react";
 import type { Character } from "@/types";
 
 interface CharacterManagerProps {

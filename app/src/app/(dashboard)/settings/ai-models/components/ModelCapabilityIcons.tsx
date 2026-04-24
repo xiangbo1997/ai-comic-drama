@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, Image, Video, Volume2 } from "lucide-react";
+import { Cpu, Image as ImageIcon, Video, Volume2 } from "lucide-react";
 import { inferModelCapability } from "./types";
 
 export function ModelCapabilityIcons({ modelId }: { modelId: string }) {
@@ -22,7 +22,7 @@ export function ModelCapabilityIcons({ modelId }: { modelId: string }) {
       )}
       {capabilities.includes("image") && (
         <span title="图像生成">
-          <Image size={12} className="text-green-400" />
+          <ImageIcon size={12} className="text-green-400" />
         </span>
       )}
       {capabilities.includes("video") && (

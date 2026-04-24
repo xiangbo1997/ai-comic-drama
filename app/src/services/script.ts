@@ -11,11 +11,7 @@ import type { AIServiceConfig, SceneScript, ParsedScript } from "@/types";
 import { SCRIPT_PARSE_SYSTEM, buildScriptParseUserPrompt } from "@/lib/prompts";
 import { getSimpleStylePrefix } from "@/lib/prompts";
 import { ScriptParserAgent } from "./agents/script-parser-agent";
-import type {
-  WorkflowConfig,
-  WorkflowContext,
-  ScriptArtifact,
-} from "./agents/types";
+import type { WorkflowContext } from "./agents/types";
 
 export type { SceneScript, ParsedScript };
 

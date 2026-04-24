@@ -75,8 +75,6 @@ export function SceneList({
   onOpenMultiImageDialog,
   onOpenMultiVideoDialog,
   onOpenMultiAudioDialog,
-  queryClient,
-  projectId,
 }: SceneListProps) {
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
 

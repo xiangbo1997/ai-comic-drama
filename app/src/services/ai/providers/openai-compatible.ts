@@ -3,13 +3,7 @@
  * 同时支持 LLM 和图像生成
  */
 
-import type {
-  LLMProvider,
-  ImageProvider,
-  AIServiceConfig,
-  LLMMessage,
-  ImageGenerationOptions,
-} from "../types";
+import type { LLMProvider, ImageProvider } from "../types";
 import { trimUrl, fetchWithError, ASPECT_RATIO_TO_SIZE } from "./base";
 
 // 支持的图像生成模型列表

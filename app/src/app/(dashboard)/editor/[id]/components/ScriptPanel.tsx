@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   Wand2,
   Plus,
@@ -11,7 +10,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import type { ProjectDetail, Character } from "@/types";
+import type { ProjectDetail } from "@/types";
 
 interface ScriptPanelProps {
   inputText: string;

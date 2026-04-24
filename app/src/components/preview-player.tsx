@@ -8,7 +8,6 @@ import {
   SkipForward,
   Volume2,
   VolumeX,
-  Maximize,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
 

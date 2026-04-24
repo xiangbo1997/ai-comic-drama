@@ -182,7 +182,7 @@ export class WechatPayService {
 
       // 验证签名逻辑（需要微信平台证书）
       // 这里简化处理，生产环境需要完整实现
-      const message = `${timestamp}\n${nonce}\n${body}\n`;
+      // const message = `${timestamp}\n${nonce}\n${body}\n`;
       // const verified = crypto.verify(...);
 
       // 解密通知数据
@@ -314,7 +314,7 @@ export class AlipayService {
    */
   verifyCallback(params: Record<string, string>): CallbackVerifyResult {
     try {
-      const { sign, sign_type, ...restParams } = params;
+      const { sign, sign_type: _sign_type, ...restParams } = params;
 
       if (!sign) {
         return { valid: false, error: "缺少签名" };

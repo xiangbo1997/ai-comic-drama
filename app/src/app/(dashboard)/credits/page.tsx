@@ -12,7 +12,6 @@ import {
   Copy,
   Share2,
   CreditCard,
-  QrCode,
   X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -277,7 +276,7 @@ export default function CreditsPage() {
           text: "一键将小说转化为漫剧视频，注册即送积分！",
           url: inviteData.inviteLink,
         });
-      } catch (err) {
+      } catch {
         handleCopyInviteLink();
       }
     } else {

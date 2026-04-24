@@ -13,10 +13,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { CharacterListItem, Tag } from "@/types";
-import {
-  AppearanceEditor,
-  isAppearanceEmpty,
-} from "@/components/appearance-editor";
+import { AppearanceEditor } from "@/components/appearance-editor";
 import type { AppearanceFormData } from "@/components/appearance-editor";
 import { VOICE_PRESETS, type CharacterFormData } from "./constants";
 import type { UseMutationResult } from "@tanstack/react-query";

@@ -820,7 +820,7 @@ async function testProviderConnection(
   apiKey: string,
   baseUrl: string | null,
   extraConfig: Record<string, string> | null,
-  apiProtocol?: string | null
+  _apiProtocol?: string | null
 ): Promise<{ success: boolean; message: string }> {
   switch (slug) {
     // LLM 提供商

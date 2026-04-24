@@ -8,7 +8,6 @@ import {
   SkipForward,
   Volume2,
   VolumeX,
-  Maximize2,
   Image as ImageIcon,
   Video,
   Music,

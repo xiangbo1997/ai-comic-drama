@@ -25,7 +25,6 @@ export function ModelSelector({
   onModelChange,
   apiKey,
   customBaseUrl,
-  existingConfig,
 }: ModelSelectorProps) {
   const [models, setModels] = useState<ModelWithAvailability[]>(
     provider.models.map((m) => ({

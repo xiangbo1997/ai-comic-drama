@@ -24,7 +24,6 @@ export function EditorHeader({
   title,
   editingTitle,
   showTimeline,
-  showSettings,
   hasScenes,
   onTitleChange,
   onTitleSave,

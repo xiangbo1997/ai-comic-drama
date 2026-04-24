@@ -172,14 +172,7 @@ const store: RateLimitStore = process.env.REDIS_URL
  * 创建限流器
  */
 export function createRateLimiter(config: RateLimitConfig) {
-  const {
-    windowMs,
-    maxRequests,
-    message = "请求过于频繁，请稍后再试",
-    keyGenerator,
-    skip,
-    perUser = false,
-  } = config;
+  const { windowMs, maxRequests, keyGenerator, skip, perUser = false } = config;
 
   return async function rateLimiter(
     req: NextRequest,

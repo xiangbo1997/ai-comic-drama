@@ -2,7 +2,7 @@
  * Fal.ai 图像和视频生成 Provider
  */
 
-import type { ImageProvider, VideoProvider, AIServiceConfig } from "../types";
+import type { ImageProvider, VideoProvider } from "../types";
 
 /** Fal.ai 队列轮询等待结果 */
 async function falPollResult(

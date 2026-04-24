@@ -27,7 +27,6 @@ import {
 import type {
   WorkflowConfig,
   WorkflowContext,
-  WorkflowEvent,
   WorkflowStep,
   WorkflowStatus,
   WorkflowRunStatus,

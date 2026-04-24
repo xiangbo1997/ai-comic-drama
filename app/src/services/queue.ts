@@ -281,7 +281,7 @@ class BullMQQueue implements IQueue {
     }
 
     // 动态导入 BullMQ（避免在没有 Redis 时报错）
-    const { Queue, Worker, QueueEvents } = await import("bullmq");
+    const { Queue, QueueEvents } = await import("bullmq");
 
     const connection = { url: redisUrl };
 

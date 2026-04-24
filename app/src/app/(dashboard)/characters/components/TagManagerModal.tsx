@@ -13,7 +13,6 @@ interface TagManagerModalProps {
 }
 
 export function TagManagerModal({
-  tags,
   tagsByCategory,
   onClose,
 }: TagManagerModalProps) {

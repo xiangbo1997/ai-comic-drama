@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -24,7 +24,6 @@ import { useWorkflow } from "./hooks/use-workflow";
 
 export default function EditorPage() {
   const params = useParams();
-  const router = useRouter();
   const projectId = params.id as string;
 
   // 项目数据 & 操作
@@ -428,7 +427,8 @@ export default function EditorPage() {
           if (mode === "PARALLEL") {
             await Promise.allSettled(configs.map(() => generateOne()));
           } else {
-            for (const _ of configs) {
+            // TODO: generateOne 未使用 config 参数，这里实际是串行 N 次相同调用
+            for (let i = 0; i < configs.length; i++) {
               await generateOne().catch(() => {});
             }
           }
@@ -464,7 +464,8 @@ export default function EditorPage() {
           if (mode === "PARALLEL") {
             await Promise.allSettled(configs.map(() => generateOne()));
           } else {
-            for (const _ of configs) {
+            // TODO: generateOne 未使用 config 参数，这里实际是串行 N 次相同调用
+            for (let i = 0; i < configs.length; i++) {
               await generateOne().catch(() => {});
             }
           }
