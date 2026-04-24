@@ -14,7 +14,9 @@ export type { AIServiceConfig };
  * @param userId 用户 ID
  * @returns LLM 配置或 null
  */
-export async function getUserLLMConfig(userId: string): Promise<AIServiceConfig | null> {
+export async function getUserLLMConfig(
+  userId: string
+): Promise<AIServiceConfig | null> {
   // 查找用户在 LLM 分类下的默认配置
   const config = await prisma.userAIConfig.findFirst({
     where: {
@@ -32,22 +34,24 @@ export async function getUserLLMConfig(userId: string): Promise<AIServiceConfig 
   });
 
   // 如果没有默认配置，尝试获取任意一个已启用的 LLM 配置
-  const effectiveConfig = config || await prisma.userAIConfig.findFirst({
-    where: {
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "LLM",
-        isActive: true,
+  const effectiveConfig =
+    config ||
+    (await prisma.userAIConfig.findFirst({
+      where: {
+        userId,
+        isEnabled: true,
+        provider: {
+          category: "LLM",
+          isActive: true,
+        },
       },
-    },
-    include: {
-      provider: true,
-    },
-    orderBy: {
-      createdAt: "asc",
-    },
-  });
+      include: {
+        provider: true,
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    }));
 
   if (!effectiveConfig) {
     return null;
@@ -57,78 +61,99 @@ export async function getUserLLMConfig(userId: string): Promise<AIServiceConfig 
   const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
 
   // 确定 Base URL（优先使用自定义 URL）
-  const baseUrl = effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
+  const baseUrl =
+    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
 
   // 确定协议（优先使用配置级别的协议，否则使用提供商默认协议）
-  const protocol = effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "openai";
+  const protocol =
+    effectiveConfig.apiProtocol ||
+    effectiveConfig.provider.apiProtocol ||
+    "openai";
 
   // 确定模型
-  const model = effectiveConfig.selectedModel || getDefaultModelForProvider(effectiveConfig.provider.slug);
+  const model =
+    effectiveConfig.selectedModel ||
+    getDefaultModelForProvider(effectiveConfig.provider.slug);
 
   return {
     apiKey,
     baseUrl,
     model,
     protocol,
-    authType: (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") || "API_KEY",
+    authType:
+      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
+      "API_KEY",
   };
 }
 
 /**
  * 获取用户默认的图像生成配置
  */
-export async function getUserImageConfig(userId: string, configId?: string): Promise<AIServiceConfig | null> {
-  const selectedConfig = configId ? await prisma.userAIConfig.findFirst({
-    where: {
-      id: configId,
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "IMAGE",
-        isActive: true,
-      },
-    },
-    include: {
-      provider: true,
-    },
-  }) : null;
+export async function getUserImageConfig(
+  userId: string,
+  configId?: string
+): Promise<AIServiceConfig | null> {
+  const selectedConfig = configId
+    ? await prisma.userAIConfig.findFirst({
+        where: {
+          id: configId,
+          userId,
+          isEnabled: true,
+          provider: {
+            category: "IMAGE",
+            isActive: true,
+          },
+        },
+        include: {
+          provider: true,
+        },
+      })
+    : null;
 
-  const config = selectedConfig || await prisma.userAIConfig.findFirst({
-    where: {
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "IMAGE",
-        isActive: true,
+  const config =
+    selectedConfig ||
+    (await prisma.userAIConfig.findFirst({
+      where: {
+        userId,
+        isEnabled: true,
+        provider: {
+          category: "IMAGE",
+          isActive: true,
+        },
+        isDefault: true,
       },
-      isDefault: true,
-    },
-    include: {
-      provider: true,
-    },
-  });
+      include: {
+        provider: true,
+      },
+    }));
 
-  const effectiveConfig = config || await prisma.userAIConfig.findFirst({
-    where: {
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "IMAGE",
-        isActive: true,
+  const effectiveConfig =
+    config ||
+    (await prisma.userAIConfig.findFirst({
+      where: {
+        userId,
+        isEnabled: true,
+        provider: {
+          category: "IMAGE",
+          isActive: true,
+        },
       },
-    },
-    include: {
-      provider: true,
-    },
-  });
+      include: {
+        provider: true,
+      },
+    }));
 
   if (!effectiveConfig) {
     return null;
   }
 
   const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
-  const baseUrl = effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
-  const protocol = effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "openai";
+  const baseUrl =
+    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
+  const protocol =
+    effectiveConfig.apiProtocol ||
+    effectiveConfig.provider.apiProtocol ||
+    "openai";
   const model = effectiveConfig.selectedModel || "";
 
   return {
@@ -136,14 +161,18 @@ export async function getUserImageConfig(userId: string, configId?: string): Pro
     baseUrl,
     model,
     protocol,
-    authType: (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") || "API_KEY",
+    authType:
+      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
+      "API_KEY",
   };
 }
 
 /**
  * 获取用户默认的视频生成配置
  */
-export async function getUserVideoConfig(userId: string): Promise<AIServiceConfig | null> {
+export async function getUserVideoConfig(
+  userId: string
+): Promise<AIServiceConfig | null> {
   const config = await prisma.userAIConfig.findFirst({
     where: {
       userId,
@@ -159,27 +188,31 @@ export async function getUserVideoConfig(userId: string): Promise<AIServiceConfi
     },
   });
 
-  const effectiveConfig = config || await prisma.userAIConfig.findFirst({
-    where: {
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "VIDEO",
-        isActive: true,
+  const effectiveConfig =
+    config ||
+    (await prisma.userAIConfig.findFirst({
+      where: {
+        userId,
+        isEnabled: true,
+        provider: {
+          category: "VIDEO",
+          isActive: true,
+        },
       },
-    },
-    include: {
-      provider: true,
-    },
-  });
+      include: {
+        provider: true,
+      },
+    }));
 
   if (!effectiveConfig) {
     return null;
   }
 
   const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
-  const baseUrl = effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
-  const protocol = effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "";
+  const baseUrl =
+    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
+  const protocol =
+    effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "";
   const model = effectiveConfig.selectedModel || "";
 
   return {
@@ -187,14 +220,18 @@ export async function getUserVideoConfig(userId: string): Promise<AIServiceConfi
     baseUrl,
     model,
     protocol,
-    authType: (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") || "API_KEY",
+    authType:
+      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
+      "API_KEY",
   };
 }
 
 /**
  * 获取用户默认的 TTS 配置
  */
-export async function getUserTTSConfig(userId: string): Promise<AIServiceConfig | null> {
+export async function getUserTTSConfig(
+  userId: string
+): Promise<AIServiceConfig | null> {
   const config = await prisma.userAIConfig.findFirst({
     where: {
       userId,
@@ -210,27 +247,31 @@ export async function getUserTTSConfig(userId: string): Promise<AIServiceConfig 
     },
   });
 
-  const effectiveConfig = config || await prisma.userAIConfig.findFirst({
-    where: {
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "TTS",
-        isActive: true,
+  const effectiveConfig =
+    config ||
+    (await prisma.userAIConfig.findFirst({
+      where: {
+        userId,
+        isEnabled: true,
+        provider: {
+          category: "TTS",
+          isActive: true,
+        },
       },
-    },
-    include: {
-      provider: true,
-    },
-  });
+      include: {
+        provider: true,
+      },
+    }));
 
   if (!effectiveConfig) {
     return null;
   }
 
   const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
-  const baseUrl = effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
-  const protocol = effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "";
+  const baseUrl =
+    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
+  const protocol =
+    effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "";
   const model = effectiveConfig.selectedModel || "";
 
   return {
@@ -238,7 +279,9 @@ export async function getUserTTSConfig(userId: string): Promise<AIServiceConfig 
     baseUrl,
     model,
     protocol,
-    authType: (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") || "API_KEY",
+    authType:
+      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
+      "API_KEY",
   };
 }
 
@@ -247,10 +290,10 @@ export async function getUserTTSConfig(userId: string): Promise<AIServiceConfig 
  */
 function getDefaultModelForProvider(slug: string): string {
   const defaultModels: Record<string, string> = {
-    "deepseek": "deepseek-chat",
-    "openai": "gpt-4o-mini",
-    "claude": "claude-3-5-sonnet-20241022",
-    "gemini": "gemini-1.5-flash",
+    deepseek: "deepseek-chat",
+    openai: "gpt-4o-mini",
+    claude: "claude-3-5-sonnet-20241022",
+    gemini: "gemini-1.5-flash",
     "silicon-flow": "deepseek-ai/DeepSeek-V3",
   };
   return defaultModels[slug] || "gpt-4o-mini";

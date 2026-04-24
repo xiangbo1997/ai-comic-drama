@@ -64,7 +64,8 @@ export function ModelSelector({
 
   // 过滤出当前分类的配置
   const configs: UserConfig[] = (data?.configs || []).filter(
-    (c: UserConfig) => c.provider.category === category && c.testStatus === "SUCCESS"
+    (c: UserConfig) =>
+      c.provider.category === category && c.testStatus === "SUCCESS"
   );
 
   // 找到默认配置
@@ -78,7 +79,10 @@ export function ModelSelector({
   // 点击外部关闭下拉框
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
@@ -88,13 +92,17 @@ export function ModelSelector({
 
   // 获取显示的模型名称
   const getDisplayName = (config: UserConfig) => {
-    const model = config.provider.models.find((m) => m.id === config.selectedModel);
+    const model = config.provider.models.find(
+      (m) => m.id === config.selectedModel
+    );
     return model?.name || config.provider.name;
   };
 
   if (isLoading) {
     return (
-      <div className={`flex items-center gap-1 text-gray-400 ${size === "sm" ? "text-xs" : "text-sm"}`}>
+      <div
+        className={`flex items-center gap-1 text-gray-400 ${size === "sm" ? "text-xs" : "text-sm"}`}
+      >
         <Loader2 size={size === "sm" ? 12 : 14} className="animate-spin" />
         <span>加载中...</span>
       </div>
@@ -112,9 +120,8 @@ export function ModelSelector({
     );
   }
 
-  const sizeClasses = size === "sm"
-    ? "px-2 py-1 text-xs gap-1"
-    : "px-3 py-1.5 text-sm gap-2";
+  const sizeClasses =
+    size === "sm" ? "px-2 py-1 text-xs gap-1" : "px-3 py-1.5 text-sm gap-2";
 
   return (
     <div className="flex items-center gap-1" ref={dropdownRef}>
@@ -124,17 +131,20 @@ export function ModelSelector({
           type="button"
           onClick={() => !disabled && setIsOpen(!isOpen)}
           disabled={disabled}
-          className={`flex items-center ${sizeClasses} bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition`}
+          className={`flex items-center ${sizeClasses} rounded-lg bg-gray-700 transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50`}
         >
-          <span className="truncate max-w-[120px]">
+          <span className="max-w-[120px] truncate">
             {selectedConfig ? getDisplayName(selectedConfig) : "选择模型"}
           </span>
-          <ChevronDown size={size === "sm" ? 12 : 14} className={`transition ${isOpen ? "rotate-180" : ""}`} />
+          <ChevronDown
+            size={size === "sm" ? 12 : 14}
+            className={`transition ${isOpen ? "rotate-180" : ""}`}
+          />
         </button>
 
         {/* 下拉菜单 */}
         {isOpen && (
-          <div className="absolute top-full left-0 mt-1 w-48 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1 max-h-60 overflow-y-auto">
+          <div className="absolute top-full left-0 z-50 mt-1 max-h-60 w-48 overflow-y-auto rounded-lg border border-gray-700 bg-gray-800 py-1 shadow-xl">
             {configs.map((config) => (
               <button
                 key={config.id}
@@ -142,19 +152,23 @@ export function ModelSelector({
                   onChange?.(config.id, config.selectedModel || "");
                   setIsOpen(false);
                 }}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-700 transition ${
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-gray-700 ${
                   selectedConfig?.id === config.id ? "bg-gray-700" : ""
                 }`}
               >
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{getDisplayName(config)}</div>
-                  <div className="text-xs text-gray-400 truncate">{config.provider.name}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">
+                    {getDisplayName(config)}
+                  </div>
+                  <div className="truncate text-xs text-gray-400">
+                    {config.provider.name}
+                  </div>
                 </div>
                 {selectedConfig?.id === config.id && (
-                  <Check size={14} className="text-blue-400 shrink-0" />
+                  <Check size={14} className="shrink-0 text-blue-400" />
                 )}
                 {config.isDefault && (
-                  <span className="text-xs text-yellow-400 shrink-0">默认</span>
+                  <span className="shrink-0 text-xs text-yellow-400">默认</span>
                 )}
               </button>
             ))}
@@ -168,7 +182,7 @@ export function ModelSelector({
           type="button"
           onClick={onOpenMultiSelect}
           disabled={disabled}
-          className={`${size === "sm" ? "p-1" : "p-1.5"} text-gray-400 hover:text-white hover:bg-gray-700 disabled:opacity-50 rounded-lg transition`}
+          className={`${size === "sm" ? "p-1" : "p-1.5"} rounded-lg text-gray-400 transition hover:bg-gray-700 hover:text-white disabled:opacity-50`}
           title="多版本生成"
         >
           <Settings2 size={size === "sm" ? 14 : 16} />
@@ -187,7 +201,8 @@ export function useSelectedModel(category: "LLM" | "IMAGE" | "VIDEO" | "TTS") {
   });
 
   const configs: UserConfig[] = (data?.configs || []).filter(
-    (c: UserConfig) => c.provider.category === category && c.testStatus === "SUCCESS"
+    (c: UserConfig) =>
+      c.provider.category === category && c.testStatus === "SUCCESS"
   );
 
   const defaultConfig = configs.find((c) => c.isDefault) || configs[0];

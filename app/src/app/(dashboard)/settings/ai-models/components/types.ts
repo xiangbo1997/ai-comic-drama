@@ -45,7 +45,8 @@ export const API_PROTOCOLS: APIProtocol[] = [
   {
     id: "openai",
     name: "OpenAI 兼容",
-    description: "OpenAI API 格式，适用于 OpenAI、DeepSeek、硅基流动、Ollama 等",
+    description:
+      "OpenAI API 格式，适用于 OpenAI、DeepSeek、硅基流动、Ollama 等",
     authHeader: "Bearer",
     defaultBaseUrl: "https://api.openai.com/v1",
     endpoints: {
@@ -87,7 +88,10 @@ export const API_PROTOCOLS: APIProtocol[] = [
     description: "Microsoft Azure OpenAI 服务",
     authHeader: "api-key",
     endpoints: {
-      LLM: { main: "/openai/deployments/{deployment}/chat/completions", list: "/openai/models" },
+      LLM: {
+        main: "/openai/deployments/{deployment}/chat/completions",
+        list: "/openai/models",
+      },
       IMAGE: { main: "/openai/deployments/{deployment}/images/generations" },
       VIDEO: { main: "" },
       TTS: { main: "" },
@@ -135,7 +139,7 @@ export const API_PROTOCOLS: APIProtocol[] = [
 ];
 
 export function getProtocolsForCategory(category: AICategory): APIProtocol[] {
-  return API_PROTOCOLS.filter(protocol => {
+  return API_PROTOCOLS.filter((protocol) => {
     const endpoint = protocol.endpoints[category]?.main;
     return endpoint && endpoint.length > 0;
   });
@@ -148,16 +152,22 @@ const PRIMARY_PROTOCOL_IDS: Record<AICategory, string[]> = {
   TTS: ["openai"],
 };
 
-export function getPrimaryProtocolsForCategory(category: AICategory): APIProtocol[] {
+export function getPrimaryProtocolsForCategory(
+  category: AICategory
+): APIProtocol[] {
   const available = getProtocolsForCategory(category);
   const primaryIds = new Set(PRIMARY_PROTOCOL_IDS[category] || []);
   const primary = available.filter((protocol) => primaryIds.has(protocol.id));
   return primary.length > 0 ? primary : available;
 }
 
-export function getAdvancedProtocolsForCategory(category: AICategory): APIProtocol[] {
+export function getAdvancedProtocolsForCategory(
+  category: AICategory
+): APIProtocol[] {
   const available = getProtocolsForCategory(category);
-  const primaryIds = new Set(getPrimaryProtocolsForCategory(category).map((protocol) => protocol.id));
+  const primaryIds = new Set(
+    getPrimaryProtocolsForCategory(category).map((protocol) => protocol.id)
+  );
   return available.filter((protocol) => !primaryIds.has(protocol.id));
 }
 
@@ -246,7 +256,10 @@ export const categoryLabels: Record<AICategory, string> = {
   TTS: "语音合成",
 };
 
-export function normalizeBaseUrl(url: string): { normalized: string; warnings: string[] } {
+export function normalizeBaseUrl(url: string): {
+  normalized: string;
+  warnings: string[];
+} {
   const warnings: string[] = [];
   let normalized = url.trim();
 
@@ -297,21 +310,26 @@ export function generateUrlPreview(
 
 export function getDefaultProtocolForProvider(slug: string): string {
   const protocolMap: Record<string, string> = {
-    "openai": "openai",
-    "deepseek": "openai",
+    openai: "openai",
+    deepseek: "openai",
     "silicon-flow": "openai",
     "openai-tts": "openai",
-    "claude": "claude",
-    "gemini": "gemini",
-    "mistral": "openai",
-    "cohere": "cohere",
+    claude: "claude",
+    gemini: "gemini",
+    mistral: "openai",
+    cohere: "cohere",
   };
   return protocolMap[slug] || "openai";
 }
 
 export type ModelAvailability = "available" | "unavailable" | "unknown";
 
-export type ModelCapability = "text" | "image" | "video" | "audio" | "multimodal";
+export type ModelCapability =
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "multimodal";
 
 export interface ModelWithAvailability {
   id: string;
@@ -323,36 +341,76 @@ export function inferModelCapability(modelId: string): ModelCapability[] {
   const id = modelId.toLowerCase();
 
   const imageModels = [
-    "dall-e", "gpt-image", "flux", "stable-diffusion", "sd-", "sdxl",
-    "midjourney", "imagen", "kandinsky", "playground", "ideogram",
-    "recraft", "kolors", "cogview", "wanx", "jimeng"
+    "dall-e",
+    "gpt-image",
+    "flux",
+    "stable-diffusion",
+    "sd-",
+    "sdxl",
+    "midjourney",
+    "imagen",
+    "kandinsky",
+    "playground",
+    "ideogram",
+    "recraft",
+    "kolors",
+    "cogview",
+    "wanx",
+    "jimeng",
   ];
-  if (imageModels.some(m => id.includes(m))) {
+  if (imageModels.some((m) => id.includes(m))) {
     return ["image"];
   }
 
   const videoModels = [
-    "runway", "gen-3", "gen3", "pika", "kling", "luma", "dream-machine",
-    "sora", "vidu", "cogvideo", "animate", "video"
+    "runway",
+    "gen-3",
+    "gen3",
+    "pika",
+    "kling",
+    "luma",
+    "dream-machine",
+    "sora",
+    "vidu",
+    "cogvideo",
+    "animate",
+    "video",
   ];
-  if (videoModels.some(m => id.includes(m))) {
+  if (videoModels.some((m) => id.includes(m))) {
     return ["video"];
   }
 
   const audioModels = [
-    "tts", "whisper", "speech", "voice", "audio", "eleven", "fish-audio",
-    "cosyvoice", "chattts"
+    "tts",
+    "whisper",
+    "speech",
+    "voice",
+    "audio",
+    "eleven",
+    "fish-audio",
+    "cosyvoice",
+    "chattts",
   ];
-  if (audioModels.some(m => id.includes(m))) {
+  if (audioModels.some((m) => id.includes(m))) {
     return ["audio"];
   }
 
   const multimodalModels = [
-    "gpt-4o", "gpt-4-turbo", "gpt-4-vision", "claude-3", "gemini",
-    "qwen-vl", "qwen2-vl", "glm-4v", "yi-vision", "internvl",
-    "llava", "cogvlm", "minicpm-v"
+    "gpt-4o",
+    "gpt-4-turbo",
+    "gpt-4-vision",
+    "claude-3",
+    "gemini",
+    "qwen-vl",
+    "qwen2-vl",
+    "glm-4v",
+    "yi-vision",
+    "internvl",
+    "llava",
+    "cogvlm",
+    "minicpm-v",
   ];
-  if (multimodalModels.some(m => id.includes(m))) {
+  if (multimodalModels.some((m) => id.includes(m))) {
     return ["text", "multimodal"];
   }
 

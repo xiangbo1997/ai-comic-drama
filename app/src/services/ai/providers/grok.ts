@@ -14,10 +14,10 @@ export const grokImage: ImageProvider = {
     if (model && isLLMModel(model)) {
       throw new Error(
         `Grok 协议需要图像生成模型，但配置了 LLM 模型「${model}」。\n` +
-        `请在「设置 > AI 模型配置 > 图像生成」中选择图像模型，如：\n` +
-        `• grok-2-image\n` +
-        `• grok-3-imagegen\n` +
-        `或者将协议改为「通用中转」以通过对话接口生成图像。`
+          `请在「设置 > AI 模型配置 > 图像生成」中选择图像模型，如：\n` +
+          `• grok-2-image\n` +
+          `• grok-3-imagegen\n` +
+          `或者将协议改为「通用中转」以通过对话接口生成图像。`
       );
     }
 

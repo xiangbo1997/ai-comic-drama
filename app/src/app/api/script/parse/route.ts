@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
         {
           error: "内容不符合安全规范",
           reason: safetyCheck.reason,
-          blockedKeywords: safetyCheck.blockedKeywords
+          blockedKeywords: safetyCheck.blockedKeywords,
         },
         { status: 400 }
       );
@@ -55,10 +55,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     log.error("Script parse error:", error);
-    const message = error instanceof Error ? error.message : "Failed to parse script";
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to parse script";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

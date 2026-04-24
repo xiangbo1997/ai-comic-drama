@@ -93,7 +93,11 @@ export class WechatPayService {
     description: string;
   }): Promise<PaymentResult> {
     if (!this.isConfigured()) {
-      return { success: false, orderId: params.orderNo, error: "微信支付未配置" };
+      return {
+        success: false,
+        orderId: params.orderNo,
+        error: "微信支付未配置",
+      };
     }
 
     try {
@@ -163,7 +167,10 @@ export class WechatPayService {
   /**
    * 验证回调签名
    */
-  verifyCallback(headers: Record<string, string>, body: string): CallbackVerifyResult {
+  verifyCallback(
+    headers: Record<string, string>,
+    body: string
+  ): CallbackVerifyResult {
     try {
       const timestamp = headers["wechatpay-timestamp"];
       const nonce = headers["wechatpay-nonce"];
@@ -399,28 +406,37 @@ export class StripeService {
     cancelUrl: string;
   }): Promise<PaymentResult> {
     if (!this.isConfigured()) {
-      return { success: false, orderId: params.orderNo, error: "Stripe 未配置" };
+      return {
+        success: false,
+        orderId: params.orderNo,
+        error: "Stripe 未配置",
+      };
     }
 
     try {
-      const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.secretKey}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          "payment_method_types[0]": "card",
-          "line_items[0][price_data][currency]": "cny",
-          "line_items[0][price_data][product_data][name]": params.productName,
-          "line_items[0][price_data][unit_amount]": Math.round(params.amount * 100).toString(),
-          "line_items[0][quantity]": "1",
-          mode: "payment",
-          success_url: params.successUrl,
-          cancel_url: params.cancelUrl,
-          "metadata[order_no]": params.orderNo,
-        }),
-      });
+      const response = await fetch(
+        "https://api.stripe.com/v1/checkout/sessions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.secretKey}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            "payment_method_types[0]": "card",
+            "line_items[0][price_data][currency]": "cny",
+            "line_items[0][price_data][product_data][name]": params.productName,
+            "line_items[0][price_data][unit_amount]": Math.round(
+              params.amount * 100
+            ).toString(),
+            "line_items[0][quantity]": "1",
+            mode: "payment",
+            success_url: params.successUrl,
+            cancel_url: params.cancelUrl,
+            "metadata[order_no]": params.orderNo,
+          }),
+        }
+      );
 
       const session = await response.json();
 

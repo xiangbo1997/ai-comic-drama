@@ -79,13 +79,20 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { name, gender, age, description, voiceId, voiceProvider, referenceImages, tagIds, appearance } = body;
+    const {
+      name,
+      gender,
+      age,
+      description,
+      voiceId,
+      voiceProvider,
+      referenceImages,
+      tagIds,
+      appearance,
+    } = body;
 
     if (!name) {
-      return NextResponse.json(
-        { error: "Name is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
     const character = await prisma.character.create({
@@ -98,13 +105,14 @@ export async function POST(request: NextRequest) {
         voiceProvider: voiceProvider || null,
         referenceImages: referenceImages || [],
         userId: session.user.id,
-        ...(tagIds && tagIds.length > 0 && {
-          tags: {
-            create: tagIds.map((tagId: string) => ({
-              tagId,
-            })),
-          },
-        }),
+        ...(tagIds &&
+          tagIds.length > 0 && {
+            tags: {
+              create: tagIds.map((tagId: string) => ({
+                tagId,
+              })),
+            },
+          }),
         ...(appearance && {
           appearance: {
             create: {

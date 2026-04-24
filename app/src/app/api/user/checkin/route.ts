@@ -73,7 +73,9 @@ export async function GET() {
     return NextResponse.json({
       checkedInToday: !!todayCheckin,
       streak,
-      monthlyCheckins: monthlyCheckins.map((c) => c.date.toISOString().split("T")[0]),
+      monthlyCheckins: monthlyCheckins.map(
+        (c) => c.date.toISOString().split("T")[0]
+      ),
       creditsPerCheckin: CHECKIN_CREDITS,
     });
   } catch (error) {

@@ -26,11 +26,14 @@ export default function DashboardLayout({
       <header className="border-b border-gray-800 px-6 py-4">
         <div className="container mx-auto flex items-center justify-between">
           <div className="flex items-center gap-8">
-            <Link href="/" className="text-xl font-bold flex items-center gap-2">
+            <Link
+              href="/"
+              className="flex items-center gap-2 text-xl font-bold"
+            >
               <span className="text-2xl">🎬</span>
               AI 漫剧
             </Link>
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden items-center gap-1 md:flex">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname.startsWith(item.href);
@@ -38,10 +41,10 @@ export default function DashboardLayout({
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                    className={`flex items-center gap-2 rounded-lg px-4 py-2 transition ${
                       isActive
                         ? "bg-gray-800 text-white"
-                        : "text-gray-400 hover:text-white hover:bg-gray-800/50"
+                        : "text-gray-400 hover:bg-gray-800/50 hover:text-white"
                     }`}
                   >
                     <Icon size={18} />
@@ -59,7 +62,7 @@ export default function DashboardLayout({
       </header>
 
       {/* Mobile Nav */}
-      <nav className="md:hidden border-b border-gray-800 px-4 py-2 flex justify-around">
+      <nav className="flex justify-around border-b border-gray-800 px-4 py-2 md:hidden">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname.startsWith(item.href);
@@ -67,7 +70,7 @@ export default function DashboardLayout({
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition ${
+              className={`flex flex-col items-center gap-1 rounded-lg px-4 py-2 transition ${
                 isActive ? "text-blue-500" : "text-gray-400"
               }`}
             >

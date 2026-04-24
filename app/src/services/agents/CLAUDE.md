@@ -12,14 +12,14 @@
 
 ## 入口与启动
 
-| 文件 | 作用 |
-|------|------|
-| `workflow-engine.ts` | 调度器：`startWorkflow / getWorkflowStatus / cancelWorkflow / subscribeWorkflowEvents` |
-| `types.ts` | `Agent / WorkflowConfig / WorkflowContext / WorkflowEvent / ArtifactStore / Artifact …` |
-| `script-parser-agent.ts` | Step 1：文本 → `ScriptArtifact`（含 Zod 校验 + 自修复） |
-| `character-bible-agent.ts` | Step 2：角色圣经（外貌/一致性约束） |
-| `storyboard-agent.ts` | Step 3：分镜补全（shotType / emotion / duration） |
-| `image-consistency-agent.ts` | Step 4：单分镜图像生成（含一致性策略） |
+| 文件                         | 作用                                                                                    |
+| ---------------------------- | --------------------------------------------------------------------------------------- |
+| `workflow-engine.ts`         | 调度器：`startWorkflow / getWorkflowStatus / cancelWorkflow / subscribeWorkflowEvents`  |
+| `types.ts`                   | `Agent / WorkflowConfig / WorkflowContext / WorkflowEvent / ArtifactStore / Artifact …` |
+| `script-parser-agent.ts`     | Step 1：文本 → `ScriptArtifact`（含 Zod 校验 + 自修复）                                 |
+| `character-bible-agent.ts`   | Step 2：角色圣经（外貌/一致性约束）                                                     |
+| `storyboard-agent.ts`        | Step 3：分镜补全（shotType / emotion / duration）                                       |
+| `image-consistency-agent.ts` | Step 4：单分镜图像生成（含一致性策略）                                                  |
 
 ## 对外接口
 
@@ -55,14 +55,16 @@ interface WorkflowContext {
   projectId: string;
   userId: string;
   config: WorkflowConfig;
-  artifacts: ArtifactStore;     // In-Memory Artifact 容器
+  artifacts: ArtifactStore; // In-Memory Artifact 容器
   emit: (event: WorkflowEvent) => void;
 }
 
 interface Agent<TInput, TOutput> {
   readonly name: string;
-  run(input: TInput, context: WorkflowContext)
-    : Promise<{ success; data?; error?; reasoning?; attempts; tokensUsed }>;
+  run(
+    input: TInput,
+    context: WorkflowContext
+  ): Promise<{ success; data?; error?; reasoning?; attempts; tokensUsed }>;
 }
 ```
 
@@ -99,21 +101,21 @@ sequenceDiagram
 
 ## 事件体系
 
-| 事件类型 | 时机 |
-|---------|------|
-| `workflow:started` | run 变 RUNNING |
-| `step:started` | 进入某个 step |
-| `step:completed` / `step:failed` | Agent.run 完成 |
-| `progress:update` | 图像批次完成时 |
-| `workflow:completed` / `workflow:failed` | 终止态 |
+| 事件类型                                 | 时机           |
+| ---------------------------------------- | -------------- |
+| `workflow:started`                       | run 变 RUNNING |
+| `step:started`                           | 进入某个 step  |
+| `step:completed` / `step:failed`         | Agent.run 完成 |
+| `progress:update`                        | 图像批次完成时 |
+| `workflow:completed` / `workflow:failed` | 终止态         |
 
 订阅者通过 `subscribeWorkflowEvents` 注册 listener；API 层封装为 SSE 流供前端 `use-workflow` 消费。
 
 ## 关键数据持久化
 
-| DB 表 | 字段 |
-|-------|------|
-| `WorkflowRun` | id / projectId / userId / status / currentStep / config(JSON) / artifacts(JSON) / error / startedAt / completedAt |
+| DB 表             | 字段                                                                                                                                              |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WorkflowRun`     | id / projectId / userId / status / currentStep / config(JSON) / artifacts(JSON) / error / startedAt / completedAt                                 |
 | `WorkflowStepRun` | id / workflowRunId / step / agentName / status / input(JSON) / output(JSON) / reasoning / attempts / tokensUsed / error / startedAt / completedAt |
 
 `artifacts` 字段是 `InMemoryArtifactStore.toJSON()` 的序列化结果，**每步完成后与终态时都会刷写**。
@@ -149,6 +151,6 @@ sequenceDiagram
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

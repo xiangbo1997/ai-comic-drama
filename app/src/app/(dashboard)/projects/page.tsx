@@ -44,7 +44,11 @@ export default function ProjectsPage() {
   const queryClient = useQueryClient();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const { data: projects, isLoading, error } = useQuery({
+  const {
+    data: projects,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["projects"],
     queryFn: fetchProjects,
   });
@@ -76,15 +80,15 @@ export default function ProjectsPage() {
 
   return (
     <div className="container mx-auto px-6 py-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">我的项目</h1>
-          <p className="text-gray-400 mt-1">创建和管理你的漫剧项目</p>
+          <p className="mt-1 text-gray-400">创建和管理你的漫剧项目</p>
         </div>
         <button
           onClick={() => createMutation.mutate()}
           disabled={createMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 rounded-lg transition"
+          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 transition hover:bg-blue-700 disabled:bg-blue-800"
         >
           {createMutation.isPending ? (
             <Loader2 size={20} className="animate-spin" />
@@ -104,11 +108,13 @@ export default function ProjectsPage() {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-20">
-          <p className="text-red-400 mb-4">加载失败，请重试</p>
+        <div className="py-20 text-center">
+          <p className="mb-4 text-red-400">加载失败，请重试</p>
           <button
-            onClick={() => queryClient.invalidateQueries({ queryKey: ["projects"] })}
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+            onClick={() =>
+              queryClient.invalidateQueries({ queryKey: ["projects"] })
+            }
+            className="rounded-lg bg-gray-700 px-4 py-2 hover:bg-gray-600"
           >
             重新加载
           </button>
@@ -117,14 +123,14 @@ export default function ProjectsPage() {
 
       {/* Empty State */}
       {!isLoading && !error && projects?.length === 0 && (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">🎬</div>
-          <h2 className="text-xl font-semibold mb-2">还没有项目</h2>
-          <p className="text-gray-400 mb-6">创建你的第一个漫剧项目吧</p>
+        <div className="py-20 text-center">
+          <div className="mb-4 text-6xl">🎬</div>
+          <h2 className="mb-2 text-xl font-semibold">还没有项目</h2>
+          <p className="mb-6 text-gray-400">创建你的第一个漫剧项目吧</p>
           <button
             onClick={() => createMutation.mutate()}
             disabled={createMutation.isPending}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 hover:bg-blue-700"
           >
             <Plus size={20} />
             新建项目
@@ -134,20 +140,20 @@ export default function ProjectsPage() {
 
       {/* Projects Grid */}
       {!isLoading && !error && projects && projects.length > 0 && (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projects.map((project) => (
             <Link
               key={project.id}
               href={`/editor/${project.id}`}
-              className="group bg-gray-800 rounded-xl overflow-hidden hover:ring-2 hover:ring-blue-500 transition relative"
+              className="group relative overflow-hidden rounded-xl bg-gray-800 transition hover:ring-2 hover:ring-blue-500"
             >
               {/* Thumbnail */}
-              <div className="aspect-video bg-gray-700 flex items-center justify-center relative">
+              <div className="relative flex aspect-video items-center justify-center bg-gray-700">
                 {project.thumbnail ? (
                   <img
                     src={project.thumbnail}
                     alt={project.title}
-                    className="w-full h-full object-cover"
+                    className="h-full w-full object-cover"
                   />
                 ) : (
                   <span className="text-4xl">🎬</span>
@@ -157,7 +163,7 @@ export default function ProjectsPage() {
                 <button
                   onClick={(e) => handleDelete(e, project.id)}
                   disabled={deletingId === project.id}
-                  className="absolute top-2 right-2 p-2 bg-black/50 hover:bg-red-600 rounded-lg opacity-0 group-hover:opacity-100 transition"
+                  className="absolute top-2 right-2 rounded-lg bg-black/50 p-2 opacity-0 transition group-hover:opacity-100 hover:bg-red-600"
                 >
                   {deletingId === project.id ? (
                     <Loader2 size={16} className="animate-spin" />
@@ -169,12 +175,12 @@ export default function ProjectsPage() {
 
               {/* Info */}
               <div className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold truncate flex-1 mr-2">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="mr-2 flex-1 truncate font-semibold">
                     {project.title}
                   </h3>
                   <span
-                    className={`px-2 py-0.5 text-xs rounded shrink-0 ${
+                    className={`shrink-0 rounded px-2 py-0.5 text-xs ${
                       statusMap[project.status].color
                     }`}
                   >
@@ -193,12 +199,12 @@ export default function ProjectsPage() {
           <button
             onClick={() => createMutation.mutate()}
             disabled={createMutation.isPending}
-            className="bg-gray-800/50 border-2 border-dashed border-gray-700 rounded-xl flex flex-col items-center justify-center aspect-[4/3] hover:border-blue-500 transition disabled:opacity-50"
+            className="flex aspect-[4/3] flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-700 bg-gray-800/50 transition hover:border-blue-500 disabled:opacity-50"
           >
             {createMutation.isPending ? (
-              <Loader2 size={40} className="text-gray-500 mb-2 animate-spin" />
+              <Loader2 size={40} className="mb-2 animate-spin text-gray-500" />
             ) : (
-              <Plus size={40} className="text-gray-500 mb-2" />
+              <Plus size={40} className="mb-2 text-gray-500" />
             )}
             <span className="text-gray-500">创建新项目</span>
           </button>

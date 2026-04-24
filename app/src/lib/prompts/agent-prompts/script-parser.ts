@@ -64,7 +64,7 @@ ${text}
 /** 自修复 prompt：将 Zod 验证错误反馈给 LLM */
 export function buildScriptParserRepairPrompt(
   previousOutput: string,
-  validationErrors: string,
+  validationErrors: string
 ): string {
   return `你之前的输出有格式错误，请修正后重新输出完整 JSON。
 

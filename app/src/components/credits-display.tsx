@@ -19,7 +19,7 @@ export function CreditsDisplay() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 rounded-lg">
+      <div className="flex items-center gap-2 rounded-lg bg-gray-800 px-3 py-1.5">
         <Coins size={16} className="text-yellow-500" />
         <span className="text-sm text-gray-400">--</span>
       </div>
@@ -33,7 +33,7 @@ export function CreditsDisplay() {
   return (
     <Link
       href="/credits"
-      className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded-lg transition"
+      className="flex items-center gap-2 rounded-lg bg-gray-800 px-3 py-1.5 transition hover:bg-gray-700"
     >
       <Coins size={16} className="text-yellow-500" />
       <span className="text-sm font-medium">{data?.credits ?? 0}</span>

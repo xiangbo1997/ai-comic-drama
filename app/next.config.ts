@@ -10,7 +10,10 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "fal.media" },
       { protocol: "https", hostname: "**.fal.media" },
       { protocol: "https", hostname: "cdn.siliconflow.cn" },
-      { protocol: "https", hostname: "oaidalleapiprodscus.blob.core.windows.net" },
+      {
+        protocol: "https",
+        hostname: "oaidalleapiprodscus.blob.core.windows.net",
+      },
     ],
   },
 };

@@ -25,8 +25,8 @@ function isReferenceAssetSchemaMismatch(error: unknown): boolean {
   const message = error.message.toLowerCase();
   return (
     message.includes("characterreferenceasset") ||
-    message.includes("relation") && message.includes("does not exist") ||
-    message.includes("column") && message.includes("does not exist")
+    (message.includes("relation") && message.includes("does not exist")) ||
+    (message.includes("column") && message.includes("does not exist"))
   );
 }
 
@@ -41,7 +41,10 @@ function toClientErrorMessage(error: unknown): string {
     return "当前图像配置默认使用 dall-e-3，但该中转通道没有可用渠道。请到“设置 > AI 模型配置 > 图像生成”里切换可用模型。";
   }
 
-  if (message.includes("Unauthenticated") || message.includes("401 Unauthorized")) {
+  if (
+    message.includes("Unauthenticated") ||
+    message.includes("401 Unauthorized")
+  ) {
     return "备用 Replicate 图像通道认证失败，请检查 .env 中的 REPLICATE_API_TOKEN 是否有效。";
   }
 
@@ -65,10 +68,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 解析请求体，获取可选参数
     const body = await request.json().catch(() => ({}));
     const {
-      baseImage,           // 上传的垫图（base64）
-      customPrompt,        // 用户自定义提示词
-      useExistingImage,    // 是否使用角色现有图片作为参考
-      existingImageIndex,  // 使用哪张现有图片（默认 0）
+      baseImage, // 上传的垫图（base64）
+      customPrompt, // 用户自定义提示词
+      useExistingImage, // 是否使用角色现有图片作为参考
+      existingImageIndex, // 使用哪张现有图片（默认 0）
       imageConfigId,
     } = body as {
       baseImage?: string;
@@ -91,7 +94,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     if (!character) {
-      return NextResponse.json({ error: "Character not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Character not found" },
+        { status: 404 }
+      );
     }
 
     // 检查积分（使用垫图或现有图片时消耗更多积分）
@@ -104,36 +110,47 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (!user || user.credits < creditCost) {
       return NextResponse.json(
-        { error: "Insufficient credits", required: creditCost, current: user?.credits ?? 0 },
+        {
+          error: "Insufficient credits",
+          required: creditCost,
+          current: user?.credits ?? 0,
+        },
         { status: 400 }
       );
     }
 
     // 构建提示词
     // 性别文本 - 使用更强的关键词
-    const genderText = character.gender === "male"
-      ? "1man, male, masculine, handsome man, male character, boy"
-      : character.gender === "female"
-      ? "1woman, female, feminine, beautiful woman, female character, girl"
-      : "";
+    const genderText =
+      character.gender === "male"
+        ? "1man, male, masculine, handsome man, male character, boy"
+        : character.gender === "female"
+          ? "1woman, female, feminine, beautiful woman, female character, girl"
+          : "";
 
     const ageText = character.age ? `${character.age} years old` : "";
 
     // 提取标签名称（排除性别标签，避免重复）
-    const tagNames = character.tags
-      ?.map(ct => ct.tag.name)
-      .filter(name => name !== "男" && name !== "女" && name !== "male" && name !== "female")
-      || [];
+    const tagNames =
+      character.tags
+        ?.map((ct) => ct.tag.name)
+        .filter(
+          (name) =>
+            name !== "男" &&
+            name !== "女" &&
+            name !== "male" &&
+            name !== "female"
+        ) || [];
     const tagsText = tagNames.length > 0 ? tagNames.join(", ") : "";
 
     // 组合完整提示词 - 性别关键词放在最前面
     const basePromptParts = [
-      genderText,  // 第一优先级：多个性别关键词
-      character.name,  // 角色名称
+      genderText, // 第一优先级：多个性别关键词
+      character.name, // 角色名称
       ageText,
-      character.description || "",  // 外貌描述
-      tagsText,  // 风格标签
-      "detailed face, clean background, masterpiece",  // 质量
+      character.description || "", // 外貌描述
+      tagsText, // 风格标签
+      "detailed face, clean background, masterpiece", // 质量
     ].filter(Boolean);
 
     // 添加自定义提示词（如果有）
@@ -143,7 +160,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // 如果有参考图，添加参考图说明
     if (hasReferenceImage) {
-      basePromptParts.push("based on the reference image style, maintain similar art style and character features");
+      basePromptParts.push(
+        "based on the reference image style, maintain similar art style and character features"
+      );
     }
 
     const prompt = basePromptParts.join(", ");
@@ -156,7 +175,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     // 获取用户图像生成配置
-    const imageConfig = await getUserImageConfig(session.user.id, imageConfigId);
+    const imageConfig = await getUserImageConfig(
+      session.user.id,
+      imageConfigId
+    );
 
     if (imageConfigId && !imageConfig) {
       return NextResponse.json(
@@ -181,8 +203,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           const imageResponse = await fetch(existingImageUrl);
           if (imageResponse.ok) {
             const imageBuffer = await imageResponse.arrayBuffer();
-            const base64 = Buffer.from(imageBuffer).toString('base64');
-            const contentType = imageResponse.headers.get('content-type') || 'image/png';
+            const base64 = Buffer.from(imageBuffer).toString("base64");
+            const contentType =
+              imageResponse.headers.get("content-type") || "image/png";
             referenceImage = `data:${contentType};base64,${base64}`;
           }
         } catch (fetchError) {
@@ -206,8 +229,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const fileName = `character_${id}_${Date.now()}.webp`;
         imageUrl = await uploadFileFromUrl(imageUrl, {
           fileName,
-          contentType: 'image/webp',
-          fileType: 'image',
+          contentType: "image/webp",
+          fileType: "image",
           userId: session.user.id,
         });
         log.info("Image saved to storage:", imageUrl);
@@ -234,7 +257,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       if (!isReferenceAssetSchemaMismatch(assetError)) {
         throw assetError;
       }
-      log.warn("CharacterReferenceAsset schema missing, fallback to legacy referenceImages only", assetError);
+      log.warn(
+        "CharacterReferenceAsset schema missing, fallback to legacy referenceImages only",
+        assetError
+      );
     }
 
     // 同步更新旧 referenceImages 数组（兼容遗留代码）
@@ -258,15 +284,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       imageUrl,
       character: updatedCharacter,
       debug: {
-        prompt,  // 返回实际使用的提示词
+        prompt, // 返回实际使用的提示词
         characterData: {
           name: character.name,
           gender: character.gender,
           age: character.age,
           description: character.description,
           tags: tagNames,
-        }
-      }
+        },
+      },
     });
   } catch (error) {
     log.error("Generate reference image error:", error);

@@ -44,15 +44,16 @@ export function WorkflowPanel({
     return null;
   }
 
-  const latestMessage = events.length > 0
-    ? (events[events.length - 1].data as { message?: string }).message
-    : null;
+  const latestMessage =
+    events.length > 0
+      ? (events[events.length - 1].data as { message?: string }).message
+      : null;
 
   return (
     <div className="border-t border-gray-800 bg-gray-900/50">
       {/* 摘要栏 */}
       <div
-        className="flex items-center justify-between px-4 py-2 cursor-pointer hover:bg-gray-800/50"
+        className="flex cursor-pointer items-center justify-between px-4 py-2 hover:bg-gray-800/50"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2 text-sm">
@@ -75,7 +76,9 @@ export function WorkflowPanel({
                   : "Agent 管线"}
           </span>
           {latestMessage && isRunning && (
-            <span className="text-gray-500 ml-2 truncate max-w-xs">{latestMessage}</span>
+            <span className="ml-2 max-w-xs truncate text-gray-500">
+              {latestMessage}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -85,7 +88,7 @@ export function WorkflowPanel({
                 e.stopPropagation();
                 onCancel();
               }}
-              className="text-red-400 hover:text-red-300 p-1"
+              className="p-1 text-red-400 hover:text-red-300"
               title="取消"
             >
               <StopCircle size={16} />
@@ -97,12 +100,12 @@ export function WorkflowPanel({
 
       {/* 展开详情 */}
       {expanded && (
-        <div className="px-4 pb-3 space-y-2">
+        <div className="space-y-2 px-4 pb-3">
           {/* 进度条 */}
           {status && (
-            <div className="w-full bg-gray-800 rounded-full h-1.5">
+            <div className="h-1.5 w-full rounded-full bg-gray-800">
               <div
-                className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
+                className="h-1.5 rounded-full bg-blue-500 transition-all duration-500"
                 style={{ width: `${status.progress}%` }}
               />
             </div>
@@ -112,7 +115,10 @@ export function WorkflowPanel({
           {status?.steps && status.steps.length > 0 && (
             <div className="space-y-1">
               {status.steps.map((step) => (
-                <div key={step.step} className="flex items-center gap-2 text-xs">
+                <div
+                  key={step.step}
+                  className="flex items-center gap-2 text-xs"
+                >
                   {step.status === "completed" ? (
                     <CheckCircle2 size={12} className="text-green-400" />
                   ) : step.status === "running" ? (
@@ -120,13 +126,21 @@ export function WorkflowPanel({
                   ) : step.status === "failed" ? (
                     <XCircle size={12} className="text-red-400" />
                   ) : (
-                    <div className="w-3 h-3 rounded-full border border-gray-600" />
+                    <div className="h-3 w-3 rounded-full border border-gray-600" />
                   )}
-                  <span className={step.status === "running" ? "text-blue-300" : "text-gray-400"}>
+                  <span
+                    className={
+                      step.status === "running"
+                        ? "text-blue-300"
+                        : "text-gray-400"
+                    }
+                  >
                     {STEP_LABELS[step.step] ?? step.step}
                   </span>
                   {step.reasoning && step.status === "completed" && (
-                    <span className="text-gray-600 truncate max-w-xs">{step.reasoning}</span>
+                    <span className="max-w-xs truncate text-gray-600">
+                      {step.reasoning}
+                    </span>
                   )}
                 </div>
               ))}
@@ -135,7 +149,7 @@ export function WorkflowPanel({
 
           {/* 实时事件日志 */}
           {events.length > 0 && (
-            <div className="max-h-32 overflow-y-auto text-xs text-gray-500 space-y-0.5 font-mono">
+            <div className="max-h-32 space-y-0.5 overflow-y-auto font-mono text-xs text-gray-500">
               {events.slice(-10).map((evt, i) => (
                 <div key={i}>
                   <span className="text-gray-600">
@@ -149,7 +163,7 @@ export function WorkflowPanel({
           )}
 
           {/* 错误信息 */}
-          {error && <p className="text-red-400 text-xs">{error}</p>}
+          {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
       )}
     </div>

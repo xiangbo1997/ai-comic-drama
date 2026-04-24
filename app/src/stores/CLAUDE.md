@@ -10,10 +10,10 @@
 
 ## 文件
 
-| 文件 | 导出 | 说明 |
-|------|------|------|
-| `project.ts` | `useProjectStore` | 项目/场景/角色/选中态/生成锁 |
-| `user.ts` | `useUserStore`（参考实现） | 用户级偏好 |
+| 文件         | 导出                       | 说明                         |
+| ------------ | -------------------------- | ---------------------------- |
+| `project.ts` | `useProjectStore`          | 项目/场景/角色/选中态/生成锁 |
+| `user.ts`    | `useUserStore`（参考实现） | 用户级偏好                   |
 
 ## `useProjectStore` 状态形状
 
@@ -32,7 +32,7 @@ interface ProjectStore {
   setScenes(scenes): void;
   addScene(scene): void;
   updateScene(id, updates): void;
-  removeScene(id): void;                 // 若删的是当前 selected，自动清空
+  removeScene(id): void; // 若删的是当前 selected，自动清空
   reorderScenes(fromIndex, toIndex): void; // 重排后 order 字段重新计算
 
   // 角色
@@ -45,7 +45,7 @@ interface ProjectStore {
   setSelectedSceneId(id): void;
   setIsGenerating(isGenerating): void;
 
-  reset(): void;  // 全部清空，退出项目时使用
+  reset(): void; // 全部清空，退出项目时使用
 }
 ```
 
@@ -74,6 +74,6 @@ interface ProjectStore {
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

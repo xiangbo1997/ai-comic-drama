@@ -24,7 +24,7 @@ export function buildImageReviewPrompt(
   sceneDescription: string,
   characterDescriptions: string,
   expectedEmotion: string,
-  expectedShotType: string,
+  expectedShotType: string
 ): string {
   return `请评审以下 AI 生成的图像是否符合要求。
 

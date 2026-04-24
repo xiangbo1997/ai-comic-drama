@@ -22,17 +22,26 @@ export interface LLMProvider {
 
 /** 图像生成 Provider 接口 */
 export interface ImageProvider {
-  generateImage(options: ImageGenerationOptions, config: AIServiceConfig): Promise<string>;
+  generateImage(
+    options: ImageGenerationOptions,
+    config: AIServiceConfig
+  ): Promise<string>;
 }
 
 /** 视频生成 Provider 接口 */
 export interface VideoProvider {
-  generateVideo(options: VideoGenerationOptions, config: AIServiceConfig): Promise<string>;
+  generateVideo(
+    options: VideoGenerationOptions,
+    config: AIServiceConfig
+  ): Promise<string>;
 }
 
 /** TTS Provider 接口 */
 export interface TTSProvider {
-  synthesizeSpeech(options: TTSOptions, config: AIServiceConfig): Promise<Buffer>;
+  synthesizeSpeech(
+    options: TTSOptions,
+    config: AIServiceConfig
+  ): Promise<Buffer>;
 }
 
 /** 图像 Provider 能力声明 */
@@ -44,4 +53,11 @@ export interface ImageProviderCapability {
   maxReferenceImages: number;
 }
 
-export type { AIServiceConfig, LLMMessage, LLMOptions, ImageGenerationOptions, VideoGenerationOptions, TTSOptions };
+export type {
+  AIServiceConfig,
+  LLMMessage,
+  LLMOptions,
+  ImageGenerationOptions,
+  VideoGenerationOptions,
+  TTSOptions,
+};

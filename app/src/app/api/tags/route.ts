@@ -32,10 +32,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(tags);
   } catch (error) {
     log.error("Get tags error:", error);
-    return NextResponse.json(
-      { error: "Failed to get tags" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to get tags" }, { status: 500 });
   }
 }
 
@@ -51,10 +48,7 @@ export async function POST(request: NextRequest) {
     const { name, category, color } = await request.json();
 
     if (!name?.trim()) {
-      return NextResponse.json(
-        { error: "标签名称不能为空" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "标签名称不能为空" }, { status: 400 });
     }
 
     // 检查是否已存在同名标签（系统或用户自定义）
@@ -66,10 +60,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (existingTag) {
-      return NextResponse.json(
-        { error: "标签名称已存在" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "标签名称已存在" }, { status: 400 });
     }
 
     const tag = await prisma.tag.create({

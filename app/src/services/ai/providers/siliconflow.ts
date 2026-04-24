@@ -22,7 +22,9 @@ export const siliconflowImage: ImageProvider = {
         },
         body: JSON.stringify({
           model: effectiveModel,
-          prompt: referenceImage ? `${prompt} [Reference: ${referenceImage}]` : prompt,
+          prompt: referenceImage
+            ? `${prompt} [Reference: ${referenceImage}]`
+            : prompt,
           image_size: size,
           num_inference_steps: 20,
         }),

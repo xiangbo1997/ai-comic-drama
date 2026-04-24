@@ -30,11 +30,15 @@ export default function CharactersPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [uploadingBaseImageId, setUploadingBaseImageId] = useState<string | null>(null);
+  const [uploadingBaseImageId, setUploadingBaseImageId] = useState<
+    string | null
+  >(null);
   const [showTagManager, setShowTagManager] = useState(false);
 
   const [showGenerateModal, setShowGenerateModal] = useState(false);
-  const [generateModalCharacterId, setGenerateModalCharacterId] = useState<string | null>(null);
+  const [generateModalCharacterId, setGenerateModalCharacterId] = useState<
+    string | null
+  >(null);
   const [generateOptions, setGenerateOptions] = useState<GenerateOptions>({
     source: "none",
     customPrompt: "",
@@ -42,7 +46,9 @@ export default function CharactersPage() {
     imageConfigId: undefined,
   });
 
-  const [currentImageIndices, setCurrentImageIndices] = useState<Record<string, number>>({});
+  const [currentImageIndices, setCurrentImageIndices] = useState<
+    Record<string, number>
+  >({});
   const [showAppearanceEditor, setShowAppearanceEditor] = useState(false);
   const [formData, setFormData] = useState<CharacterFormData>({
     name: "",
@@ -72,9 +78,12 @@ export default function CharactersPage() {
   const handleDeleteImage = async (characterId: string, imageIndex: number) => {
     if (!confirm("确定要删除这张图片吗?")) return;
     try {
-      const res = await fetch(`/api/characters/${characterId}/images?index=${imageIndex}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/characters/${characterId}/images?index=${imageIndex}`,
+        {
+          method: "DELETE",
+        }
+      );
       if (!res.ok) {
         const error = await res.json();
         throw new Error(error.error || "删除失败");
@@ -91,16 +100,29 @@ export default function CharactersPage() {
     }
   };
 
-  const openGenerateModal = (characterId: string, defaultSource: "none" | "upload" | "existing" = "none") => {
+  const openGenerateModal = (
+    characterId: string,
+    defaultSource: "none" | "upload" | "existing" = "none"
+  ) => {
     setGenerateModalCharacterId(characterId);
-    setGenerateOptions({ source: defaultSource, customPrompt: "", uploadedImage: null, imageConfigId: undefined });
+    setGenerateOptions({
+      source: defaultSource,
+      customPrompt: "",
+      uploadedImage: null,
+      imageConfigId: undefined,
+    });
     setShowGenerateModal(true);
   };
 
   const closeGenerateModal = () => {
     setShowGenerateModal(false);
     setGenerateModalCharacterId(null);
-    setGenerateOptions({ source: "none", customPrompt: "", uploadedImage: null, imageConfigId: undefined });
+    setGenerateOptions({
+      source: "none",
+      customPrompt: "",
+      uploadedImage: null,
+      imageConfigId: undefined,
+    });
   };
 
   const handleGenerate = () => {
@@ -122,13 +144,17 @@ export default function CharactersPage() {
       options.baseImage = generateOptions.uploadedImage;
     } else if (generateOptions.source === "existing") {
       options.useExistingImage = true;
-      options.existingImageIndex = currentImageIndices[generateModalCharacterId] || 0;
+      options.existingImageIndex =
+        currentImageIndices[generateModalCharacterId] || 0;
     }
     generateMutation.mutate({ id: generateModalCharacterId, options });
     closeGenerateModal();
   };
 
-  const { data: tags = [] } = useQuery({ queryKey: ["tags"], queryFn: fetchTags });
+  const { data: tags = [] } = useQuery({
+    queryKey: ["tags"],
+    queryFn: fetchTags,
+  });
 
   const tagsByCategory = tags.reduce(
     (acc, tag) => {
@@ -184,7 +210,8 @@ export default function CharactersPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => updateCharacter(id, data),
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      updateCharacter(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
       setEditingId(null);
@@ -233,7 +260,9 @@ export default function CharactersPage() {
     if (!formData.name.trim()) return;
     const payload = {
       ...formData,
-      appearance: isAppearanceEmpty(formData.appearance) ? undefined : formData.appearance,
+      appearance: isAppearanceEmpty(formData.appearance)
+        ? undefined
+        : formData.appearance,
     };
     createMutation.mutate(payload);
   };
@@ -264,29 +293,33 @@ export default function CharactersPage() {
     if (!editingId || !formData.name.trim()) return;
     const payload = {
       ...formData,
-      appearance: isAppearanceEmpty(formData.appearance) ? null : formData.appearance,
+      appearance: isAppearanceEmpty(formData.appearance)
+        ? null
+        : formData.appearance,
     };
     updateMutation.mutate({ id: editingId, data: payload });
   };
 
   return (
     <div className="container mx-auto px-6 py-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">角色库</h1>
-          <p className="text-gray-400 mt-1">管理你的角色，确保生成时保持一致性</p>
+          <p className="mt-1 text-gray-400">
+            管理你的角色，确保生成时保持一致性
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowTagManager(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition"
+            className="flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 transition hover:bg-gray-600"
           >
             <Settings size={18} />
             管理标签
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition"
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 transition hover:bg-blue-700"
           >
             <Plus size={20} />
             创建角色
@@ -309,13 +342,15 @@ export default function CharactersPage() {
       )}
 
       {!isLoading && characters?.length === 0 && (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">👤</div>
-          <h2 className="text-xl font-semibold mb-2">还没有角色</h2>
-          <p className="text-gray-400 mb-6">创建角色卡，让 AI 生成时保持角色一致性</p>
+        <div className="py-20 text-center">
+          <div className="mb-4 text-6xl">👤</div>
+          <h2 className="mb-2 text-xl font-semibold">还没有角色</h2>
+          <p className="mb-6 text-gray-400">
+            创建角色卡，让 AI 生成时保持角色一致性
+          </p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg"
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 hover:bg-blue-700"
           >
             <Plus size={20} />
             创建角色
@@ -324,7 +359,7 @@ export default function CharactersPage() {
       )}
 
       {!isLoading && characters && characters.length > 0 && (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {characters.map((character) => (
             <CharacterCard
               key={character.id}
@@ -333,7 +368,9 @@ export default function CharactersPage() {
               formData={formData}
               onFormDataChange={setFormData}
               showAppearanceEditor={showAppearanceEditor}
-              onToggleAppearanceEditor={() => setShowAppearanceEditor((v) => !v)}
+              onToggleAppearanceEditor={() =>
+                setShowAppearanceEditor((v) => !v)
+              }
               tags={tags}
               currentImageIndex={currentImageIndices[character.id] || 0}
               onNextImage={handleNextImage}
@@ -353,9 +390,9 @@ export default function CharactersPage() {
 
           <button
             onClick={() => setShowCreateModal(true)}
-            className="bg-gray-800/50 border-2 border-dashed border-gray-700 rounded-xl flex flex-col items-center justify-center aspect-[3/4] hover:border-blue-500 transition"
+            className="flex aspect-[3/4] flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-700 bg-gray-800/50 transition hover:border-blue-500"
           >
-            <Plus size={40} className="text-gray-500 mb-2" />
+            <Plus size={40} className="mb-2 text-gray-500" />
             <span className="text-gray-500">添加角色</span>
           </button>
         </div>

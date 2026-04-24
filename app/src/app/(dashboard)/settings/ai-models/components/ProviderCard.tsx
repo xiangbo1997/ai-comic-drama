@@ -83,72 +83,81 @@ export function ProviderCard({
   };
 
   return (
-    <div className="bg-gray-800 rounded-xl p-5 border border-gray-700">
+    <div className="rounded-xl border border-gray-700 bg-gray-800 p-5">
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <div className="flex items-center gap-3 mb-2">
-            <h3 className="text-lg font-semibold text-white">{provider.name}</h3>
+          <div className="mb-2 flex items-center gap-3">
+            <h3 className="text-lg font-semibold text-white">
+              {provider.name}
+            </h3>
             {provider.isCustom && (
-              <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded-full">
+              <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-xs text-purple-400">
                 自定义
               </span>
             )}
             {config?.isDefault && (
-              <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded-full flex items-center gap-1">
+              <span className="flex items-center gap-1 rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-400">
                 <Star size={12} fill="currentColor" />
                 默认
               </span>
             )}
             {config?.testStatus === "SUCCESS" && (
-              <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded-full flex items-center gap-1">
+              <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-400">
                 <Check size={12} />
                 已连接
               </span>
             )}
             {config?.testStatus === "FAILED" && (
-              <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded-full flex items-center gap-1">
+              <span className="flex items-center gap-1 rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">
                 <X size={12} />
                 连接失败
               </span>
             )}
             {config?.authType === "CHATGPT_TOKEN" && (
-              <span className="px-2 py-0.5 bg-orange-500/20 text-orange-400 text-xs rounded-full">
+              <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-xs text-orange-400">
                 ChatGPT Token
               </span>
             )}
           </div>
-          {config?.authType === "CHATGPT_TOKEN" && config.tokenExpiresAt && (() => {
-            const expires = new Date(config.tokenExpiresAt);
-            const now = new Date();
-            const daysLeft = Math.ceil((expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-            if (daysLeft <= 0) {
-              return (
-                <div className="flex items-center gap-1 text-xs text-red-400 mt-1">
-                  <AlertTriangle size={12} />
-                  Token 已过期，请重新获取
-                </div>
+          {config?.authType === "CHATGPT_TOKEN" &&
+            config.tokenExpiresAt &&
+            (() => {
+              const expires = new Date(config.tokenExpiresAt);
+              const now = new Date();
+              const daysLeft = Math.ceil(
+                (expires.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
               );
-            }
-            if (daysLeft <= 7) {
-              return (
-                <div className="flex items-center gap-1 text-xs text-yellow-400 mt-1">
-                  <AlertTriangle size={12} />
-                  Token 将在 {daysLeft} 天后过期
-                </div>
-              );
-            }
-            return null;
-          })()}
-          <p className="text-sm text-gray-400 mb-3">{provider.description}</p>
+              if (daysLeft <= 0) {
+                return (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-red-400">
+                    <AlertTriangle size={12} />
+                    Token 已过期，请重新获取
+                  </div>
+                );
+              }
+              if (daysLeft <= 7) {
+                return (
+                  <div className="mt-1 flex items-center gap-1 text-xs text-yellow-400">
+                    <AlertTriangle size={12} />
+                    Token 将在 {daysLeft} 天后过期
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          <p className="mb-3 text-sm text-gray-400">{provider.description}</p>
 
           {config ? (
             <div className="text-sm text-gray-300">
               <span className="text-gray-500">API Key: </span>
-              <code className="bg-gray-700 px-2 py-0.5 rounded">{config.apiKeyMasked}</code>
+              <code className="rounded bg-gray-700 px-2 py-0.5">
+                {config.apiKeyMasked}
+              </code>
               {config.selectedModel && (
                 <span className="ml-4">
                   <span className="text-gray-500">模型: </span>
-                  {provider.models.find((m) => m.id === config.selectedModel)?.name || config.selectedModel}
+                  {provider.models.find((m) => m.id === config.selectedModel)
+                    ?.name || config.selectedModel}
                 </span>
               )}
             </div>
@@ -163,7 +172,7 @@ export function ProviderCard({
               {onEditProvider && (
                 <button
                   onClick={onEditProvider}
-                  className="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-700 rounded-lg transition"
+                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-blue-400"
                   title="编辑提供商"
                 >
                   <Edit3 size={18} />
@@ -172,7 +181,7 @@ export function ProviderCard({
               {onDeleteProvider && (
                 <button
                   onClick={onDeleteProvider}
-                  className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition"
+                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-red-400"
                   title="删除提供商"
                 >
                   <Trash2 size={18} />
@@ -185,15 +194,19 @@ export function ProviderCard({
               <button
                 onClick={testConnection}
                 disabled={testing}
-                className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-lg transition"
+                className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-white"
                 title="测试连接"
               >
-                {testing ? <Loader2 size={18} className="animate-spin" /> : <TestTube size={18} />}
+                {testing ? (
+                  <Loader2 size={18} className="animate-spin" />
+                ) : (
+                  <TestTube size={18} />
+                )}
               </button>
               {!config.isDefault && (
                 <button
                   onClick={setAsDefault}
-                  className="p-2 text-gray-400 hover:text-yellow-400 hover:bg-gray-700 rounded-lg transition"
+                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-yellow-400"
                   title="设为默认"
                 >
                   <Star size={18} />
@@ -202,7 +215,7 @@ export function ProviderCard({
               {!provider.isCustom && (
                 <button
                   onClick={deleteConfig}
-                  className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded-lg transition"
+                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-red-400"
                   title="删除配置"
                 >
                   <Trash2 size={18} />
@@ -212,7 +225,7 @@ export function ProviderCard({
           )}
           <button
             onClick={onConfigure}
-            className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 transition ${
               config
                 ? "bg-gray-700 text-white hover:bg-gray-600"
                 : "bg-blue-600 text-white hover:bg-blue-700"

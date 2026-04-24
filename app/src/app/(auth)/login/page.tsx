@@ -136,22 +136,22 @@ function LoginContent() {
   return (
     <div className="w-full max-w-md">
       {/* Logo */}
-      <div className="text-center mb-8">
+      <div className="mb-8 text-center">
         <Link href="/" className="text-3xl font-bold text-white">
           AI 漫剧
         </Link>
-        <p className="text-gray-400 mt-2">一键将小说转化为漫剧视频</p>
+        <p className="mt-2 text-gray-400">一键将小说转化为漫剧视频</p>
       </div>
 
       {/* Invite Banner */}
       {inviteInfo?.valid && (
-        <div className="bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl p-4 mb-6 flex items-center gap-3">
-          <Gift size={24} className="text-white shrink-0" />
+        <div className="mb-6 flex items-center gap-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 p-4">
+          <Gift size={24} className="shrink-0 text-white" />
           <div>
-            <p className="text-white font-medium">
+            <p className="font-medium text-white">
               {inviteInfo.inviter?.name} 邀请你加入
             </p>
-            <p className="text-purple-100 text-sm">
+            <p className="text-sm text-purple-100">
               注册即可获得额外 {inviteInfo.reward} 积分奖励！
             </p>
           </div>
@@ -159,15 +159,15 @@ function LoginContent() {
       )}
 
       {/* Login/Register Card */}
-      <div className="bg-gray-800 rounded-2xl p-8 shadow-xl">
+      <div className="rounded-2xl bg-gray-800 p-8 shadow-xl">
         {/* Tab Switcher */}
-        <div className="flex mb-6 bg-gray-700 rounded-lg p-1">
+        <div className="mb-6 flex rounded-lg bg-gray-700 p-1">
           <button
             onClick={() => {
               setMode("login");
               setError(null);
             }}
-            className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
+            className={`flex-1 rounded-md py-2 text-sm font-medium transition ${
               mode === "login"
                 ? "bg-blue-600 text-white"
                 : "text-gray-400 hover:text-white"
@@ -180,7 +180,7 @@ function LoginContent() {
               setMode("register");
               setError(null);
             }}
-            className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
+            className={`flex-1 rounded-md py-2 text-sm font-medium transition ${
               mode === "register"
                 ? "bg-blue-600 text-white"
                 : "text-gray-400 hover:text-white"
@@ -194,29 +194,31 @@ function LoginContent() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === "register" && (
             <div>
-              <label className="block text-sm text-gray-400 mb-1">昵称（可选）</label>
+              <label className="mb-1 block text-sm text-gray-400">
+                昵称（可选）
+              </label>
               <div className="relative">
                 <User
                   size={18}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                  className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-500"
                 />
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="输入昵称"
-                  className="w-full bg-gray-700 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full rounded-lg bg-gray-700 py-3 pr-4 pl-10 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">邮箱</label>
+            <label className="mb-1 block text-sm text-gray-400">邮箱</label>
             <div className="relative">
               <Mail
                 size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-500"
               />
               <input
                 type="email"
@@ -224,32 +226,34 @@ function LoginContent() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="输入邮箱地址"
                 required
-                className="w-full bg-gray-700 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg bg-gray-700 py-3 pr-4 pl-10 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm text-gray-400 mb-1">密码</label>
+            <label className="mb-1 block text-sm text-gray-400">密码</label>
             <div className="relative">
               <Lock
                 size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-500"
               />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={mode === "register" ? "设置密码（至少6位）" : "输入密码"}
+                placeholder={
+                  mode === "register" ? "设置密码（至少6位）" : "输入密码"
+                }
                 required
                 minLength={6}
-                className="w-full bg-gray-700 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg bg-gray-700 py-3 pr-4 pl-10 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
               />
             </div>
           </div>
 
           {error && (
-            <div className="text-red-400 text-sm text-center bg-red-400/10 rounded-lg py-2">
+            <div className="rounded-lg bg-red-400/10 py-2 text-center text-sm text-red-400">
               {error}
             </div>
           )}
@@ -257,7 +261,7 @@ function LoginContent() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? (
               <>
@@ -275,7 +279,7 @@ function LoginContent() {
         {/* Benefits */}
         {mode === "register" && (
           <div className="mt-6 space-y-2">
-            <p className="text-sm text-gray-400 text-center">注册即可获得：</p>
+            <p className="text-center text-sm text-gray-400">注册即可获得：</p>
             <div className="flex items-center gap-2 text-sm text-gray-300">
               <span className="text-green-500">✓</span>
               <span>
@@ -296,7 +300,7 @@ function LoginContent() {
       </div>
 
       {/* Footer */}
-      <p className="text-center text-sm text-gray-500 mt-6">
+      <p className="mt-6 text-center text-sm text-gray-500">
         {mode === "login" ? "登录" : "注册"}即表示同意{" "}
         <a href="#" className="text-blue-400 hover:underline">
           服务条款
@@ -312,7 +316,7 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-gray-800 flex items-center justify-center px-4">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-900 to-gray-800 px-4">
       <Suspense
         fallback={
           <div className="flex items-center justify-center">

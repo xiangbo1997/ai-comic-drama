@@ -11,21 +11,32 @@ const log = createLogger("lib:content-safety");
 // 违规关键词列表（基础版本，作为兜底检测）
 const BLOCKED_KEYWORDS = [
   // 暴力相关
-  "杀人", "自杀", "谋杀", "血腥", "残忍", "虐待",
+  "杀人",
+  "自杀",
+  "谋杀",
+  "血腥",
+  "残忍",
+  "虐待",
   // 色情相关
-  "色情", "裸体", "性行为", "淫秽",
+  "色情",
+  "裸体",
+  "性行为",
+  "淫秽",
   // 政治敏感
-  "颠覆", "分裂国家",
+  "颠覆",
+  "分裂国家",
   // 其他违规
-  "毒品", "赌博", "诈骗",
+  "毒品",
+  "赌博",
+  "诈骗",
 ];
 
 // 敏感词替换映射（用于轻度违规内容的净化）
 const SENSITIVE_REPLACEMENTS: Record<string, string> = {
-  "死亡": "离开",
-  "死了": "走了",
-  "杀死": "击败",
-  "血": "红色液体",
+  死亡: "离开",
+  死了: "走了",
+  杀死: "击败",
+  血: "红色液体",
 };
 
 export interface ContentCheckResult {
@@ -59,7 +70,9 @@ class AliyunContentSafetyService {
   constructor() {
     this.accessKeyId = process.env.ALIYUN_ACCESS_KEY_ID || "";
     this.accessKeySecret = process.env.ALIYUN_ACCESS_KEY_SECRET || "";
-    this.endpoint = process.env.ALIYUN_CONTENT_SAFETY_ENDPOINT || "green.cn-shanghai.aliyuncs.com";
+    this.endpoint =
+      process.env.ALIYUN_CONTENT_SAFETY_ENDPOINT ||
+      "green.cn-shanghai.aliyuncs.com";
   }
 
   isConfigured(): boolean {
@@ -87,12 +100,18 @@ class AliyunContentSafetyService {
         const sceneResult = taskResult.results?.[0];
 
         if (sceneResult) {
-          const suggestion = sceneResult.suggestion as "pass" | "review" | "block";
+          const suggestion = sceneResult.suggestion as
+            | "pass"
+            | "review"
+            | "block";
           return {
             safe: suggestion === "pass",
             riskLevel: suggestion,
             labels: sceneResult.label ? [sceneResult.label] : [],
-            reason: suggestion !== "pass" ? `内容审核: ${sceneResult.label}` : undefined,
+            reason:
+              suggestion !== "pass"
+                ? `内容审核: ${sceneResult.label}`
+                : undefined,
             suggestion: this.getSuggestionText(suggestion),
           };
         }
@@ -130,7 +149,10 @@ class AliyunContentSafetyService {
         const labels: string[] = [];
 
         for (const sceneResult of taskResult.results || []) {
-          const suggestion = sceneResult.suggestion as "pass" | "review" | "block";
+          const suggestion = sceneResult.suggestion as
+            | "pass"
+            | "review"
+            | "block";
           scenes.push({
             scene: sceneResult.scene,
             suggestion,
@@ -175,13 +197,20 @@ class AliyunContentSafetyService {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "x-acs-version": "2022-03-02",
-      "x-acs-action": path.includes("text") ? "TextModeration" : "ImageModeration",
+      "x-acs-action": path.includes("text")
+        ? "TextModeration"
+        : "ImageModeration",
       "x-acs-date": timestamp,
       "x-acs-signature-nonce": nonce,
     };
 
     // 生成签名
-    const signature = this.generateSignature("POST", path, headers, JSON.stringify(body));
+    const signature = this.generateSignature(
+      "POST",
+      path,
+      headers,
+      JSON.stringify(body)
+    );
     headers["Authorization"] = `acs ${this.accessKeyId}:${signature}`;
 
     const response = await fetch(`https://${this.endpoint}${path}`, {
@@ -200,11 +229,16 @@ class AliyunContentSafetyService {
   /**
    * 生成签名
    */
-  private generateSignature(method: string, path: string, headers: Record<string, string>, body: string): string {
+  private generateSignature(
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    body: string
+  ): string {
     const canonicalHeaders = Object.keys(headers)
-      .filter(k => k.startsWith("x-acs-"))
+      .filter((k) => k.startsWith("x-acs-"))
       .sort()
-      .map(k => `${k.toLowerCase()}:${headers[k]}`)
+      .map((k) => `${k.toLowerCase()}:${headers[k]}`)
       .join("\n");
 
     const stringToSign = [
@@ -223,9 +257,12 @@ class AliyunContentSafetyService {
 
   private getSuggestionText(suggestion: "pass" | "review" | "block"): string {
     switch (suggestion) {
-      case "pass": return "内容正常";
-      case "review": return "内容疑似违规，建议人工审核";
-      case "block": return "内容违规，已被拦截";
+      case "pass":
+        return "内容正常";
+      case "review":
+        return "内容疑似违规，建议人工审核";
+      case "block":
+        return "内容违规，已被拦截";
     }
   }
 }
@@ -262,7 +299,12 @@ class TencentContentSafetyService {
         Content: Buffer.from(text).toString("base64"),
       };
 
-      const headers = this.generateHeaders("TextModeration", params, timestamp, date);
+      const headers = this.generateHeaders(
+        "TextModeration",
+        params,
+        timestamp,
+        date
+      );
 
       const response = await fetch("https://tms.tencentcloudapi.com", {
         method: "POST",
@@ -276,9 +318,17 @@ class TencentContentSafetyService {
         const suggestion = result.Response.Suggestion;
         return {
           safe: suggestion === "Pass",
-          riskLevel: suggestion === "Pass" ? "pass" : suggestion === "Review" ? "review" : "block",
+          riskLevel:
+            suggestion === "Pass"
+              ? "pass"
+              : suggestion === "Review"
+                ? "review"
+                : "block",
           labels: result.Response.Label ? [result.Response.Label] : [],
-          reason: suggestion !== "Pass" ? `内容审核: ${result.Response.Label}` : undefined,
+          reason:
+            suggestion !== "Pass"
+              ? `内容审核: ${result.Response.Label}`
+              : undefined,
         };
       }
 
@@ -289,13 +339,21 @@ class TencentContentSafetyService {
     }
   }
 
-  private generateHeaders(action: string, params: object, timestamp: number, date: string): Record<string, string> {
+  private generateHeaders(
+    action: string,
+    params: object,
+    timestamp: number,
+    date: string
+  ): Record<string, string> {
     const service = "tms";
     const host = "tms.tencentcloudapi.com";
 
     // 简化的签名计算（生产环境需要完整实现 TC3-HMAC-SHA256）
     const payload = JSON.stringify(params);
-    const hashedPayload = crypto.createHash("sha256").update(payload).digest("hex");
+    const hashedPayload = crypto
+      .createHash("sha256")
+      .update(payload)
+      .digest("hex");
 
     const canonicalRequest = [
       "POST",
@@ -307,22 +365,37 @@ class TencentContentSafetyService {
     ].join("\n");
 
     const credentialScope = `${date}/${service}/tc3_request`;
-    const hashedCanonicalRequest = crypto.createHash("sha256").update(canonicalRequest).digest("hex");
+    const hashedCanonicalRequest = crypto
+      .createHash("sha256")
+      .update(canonicalRequest)
+      .digest("hex");
     const stringToSign = `TC3-HMAC-SHA256\n${timestamp}\n${credentialScope}\n${hashedCanonicalRequest}`;
 
     // 派生签名密钥
-    const kDate = crypto.createHmac("sha256", `TC3${this.secretKey}`).update(date).digest();
-    const kService = crypto.createHmac("sha256", kDate).update(service).digest();
-    const kSigning = crypto.createHmac("sha256", kService).update("tc3_request").digest();
-    const signature = crypto.createHmac("sha256", kSigning).update(stringToSign).digest("hex");
+    const kDate = crypto
+      .createHmac("sha256", `TC3${this.secretKey}`)
+      .update(date)
+      .digest();
+    const kService = crypto
+      .createHmac("sha256", kDate)
+      .update(service)
+      .digest();
+    const kSigning = crypto
+      .createHmac("sha256", kService)
+      .update("tc3_request")
+      .digest();
+    const signature = crypto
+      .createHmac("sha256", kSigning)
+      .update(stringToSign)
+      .digest("hex");
 
     return {
       "Content-Type": "application/json",
-      "Host": host,
+      Host: host,
       "X-TC-Action": action,
       "X-TC-Version": "2020-12-29",
       "X-TC-Timestamp": timestamp.toString(),
-      "Authorization": `TC3-HMAC-SHA256 Credential=${this.secretId}/${credentialScope}, SignedHeaders=content-type;host, Signature=${signature}`,
+      Authorization: `TC3-HMAC-SHA256 Credential=${this.secretId}/${credentialScope}, SignedHeaders=content-type;host, Signature=${signature}`,
     };
   }
 }
@@ -365,7 +438,9 @@ export function checkTextSafety(text: string): ContentCheckResult {
 export function sanitizeText(text: string): string {
   let result = text;
 
-  for (const [sensitive, replacement] of Object.entries(SENSITIVE_REPLACEMENTS)) {
+  for (const [sensitive, replacement] of Object.entries(
+    SENSITIVE_REPLACEMENTS
+  )) {
     result = result.replace(new RegExp(sensitive, "gi"), replacement);
   }
 
@@ -396,9 +471,15 @@ export function checkAndSanitize(text: string): ContentCheckResult {
 export function checkImagePromptSafety(prompt: string): ContentCheckResult {
   const imageBlockedKeywords = [
     ...BLOCKED_KEYWORDS,
-    "真人", "明星", "名人", "政治人物",
-    "儿童", "未成年",
-    "武器", "枪", "刀",
+    "真人",
+    "明星",
+    "名人",
+    "政治人物",
+    "儿童",
+    "未成年",
+    "武器",
+    "枪",
+    "刀",
   ];
 
   const lowerPrompt = prompt.toLowerCase();
@@ -474,7 +555,9 @@ export async function contentSafetyMiddleware(
 /**
  * 图片内容审核（用于生成后的图片检查）
  */
-export async function checkImageContent(imageUrl: string): Promise<ImageCheckResult> {
+export async function checkImageContent(
+  imageUrl: string
+): Promise<ImageCheckResult> {
   if (aliyunService.isConfigured()) {
     return aliyunService.checkImage(imageUrl);
   }

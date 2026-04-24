@@ -1,6 +1,7 @@
 # 📋 实施计划：角色一致性系统 + 整体优化
 
 ## 任务类型
+
 - [x] 前端 (→ Gemini)
 - [x] 后端 (→ Codex)
 - [x] 全栈 (→ 并行)
@@ -11,14 +12,14 @@
 
 ### PRD 承诺 vs 现状差距
 
-| PRD §4.3.2 承诺 | 当前实现 | 差距等级 |
-|-----------------|---------|---------|
-| Face embedding 提取 | ❌ 不存在 | CRITICAL |
-| 人脸相似度校验 (>0.85) | ❌ 不存在 | CRITICAL |
-| 不达标自动重试 (最多3次) | ❌ 不存在 | HIGH |
-| 多参考图支持 | ⚠️ 仅取第一张 | HIGH |
-| 角色 embedding 注入 | ❌ 纯 prompt 文本 | HIGH |
-| 服装预设管理 | ❌ 不存在 | MEDIUM |
+| PRD §4.3.2 承诺          | 当前实现          | 差距等级 |
+| ------------------------ | ----------------- | -------- |
+| Face embedding 提取      | ❌ 不存在         | CRITICAL |
+| 人脸相似度校验 (>0.85)   | ❌ 不存在         | CRITICAL |
+| 不达标自动重试 (最多3次) | ❌ 不存在         | HIGH     |
+| 多参考图支持             | ⚠️ 仅取第一张     | HIGH     |
+| 角色 embedding 注入      | ❌ 纯 prompt 文本 | HIGH     |
+| 服装预设管理             | ❌ 不存在         | MEDIUM   |
 
 ### 核心技术问题
 
@@ -225,12 +226,12 @@ interface ImageProviderCapability {
 - 生成后 → 检测人脸 → 与 canonical embedding 比对
 - 验证逻辑按景别降级：
 
-| 景别 | 预期人脸 | 验证策略 |
-|------|---------|---------|
+| 景别      | 预期人脸   | 验证策略         |
+| --------- | ---------- | ---------------- |
 | 特写/近景 | 必须检测到 | 严格校验 (≥0.80) |
-| 中景 | 应该检测到 | 标准校验 (≥0.70) |
-| 远景/全景 | 可能无脸 | 仅检测，不阻断 |
-| 背面/遮挡 | 无法检测 | 跳过验证 |
+| 中景      | 应该检测到 | 标准校验 (≥0.70) |
+| 远景/全景 | 可能无脸   | 仅检测，不阻断   |
+| 背面/遮挡 | 无法检测   | 跳过验证         |
 
 **步骤 C4: 自动重试机制**
 
@@ -250,44 +251,44 @@ interface ImageProviderCapability {
 
 **步骤 D2: 遗留优化（与一致性并行）**
 
-| 优化项 | 说明 | 对应已有计划 |
-|-------|------|------------|
-| Characters 页面拆分 | 1,469 行 → 组件化 | Phase 3 续 |
-| AI Models 页面拆分 | 1,841 行 → 组件化 | Phase 3 续 |
-| Logger 替换 console.log | 126 处 → 使用 lib/logger.ts | Phase 7 续 |
-| Zustand store 清理 | 移除未使用的数据状态 | Phase 5 |
-| 测试框架搭建 | Vitest + Playwright | 新增 |
+| 优化项                  | 说明                        | 对应已有计划 |
+| ----------------------- | --------------------------- | ------------ |
+| Characters 页面拆分     | 1,469 行 → 组件化           | Phase 3 续   |
+| AI Models 页面拆分      | 1,841 行 → 组件化           | Phase 3 续   |
+| Logger 替换 console.log | 126 处 → 使用 lib/logger.ts | Phase 7 续   |
+| Zustand store 清理      | 移除未使用的数据状态        | Phase 5      |
+| 测试框架搭建            | Vitest + Playwright         | 新增         |
 
 ---
 
 ## 关键文件
 
-| 文件 | 操作 | 说明 |
-|------|------|------|
-| `prisma/schema.prisma` | 修改 | 新增 4 个模型，Character 添加关联 |
-| `src/app/api/generate/image/route.ts` | 重构 | 调用 imageOrchestrator 替代内联逻辑 |
-| `src/services/queue-workers.ts:L56-150` | 重构 | 调用 imageOrchestrator |
-| `src/services/generation/image-orchestrator.ts` | 新建 | 统一生成入口 |
-| `src/services/generation/strategy-resolver.ts` | 新建 | 策略选择 |
-| `src/services/generation/face-validator.ts` | 新建 | 人脸验证 |
-| `src/services/ai/types.ts` | 修改 | 添加 Provider Capability |
-| `src/services/ai/provider-factory.ts` | 修改 | 声明各 provider 能力 |
-| `src/lib/prompt-builder.ts` | 修改 | 支持结构化角色字段 |
-| `src/types/character.ts` | 修改 | 新增 CharacterAppearance 等类型 |
-| `src/app/(dashboard)/characters/page.tsx` | 拆分+修改 | 结构化编辑器 |
-| `src/app/(dashboard)/editor/[id]/components/SceneEditor.tsx` | 修改 | 参考图对比面板 |
-| `src/app/(dashboard)/editor/[id]/components/SceneList.tsx` | 修改 | 主角色标记 + 一致性指示器 |
-| `src/app/api/characters/[id]/generate-reference/route.ts` | 修改 | 不再默认替代 canonical |
+| 文件                                                         | 操作      | 说明                                |
+| ------------------------------------------------------------ | --------- | ----------------------------------- |
+| `prisma/schema.prisma`                                       | 修改      | 新增 4 个模型，Character 添加关联   |
+| `src/app/api/generate/image/route.ts`                        | 重构      | 调用 imageOrchestrator 替代内联逻辑 |
+| `src/services/queue-workers.ts:L56-150`                      | 重构      | 调用 imageOrchestrator              |
+| `src/services/generation/image-orchestrator.ts`              | 新建      | 统一生成入口                        |
+| `src/services/generation/strategy-resolver.ts`               | 新建      | 策略选择                            |
+| `src/services/generation/face-validator.ts`                  | 新建      | 人脸验证                            |
+| `src/services/ai/types.ts`                                   | 修改      | 添加 Provider Capability            |
+| `src/services/ai/provider-factory.ts`                        | 修改      | 声明各 provider 能力                |
+| `src/lib/prompt-builder.ts`                                  | 修改      | 支持结构化角色字段                  |
+| `src/types/character.ts`                                     | 修改      | 新增 CharacterAppearance 等类型     |
+| `src/app/(dashboard)/characters/page.tsx`                    | 拆分+修改 | 结构化编辑器                        |
+| `src/app/(dashboard)/editor/[id]/components/SceneEditor.tsx` | 修改      | 参考图对比面板                      |
+| `src/app/(dashboard)/editor/[id]/components/SceneList.tsx`   | 修改      | 主角色标记 + 一致性指示器           |
+| `src/app/api/characters/[id]/generate-reference/route.ts`    | 修改      | 不再默认替代 canonical              |
 
 ## 风险与缓解
 
-| 风险 | 概率 | 影响 | 缓解措施 |
-|------|------|------|----------|
-| InsightFace 集成复杂度 | 高 | 中 | 先用 Python microservice，后期考虑 WASM |
-| Face embedding 生物特征合规 | 中 | 高 | 按用户隔离、级联删除、限制导出、加密存储 |
-| 多角色一致性仍受模型能力限制 | 高 | 高 | 明确「主角色锁定 + 次角色 prompt」策略，设定用户预期 |
-| 数据迁移（referenceImages → Asset 表） | 中 | 中 | 编写迁移脚本，保留旧字段过渡期 |
-| 阈值校准缺乏数据 | 高 | 中 | 初期宽松阈值 + 用户反馈收集，逐步收紧 |
+| 风险                                   | 概率 | 影响 | 缓解措施                                             |
+| -------------------------------------- | ---- | ---- | ---------------------------------------------------- |
+| InsightFace 集成复杂度                 | 高   | 中   | 先用 Python microservice，后期考虑 WASM              |
+| Face embedding 生物特征合规            | 中   | 高   | 按用户隔离、级联删除、限制导出、加密存储             |
+| 多角色一致性仍受模型能力限制           | 高   | 高   | 明确「主角色锁定 + 次角色 prompt」策略，设定用户预期 |
+| 数据迁移（referenceImages → Asset 表） | 中   | 中   | 编写迁移脚本，保留旧字段过渡期                       |
+| 阈值校准缺乏数据                       | 高   | 中   | 初期宽松阈值 + 用户反馈收集，逐步收紧                |
 
 ## 执行优先级
 
@@ -309,5 +310,6 @@ Phase D (批量+优化，1-2周)
 **总计估算：7-10 周**
 
 ## SESSION_ID（供 /ccg:execute 使用）
+
 - CODEX_SESSION: 019d0126-539f-7a92-8611-8936837aa894
 - GEMINI_SESSION: bab4495b-f31e-4175-93c9-ae17729a0174

@@ -2,7 +2,10 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import type { Scene } from "@prisma/client";
-import { synthesizeVideo, type ExportOptions } from "@/services/video-synthesis";
+import {
+  synthesizeVideo,
+  type ExportOptions,
+} from "@/services/video-synthesis";
 import { uploadToR2, isR2Configured } from "@/services/storage";
 
 import { createLogger } from "@/lib/logger";
@@ -50,7 +53,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
     if (scenesWithContent.length === 0) {
       return NextResponse.json(
-        { error: "No content to export. Please generate images or videos first." },
+        {
+          error:
+            "No content to export. Please generate images or videos first.",
+        },
         { status: 400 }
       );
     }
@@ -101,7 +107,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 如果是同步模式，立即处理
     if (sync) {
       try {
-        const videoBuffer = await synthesizeVideo(sceneMediaList, exportOptions);
+        const videoBuffer = await synthesizeVideo(
+          sceneMediaList,
+          exportOptions
+        );
 
         let videoUrl: string | null = null;
         if (isR2Configured()) {
@@ -196,15 +205,19 @@ async function processExportAsync(
   }
 ) {
   try {
-    const videoBuffer = await synthesizeVideo(scenes, options, async (progress) => {
-      // 更新进度
-      await prisma.generationTask.update({
-        where: { id: taskId },
-        data: {
-          output: { progress },
-        },
-      });
-    });
+    const videoBuffer = await synthesizeVideo(
+      scenes,
+      options,
+      async (progress) => {
+        // 更新进度
+        await prisma.generationTask.update({
+          where: { id: taskId },
+          data: {
+            output: { progress },
+          },
+        });
+      }
+    );
 
     let videoUrl: string | null = null;
     if (isR2Configured()) {

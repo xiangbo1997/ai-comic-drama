@@ -37,11 +37,18 @@ interface CharacterCardProps {
   onCancelEdit: () => void;
   onUpdate: () => void;
   onDelete: (id: string) => void;
-  onOpenGenerateModal: (characterId: string, source: "none" | "upload" | "existing") => void;
+  onOpenGenerateModal: (
+    characterId: string,
+    source: "none" | "upload" | "existing"
+  ) => void;
   uploadingBaseImageId: string | null;
   generateMutationPending: boolean;
   updateMutationPending: boolean;
-  generateDescriptionMutation: UseMutationResult<{ description: string }, Error, { name: string; gender: string; age: string }>;
+  generateDescriptionMutation: UseMutationResult<
+    { description: string },
+    Error,
+    { name: string; gender: string; age: string }
+  >;
 }
 
 export function CharacterCard({
@@ -67,44 +74,48 @@ export function CharacterCard({
   generateDescriptionMutation,
 }: CharacterCardProps) {
   return (
-    <div className="bg-gray-800 rounded-xl overflow-hidden">
+    <div className="overflow-hidden rounded-xl bg-gray-800">
       {/* Reference Image */}
-      <div className="aspect-square bg-gray-700 relative">
+      <div className="relative aspect-square bg-gray-700">
         {character.referenceImages.length > 0 ? (
           <img
             src={character.referenceImages[currentImageIndex]}
             alt={character.name}
-            className="w-full h-full object-cover"
+            className="h-full w-full object-cover"
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center text-gray-500">
+          <div className="flex h-full w-full flex-col items-center justify-center text-gray-500">
             <User size={48} />
-            <span className="text-sm mt-2">无参考图</span>
+            <span className="mt-2 text-sm">无参考图</span>
           </div>
         )}
 
         {character.referenceImages.length > 1 && (
-          <div className="absolute bottom-2 left-0 right-0 flex items-center justify-center gap-3 px-2">
+          <div className="absolute right-0 bottom-2 left-0 flex items-center justify-center gap-3 px-2">
             <button
-              onClick={() => onPrevImage(character.id, character.referenceImages.length)}
-              className="p-1.5 bg-black/60 hover:bg-black/80 rounded-lg transition backdrop-blur-sm"
+              onClick={() =>
+                onPrevImage(character.id, character.referenceImages.length)
+              }
+              className="rounded-lg bg-black/60 p-1.5 backdrop-blur-sm transition hover:bg-black/80"
               title="上一张"
             >
               <ChevronLeft size={16} />
             </button>
-            <span className="text-xs font-medium text-white bg-black/60 px-2.5 py-1 rounded-lg backdrop-blur-sm">
+            <span className="rounded-lg bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
               {currentImageIndex + 1} / {character.referenceImages.length}
             </span>
             <button
-              onClick={() => onNextImage(character.id, character.referenceImages.length)}
-              className="p-1.5 bg-black/60 hover:bg-black/80 rounded-lg transition backdrop-blur-sm"
+              onClick={() =>
+                onNextImage(character.id, character.referenceImages.length)
+              }
+              className="rounded-lg bg-black/60 p-1.5 backdrop-blur-sm transition hover:bg-black/80"
               title="下一张"
             >
               <ChevronRight size={16} />
             </button>
             <button
               onClick={() => onDeleteImage(character.id, currentImageIndex)}
-              className="p-1.5 bg-red-600/80 hover:bg-red-700 rounded-lg transition backdrop-blur-sm"
+              className="rounded-lg bg-red-600/80 p-1.5 backdrop-blur-sm transition hover:bg-red-700"
               title="删除当前图片"
             >
               <Trash2 size={14} />
@@ -112,11 +123,11 @@ export function CharacterCard({
           </div>
         )}
 
-        <div className="absolute bottom-2 right-2 flex gap-2">
+        <div className="absolute right-2 bottom-2 flex gap-2">
           <button
             onClick={() => onOpenGenerateModal(character.id, "upload")}
             disabled={generateMutationPending}
-            className="p-2 bg-black/50 hover:bg-purple-600 rounded-lg transition"
+            className="rounded-lg bg-black/50 p-2 transition hover:bg-purple-600"
             title="上传垫图生成（基于参考图生成）"
           >
             {uploadingBaseImageId === character.id ? (
@@ -128,10 +139,11 @@ export function CharacterCard({
           <button
             onClick={() => onOpenGenerateModal(character.id, "none")}
             disabled={generateMutationPending}
-            className="p-2 bg-black/50 hover:bg-blue-600 rounded-lg transition"
+            className="rounded-lg bg-black/50 p-2 transition hover:bg-blue-600"
             title="AI 生成参考图"
           >
-            {generateMutationPending && uploadingBaseImageId !== character.id ? (
+            {generateMutationPending &&
+            uploadingBaseImageId !== character.id ? (
               <Loader2 size={18} className="animate-spin" />
             ) : (
               <Wand2 size={18} />
@@ -185,22 +197,30 @@ function CharacterEditForm({
   onUpdate: () => void;
   onCancel: () => void;
   updatePending: boolean;
-  generateDescriptionMutation: UseMutationResult<{ description: string }, Error, { name: string; gender: string; age: string }>;
+  generateDescriptionMutation: UseMutationResult<
+    { description: string },
+    Error,
+    { name: string; gender: string; age: string }
+  >;
 }) {
   return (
     <div className="space-y-3">
       <input
         type="text"
         value={formData.name}
-        onChange={(e) => onFormDataChange({ ...formData, name: e.target.value })}
-        className="w-full px-3 py-2 bg-gray-700 rounded-lg text-sm"
+        onChange={(e) =>
+          onFormDataChange({ ...formData, name: e.target.value })
+        }
+        className="w-full rounded-lg bg-gray-700 px-3 py-2 text-sm"
         placeholder="角色名称"
       />
       <div className="flex gap-2">
         <select
           value={formData.gender}
-          onChange={(e) => onFormDataChange({ ...formData, gender: e.target.value })}
-          className="flex-1 px-3 py-2 bg-gray-700 rounded-lg text-sm"
+          onChange={(e) =>
+            onFormDataChange({ ...formData, gender: e.target.value })
+          }
+          className="flex-1 rounded-lg bg-gray-700 px-3 py-2 text-sm"
         >
           <option value="female">女</option>
           <option value="male">男</option>
@@ -208,13 +228,15 @@ function CharacterEditForm({
         <input
           type="text"
           value={formData.age}
-          onChange={(e) => onFormDataChange({ ...formData, age: e.target.value })}
-          className="flex-1 px-3 py-2 bg-gray-700 rounded-lg text-sm"
+          onChange={(e) =>
+            onFormDataChange({ ...formData, age: e.target.value })
+          }
+          className="flex-1 rounded-lg bg-gray-700 px-3 py-2 text-sm"
           placeholder="年龄"
         />
       </div>
       <div>
-        <div className="flex items-center justify-between mb-1">
+        <div className="mb-1 flex items-center justify-between">
           <span className="text-xs text-gray-500">外貌描述</span>
           <button
             type="button"
@@ -225,8 +247,10 @@ function CharacterEditForm({
                 age: formData.age,
               })
             }
-            disabled={!formData.name.trim() || generateDescriptionMutation.isPending}
-            className="flex items-center gap-1 px-1.5 py-0.5 text-xs bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded transition"
+            disabled={
+              !formData.name.trim() || generateDescriptionMutation.isPending
+            }
+            className="flex items-center gap-1 rounded bg-purple-600 px-1.5 py-0.5 text-xs transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-gray-600"
             title="AI 生成外貌描述"
           >
             {generateDescriptionMutation.isPending ? (
@@ -239,8 +263,10 @@ function CharacterEditForm({
         </div>
         <textarea
           value={formData.description}
-          onChange={(e) => onFormDataChange({ ...formData, description: e.target.value })}
-          className="w-full px-3 py-2 bg-gray-700 rounded-lg text-sm resize-none"
+          onChange={(e) =>
+            onFormDataChange({ ...formData, description: e.target.value })
+          }
+          className="w-full resize-none rounded-lg bg-gray-700 px-3 py-2 text-sm"
           rows={2}
           placeholder="外貌描述"
         />
@@ -249,15 +275,17 @@ function CharacterEditForm({
         <button
           type="button"
           onClick={onToggleAppearanceEditor}
-          className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition mb-1"
+          className="mb-1 flex items-center gap-1 text-xs text-blue-400 transition hover:text-blue-300"
         >
           {showAppearanceEditor ? "▾" : "▸"} 结构化外貌
         </button>
         {showAppearanceEditor && (
-          <div className="p-2 bg-gray-800 rounded border border-gray-700">
+          <div className="rounded border border-gray-700 bg-gray-800 p-2">
             <AppearanceEditor
               value={formData.appearance}
-              onChange={(appearance: AppearanceFormData) => onFormDataChange({ ...formData, appearance })}
+              onChange={(appearance: AppearanceFormData) =>
+                onFormDataChange({ ...formData, appearance })
+              }
               compact
             />
           </div>
@@ -265,15 +293,19 @@ function CharacterEditForm({
       </div>
       <select
         value={formData.voiceId}
-        onChange={(e) => onFormDataChange({ ...formData, voiceId: e.target.value })}
-        className="w-full px-3 py-2 bg-gray-700 rounded-lg text-sm"
+        onChange={(e) =>
+          onFormDataChange({ ...formData, voiceId: e.target.value })
+        }
+        className="w-full rounded-lg bg-gray-700 px-3 py-2 text-sm"
       >
         <option value="">选择声线</option>
-        {VOICE_PRESETS.filter((v) => v.gender === formData.gender).map((voice) => (
-          <option key={voice.id} value={voice.id}>
-            {voice.name}
-          </option>
-        ))}
+        {VOICE_PRESETS.filter((v) => v.gender === formData.gender).map(
+          (voice) => (
+            <option key={voice.id} value={voice.id}>
+              {voice.name}
+            </option>
+          )
+        )}
       </select>
       {tags.length > 0 && (
         <div className="space-y-2">
@@ -293,10 +325,7 @@ function CharacterEditForm({
                         : [...formData.tagIds, tag.id],
                     });
                   }}
-                  className={`
-                    px-2 py-1 rounded-full text-xs transition
-                    ${isSelected ? "ring-1 ring-white" : "opacity-50 hover:opacity-100"}
-                  `}
+                  className={`rounded-full px-2 py-1 text-xs transition ${isSelected ? "ring-1 ring-white" : "opacity-50 hover:opacity-100"} `}
                   style={{ backgroundColor: tag.color || "#6B7280" }}
                 >
                   {tag.name}
@@ -310,14 +339,18 @@ function CharacterEditForm({
         <button
           onClick={onUpdate}
           disabled={updatePending}
-          className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm flex items-center justify-center gap-1"
+          className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-600 py-2 text-sm hover:bg-blue-700"
         >
-          {updatePending ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+          {updatePending ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Check size={16} />
+          )}
           保存
         </button>
         <button
           onClick={onCancel}
-          className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm flex items-center justify-center gap-1"
+          className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-gray-700 py-2 text-sm hover:bg-gray-600"
         >
           <X size={16} />
           取消
@@ -338,23 +371,26 @@ function CharacterViewInfo({
 }) {
   return (
     <>
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="font-semibold text-lg">{character.name}</h3>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-lg font-semibold">{character.name}</h3>
         <div className="flex gap-1">
-          <button onClick={onStartEdit} className="p-1.5 hover:bg-gray-700 rounded">
+          <button
+            onClick={onStartEdit}
+            className="rounded p-1.5 hover:bg-gray-700"
+          >
             <Edit2 size={16} />
           </button>
-          <button onClick={onDelete} className="p-1.5 hover:bg-red-600 rounded">
+          <button onClick={onDelete} className="rounded p-1.5 hover:bg-red-600">
             <Trash2 size={16} />
           </button>
         </div>
       </div>
       {character.tags && character.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-2">
+        <div className="mb-2 flex flex-wrap gap-1">
           {character.tags.map(({ tag }) => (
             <span
               key={tag.id}
-              className="px-2 py-0.5 rounded-full text-xs"
+              className="rounded-full px-2 py-0.5 text-xs"
               style={{ backgroundColor: tag.color || "#6B7280" }}
             >
               {tag.name}
@@ -362,18 +398,21 @@ function CharacterViewInfo({
           ))}
         </div>
       )}
-      <div className="text-sm text-gray-400 space-y-1">
+      <div className="space-y-1 text-sm text-gray-400">
         {character.gender && (
           <p>
             {character.gender === "female" ? "女" : "男"}
             {character.age && ` · ${character.age}岁`}
           </p>
         )}
-        {character.description && <p className="line-clamp-2">{character.description}</p>}
+        {character.description && (
+          <p className="line-clamp-2">{character.description}</p>
+        )}
         {character.voiceId && (
           <p className="text-blue-400">
             🎤{" "}
-            {VOICE_PRESETS.find((v) => v.id === character.voiceId)?.name || "自定义声线"}
+            {VOICE_PRESETS.find((v) => v.id === character.voiceId)?.name ||
+              "自定义声线"}
           </p>
         )}
       </div>

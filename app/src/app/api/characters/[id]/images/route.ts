@@ -25,7 +25,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
 
     if (!character) {
-      return NextResponse.json({ error: "Character not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Character not found" },
+        { status: 404 }
+      );
     }
 
     // 获取要删除的图片索引
@@ -33,7 +36,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const index = searchParams.get("index");
 
     if (index === null) {
-      return NextResponse.json({ error: "Index parameter required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Index parameter required" },
+        { status: 400 }
+      );
     }
 
     const idx = parseInt(index, 10);

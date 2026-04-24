@@ -11,8 +11,8 @@ export const claudeLLM: LLMProvider = {
     const model = options.model || config.model;
 
     // Claude 不支持 system 作为消息角色
-    const systemMessage = messages.find(m => m.role === "system");
-    const otherMessages = messages.filter(m => m.role !== "system");
+    const systemMessage = messages.find((m) => m.role === "system");
+    const otherMessages = messages.filter((m) => m.role !== "system");
 
     const response = await fetchWithError(
       `${baseUrl}/messages`,
@@ -27,7 +27,7 @@ export const claudeLLM: LLMProvider = {
           model,
           max_tokens: options.maxTokens,
           system: systemMessage?.content,
-          messages: otherMessages.map(m => ({
+          messages: otherMessages.map((m) => ({
             role: m.role,
             content: m.content,
           })),

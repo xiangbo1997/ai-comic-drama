@@ -5,7 +5,10 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
-import { getWorkflowStatus, cancelWorkflow } from "@/services/agents/workflow-engine";
+import {
+  getWorkflowStatus,
+  cancelWorkflow,
+} from "@/services/agents/workflow-engine";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("api:workflow:id");
@@ -13,7 +16,7 @@ const log = createLogger("api:workflow:id");
 /** GET /api/workflow/[id] — 获取 workflow 详细状态 */
 export async function GET(
   _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -35,14 +38,17 @@ export async function GET(
     return NextResponse.json(status);
   } catch (error) {
     log.error("Get workflow status error:", error);
-    return NextResponse.json({ error: "获取 workflow 状态失败" }, { status: 500 });
+    return NextResponse.json(
+      { error: "获取 workflow 状态失败" },
+      { status: 500 }
+    );
   }
 }
 
 /** DELETE /api/workflow/[id] — 取消 workflow */
 export async function DELETE(
   _request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -60,7 +66,10 @@ export async function DELETE(
     }
 
     if (run.status === "COMPLETED" || run.status === "FAILED") {
-      return NextResponse.json({ error: "Workflow 已结束，无法取消" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Workflow 已结束，无法取消" },
+        { status: 400 }
+      );
     }
 
     await cancelWorkflow(id);

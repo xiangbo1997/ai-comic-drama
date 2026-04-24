@@ -38,10 +38,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     // 用户只能修改自己的标签
     if (existingTag.userId !== session.user.id) {
-      return NextResponse.json(
-        { error: "无权修改此标签" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "无权修改此标签" }, { status: 403 });
     }
 
     const { name, category, color } = await request.json();
@@ -57,10 +54,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       });
 
       if (duplicateTag) {
-        return NextResponse.json(
-          { error: "标签名称已存在" },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "标签名称已存在" }, { status: 400 });
       }
     }
 
@@ -112,10 +106,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     // 用户只能删除自己的标签
     if (existingTag.userId !== session.user.id) {
-      return NextResponse.json(
-        { error: "无权删除此标签" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "无权删除此标签" }, { status: 403 });
     }
 
     // 删除标签（关联的 CharacterTag 会自动级联删除）

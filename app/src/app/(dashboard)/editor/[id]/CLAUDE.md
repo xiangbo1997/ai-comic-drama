@@ -10,8 +10,8 @@
 
 ## 入口与启动
 
-| 文件 | 作用 |
-|------|------|
+| 文件       | 作用                                                          |
+| ---------- | ------------------------------------------------------------- |
 | `page.tsx` | 编辑器入口，`EditorPage` 默认导出；仅承担 UI 编排与对话框状态 |
 
 URL：`/editor/[id]`，`params.id` 为项目 ID。
@@ -53,17 +53,17 @@ editor/[id]/
 
 ## 对外接口（调用的 API）
 
-| API | 触发位置 |
-|-----|---------|
-| `GET /api/projects/:id` | 进入页面时加载 |
-| `PATCH /api/projects/:id` | 标题、风格、比例修改 |
-| `POST /api/script/parse` | ScriptPanel "解析"按钮 |
-| `POST /api/projects/:id/scenes` | 保存解析结果 |
-| `POST /api/generate/image` | 单分镜/批量图像生成、多配置并行 |
-| `POST /api/generate/video` | 视频生成（多配置对话框） |
-| `POST /api/generate/tts` | 语音合成（多配置对话框） |
-| `POST /api/projects/:id/export` + `GET ?taskId=` | 导出 + 轮询 |
-| `POST /api/projects/:id/workflow` | 启动 Workflow |
+| API                                              | 触发位置                        |
+| ------------------------------------------------ | ------------------------------- |
+| `GET /api/projects/:id`                          | 进入页面时加载                  |
+| `PATCH /api/projects/:id`                        | 标题、风格、比例修改            |
+| `POST /api/script/parse`                         | ScriptPanel "解析"按钮          |
+| `POST /api/projects/:id/scenes`                  | 保存解析结果                    |
+| `POST /api/generate/image`                       | 单分镜/批量图像生成、多配置并行 |
+| `POST /api/generate/video`                       | 视频生成（多配置对话框）        |
+| `POST /api/generate/tts`                         | 语音合成（多配置对话框）        |
+| `POST /api/projects/:id/export` + `GET ?taskId=` | 导出 + 轮询                     |
+| `POST /api/projects/:id/workflow`                | 启动 Workflow                   |
 
 ## 数据流
 
@@ -110,6 +110,6 @@ flowchart LR
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                                                       |
+| ---------- | ---------------------------------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师）；记录重构后 ~431 行结构 |

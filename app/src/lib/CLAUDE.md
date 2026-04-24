@@ -10,17 +10,17 @@
 
 ## 关键文件
 
-| 文件 | 职责 | 关键导出 |
-|------|------|---------|
-| `auth.ts` | NextAuth v5 配置 + `registerUser` 业务 | `handlers / auth / signIn / signOut / registerUser` |
-| `prisma.ts` | Prisma Client 单例 | `prisma` |
-| `encryption.ts` | AES-256-GCM 加/解密 | `encrypt / decrypt / generateEncryptionKey / maskApiKey` |
-| `ai-config.ts` | 查询用户 AI 配置并解密 API Key | `getUserLLMConfig / getUserImageConfig / getUserVideoConfig / getUserTTSConfig` |
-| `logger.ts` | 带上下文的日志器 | `logger / createLogger(context)` |
-| `rate-limit.ts` | 滑动窗口限流（Memory/Redis） | `rateLimiters / rateLimitHeaders / RateLimitConfig / RateLimitResult` |
-| `content-safety.ts` | 内容安全审核（关键词 + 专业 API） | `contentSafetyMiddleware / ContentCheckResult / ImageCheckResult` |
-| `prompt-builder.ts` | 增强图像 prompt（角色固定特征 + 场景分析） | `buildEnhancedPrompt / buildSceneAnalysisPrompt / parseSceneAnalysisResponse` |
-| `prompts/index.ts` | Prompt 模板集中导出 | `SCRIPT_PARSE_SYSTEM / buildScriptParseUserPrompt / getStylePrefix / getShotTypeDescription / getSimpleStylePrefix` |
+| 文件                | 职责                                       | 关键导出                                                                                                            |
+| ------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `auth.ts`           | NextAuth v5 配置 + `registerUser` 业务     | `handlers / auth / signIn / signOut / registerUser`                                                                 |
+| `prisma.ts`         | Prisma Client 单例                         | `prisma`                                                                                                            |
+| `encryption.ts`     | AES-256-GCM 加/解密                        | `encrypt / decrypt / generateEncryptionKey / maskApiKey`                                                            |
+| `ai-config.ts`      | 查询用户 AI 配置并解密 API Key             | `getUserLLMConfig / getUserImageConfig / getUserVideoConfig / getUserTTSConfig`                                     |
+| `logger.ts`         | 带上下文的日志器                           | `logger / createLogger(context)`                                                                                    |
+| `rate-limit.ts`     | 滑动窗口限流（Memory/Redis）               | `rateLimiters / rateLimitHeaders / RateLimitConfig / RateLimitResult`                                               |
+| `content-safety.ts` | 内容安全审核（关键词 + 专业 API）          | `contentSafetyMiddleware / ContentCheckResult / ImageCheckResult`                                                   |
+| `prompt-builder.ts` | 增强图像 prompt（角色固定特征 + 场景分析） | `buildEnhancedPrompt / buildSceneAnalysisPrompt / parseSceneAnalysisResponse`                                       |
+| `prompts/index.ts`  | Prompt 模板集中导出                        | `SCRIPT_PARSE_SYSTEM / buildScriptParseUserPrompt / getStylePrefix / getShotTypeDescription / getSimpleStylePrefix` |
 
 ## 对外接口摘录
 
@@ -130,6 +130,6 @@ graph TD
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

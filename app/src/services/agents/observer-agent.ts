@@ -51,7 +51,7 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
 
   async run(
     input: ObserverInput,
-    ctx: WorkflowContext,
+    ctx: WorkflowContext
   ): Promise<AgentResult<ObserverVerdict>> {
     ctx.emit({
       type: "agent:thinking",
@@ -77,7 +77,7 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
               input.sceneDescription,
               characterDescriptions,
               input.expectedEmotion ?? "neutral",
-              input.expectedShotType ?? "medium shot",
+              input.expectedShotType ?? "medium shot"
             ),
           },
         ],
@@ -85,7 +85,7 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
           temperature: 0.2,
           maxTokens: 1024,
           config: ctx.config.llm,
-        },
+        }
       );
 
       const tokensUsed = Math.ceil(response.length / 4);
@@ -94,11 +94,14 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
 
       if (result.success) {
         const verdict = result.data as ObserverVerdict;
-        log.info(`Observer verdict: pass=${verdict.pass}, score=${verdict.score.overall}`);
+        log.info(
+          `Observer verdict: pass=${verdict.pass}, score=${verdict.score.overall}`
+        );
         return {
           success: true,
           data: verdict,
-          reasoning: verdict.score.feedback ?? `评分 ${verdict.score.overall}/100`,
+          reasoning:
+            verdict.score.feedback ?? `评分 ${verdict.score.overall}/100`,
           attempts: 1,
           tokensUsed,
         };
@@ -106,7 +109,9 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
 
       log.warn("Observer response validation failed, using default pass");
     } catch (err) {
-      log.warn(`Observer failed: ${err instanceof Error ? err.message : "Unknown"}`);
+      log.warn(
+        `Observer failed: ${err instanceof Error ? err.message : "Unknown"}`
+      );
     }
 
     // 降级：默认通过（避免阻塞流程）

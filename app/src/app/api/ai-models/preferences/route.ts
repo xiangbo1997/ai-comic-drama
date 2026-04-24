@@ -31,10 +31,7 @@ export async function GET() {
     return NextResponse.json({ preference });
   } catch (error) {
     log.error("Get preferences error:", error);
-    return NextResponse.json(
-      { error: "获取偏好设置失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "获取偏好设置失败" }, { status: 500 });
   }
 }
 
@@ -58,14 +55,14 @@ export async function PUT(request: Request) {
 
     // 验证并发模式
     if (concurrencyMode && !["SERIAL", "PARALLEL"].includes(concurrencyMode)) {
-      return NextResponse.json(
-        { error: "无效的并发模式" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "无效的并发模式" }, { status: 400 });
     }
 
     // 验证最大并发数
-    if (maxConcurrent !== undefined && (maxConcurrent < 1 || maxConcurrent > 10)) {
+    if (
+      maxConcurrent !== undefined &&
+      (maxConcurrent < 1 || maxConcurrent > 10)
+    ) {
       return NextResponse.json(
         { error: "最大并发数必须在 1-10 之间" },
         { status: 400 }
@@ -96,9 +93,6 @@ export async function PUT(request: Request) {
     return NextResponse.json({ preference, success: true });
   } catch (error) {
     log.error("Update preferences error:", error);
-    return NextResponse.json(
-      { error: "更新偏好设置失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "更新偏好设置失败" }, { status: 500 });
   }
 }

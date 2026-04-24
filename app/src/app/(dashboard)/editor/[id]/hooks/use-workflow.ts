@@ -62,7 +62,9 @@ export function useWorkflow(projectId: string): UseWorkflowReturn {
             fetchStatus(workflowRunId);
           } else if (event.type === "workflow:failed") {
             setIsRunning(false);
-            setError((event.data as { error?: string }).error ?? "Workflow 执行失败");
+            setError(
+              (event.data as { error?: string }).error ?? "Workflow 执行失败"
+            );
             closeSSE();
             fetchStatus(workflowRunId);
           }
@@ -79,7 +81,7 @@ export function useWorkflow(projectId: string): UseWorkflowReturn {
         }
       };
     },
-    [closeSSE],
+    [closeSSE]
   );
 
   const fetchStatus = async (workflowRunId: string) => {
@@ -135,14 +137,16 @@ export function useWorkflow(projectId: string): UseWorkflowReturn {
         setError(err instanceof Error ? err.message : "启动 workflow 失败");
       }
     },
-    [projectId, subscribeEvents],
+    [projectId, subscribeEvents]
   );
 
   const cancel = useCallback(async () => {
     if (!workflowIdRef.current) return;
 
     try {
-      await fetch(`/api/workflow/${workflowIdRef.current}`, { method: "DELETE" });
+      await fetch(`/api/workflow/${workflowIdRef.current}`, {
+        method: "DELETE",
+      });
       setIsRunning(false);
       closeSSE();
     } catch {

@@ -41,7 +41,9 @@ export async function GET() {
       testStatus: config.testStatus,
       lastTestedAt: config.lastTestedAt,
       hasApiKey: !!config.apiKey,
-      apiKeyMasked: config.apiKey ? maskApiKey(config.apiKey.slice(0, 20)) : null,
+      apiKeyMasked: config.apiKey
+        ? maskApiKey(config.apiKey.slice(0, 20))
+        : null,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     }));
@@ -49,10 +51,7 @@ export async function GET() {
     return NextResponse.json({ configs: safeConfigs });
   } catch (error) {
     log.error("Get configs error:", error);
-    return NextResponse.json(
-      { error: "获取配置列表失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "获取配置列表失败" }, { status: 500 });
   }
 }
 
@@ -65,7 +64,18 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { providerId, apiKey, extraConfig, selectedModel, isDefault, customBaseUrl, apiProtocol, customModels, authType, tokenExpiresAt } = body;
+    const {
+      providerId,
+      apiKey,
+      extraConfig,
+      selectedModel,
+      isDefault,
+      customBaseUrl,
+      apiProtocol,
+      customModels,
+      authType,
+      tokenExpiresAt,
+    } = body;
 
     if (!providerId) {
       return NextResponse.json(
@@ -78,7 +88,12 @@ export async function POST(request: Request) {
     const effectiveAuthType = authType || "API_KEY";
     if (!apiKey) {
       return NextResponse.json(
-        { error: effectiveAuthType === "CHATGPT_TOKEN" ? "请输入 Access Token" : "请输入 API Key" },
+        {
+          error:
+            effectiveAuthType === "CHATGPT_TOKEN"
+              ? "请输入 Access Token"
+              : "请输入 API Key",
+        },
         { status: 400 }
       );
     }
@@ -89,10 +104,7 @@ export async function POST(request: Request) {
     });
 
     if (!provider) {
-      return NextResponse.json(
-        { error: "提供商不存在" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "提供商不存在" }, { status: 400 });
     }
 
     // 加密 API Key
@@ -151,9 +163,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ id: config.id, success: true });
   } catch (error) {
     log.error("Create config error:", error);
-    return NextResponse.json(
-      { error: "创建配置失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "创建配置失败" }, { status: 500 });
   }
 }

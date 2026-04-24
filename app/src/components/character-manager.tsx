@@ -62,7 +62,10 @@ async function generateReferenceImage(id: string) {
   return res.json();
 }
 
-export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps) {
+export function CharacterManager({
+  onSelect,
+  selectedId,
+}: CharacterManagerProps) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -143,12 +146,12 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
   };
 
   return (
-    <div className="bg-gray-800 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-4">
+    <div className="rounded-xl bg-gray-800 p-4">
+      <div className="mb-4 flex items-center justify-between">
         <h3 className="font-semibold">角色库</h3>
         <button
           onClick={() => setShowForm(true)}
-          className="p-1.5 hover:bg-gray-700 rounded-lg"
+          className="rounded-lg p-1.5 hover:bg-gray-700"
         >
           <Plus size={18} />
         </button>
@@ -160,35 +163,35 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
           <Loader2 size={24} className="animate-spin text-gray-400" />
         </div>
       ) : characters?.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
+        <div className="py-8 text-center text-gray-500">
           <User size={32} className="mx-auto mb-2 opacity-50" />
           <p className="text-sm">暂无角色</p>
           <button
             onClick={() => setShowForm(true)}
-            className="mt-2 text-blue-400 text-sm hover:underline"
+            className="mt-2 text-sm text-blue-400 hover:underline"
           >
             创建第一个角色
           </button>
         </div>
       ) : (
-        <div className="space-y-2 max-h-64 overflow-y-auto">
+        <div className="max-h-64 space-y-2 overflow-y-auto">
           {characters?.map((character) => (
             <div
               key={character.id}
               onClick={() => onSelect?.(character)}
-              className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition ${
+              className={`flex cursor-pointer items-center gap-3 rounded-lg p-2 transition ${
                 selectedId === character.id
                   ? "bg-blue-600/20 ring-1 ring-blue-500"
                   : "hover:bg-gray-700"
               }`}
             >
               {/* Avatar */}
-              <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center overflow-hidden shrink-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-700">
                 {character.referenceImages[0] ? (
                   <img
                     src={character.referenceImages[0]}
                     alt={character.name}
-                    className="w-full h-full object-cover"
+                    className="h-full w-full object-cover"
                   />
                 ) : (
                   <User size={20} className="text-gray-500" />
@@ -196,11 +199,12 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
               </div>
 
               {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{character.name}</p>
-                <p className="text-xs text-gray-400 truncate">
-                  {[character.gender, character.age].filter(Boolean).join(" · ") ||
-                    "未设置"}
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{character.name}</p>
+                <p className="truncate text-xs text-gray-400">
+                  {[character.gender, character.age]
+                    .filter(Boolean)
+                    .join(" · ") || "未设置"}
                 </p>
               </div>
 
@@ -212,7 +216,7 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                     generateImageMutation.mutate(character.id);
                   }}
                   disabled={generateImageMutation.isPending}
-                  className="p-1.5 hover:bg-gray-600 rounded"
+                  className="rounded p-1.5 hover:bg-gray-600"
                   title="生成参考图"
                 >
                   {generateImageMutation.isPending &&
@@ -227,7 +231,7 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                     e.stopPropagation();
                     handleEdit(character);
                   }}
-                  className="p-1.5 hover:bg-gray-600 rounded"
+                  className="rounded p-1.5 hover:bg-gray-600"
                 >
                   <Edit2 size={14} />
                 </button>
@@ -236,7 +240,7 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                     e.stopPropagation();
                     handleDelete(character.id);
                   }}
-                  className="p-1.5 hover:bg-red-600 rounded"
+                  className="rounded p-1.5 hover:bg-red-600"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -248,20 +252,23 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
 
       {/* Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-gray-800 rounded-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-xl bg-gray-800 p-6">
+            <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">
                 {editingId ? "编辑角色" : "创建角色"}
               </h3>
-              <button onClick={resetForm} className="p-1 hover:bg-gray-700 rounded">
+              <button
+                onClick={resetForm}
+                className="rounded p-1 hover:bg-gray-700"
+              >
                 <X size={20} />
               </button>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1">
+                <label className="mb-1 block text-sm text-gray-400">
                   名称 <span className="text-red-400">*</span>
                 </label>
                 <input
@@ -271,19 +278,21 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                     setFormData({ ...formData, name: e.target.value })
                   }
                   placeholder="角色名称"
-                  className="w-full bg-gray-700 rounded-lg px-3 py-2"
+                  className="w-full rounded-lg bg-gray-700 px-3 py-2"
                 />
               </div>
 
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <label className="block text-sm text-gray-400 mb-1">性别</label>
+                  <label className="mb-1 block text-sm text-gray-400">
+                    性别
+                  </label>
                   <select
                     value={formData.gender}
                     onChange={(e) =>
                       setFormData({ ...formData, gender: e.target.value })
                     }
-                    className="w-full bg-gray-700 rounded-lg px-3 py-2"
+                    className="w-full rounded-lg bg-gray-700 px-3 py-2"
                   >
                     <option value="">未设置</option>
                     <option value="male">男</option>
@@ -291,7 +300,9 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                   </select>
                 </div>
                 <div className="flex-1">
-                  <label className="block text-sm text-gray-400 mb-1">年龄</label>
+                  <label className="mb-1 block text-sm text-gray-400">
+                    年龄
+                  </label>
                   <input
                     type="text"
                     value={formData.age}
@@ -299,13 +310,15 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                       setFormData({ ...formData, age: e.target.value })
                     }
                     placeholder="如: 25"
-                    className="w-full bg-gray-700 rounded-lg px-3 py-2"
+                    className="w-full rounded-lg bg-gray-700 px-3 py-2"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">外貌描述</label>
+                <label className="mb-1 block text-sm text-gray-400">
+                  外貌描述
+                </label>
                 <textarea
                   value={formData.description}
                   onChange={(e) =>
@@ -313,15 +326,15 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                   }
                   placeholder="描述角色的外貌特征，如：黑色长发，大眼睛，瓜子脸..."
                   rows={3}
-                  className="w-full bg-gray-700 rounded-lg px-3 py-2 resize-none"
+                  className="w-full resize-none rounded-lg bg-gray-700 px-3 py-2"
                 />
               </div>
             </div>
 
-            <div className="flex gap-3 mt-6">
+            <div className="mt-6 flex gap-3">
               <button
                 onClick={resetForm}
-                className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+                className="flex-1 rounded-lg bg-gray-700 py-2 hover:bg-gray-600"
               >
                 取消
               </button>
@@ -332,10 +345,10 @@ export function CharacterManager({ onSelect, selectedId }: CharacterManagerProps
                   createMutation.isPending ||
                   updateMutation.isPending
                 }
-                className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+                className="flex-1 rounded-lg bg-blue-600 py-2 hover:bg-blue-700 disabled:opacity-50"
               >
                 {createMutation.isPending || updateMutation.isPending ? (
-                  <Loader2 size={18} className="animate-spin mx-auto" />
+                  <Loader2 size={18} className="mx-auto animate-spin" />
                 ) : editingId ? (
                   "保存"
                 ) : (

@@ -10,14 +10,14 @@
 
 ## 目录约定（推测 + 实际）
 
-| 子目录 | 用途 |
-|--------|------|
-| `ui/` | shadcn/ui 生成的原子组件（Button / Dialog / Input / Select / Tabs 等），由 shadcn CLI 管理 |
-| `ai-models/` | AI 模型配置相关组件（`MultiGenerateDialog` 等） |
-| `providers.tsx` | 全局 Provider：`SessionProvider`（NextAuth）+ `QueryClientProvider`（React Query） |
-| `timeline-editor.tsx` | 编辑器底部时间轴（分镜拖拽 + 时长调整） |
-| `preview-player.tsx` | 预览播放器（逐分镜播放图像/视频 + TTS） |
-| （其他领域组件） | 角色卡、场景卡、配置面板等 |
+| 子目录                | 用途                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `ui/`                 | shadcn/ui 生成的原子组件（Button / Dialog / Input / Select / Tabs 等），由 shadcn CLI 管理 |
+| `ai-models/`          | AI 模型配置相关组件（`MultiGenerateDialog` 等）                                            |
+| `providers.tsx`       | 全局 Provider：`SessionProvider`（NextAuth）+ `QueryClientProvider`（React Query）         |
+| `timeline-editor.tsx` | 编辑器底部时间轴（分镜拖拽 + 时长调整）                                                    |
+| `preview-player.tsx`  | 预览播放器（逐分镜播放图像/视频 + TTS）                                                    |
+| （其他领域组件）      | 角色卡、场景卡、配置面板等                                                                 |
 
 > 具体组件清单以实际目录为准；本索引仅给出已识别到的子集。
 
@@ -31,12 +31,12 @@
 
 ## 几个值得关注的组件
 
-| 组件 | 位置提示 | 作用 |
-|------|---------|------|
+| 组件                  | 位置提示     | 作用                                                |
+| --------------------- | ------------ | --------------------------------------------------- |
 | `MultiGenerateDialog` | `ai-models/` | 支持选择多个 AI 配置，串行/并行批量生成（图/视/音） |
-| `TimelineEditor` | 根目录 | 底部时间轴，分镜横向滚动 + 时长调整 |
-| `PreviewPlayer` | 根目录 | 按场景顺序播放生成的媒体资产 |
-| `Providers` | 根目录 | 根布局中包装子树 |
+| `TimelineEditor`      | 根目录       | 底部时间轴，分镜横向滚动 + 时长调整                 |
+| `PreviewPlayer`       | 根目录       | 按场景顺序播放生成的媒体资产                        |
+| `Providers`           | 根目录       | 根布局中包装子树                                    |
 
 ## 添加新组件的流程（shadcn）
 
@@ -54,6 +54,6 @@ pnpm dlx shadcn@latest add dialog
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                                                                              |
+| ---------- | --------------------------------------------------------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师）；标注为 light 覆盖度，推荐后续对子目录逐一补扫 |

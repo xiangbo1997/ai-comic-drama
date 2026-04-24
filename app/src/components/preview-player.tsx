@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize } from "lucide-react";
+import {
+  Play,
+  Pause,
+  SkipBack,
+  SkipForward,
+  Volume2,
+  VolumeX,
+  Maximize,
+} from "lucide-react";
 import type { ScenePreview } from "@/types";
 
 interface PreviewPlayerProps {
@@ -31,7 +39,9 @@ export function PreviewPlayer({
   const totalDuration = scenes.reduce((sum, s) => sum + s.duration, 0);
 
   // 同步外部选中的场景
-  const sceneIndex = currentSceneId ? scenes.findIndex((s) => s.id === currentSceneId) : -1;
+  const sceneIndex = currentSceneId
+    ? scenes.findIndex((s) => s.id === currentSceneId)
+    : -1;
   useEffect(() => {
     if (sceneIndex !== -1 && sceneIndex !== currentIndex) {
       setCurrentIndex(sceneIndex);
@@ -141,7 +151,7 @@ export function PreviewPlayer({
 
   if (scenes.length === 0) {
     return (
-      <div className="bg-gray-800 rounded-xl flex items-center justify-center aspect-video">
+      <div className="flex aspect-video items-center justify-center rounded-xl bg-gray-800">
         <p className="text-gray-500">暂无可预览的内容</p>
       </div>
     );
@@ -151,18 +161,20 @@ export function PreviewPlayer({
     aspectRatio === "9:16"
       ? "aspect-[9/16]"
       : aspectRatio === "1:1"
-      ? "aspect-square"
-      : "aspect-video";
+        ? "aspect-square"
+        : "aspect-video";
 
   return (
-    <div className="bg-gray-800 rounded-xl overflow-hidden">
+    <div className="overflow-hidden rounded-xl bg-gray-800">
       {/* Video/Image Display */}
-      <div className={`relative ${aspectClass} bg-black flex items-center justify-center`}>
+      <div
+        className={`relative ${aspectClass} flex items-center justify-center bg-black`}
+      >
         {currentScene?.videoUrl ? (
           <video
             ref={videoRef}
             src={currentScene.videoUrl}
-            className="w-full h-full object-contain"
+            className="h-full w-full object-contain"
             loop
             playsInline
           />
@@ -170,7 +182,7 @@ export function PreviewPlayer({
           <img
             src={currentScene.imageUrl}
             alt=""
-            className="w-full h-full object-contain"
+            className="h-full w-full object-contain"
           />
         ) : (
           <div className="text-gray-500">无内容</div>
@@ -182,36 +194,37 @@ export function PreviewPlayer({
         )}
 
         {/* Subtitles */}
-        {showSubtitles && (currentScene?.dialogue || currentScene?.narration) && (
-          <div className="absolute bottom-12 left-4 right-4 text-center">
-            <div className="inline-block bg-black/70 px-4 py-2 rounded-lg">
-              <p className="text-white text-sm">
-                {currentScene.dialogue || currentScene.narration}
-              </p>
+        {showSubtitles &&
+          (currentScene?.dialogue || currentScene?.narration) && (
+            <div className="absolute right-4 bottom-12 left-4 text-center">
+              <div className="inline-block rounded-lg bg-black/70 px-4 py-2">
+                <p className="text-sm text-white">
+                  {currentScene.dialogue || currentScene.narration}
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {/* Scene indicator */}
-        <div className="absolute top-4 left-4 bg-black/50 px-2 py-1 rounded text-xs">
+        <div className="absolute top-4 left-4 rounded bg-black/50 px-2 py-1 text-xs">
           {currentIndex + 1} / {scenes.length}
         </div>
       </div>
 
       {/* Controls */}
-      <div className="p-4 space-y-3">
+      <div className="space-y-3 p-4">
         {/* Progress Bar */}
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-400 w-10">
+          <span className="w-10 text-xs text-gray-400">
             {formatTime(calculateOverallProgress() * totalDuration)}
           </span>
-          <div className="flex-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+          <div className="h-1 flex-1 overflow-hidden rounded-full bg-gray-700">
             <div
               className="h-full bg-blue-500 transition-all duration-100"
               style={{ width: `${calculateOverallProgress() * 100}%` }}
             />
           </div>
-          <span className="text-xs text-gray-400 w-10">
+          <span className="w-10 text-xs text-gray-400">
             {formatTime(totalDuration)}
           </span>
         </div>
@@ -221,14 +234,14 @@ export function PreviewPlayer({
           <button
             onClick={goToPrevious}
             disabled={currentIndex === 0}
-            className="p-2 hover:bg-gray-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg p-2 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <SkipBack size={20} />
           </button>
 
           <button
             onClick={togglePlay}
-            className="p-3 bg-blue-600 hover:bg-blue-700 rounded-full"
+            className="rounded-full bg-blue-600 p-3 hover:bg-blue-700"
           >
             {isPlaying ? <Pause size={24} /> : <Play size={24} />}
           </button>
@@ -236,7 +249,7 @@ export function PreviewPlayer({
           <button
             onClick={goToNext}
             disabled={currentIndex === scenes.length - 1}
-            className="p-2 hover:bg-gray-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg p-2 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <SkipForward size={20} />
           </button>
@@ -245,14 +258,14 @@ export function PreviewPlayer({
 
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className="p-2 hover:bg-gray-700 rounded-lg"
+            className="rounded-lg p-2 hover:bg-gray-700"
           >
             {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
           </button>
 
           <button
             onClick={() => setShowSubtitles(!showSubtitles)}
-            className={`px-2 py-1 text-xs rounded ${
+            className={`rounded px-2 py-1 text-xs ${
               showSubtitles ? "bg-blue-600" : "bg-gray-700"
             }`}
           >

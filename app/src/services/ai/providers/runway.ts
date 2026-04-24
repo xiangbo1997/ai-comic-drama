@@ -7,7 +7,11 @@ import { fetchWithError } from "./base";
 
 export const runwayVideo: VideoProvider = {
   async generateVideo(options, config) {
-    const { imageUrl, prompt = "gentle camera movement", duration = 5 } = options;
+    const {
+      imageUrl,
+      prompt = "gentle camera movement",
+      duration = 5,
+    } = options;
     const apiKey = config.apiKey;
 
     if (!apiKey) {
@@ -37,9 +41,12 @@ export const runwayVideo: VideoProvider = {
     const { id: taskId } = await response.json();
 
     while (true) {
-      const statusResponse = await fetch(`https://api.dev.runwayml.com/v1/tasks/${taskId}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
+      const statusResponse = await fetch(
+        `https://api.dev.runwayml.com/v1/tasks/${taskId}`,
+        {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        }
+      );
       const result = await statusResponse.json();
 
       if (result.status === "SUCCEEDED") {

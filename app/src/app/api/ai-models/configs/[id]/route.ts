@@ -48,15 +48,14 @@ export async function GET(
       testStatus: config.testStatus,
       lastTestedAt: config.lastTestedAt,
       hasApiKey: !!config.apiKey,
-      apiKeyMasked: config.apiKey ? maskApiKey(decrypt(config.apiKey, config.apiKeyIv)) : null,
+      apiKeyMasked: config.apiKey
+        ? maskApiKey(decrypt(config.apiKey, config.apiKeyIv))
+        : null,
       extraConfig: config.extraConfig,
     });
   } catch (error) {
     log.error("Get config error:", error);
-    return NextResponse.json(
-      { error: "获取配置失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "获取配置失败" }, { status: 500 });
   }
 }
 
@@ -73,7 +72,18 @@ export async function PUT(
 
     const { id } = await params;
     const body = await request.json();
-    const { apiKey, extraConfig, selectedModel, isEnabled, isDefault, customBaseUrl, apiProtocol, customModels, authType, tokenExpiresAt } = body;
+    const {
+      apiKey,
+      extraConfig,
+      selectedModel,
+      isEnabled,
+      isDefault,
+      customBaseUrl,
+      apiProtocol,
+      customModels,
+      authType,
+      tokenExpiresAt,
+    } = body;
 
     // 检查配置是否存在且属于当前用户
     const existingConfig = await prisma.userAIConfig.findFirst({
@@ -146,7 +156,9 @@ export async function PUT(
     }
 
     if (tokenExpiresAt !== undefined) {
-      updateData.tokenExpiresAt = tokenExpiresAt ? new Date(tokenExpiresAt) : null;
+      updateData.tokenExpiresAt = tokenExpiresAt
+        ? new Date(tokenExpiresAt)
+        : null;
     }
 
     const config = await prisma.userAIConfig.update({
@@ -157,10 +169,7 @@ export async function PUT(
     return NextResponse.json({ id: config.id, success: true });
   } catch (error) {
     log.error("Update config error:", error);
-    return NextResponse.json(
-      { error: "更新配置失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "更新配置失败" }, { status: 500 });
   }
 }
 
@@ -196,9 +205,6 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (error) {
     log.error("Delete config error:", error);
-    return NextResponse.json(
-      { error: "删除配置失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "删除配置失败" }, { status: 500 });
   }
 }

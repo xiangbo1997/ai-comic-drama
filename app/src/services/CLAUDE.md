@@ -8,16 +8,16 @@
 
 承载**与业务强相关的服务层代码**，在 API 路由与基础 lib 之间做领域编排。按职责拆分为：
 
-| 子模块/文件 | 职责 | 文档 |
-|------------|------|------|
-| `ai/` | 多协议 AI 门面（LLM / Image / Video / TTS） | [ai/CLAUDE.md](./ai/CLAUDE.md) |
-| `agents/` | Agent 管线引擎（Plan-and-Execute，7 步 Workflow） | [agents/CLAUDE.md](./agents/CLAUDE.md) |
-| `generation/` | 图像生成编排器（策略 + 人脸一致性 + 重试） | [generation/CLAUDE.md](./generation/CLAUDE.md) |
-| `queue.ts` | 双模任务队列：BullMQ（Redis）/ InMemoryQueue | — |
-| `script.ts` | 剧本解析（直接走 LLM + 可选 ScriptParserAgent） | — |
-| `storage.ts` | Cloudflare R2 / S3 文件上传、签名 URL | — |
-| `payment.ts` | 微信支付 / 支付宝 / Stripe | — |
-| `video-synthesis.ts` | FFmpeg 视频合成导出 | — |
+| 子模块/文件          | 职责                                              | 文档                                           |
+| -------------------- | ------------------------------------------------- | ---------------------------------------------- |
+| `ai/`                | 多协议 AI 门面（LLM / Image / Video / TTS）       | [ai/CLAUDE.md](./ai/CLAUDE.md)                 |
+| `agents/`            | Agent 管线引擎（Plan-and-Execute，7 步 Workflow） | [agents/CLAUDE.md](./agents/CLAUDE.md)         |
+| `generation/`        | 图像生成编排器（策略 + 人脸一致性 + 重试）        | [generation/CLAUDE.md](./generation/CLAUDE.md) |
+| `queue.ts`           | 双模任务队列：BullMQ（Redis）/ InMemoryQueue      | —                                              |
+| `script.ts`          | 剧本解析（直接走 LLM + 可选 ScriptParserAgent）   | —                                              |
+| `storage.ts`         | Cloudflare R2 / S3 文件上传、签名 URL             | —                                              |
+| `payment.ts`         | 微信支付 / 支付宝 / Stripe                        | —                                              |
+| `video-synthesis.ts` | FFmpeg 视频合成导出                               | —                                              |
 
 ## 关键约定
 
@@ -91,6 +91,6 @@ graph LR
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

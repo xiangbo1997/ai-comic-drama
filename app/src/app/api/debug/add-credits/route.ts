@@ -9,7 +9,10 @@ const log = createLogger("api:debug:add-credits");
 export async function GET(request: NextRequest) {
   // 仅在开发环境可用
   if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "Not available in production" }, { status: 403 });
+    return NextResponse.json(
+      { error: "Not available in production" },
+      { status: 403 }
+    );
   }
 
   try {
@@ -29,7 +32,9 @@ export async function GET(request: NextRequest) {
       select: { credits: true, email: true },
     });
 
-    log.info(`[DEBUG] Credits added: user=${session.user.email}, amount=${amount}, new_total=${updatedUser.credits}`);
+    log.info(
+      `[DEBUG] Credits added: user=${session.user.email}, amount=${amount}, new_total=${updatedUser.credits}`
+    );
 
     return NextResponse.json({
       success: true,

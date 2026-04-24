@@ -24,13 +24,16 @@ import type { SceneCharacterInfo } from "@/services/generation/types";
 
 const log = createLogger("agent:image-consistency");
 
-export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageArtifact> {
+export class ImageConsistencyAgent implements Agent<
+  ImageGenerationInput,
+  ImageArtifact
+> {
   readonly name = "image_consistency";
   private observer = new ObserverAgent();
 
   async run(
     input: ImageGenerationInput,
-    ctx: WorkflowContext,
+    ctx: WorkflowContext
   ): Promise<AgentResult<ImageArtifact>> {
     const maxRounds = ctx.config.maxImageReflectionRounds;
     let totalTokens = 0;
@@ -41,7 +44,7 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
     const sceneCharacters = this.buildSceneCharacters(
       input.scene.characters,
       input.characterBible,
-      input.existingReferenceImages,
+      input.existingReferenceImages
     );
 
     // 使用角色圣经的 canonical prompt 增强场景 prompt
@@ -79,7 +82,7 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
           sceneCharacters,
           currentPrompt,
           imageConfig,
-          input.scene.shotType,
+          input.scene.shotType
         );
 
         // 2. 生成图像
@@ -101,7 +104,7 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
             expectedEmotion: input.scene.emotion,
             expectedShotType: input.scene.shotType,
           },
-          ctx,
+          ctx
         );
 
         totalTokens += observerResult.tokensUsed;
@@ -137,7 +140,9 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
 
         // 4. 通过检查
         if (verdict.pass) {
-          log.info(`Scene ${input.scene.id} image passed on round ${round}, score=${verdict.score.overall}`);
+          log.info(
+            `Scene ${input.scene.id} image passed on round ${round}, score=${verdict.score.overall}`
+          );
           return {
             success: true,
             data: bestResult!,
@@ -157,11 +162,13 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
           currentPrompt,
           verdict.score.feedback ?? "",
           verdict.suggestions,
-          ctx,
+          ctx
         );
         totalTokens += 200; // 粗略估算 reflection token
       } catch (err) {
-        log.error(`Round ${round} failed: ${err instanceof Error ? err.message : "Unknown"}`);
+        log.error(
+          `Round ${round} failed: ${err instanceof Error ? err.message : "Unknown"}`
+        );
         break;
       }
     }
@@ -190,7 +197,7 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
     originalPrompt: string,
     feedback: string,
     suggestions: string[],
-    ctx: WorkflowContext,
+    ctx: WorkflowContext
   ): Promise<string> {
     try {
       const response = await chatCompletion(
@@ -198,14 +205,18 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
           { role: "system", content: REFLECTION_SYSTEM },
           {
             role: "user",
-            content: buildReflectionPrompt(originalPrompt, feedback, suggestions),
+            content: buildReflectionPrompt(
+              originalPrompt,
+              feedback,
+              suggestions
+            ),
           },
         ],
         {
           temperature: 0.3,
           maxTokens: 1024,
           config: ctx.config.llm,
-        },
+        }
       );
 
       // 直接返回优化后的 prompt 文本
@@ -220,7 +231,7 @@ export class ImageConsistencyAgent implements Agent<ImageGenerationInput, ImageA
   private buildSceneCharacters(
     sceneCharacterNames: string[],
     bible: { characters: CharacterBibleEntry[] },
-    existingRefs?: Record<string, string>,
+    existingRefs?: Record<string, string>
   ): SceneCharacterInfo[] {
     return sceneCharacterNames.map((name, idx) => {
       const entry = bible.characters.find((c) => c.name === name);

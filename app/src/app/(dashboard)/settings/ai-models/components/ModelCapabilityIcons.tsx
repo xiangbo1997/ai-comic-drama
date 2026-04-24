@@ -7,16 +7,17 @@ export function ModelCapabilityIcons({ modelId }: { modelId: string }) {
   const capabilities = inferModelCapability(modelId);
 
   return (
-    <span className="flex items-center gap-0.5 flex-shrink-0">
-      {capabilities.includes("text") && !capabilities.includes("multimodal") && (
-        <span title="文本模型">
-          <Cpu size={12} className="text-blue-400" />
-        </span>
-      )}
+    <span className="flex flex-shrink-0 items-center gap-0.5">
+      {capabilities.includes("text") &&
+        !capabilities.includes("multimodal") && (
+          <span title="文本模型">
+            <Cpu size={12} className="text-blue-400" />
+          </span>
+        )}
       {capabilities.includes("multimodal") && (
         <span className="flex items-center" title="多模态（文本+视觉理解）">
           <Cpu size={12} className="text-purple-400" />
-          <span className="text-purple-400 text-[8px] ml-0.5">+👁</span>
+          <span className="ml-0.5 text-[8px] text-purple-400">+👁</span>
         </span>
       )}
       {capabilities.includes("image") && (

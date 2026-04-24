@@ -10,12 +10,12 @@
 
 ## 入口与启动
 
-| 文件 | 作用 |
-|------|------|
-| `index.ts` | 对外 API：`chatCompletion / generateImage / generateVideo / synthesizeSpeech / estimateCost / COSTS` |
-| `provider-factory.ts` | 按 `protocol` 路由到对应 Provider；含 `IMAGE_PROVIDER_CAPABILITIES` 能力表 |
-| `types.ts` | Provider 接口（`LLMProvider / ImageProvider / VideoProvider / TTSProvider / ImageProviderCapability`） |
-| `providers/*` | 各具体 Provider 实现 |
+| 文件                  | 作用                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `index.ts`            | 对外 API：`chatCompletion / generateImage / generateVideo / synthesizeSpeech / estimateCost / COSTS`   |
+| `provider-factory.ts` | 按 `protocol` 路由到对应 Provider；含 `IMAGE_PROVIDER_CAPABILITIES` 能力表                             |
+| `types.ts`            | Provider 接口（`LLMProvider / ImageProvider / VideoProvider / TTSProvider / ImageProviderCapability`） |
+| `providers/*`         | 各具体 Provider 实现                                                                                   |
 
 ## 对外接口（公共 API）
 
@@ -43,41 +43,41 @@ estimateCost({ tokens?, images?, imagesWithRef?, video5s?, video10s?, ttsChars? 
 
 ### `getLLMProvider(protocol)`
 
-| protocol | Provider |
-|----------|----------|
-| `claude` | `claudeLLM` |
-| `gemini` | `geminiLLM` |
+| protocol                                                 | Provider                             |
+| -------------------------------------------------------- | ------------------------------------ |
+| `claude`                                                 | `claudeLLM`                          |
+| `gemini`                                                 | `geminiLLM`                          |
 | 其他（`openai` / `grok` / `deepseek` / `siliconflow` …） | `openaiCompatibleLLM`（OpenAI 兼容） |
 
 ### `getImageProvider(protocol, baseUrl?)`
 
-| protocol | Provider |
-|----------|----------|
-| `proxy-unified` | `proxyUnifiedImage` |
-| `grok` | `grokImage` |
-| `siliconflow` | `siliconflowImage` |
-| `fal` | `falImage` |
-| `replicate` | `replicateImage` |
-| `openai` | `openaiCompatibleImage` |
-| （兜底：按 baseUrl 推断） | `x.ai → grok` / `siliconflow → siliconflow` / `fal.run|fal.ai → fal` / `replicate → replicate` |
+| protocol                  | Provider                                               |
+| ------------------------- | ------------------------------------------------------ | ------------------------------------- |
+| `proxy-unified`           | `proxyUnifiedImage`                                    |
+| `grok`                    | `grokImage`                                            |
+| `siliconflow`             | `siliconflowImage`                                     |
+| `fal`                     | `falImage`                                             |
+| `replicate`               | `replicateImage`                                       |
+| `openai`                  | `openaiCompatibleImage`                                |
+| （兜底：按 baseUrl 推断） | `x.ai → grok` / `siliconflow → siliconflow` / `fal.run | fal.ai → fal`/`replicate → replicate` |
 
 ### `getVideoProvider(protocol, baseUrl?)`
 
-| protocol | Provider |
-|----------|----------|
-| `runway` | `runwayVideo` |
-| `fal` | `falVideo` |
+| protocol                   | Provider            |
+| -------------------------- | ------------------- |
+| `runway`                   | `runwayVideo`       |
+| `fal`                      | `falVideo`          |
 | `proxy-unified` / `openai` | `proxyUnifiedVideo` |
-| 兜底 | `runwayVideo` |
+| 兜底                       | `runwayVideo`       |
 
 ### `getTTSProvider(protocol, baseUrl?)`
 
-| protocol | Provider |
-|----------|----------|
-| `volcengine` | `volcengineTTS` |
-| `elevenlabs` | `elevenlabsTTS` |
-| `openai` | `openaiCompatibleTTS` |
-| 兜底 | `volcengineTTS` |
+| protocol     | Provider              |
+| ------------ | --------------------- |
+| `volcengine` | `volcengineTTS`       |
+| `elevenlabs` | `elevenlabsTTS`       |
+| `openai`     | `openaiCompatibleTTS` |
+| 兜底         | `volcengineTTS`       |
 
 ## 能力表：`IMAGE_PROVIDER_CAPABILITIES`
 
@@ -102,14 +102,14 @@ return generateImageWithEnvReplicate(prompt, referenceImage, aspectRatio);
 
 ## 成本常量（`COSTS`）
 
-| 项 | 单价（USD） |
-|----|------------|
-| `llm` | 0.00001 / token（折算 CNY） |
-| `image` | 0.03 |
-| `imageWithRef` | 0.03 |
-| `video5s` | 0.25 |
-| `video10s` | 0.50 |
-| `tts` | 0.002（按字符折 CNY） |
+| 项             | 单价（USD）                 |
+| -------------- | --------------------------- |
+| `llm`          | 0.00001 / token（折算 CNY） |
+| `image`        | 0.03                        |
+| `imageWithRef` | 0.03                        |
+| `video5s`      | 0.25                        |
+| `video10s`     | 0.50                        |
+| `tts`          | 0.002（按字符折 CNY）       |
 
 ## 关键依赖
 
@@ -143,6 +143,6 @@ return generateImageWithEnvReplicate(prompt, referenceImage, aspectRatio);
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

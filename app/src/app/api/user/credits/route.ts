@@ -41,10 +41,7 @@ export async function POST(request: NextRequest) {
     const { amount, reason } = await request.json();
 
     if (typeof amount !== "number" || amount <= 0) {
-      return NextResponse.json(
-        { error: "Invalid amount" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({
@@ -54,7 +51,11 @@ export async function POST(request: NextRequest) {
 
     if (!user || user.credits < amount) {
       return NextResponse.json(
-        { error: "Insufficient credits", required: amount, current: user?.credits ?? 0 },
+        {
+          error: "Insufficient credits",
+          required: amount,
+          current: user?.credits ?? 0,
+        },
         { status: 400 }
       );
     }
@@ -65,7 +66,9 @@ export async function POST(request: NextRequest) {
       select: { credits: true },
     });
 
-    log.info(`Credits deducted: user=${session.user.id}, amount=${amount}, reason=${reason}`);
+    log.info(
+      `Credits deducted: user=${session.user.id}, amount=${amount}, reason=${reason}`
+    );
 
     return NextResponse.json({ credits: updatedUser.credits });
   } catch (error) {

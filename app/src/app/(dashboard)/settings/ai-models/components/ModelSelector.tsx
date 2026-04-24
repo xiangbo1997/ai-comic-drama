@@ -2,7 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { Check, RefreshCw, ChevronDown } from "lucide-react";
-import type { AIProvider, UserConfig, ModelWithAvailability, ModelAvailability } from "./types";
+import type {
+  AIProvider,
+  UserConfig,
+  ModelWithAvailability,
+  ModelAvailability,
+} from "./types";
 import { ModelCapabilityIcons } from "./ModelCapabilityIcons";
 
 interface ModelSelectorProps {
@@ -23,7 +28,10 @@ export function ModelSelector({
   existingConfig,
 }: ModelSelectorProps) {
   const [models, setModels] = useState<ModelWithAvailability[]>(
-    provider.models.map(m => ({ ...m, availability: "unknown" as ModelAvailability }))
+    provider.models.map((m) => ({
+      ...m,
+      availability: "unknown" as ModelAvailability,
+    }))
   );
   const [loading, setLoading] = useState(false);
   const [isManualInput, setIsManualInput] = useState(false);
@@ -36,7 +44,7 @@ export function ModelSelector({
   useEffect(() => {
     if (hasFetchedRemote) return;
 
-    const updatedModels = provider.models.map(m => ({
+    const updatedModels = provider.models.map((m) => ({
       ...m,
       availability: "unknown" as ModelAvailability,
     }));
@@ -61,18 +69,22 @@ export function ModelSelector({
       const data = await res.json();
 
       if (data.models && data.models.length > 0) {
-        const remoteIds = new Set<string>(data.models.map((m: { id: string }) => m.id));
+        const remoteIds = new Set<string>(
+          data.models.map((m: { id: string }) => m.id)
+        );
 
-        const remoteModels = data.models.map((m: { id: string; name: string }) => ({
-          id: m.id,
-          name: m.name || m.id,
-          availability: "available" as ModelAvailability,
-        }));
+        const remoteModels = data.models.map(
+          (m: { id: string; name: string }) => ({
+            id: m.id,
+            name: m.name || m.id,
+            availability: "available" as ModelAvailability,
+          })
+        );
 
         if (isUsingCustomUrl) {
           const presetOnlyModels = provider.models
-            .filter(pm => !remoteIds.has(pm.id))
-            .map(m => ({
+            .filter((pm) => !remoteIds.has(pm.id))
+            .map((m) => ({
               ...m,
               availability: "unavailable" as ModelAvailability,
             }));
@@ -106,8 +118,15 @@ export function ModelSelector({
   const handleManualInputConfirm = () => {
     if (manualModel.trim()) {
       onModelChange(manualModel.trim());
-      if (!models.find(m => m.id === manualModel.trim())) {
-        setModels([...models, { id: manualModel.trim(), name: manualModel.trim(), availability: "unknown" }]);
+      if (!models.find((m) => m.id === manualModel.trim())) {
+        setModels([
+          ...models,
+          {
+            id: manualModel.trim(),
+            name: manualModel.trim(),
+            availability: "unknown",
+          },
+        ]);
       }
     }
     setIsManualInput(false);
@@ -118,13 +137,13 @@ export function ModelSelector({
     setDropdownOpen(false);
   };
 
-  const currentModel = models.find(m => m.id === selectedModel);
+  const currentModel = models.find((m) => m.id === selectedModel);
   const currentModelName = currentModel?.name || selectedModel;
   const currentModelAvailability = currentModel?.availability || "unknown";
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1">
+      <div className="mb-1 flex items-center justify-between">
         <label className="block text-sm text-gray-400">
           选择模型
           {hasCustomUrl && modelSource === "remote" && (
@@ -141,7 +160,7 @@ export function ModelSelector({
             type="button"
             onClick={fetchModels}
             disabled={loading}
-            className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
             title="从 API 获取模型列表"
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -164,12 +183,12 @@ export function ModelSelector({
             value={manualModel}
             onChange={(e) => setManualModel(e.target.value)}
             placeholder="输入模型 ID，如 gpt-4o"
-            className="flex-1 bg-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
           />
           <button
             type="button"
             onClick={handleManualInputConfirm}
-            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+            className="rounded-lg bg-blue-600 px-3 py-2 text-white transition hover:bg-blue-700"
           >
             <Check size={16} />
           </button>
@@ -179,62 +198,82 @@ export function ModelSelector({
           <button
             type="button"
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="w-full bg-gray-700 rounded-lg px-4 py-2 text-white text-left flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex w-full items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 text-left text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
           >
             {currentModelAvailability === "available" && (
-              <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-green-500" />
             )}
             {currentModelAvailability === "unavailable" && (
-              <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" />
+              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500" />
             )}
             {currentModelAvailability === "unknown" && (
-              <span className="w-2 h-2 rounded-full bg-gray-500 flex-shrink-0" />
+              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-gray-500" />
             )}
-            <span className="truncate flex-1">{currentModelName || "选择模型"}</span>
+            <span className="flex-1 truncate">
+              {currentModelName || "选择模型"}
+            </span>
             {selectedModel && <ModelCapabilityIcons modelId={selectedModel} />}
             {currentModelAvailability === "unavailable" && (
-              <span className="text-xs text-red-400 flex-shrink-0">不可用</span>
+              <span className="flex-shrink-0 text-xs text-red-400">不可用</span>
             )}
-            <ChevronDown size={16} className={`flex-shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+            <ChevronDown
+              size={16}
+              className={`flex-shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
+            />
           </button>
 
           {dropdownOpen && (
-            <div className="absolute z-10 w-full mt-1 bg-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+            <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg bg-gray-700 shadow-lg">
               {models.map((model) => (
                 <button
                   key={model.id}
                   type="button"
                   onClick={() => handleSelectModel(model.id)}
-                  className={`w-full px-4 py-2 text-left hover:bg-gray-600 transition flex items-center gap-2 ${
-                    selectedModel === model.id ? "bg-gray-600 text-blue-400" : "text-white"
+                  className={`flex w-full items-center gap-2 px-4 py-2 text-left transition hover:bg-gray-600 ${
+                    selectedModel === model.id
+                      ? "bg-gray-600 text-blue-400"
+                      : "text-white"
                   } ${model.availability === "unavailable" ? "opacity-60" : ""}`}
                 >
                   {model.availability === "available" && (
-                    <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" title="可用" />
+                    <span
+                      className="h-2 w-2 flex-shrink-0 rounded-full bg-green-500"
+                      title="可用"
+                    />
                   )}
                   {model.availability === "unavailable" && (
-                    <span className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0" title="不可用" />
+                    <span
+                      className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500"
+                      title="不可用"
+                    />
                   )}
                   {model.availability === "unknown" && (
-                    <span className="w-2 h-2 rounded-full bg-gray-500 flex-shrink-0" title="未检测" />
+                    <span
+                      className="h-2 w-2 flex-shrink-0 rounded-full bg-gray-500"
+                      title="未检测"
+                    />
                   )}
-                  <span className="truncate flex-1">{model.name}</span>
+                  <span className="flex-1 truncate">{model.name}</span>
                   <ModelCapabilityIcons modelId={model.id} />
                   {model.availability === "unavailable" && (
-                    <span className="text-xs text-red-400 flex-shrink-0">不可用</span>
+                    <span className="flex-shrink-0 text-xs text-red-400">
+                      不可用
+                    </span>
                   )}
-                  {selectedModel === model.id && <Check size={14} className="flex-shrink-0" />}
+                  {selectedModel === model.id && (
+                    <Check size={14} className="flex-shrink-0" />
+                  )}
                 </button>
               ))}
               {models.length === 0 && (
-                <div className="px-4 py-2 text-gray-400 text-sm">暂无模型</div>
+                <div className="px-4 py-2 text-sm text-gray-400">暂无模型</div>
               )}
             </div>
           )}
         </div>
       )}
 
-      <p className="text-xs text-gray-500 mt-1">
+      <p className="mt-1 text-xs text-gray-500">
         点击「刷新」从 API 获取最新模型列表，或切换到「手动输入」添加自定义模型
       </p>
     </div>

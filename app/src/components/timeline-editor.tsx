@@ -48,11 +48,15 @@ export function TimelineEditor({
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom;
 
   // 计算每个场景的起始时间
-  const sceneStartTimes = scenes.reduce<Record<string, number>>((acc, scene, index) => {
-    const prevScene = scenes[index - 1];
-    acc[scene.id] = index === 0 ? 0 : acc[prevScene?.id ?? ""] + (prevScene?.duration ?? 0);
-    return acc;
-  }, {});
+  const sceneStartTimes = scenes.reduce<Record<string, number>>(
+    (acc, scene, index) => {
+      const prevScene = scenes[index - 1];
+      acc[scene.id] =
+        index === 0 ? 0 : acc[prevScene?.id ?? ""] + (prevScene?.duration ?? 0);
+      return acc;
+    },
+    {}
+  );
 
   // 播放控制
   useEffect(() => {
@@ -110,7 +114,11 @@ export function TimelineEditor({
   };
 
   // 开始拖拽调整时长
-  const handleDragStart = (e: React.MouseEvent, sceneId: string, currentDuration: number) => {
+  const handleDragStart = (
+    e: React.MouseEvent,
+    sceneId: string,
+    currentDuration: number
+  ) => {
     e.stopPropagation();
     setDraggingScene(sceneId);
     setDragStartX(e.clientX);
@@ -142,7 +150,13 @@ export function TimelineEditor({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [draggingScene, dragStartX, dragStartDuration, pixelsPerSecond, onSceneDurationChange]);
+  }, [
+    draggingScene,
+    dragStartX,
+    dragStartDuration,
+    pixelsPerSecond,
+    onSceneDurationChange,
+  ]);
 
   // 生成时间刻度
   const generateTimeMarkers = () => {
@@ -165,38 +179,38 @@ export function TimelineEditor({
   };
 
   return (
-    <div className="bg-gray-900 border-t border-gray-700">
+    <div className="border-t border-gray-700 bg-gray-900">
       {/* 控制栏 */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700">
+      <div className="flex items-center justify-between border-b border-gray-700 px-4 py-2">
         <div className="flex items-center gap-2">
           <button
             onClick={() => setCurrentTime(0)}
-            className="p-1.5 hover:bg-gray-700 rounded"
+            className="rounded p-1.5 hover:bg-gray-700"
           >
             <SkipBack size={18} />
           </button>
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="p-2 bg-blue-600 hover:bg-blue-700 rounded-full"
+            className="rounded-full bg-blue-600 p-2 hover:bg-blue-700"
           >
             {isPlaying ? <Pause size={18} /> : <Play size={18} />}
           </button>
           <button
             onClick={() => setCurrentTime(totalDuration)}
-            className="p-1.5 hover:bg-gray-700 rounded"
+            className="rounded p-1.5 hover:bg-gray-700"
           >
             <SkipForward size={18} />
           </button>
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className="p-1.5 hover:bg-gray-700 rounded"
+            className="rounded p-1.5 hover:bg-gray-700"
           >
             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
         </div>
 
         <div className="flex items-center gap-4">
-          <span className="text-sm font-mono">
+          <span className="font-mono text-sm">
             {formatTime(currentTime)} / {formatTime(totalDuration)}
           </span>
           <div className="flex items-center gap-2">
@@ -221,21 +235,21 @@ export function TimelineEditor({
         <div className="w-24 shrink-0 border-r border-gray-700">
           <div className="h-6 border-b border-gray-700" />
           <div
-            className="flex items-center gap-2 px-2 border-b border-gray-800"
+            className="flex items-center gap-2 border-b border-gray-800 px-2"
             style={{ height: TRACK_HEIGHT }}
           >
             <Video size={14} className="text-purple-400" />
             <span className="text-xs">视频</span>
           </div>
           <div
-            className="flex items-center gap-2 px-2 border-b border-gray-800"
+            className="flex items-center gap-2 border-b border-gray-800 px-2"
             style={{ height: TRACK_HEIGHT }}
           >
             <ImageIcon size={14} className="text-blue-400" />
             <span className="text-xs">图片</span>
           </div>
           <div
-            className="flex items-center gap-2 px-2 border-b border-gray-800"
+            className="flex items-center gap-2 border-b border-gray-800 px-2"
             style={{ height: TRACK_HEIGHT }}
           >
             <Music size={14} className="text-green-400" />
@@ -253,11 +267,11 @@ export function TimelineEditor({
         {/* 时间轴内容 */}
         <div
           ref={timelineRef}
-          className="flex-1 overflow-x-auto relative"
+          className="relative flex-1 overflow-x-auto"
           onClick={handleTimelineClick}
         >
           {/* 时间标尺 */}
-          <div className="h-6 relative border-b border-gray-700 bg-gray-800/50">
+          <div className="relative h-6 border-b border-gray-700 bg-gray-800/50">
             {generateTimeMarkers()}
           </div>
 
@@ -274,7 +288,7 @@ export function TimelineEditor({
               {scenes.map((scene) => (
                 <div
                   key={`video-${scene.id}`}
-                  className={`absolute top-1 bottom-1 rounded cursor-pointer transition-all ${
+                  className={`absolute top-1 bottom-1 cursor-pointer rounded transition-all ${
                     selectedSceneId === scene.id
                       ? "ring-2 ring-blue-500"
                       : "hover:ring-1 hover:ring-gray-500"
@@ -288,13 +302,15 @@ export function TimelineEditor({
                     onSceneSelect(scene.id);
                   }}
                 >
-                  <div className="px-2 py-1 text-xs truncate">
+                  <div className="truncate px-2 py-1 text-xs">
                     #{scene.order + 1}
                   </div>
                   {/* 拖拽调整手柄 */}
                   <div
-                    className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize bg-white/20 hover:bg-white/40"
-                    onMouseDown={(e) => handleDragStart(e, scene.id, scene.duration)}
+                    className="absolute top-0 right-0 bottom-0 w-2 cursor-ew-resize bg-white/20 hover:bg-white/40"
+                    onMouseDown={(e) =>
+                      handleDragStart(e, scene.id, scene.duration)
+                    }
                   />
                 </div>
               ))}
@@ -320,7 +336,7 @@ export function TimelineEditor({
                     <img
                       src={scene.imageUrl}
                       alt=""
-                      className="h-full w-auto object-cover rounded opacity-60"
+                      className="h-full w-auto rounded object-cover opacity-60"
                     />
                   )}
                 </div>
@@ -344,10 +360,10 @@ export function TimelineEditor({
                   }}
                 >
                   {scene.audioUrl && (
-                    <div className="flex items-center h-full px-2">
-                      <div className="flex-1 h-4 bg-green-500/30 rounded overflow-hidden">
+                    <div className="flex h-full items-center px-2">
+                      <div className="h-4 flex-1 overflow-hidden rounded bg-green-500/30">
                         {/* 简化的波形图 */}
-                        <div className="flex items-center h-full gap-px">
+                        <div className="flex h-full items-center gap-px">
                           {Array.from({ length: 20 }).map((_, i) => (
                             <div
                               key={i}
@@ -381,7 +397,7 @@ export function TimelineEditor({
                     }}
                   >
                     {text && (
-                      <div className="px-2 py-1 text-xs truncate">{text}</div>
+                      <div className="truncate px-2 py-1 text-xs">{text}</div>
                     )}
                   </div>
                 );
@@ -390,10 +406,10 @@ export function TimelineEditor({
 
             {/* 播放头 */}
             <div
-              className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 pointer-events-none"
+              className="pointer-events-none absolute top-0 bottom-0 z-10 w-0.5 bg-red-500"
               style={{ left: currentTime * pixelsPerSecond }}
             >
-              <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-3 h-3 bg-red-500 rounded-full" />
+              <div className="absolute -top-1 left-1/2 h-3 w-3 -translate-x-1/2 rounded-full bg-red-500" />
             </div>
           </div>
         </div>
@@ -401,9 +417,10 @@ export function TimelineEditor({
 
       {/* 当前场景信息 */}
       {currentScene && (
-        <div className="px-4 py-2 border-t border-gray-700 text-sm text-gray-400">
+        <div className="border-t border-gray-700 px-4 py-2 text-sm text-gray-400">
           当前: 分镜 #{currentScene.order + 1} | 时长: {currentScene.duration}s
-          {currentScene.dialogue && ` | 对话: "${currentScene.dialogue.slice(0, 30)}..."`}
+          {currentScene.dialogue &&
+            ` | 对话: "${currentScene.dialogue.slice(0, 30)}..."`}
         </div>
       )}
     </div>

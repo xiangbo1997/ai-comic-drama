@@ -26,7 +26,8 @@ const IMAGE_RUNTIME_PROTOCOLS = new Set([
   "proxy-unified",
 ]);
 
-const IMAGE_TEST_PROMPT = "test image, a simple blue circle on white background";
+const IMAGE_TEST_PROMPT =
+  "test image, a simple blue circle on white background";
 
 // POST /api/ai-models/test - 测试 API 连接（无需先保存配置）
 export async function POST(request: Request) {
@@ -37,7 +38,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { providerId, apiKey, customBaseUrl, extraConfig, modelId, apiProtocol } = body;
+    const {
+      providerId,
+      apiKey,
+      customBaseUrl,
+      extraConfig,
+      modelId,
+      apiProtocol,
+    } = body;
 
     if (!providerId || !apiKey) {
       return NextResponse.json(
@@ -107,10 +115,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     log.error("Test connection error:", error);
-    return NextResponse.json(
-      { error: "测试连接失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "测试连接失败" }, { status: 500 });
   }
 }
 
@@ -125,7 +130,13 @@ async function testModelAvailability(
   apiProtocol?: string | null
 ): Promise<TestResultDetail> {
   if (category === "IMAGE") {
-    return testImageModelAvailability(slug, apiKey, baseUrl, modelId, apiProtocol);
+    return testImageModelAvailability(
+      slug,
+      apiKey,
+      baseUrl,
+      modelId,
+      apiProtocol
+    );
   }
 
   // 根据协议选择测试方法
@@ -150,14 +161,19 @@ async function testModelAvailability(
     "openai-tts": "openai",
   };
 
-  const effectiveProtocol = apiProtocol || slugDefaultProtocol[slug] || "openai";
+  const effectiveProtocol =
+    apiProtocol || slugDefaultProtocol[slug] || "openai";
   const fallbackProtocol = slugDefaultProtocol[slug];
 
   // 优先使用用户选择的协议测试
   const result = await testByProtocol(effectiveProtocol);
 
   // 如果失败且有不同的 fallback 协议，自动重试
-  if (!result.success && fallbackProtocol && fallbackProtocol !== effectiveProtocol) {
+  if (
+    !result.success &&
+    fallbackProtocol &&
+    fallbackProtocol !== effectiveProtocol
+  ) {
     const fallbackResult = await testByProtocol(fallbackProtocol);
     if (fallbackResult.success) {
       return {
@@ -188,7 +204,11 @@ async function testImageModelAvailability(
     case "openai":
       return testOpenAIModelImage(apiKey, baseUrl || "", modelId);
     case "siliconflow":
-      return testSiliconFlowModelImage(apiKey, baseUrl || "https://api.siliconflow.cn/v1", modelId);
+      return testSiliconFlowModelImage(
+        apiKey,
+        baseUrl || "https://api.siliconflow.cn/v1",
+        modelId
+      );
     case "proxy-unified":
       return testProxyUnifiedImageModel(apiKey, baseUrl || "", modelId);
     case "fal":
@@ -200,12 +220,15 @@ async function testImageModelAvailability(
         success: false,
         message: `当前项目尚未接入「${effectiveProtocol}」协议的图片生成运行时`,
         errorType: "config",
-        suggestion: "请改用 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate 或通用中转协议",
+        suggestion:
+          "请改用 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate 或通用中转协议",
       };
   }
 }
 
-function getImageRuntimeSupportIssue(protocol: string): TestResultDetail | null {
+function getImageRuntimeSupportIssue(
+  protocol: string
+): TestResultDetail | null {
   if (IMAGE_RUNTIME_PROTOCOLS.has(protocol)) {
     return null;
   }
@@ -214,7 +237,8 @@ function getImageRuntimeSupportIssue(protocol: string): TestResultDetail | null 
     success: false,
     message: `当前项目运行时不支持「${protocol}」协议的图片生成`,
     errorType: "config",
-    suggestion: "请切换到 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate 或通用中转协议",
+    suggestion:
+      "请切换到 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate 或通用中转协议",
   };
 }
 
@@ -228,7 +252,8 @@ async function testOpenAIModelImage(
       success: false,
       message: `模型 ${modelId} 是文本模型，不支持图片生成`,
       errorType: "model",
-      suggestion: "请选择真正的图片模型，例如 dall-e-3、gpt-image-1、grok-2-image 等",
+      suggestion:
+        "请选择真正的图片模型，例如 dall-e-3、gpt-image-1、grok-2-image 等",
     };
   }
 
@@ -276,7 +301,11 @@ async function testOpenAIModelImage(
       };
     }
 
-    if (response.status === 404 || loweredError.includes("model") || loweredError.includes("not found")) {
+    if (
+      response.status === 404 ||
+      loweredError.includes("model") ||
+      loweredError.includes("not found")
+    ) {
       return {
         success: false,
         message: `模型 ${modelId} 无法通过图片接口调用: ${errorText.slice(0, 300)}`,
@@ -335,7 +364,12 @@ async function testSiliconFlowModelImage(
     return {
       success: false,
       message: `图片接口测试失败 (${response.status}): ${errorText.slice(0, 300)}`,
-      errorType: response.status === 401 || response.status === 403 ? "auth" : response.status === 404 ? "model" : "unknown",
+      errorType:
+        response.status === 401 || response.status === 403
+          ? "auth"
+          : response.status === 404
+            ? "model"
+            : "unknown",
       suggestion: "请确认该 SiliconFlow 模型支持生图，并且账号有调用权限",
     };
   } catch (error) {
@@ -381,23 +415,33 @@ async function testProxyUnifiedImageModel(
       return {
         success: false,
         message: `通用中转图片测试失败 (${response.status}): ${responseText.slice(0, 300)}`,
-        errorType: response.status === 401 || response.status === 403 ? "auth" : response.status === 404 ? "model" : "unknown",
+        errorType:
+          response.status === 401 || response.status === 403
+            ? "auth"
+            : response.status === 404
+              ? "model"
+              : "unknown",
         suggestion: "请确认该模型能通过统一端点返回图片结果，而不是纯文本回复",
       };
     }
 
     const data = JSON.parse(responseText);
-    const content = typeof data?.choices?.[0]?.message?.content === "string" ? data.choices[0].message.content : "";
-    const hasImageUrl = Boolean(data?.data?.[0]?.url)
-      || /!\[.*?\]\((https?:\/\/[^\s)]+)\)/.test(content)
-      || /(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp))/i.test(content);
+    const content =
+      typeof data?.choices?.[0]?.message?.content === "string"
+        ? data.choices[0].message.content
+        : "";
+    const hasImageUrl =
+      Boolean(data?.data?.[0]?.url) ||
+      /!\[.*?\]\((https?:\/\/[^\s)]+)\)/.test(content) ||
+      /(https?:\/\/[^\s]+\.(?:png|jpg|jpeg|webp))/i.test(content);
 
     if (!hasImageUrl) {
       return {
         success: false,
         message: `模型 ${modelId} 未返回可解析的图片结果`,
         errorType: "config",
-        suggestion: "该统一端点当前更像文本接口，不能作为项目里的图片供应商使用",
+        suggestion:
+          "该统一端点当前更像文本接口，不能作为项目里的图片供应商使用",
       };
     }
 
@@ -415,7 +459,10 @@ async function testProxyUnifiedImageModel(
   }
 }
 
-async function testFalModelImage(apiKey: string, modelId: string): Promise<TestResultDetail> {
+async function testFalModelImage(
+  apiKey: string,
+  modelId: string
+): Promise<TestResultDetail> {
   try {
     const response = await fetch(`https://queue.fal.run/${modelId}`, {
       method: "POST",
@@ -435,7 +482,12 @@ async function testFalModelImage(apiKey: string, modelId: string): Promise<TestR
       return {
         success: false,
         message: `Fal 图片测试失败 (${response.status}): ${errorText.slice(0, 300)}`,
-        errorType: response.status === 401 || response.status === 403 ? "auth" : response.status === 404 ? "model" : "unknown",
+        errorType:
+          response.status === 401 || response.status === 403
+            ? "auth"
+            : response.status === 404
+              ? "model"
+              : "unknown",
         suggestion: "请确认模型名正确，并且 Fal 账号有权限调用该模型",
       };
     }
@@ -464,22 +516,29 @@ async function testFalModelImage(apiKey: string, modelId: string): Promise<TestR
   }
 }
 
-async function testReplicateModelImage(apiKey: string, modelId: string): Promise<TestResultDetail> {
+async function testReplicateModelImage(
+  apiKey: string,
+  modelId: string
+): Promise<TestResultDetail> {
   if (!modelId.includes("/")) {
     return {
       success: false,
       message: `Replicate 模型 ${modelId} 格式不正确`,
       errorType: "config",
-      suggestion: "请使用 owner/model 格式，例如 black-forest-labs/flux-schnell",
+      suggestion:
+        "请使用 owner/model 格式，例如 black-forest-labs/flux-schnell",
     };
   }
 
   try {
-    const response = await fetch(`https://api.replicate.com/v1/models/${modelId}`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-    });
+    const response = await fetch(
+      `https://api.replicate.com/v1/models/${modelId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+      }
+    );
 
     if (response.ok) {
       return {
@@ -492,7 +551,12 @@ async function testReplicateModelImage(apiKey: string, modelId: string): Promise
     return {
       success: false,
       message: `Replicate 模型校验失败 (${response.status}): ${errorText.slice(0, 300)}`,
-      errorType: response.status === 401 || response.status === 403 ? "auth" : response.status === 404 ? "model" : "unknown",
+      errorType:
+        response.status === 401 || response.status === 403
+          ? "auth"
+          : response.status === 404
+            ? "model"
+            : "unknown",
       suggestion: "请确认模型名正确，并且账号有访问该 Replicate 模型的权限",
     };
   } catch (error) {
@@ -533,7 +597,9 @@ async function testOpenAIModelChat(
     }
 
     const errorText = await response.text();
-    let errorJson: { error?: { message?: string; code?: string; type?: string } } = {};
+    let errorJson: {
+      error?: { message?: string; code?: string; type?: string };
+    } = {};
     try {
       errorJson = JSON.parse(errorText);
     } catch {
@@ -554,7 +620,10 @@ async function testOpenAIModelChat(
       };
     }
 
-    if (response.status === 404 || errorMessage.toLowerCase().includes("model")) {
+    if (
+      response.status === 404 ||
+      errorMessage.toLowerCase().includes("model")
+    ) {
       return {
         success: false,
         message: `模型 ${modelId} 不可用: ${errorMessage}`,
@@ -627,7 +696,9 @@ async function testGeminiModel(
     }
 
     const errorText = await response.text();
-    let errorJson: { error?: { message?: string; code?: number; status?: string } } = {};
+    let errorJson: {
+      error?: { message?: string; code?: number; status?: string };
+    } = {};
     try {
       errorJson = JSON.parse(errorText);
     } catch {
@@ -676,7 +747,9 @@ async function testClaudeModel(
   modelId: string
 ): Promise<TestResultDetail> {
   try {
-    const url = baseUrl ? `${baseUrl}/messages` : "https://api.anthropic.com/v1/messages";
+    const url = baseUrl
+      ? `${baseUrl}/messages`
+      : "https://api.anthropic.com/v1/messages";
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -705,7 +778,10 @@ async function testClaudeModel(
 
     const errorMessage = errorJson.error?.message || errorText.slice(0, 300);
 
-    if (response.status === 400 && errorMessage.toLowerCase().includes("model")) {
+    if (
+      response.status === 400 &&
+      errorMessage.toLowerCase().includes("model")
+    ) {
       return {
         success: false,
         message: `模型 ${modelId} 不可用: ${errorMessage}`,
@@ -749,9 +825,15 @@ async function testProviderConnection(
   switch (slug) {
     // LLM 提供商
     case "deepseek":
-      return testOpenAICompatible(apiKey, baseUrl || "https://api.deepseek.com/v1");
+      return testOpenAICompatible(
+        apiKey,
+        baseUrl || "https://api.deepseek.com/v1"
+      );
     case "openai":
-      return testOpenAICompatible(apiKey, baseUrl || "https://api.openai.com/v1");
+      return testOpenAICompatible(
+        apiKey,
+        baseUrl || "https://api.openai.com/v1"
+      );
     case "gemini":
       return testGemini(apiKey, baseUrl);
     case "claude":
@@ -763,7 +845,10 @@ async function testProviderConnection(
     case "fal":
       return testFal(apiKey);
     case "silicon-flow":
-      return testOpenAICompatible(apiKey, baseUrl || "https://api.siliconflow.cn/v1");
+      return testOpenAICompatible(
+        apiKey,
+        baseUrl || "https://api.siliconflow.cn/v1"
+      );
 
     // 视频提供商
     case "runway":
@@ -771,19 +856,28 @@ async function testProviderConnection(
     case "luma":
       return testLuma(apiKey);
     case "kling":
-      return testKling(extraConfig?.accessKey || apiKey, extraConfig?.secretKey || "");
+      return testKling(
+        extraConfig?.accessKey || apiKey,
+        extraConfig?.secretKey || ""
+      );
     case "minimax":
       return testMinimax(apiKey, extraConfig?.groupId || "");
 
     // TTS 提供商
     case "volcengine":
-      return testVolcengine(extraConfig?.appId || "", extraConfig?.accessToken || apiKey);
+      return testVolcengine(
+        extraConfig?.appId || "",
+        extraConfig?.accessToken || apiKey
+      );
     case "fish-audio":
       return testFishAudio(apiKey);
     case "elevenlabs":
       return testElevenLabs(apiKey);
     case "openai-tts":
-      return testOpenAICompatible(apiKey, baseUrl || "https://api.openai.com/v1");
+      return testOpenAICompatible(
+        apiKey,
+        baseUrl || "https://api.openai.com/v1"
+      );
 
     default:
       return { success: false, message: `不支持的提供商: ${slug}` };
@@ -791,7 +885,10 @@ async function testProviderConnection(
 }
 
 // OpenAI 兼容接口测试（DeepSeek、硅基流动等）
-async function testOpenAICompatible(apiKey: string, baseUrl: string): Promise<{ success: boolean; message: string }> {
+async function testOpenAICompatible(
+  apiKey: string,
+  baseUrl: string
+): Promise<{ success: boolean; message: string }> {
   const response = await fetch(`${baseUrl}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -799,11 +896,17 @@ async function testOpenAICompatible(apiKey: string, baseUrl: string): Promise<{ 
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // Gemini 测试
-async function testGemini(apiKey: string, baseUrl: string | null): Promise<{ success: boolean; message: string }> {
+async function testGemini(
+  apiKey: string,
+  baseUrl: string | null
+): Promise<{ success: boolean; message: string }> {
   const url = baseUrl
     ? `${baseUrl}/models?key=${apiKey}`
     : `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
@@ -812,12 +915,20 @@ async function testGemini(apiKey: string, baseUrl: string | null): Promise<{ suc
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // Claude 测试
-async function testClaude(apiKey: string, baseUrl: string | null): Promise<{ success: boolean; message: string }> {
-  const url = baseUrl ? `${baseUrl}/messages` : "https://api.anthropic.com/v1/messages";
+async function testClaude(
+  apiKey: string,
+  baseUrl: string | null
+): Promise<{ success: boolean; message: string }> {
+  const url = baseUrl
+    ? `${baseUrl}/messages`
+    : "https://api.anthropic.com/v1/messages";
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -835,11 +946,16 @@ async function testClaude(apiKey: string, baseUrl: string | null): Promise<{ suc
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // Replicate 测试
-async function testReplicate(apiKey: string): Promise<{ success: boolean; message: string }> {
+async function testReplicate(
+  apiKey: string
+): Promise<{ success: boolean; message: string }> {
   const response = await fetch("https://api.replicate.com/v1/account", {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -847,11 +963,16 @@ async function testReplicate(apiKey: string): Promise<{ success: boolean; messag
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // Fal.ai 测试
-async function testFal(apiKey: string): Promise<{ success: boolean; message: string }> {
+async function testFal(
+  apiKey: string
+): Promise<{ success: boolean; message: string }> {
   const response = await fetch("https://queue.fal.run/fal-ai/flux/requests", {
     headers: { Authorization: `Key ${apiKey}` },
   });
@@ -859,11 +980,16 @@ async function testFal(apiKey: string): Promise<{ success: boolean; message: str
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // Runway 测试
-async function testRunway(apiKey: string): Promise<{ success: boolean; message: string }> {
+async function testRunway(
+  apiKey: string
+): Promise<{ success: boolean; message: string }> {
   const response = await fetch("https://api.dev.runwayml.com/v1/tasks", {
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -874,23 +1000,37 @@ async function testRunway(apiKey: string): Promise<{ success: boolean; message: 
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // Luma 测试
-async function testLuma(apiKey: string): Promise<{ success: boolean; message: string }> {
-  const response = await fetch("https://api.lumalabs.ai/dream-machine/v1/generations", {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
+async function testLuma(
+  apiKey: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(
+    "https://api.lumalabs.ai/dream-machine/v1/generations",
+    {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    }
+  );
   if (response.ok || response.status === 404) {
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // 可灵测试
-async function testKling(accessKey: string, secretKey: string): Promise<{ success: boolean; message: string }> {
+async function testKling(
+  accessKey: string,
+  secretKey: string
+): Promise<{ success: boolean; message: string }> {
   if (!accessKey || !secretKey) {
     return { success: false, message: "需要 Access Key 和 Secret Key" };
   }
@@ -898,30 +1038,42 @@ async function testKling(accessKey: string, secretKey: string): Promise<{ succes
 }
 
 // MiniMax 测试
-async function testMinimax(apiKey: string, groupId: string): Promise<{ success: boolean; message: string }> {
+async function testMinimax(
+  apiKey: string,
+  groupId: string
+): Promise<{ success: boolean; message: string }> {
   if (!groupId) {
     return { success: false, message: "需要 Group ID" };
   }
-  const response = await fetch(`https://api.minimax.chat/v1/text/chatcompletion_v2?GroupId=${groupId}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "abab6.5s-chat",
-      messages: [{ role: "user", content: "Hi" }],
-    }),
-  });
+  const response = await fetch(
+    `https://api.minimax.chat/v1/text/chatcompletion_v2?GroupId=${groupId}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "abab6.5s-chat",
+        messages: [{ role: "user", content: "Hi" }],
+      }),
+    }
+  );
   if (response.ok) {
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // 火山引擎测试
-async function testVolcengine(appId: string, accessToken: string): Promise<{ success: boolean; message: string }> {
+async function testVolcengine(
+  appId: string,
+  accessToken: string
+): Promise<{ success: boolean; message: string }> {
   if (!appId || !accessToken) {
     return { success: false, message: "需要 App ID 和 Access Token" };
   }
@@ -929,7 +1081,9 @@ async function testVolcengine(appId: string, accessToken: string): Promise<{ suc
 }
 
 // Fish Audio 测试
-async function testFishAudio(apiKey: string): Promise<{ success: boolean; message: string }> {
+async function testFishAudio(
+  apiKey: string
+): Promise<{ success: boolean; message: string }> {
   const response = await fetch("https://api.fish.audio/model", {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -937,11 +1091,16 @@ async function testFishAudio(apiKey: string): Promise<{ success: boolean; messag
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }
 
 // ElevenLabs 测试
-async function testElevenLabs(apiKey: string): Promise<{ success: boolean; message: string }> {
+async function testElevenLabs(
+  apiKey: string
+): Promise<{ success: boolean; message: string }> {
   const response = await fetch("https://api.elevenlabs.io/v1/user", {
     headers: { "xi-api-key": apiKey },
   });
@@ -949,5 +1108,8 @@ async function testElevenLabs(apiKey: string): Promise<{ success: boolean; messa
     return { success: true, message: "连接成功" };
   }
   const error = await response.text();
-  return { success: false, message: `连接失败: ${response.status} ${error.slice(0, 200)}` };
+  return {
+    success: false,
+    message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+  };
 }

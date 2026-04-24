@@ -7,9 +7,14 @@ import { trimUrl } from "../base";
 
 export const openaiCompatibleTTS: TTSProvider = {
   async synthesizeSpeech(options, config) {
-    const { text, voiceId = "zh_female_shuangkuaisisi_moon_bigtts", speed = 1.0 } = options;
+    const {
+      text,
+      voiceId = "zh_female_shuangkuaisisi_moon_bigtts",
+      speed = 1.0,
+    } = options;
     const baseUrl = trimUrl(config.baseUrl);
-    const voice = voiceId !== "zh_female_shuangkuaisisi_moon_bigtts" ? voiceId : "alloy";
+    const voice =
+      voiceId !== "zh_female_shuangkuaisisi_moon_bigtts" ? voiceId : "alloy";
     const model = config.model || "tts-1";
 
     const response = await fetch(`${baseUrl}/audio/speech`, {

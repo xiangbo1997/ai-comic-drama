@@ -24,10 +24,7 @@ export async function GET(
     return NextResponse.json(provider);
   } catch (error) {
     log.error("Get provider error:", error);
-    return NextResponse.json(
-      { error: "获取提供商失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "获取提供商失败" }, { status: 500 });
   }
 }
 
@@ -89,10 +86,7 @@ export async function PUT(
     return NextResponse.json({ id: provider.id, success: true });
   } catch (error) {
     log.error("Update provider error:", error);
-    return NextResponse.json(
-      { error: "更新提供商失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "更新提供商失败" }, { status: 500 });
   }
 }
 
@@ -133,9 +127,6 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (error) {
     log.error("Delete provider error:", error);
-    return NextResponse.json(
-      { error: "删除提供商失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "删除提供商失败" }, { status: 500 });
   }
 }

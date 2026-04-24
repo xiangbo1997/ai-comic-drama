@@ -26,7 +26,7 @@ export function buildStoryboardPrompt(
     name: string;
     canonicalPrompt: string;
     appearance: Record<string, string>;
-  }>,
+  }>
 ): string {
   const charRefMap = characterBible
     .map((c) => `- ${c.name}: ${c.canonicalPrompt}`)
@@ -37,7 +37,7 @@ export function buildStoryboardPrompt(
       (s) =>
         `场景${s.id} [${s.shotType}] ${s.emotion}: ${s.description}` +
         (s.dialogue ? ` 对话: "${s.dialogue}"` : "") +
-        (s.narration ? ` 旁白: "${s.narration}"` : ""),
+        (s.narration ? ` 旁白: "${s.narration}"` : "")
     )
     .join("\n");
 

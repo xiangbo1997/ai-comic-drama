@@ -10,13 +10,13 @@
 
 ## 入口与启动
 
-| 文件 | 作用 |
-|------|------|
-| `index.ts` | Barrel：导出 `orchestrateImageGeneration / resolveStrategy / validateFaceConsistency` 与相关类型 |
-| `image-orchestrator.ts` | 核心编排循环 |
-| `strategy-resolver.ts` | 策略决策（是否用参考图 / 是否 FaceID / 增强 prompt 格式） |
-| `face-validator.ts` | 生成后的人脸一致性验证（相似度阈值 + 是否需要重试） |
-| `types.ts` | `OrchestratorRequest / OrchestratorResult / GenerationStrategy / ValidationResult / SceneCharacterInfo / CharacterRole / StrategyDecision` |
+| 文件                    | 作用                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `index.ts`              | Barrel：导出 `orchestrateImageGeneration / resolveStrategy / validateFaceConsistency` 与相关类型                                           |
+| `image-orchestrator.ts` | 核心编排循环                                                                                                                               |
+| `strategy-resolver.ts`  | 策略决策（是否用参考图 / 是否 FaceID / 增强 prompt 格式）                                                                                  |
+| `face-validator.ts`     | 生成后的人脸一致性验证（相似度阈值 + 是否需要重试）                                                                                        |
+| `types.ts`              | `OrchestratorRequest / OrchestratorResult / GenerationStrategy / ValidationResult / SceneCharacterInfo / CharacterRole / StrategyDecision` |
 
 ## 对外接口
 
@@ -50,7 +50,9 @@ for (let attempt = 1; attempt <= maxRetries; attempt++) {
   imageUrl = await generateImage({
     prompt: decision.enhancedPrompt,
     referenceImage: decision.referenceImageUrl,
-    aspectRatio, style, config: imageConfig,
+    aspectRatio,
+    style,
+    config: imageConfig,
   });
   validation = await validateFaceConsistency(imageUrl, characters, shotType);
   if (validation.passed || !validation.shouldRetry) break;
@@ -64,11 +66,11 @@ return { imageUrl, strategy, attemptCount, validation };
 
 ## 策略种类（`GenerationStrategy`）
 
-| 策略 | 含义 | 触发条件 |
-|------|------|---------|
-| `prompt_only` | 纯文本 prompt | 无角色或远景 |
-| `reference_edit` | 带参考图编辑 | 主要角色有 canonical 参考资产 + Provider `supportsReferenceImage` |
-| `face_id` | FaceID 注入（预留） | Provider `supportsFaceId`（当前能力表均 false） |
+| 策略             | 含义                | 触发条件                                                          |
+| ---------------- | ------------------- | ----------------------------------------------------------------- |
+| `prompt_only`    | 纯文本 prompt       | 无角色或远景                                                      |
+| `reference_edit` | 带参考图编辑        | 主要角色有 canonical 参考资产 + Provider `supportsReferenceImage` |
+| `face_id`        | FaceID 注入（预留） | Provider `supportsFaceId`（当前能力表均 false）                   |
 
 ## 关键依赖
 
@@ -92,6 +94,6 @@ return { imageUrl, strategy, attemptCount, validation };
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

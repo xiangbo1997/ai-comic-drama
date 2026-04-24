@@ -13,17 +13,8 @@ export {
   buildCharacterBiblePrompt,
 } from "./character-bible";
 
-export {
-  STORYBOARD_SYSTEM,
-  buildStoryboardPrompt,
-} from "./storyboard";
+export { STORYBOARD_SYSTEM, buildStoryboardPrompt } from "./storyboard";
 
-export {
-  OBSERVER_SYSTEM,
-  buildImageReviewPrompt,
-} from "./observer";
+export { OBSERVER_SYSTEM, buildImageReviewPrompt } from "./observer";
 
-export {
-  REFLECTION_SYSTEM,
-  buildReflectionPrompt,
-} from "./reflection";
+export { REFLECTION_SYSTEM, buildReflectionPrompt } from "./reflection";

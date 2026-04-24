@@ -3,7 +3,12 @@
  * 支持 Cloudflare R2 和本地存储
  */
 
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import fs from "fs/promises";
 import path from "path";
@@ -39,7 +44,9 @@ function generateFilePath(options: UploadOptions): string {
   const { fileType, userId, projectId, fileName } = options;
   const timestamp = Date.now();
   const ext = fileName.split(".").pop() || "";
-  const baseName = fileName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_");
+  const baseName = fileName
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[^a-zA-Z0-9]/g, "_");
 
   if (projectId) {
     return `${userId}/${projectId}/${fileType}s/${timestamp}_${baseName}.${ext}`;
@@ -69,10 +76,14 @@ export async function uploadToR2(
   }
 
   // 如果没有公开 URL，返回签名 URL
-  return getSignedUrl(r2Client, new GetObjectCommand({
-    Bucket: BUCKET_NAME,
-    Key: filePath,
-  }), { expiresIn: 3600 * 24 * 7 }); // 7天有效期
+  return getSignedUrl(
+    r2Client,
+    new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: filePath,
+    }),
+    { expiresIn: 3600 * 24 * 7 }
+  ); // 7天有效期
 }
 
 // 从 URL 上传文件到 R2
@@ -126,10 +137,14 @@ export async function getPresignedUploadUrl(
 
   const fileUrl = PUBLIC_URL
     ? `${PUBLIC_URL}/${filePath}`
-    : await getSignedUrl(r2Client, new GetObjectCommand({
-        Bucket: BUCKET_NAME,
-        Key: filePath,
-      }), { expiresIn: 3600 * 24 * 7 });
+    : await getSignedUrl(
+        r2Client,
+        new GetObjectCommand({
+          Bucket: BUCKET_NAME,
+          Key: filePath,
+        }),
+        { expiresIn: 3600 * 24 * 7 }
+      );
 
   return { uploadUrl, fileUrl };
 }
@@ -147,7 +162,8 @@ export function isR2Configured(): boolean {
 
 // 本地存储目录（相对于项目根目录）
 const LOCAL_STORAGE_DIR = process.env.LOCAL_STORAGE_DIR || "public/uploads";
-const LOCAL_STORAGE_URL_PREFIX = process.env.LOCAL_STORAGE_URL_PREFIX || "/uploads";
+const LOCAL_STORAGE_URL_PREFIX =
+  process.env.LOCAL_STORAGE_URL_PREFIX || "/uploads";
 
 // 确保目录存在
 async function ensureDir(dirPath: string): Promise<void> {
@@ -159,11 +175,16 @@ async function ensureDir(dirPath: string): Promise<void> {
 }
 
 // 生成本地文件路径
-function generateLocalFilePath(options: UploadOptions): { filePath: string; urlPath: string } {
+function generateLocalFilePath(options: UploadOptions): {
+  filePath: string;
+  urlPath: string;
+} {
   const { fileType, userId, projectId, fileName } = options;
   const timestamp = Date.now();
   const ext = fileName.split(".").pop() || "webp";
-  const baseName = fileName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const baseName = fileName
+    .replace(/\.[^/.]+$/, "")
+    .replace(/[^a-zA-Z0-9_-]/g, "_");
   const finalFileName = `${timestamp}_${baseName}.${ext}`;
 
   let relativePath: string;
@@ -254,7 +275,10 @@ export async function uploadFileFromUrl(
 
 // 统一删除接口
 export async function deleteFile(fileUrl: string): Promise<void> {
-  if (fileUrl.startsWith(LOCAL_STORAGE_URL_PREFIX) || fileUrl.startsWith("/uploads")) {
+  if (
+    fileUrl.startsWith(LOCAL_STORAGE_URL_PREFIX) ||
+    fileUrl.startsWith("/uploads")
+  ) {
     return deleteFromLocal(fileUrl);
   }
   if (isR2Configured()) {

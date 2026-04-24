@@ -1,12 +1,42 @@
 import type { CharacterListItem, Tag } from "@/types";
 
 export const VOICE_PRESETS = [
-  { id: "zh_female_shuangkuaisisi_moon_bigtts", name: "甜美女声", gender: "female", provider: "volcano" },
-  { id: "zh_female_tianmeixiaoyuan_moon_bigtts", name: "温柔女声", gender: "female", provider: "volcano" },
-  { id: "zh_male_chunhou_moon_bigtts", name: "磁性男声", gender: "male", provider: "volcano" },
-  { id: "zh_male_yangguang_moon_bigtts", name: "阳光男声", gender: "male", provider: "volcano" },
-  { id: "zh_female_linjie_moon_bigtts", name: "知性女声", gender: "female", provider: "volcano" },
-  { id: "zh_male_wennuanahu_moon_bigtts", name: "温暖男声", gender: "male", provider: "volcano" },
+  {
+    id: "zh_female_shuangkuaisisi_moon_bigtts",
+    name: "甜美女声",
+    gender: "female",
+    provider: "volcano",
+  },
+  {
+    id: "zh_female_tianmeixiaoyuan_moon_bigtts",
+    name: "温柔女声",
+    gender: "female",
+    provider: "volcano",
+  },
+  {
+    id: "zh_male_chunhou_moon_bigtts",
+    name: "磁性男声",
+    gender: "male",
+    provider: "volcano",
+  },
+  {
+    id: "zh_male_yangguang_moon_bigtts",
+    name: "阳光男声",
+    gender: "male",
+    provider: "volcano",
+  },
+  {
+    id: "zh_female_linjie_moon_bigtts",
+    name: "知性女声",
+    gender: "female",
+    provider: "volcano",
+  },
+  {
+    id: "zh_male_wennuanahu_moon_bigtts",
+    name: "温暖男声",
+    gender: "male",
+    provider: "volcano",
+  },
 ];
 
 export const CATEGORY_LABELS: Record<string, string> = {
@@ -53,7 +83,10 @@ export async function createCharacter(data: Record<string, unknown>) {
   return res.json();
 }
 
-export async function updateCharacter(id: string, data: Record<string, unknown>) {
+export async function updateCharacter(
+  id: string,
+  data: Record<string, unknown>
+) {
   const res = await fetch(`/api/characters/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -97,7 +130,11 @@ export async function fetchTags(): Promise<Tag[]> {
   return res.json();
 }
 
-export async function createTag(data: { name: string; category?: string; color?: string }) {
+export async function createTag(data: {
+  name: string;
+  category?: string;
+  color?: string;
+}) {
   const res = await fetch("/api/tags", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -110,7 +147,10 @@ export async function createTag(data: { name: string; category?: string; color?:
   return res.json();
 }
 
-export async function updateTag(id: string, data: { name?: string; category?: string; color?: string }) {
+export async function updateTag(
+  id: string,
+  data: { name?: string; category?: string; color?: string }
+) {
   const res = await fetch(`/api/tags/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -132,7 +172,11 @@ export async function deleteTag(id: string) {
   return res.json();
 }
 
-export async function generateDescription(data: { name: string; gender: string; age: string }) {
+export async function generateDescription(data: {
+  name: string;
+  gender: string;
+  age: string;
+}) {
   const res = await fetch("/api/characters/generate-description", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

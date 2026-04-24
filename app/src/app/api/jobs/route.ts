@@ -20,7 +20,10 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const jobId = searchParams.get("jobId");
-    const queueName = searchParams.get("queue") as "generation" | "export" | null;
+    const queueName = searchParams.get("queue") as
+      | "generation"
+      | "export"
+      | null;
 
     // 如果指定了 jobId，返回单个任务状态
     if (jobId && queueName) {

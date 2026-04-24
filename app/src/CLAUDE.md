@@ -10,14 +10,14 @@ Next.js 应用的全部 TypeScript 源码；按关注点拆分为 `app`（路由
 
 ## 子模块导航
 
-| 子目录 | 职责 | 文档 |
-|--------|------|------|
-| `app/` | Next.js App Router：页面、布局、API | [app/CLAUDE.md](./app/CLAUDE.md) |
-| `services/` | 业务服务层：AI、队列、存储、支付、Agent | [services/CLAUDE.md](./services/CLAUDE.md) |
-| `lib/` | 基础设施：认证、加密、DB、日志、限流、内容安全、Prompt | [lib/CLAUDE.md](./lib/CLAUDE.md) |
-| `stores/` | Zustand 客户端状态 | [stores/CLAUDE.md](./stores/CLAUDE.md) |
-| `components/` | React 组件 + shadcn/ui | [components/CLAUDE.md](./components/CLAUDE.md) |
-| `types/` | TypeScript 类型集中导出（`project` / `scene` / `character` / `ai`） | — |
+| 子目录        | 职责                                                                | 文档                                           |
+| ------------- | ------------------------------------------------------------------- | ---------------------------------------------- |
+| `app/`        | Next.js App Router：页面、布局、API                                 | [app/CLAUDE.md](./app/CLAUDE.md)               |
+| `services/`   | 业务服务层：AI、队列、存储、支付、Agent                             | [services/CLAUDE.md](./services/CLAUDE.md)     |
+| `lib/`        | 基础设施：认证、加密、DB、日志、限流、内容安全、Prompt              | [lib/CLAUDE.md](./lib/CLAUDE.md)               |
+| `stores/`     | Zustand 客户端状态                                                  | [stores/CLAUDE.md](./stores/CLAUDE.md)         |
+| `components/` | React 组件 + shadcn/ui                                              | [components/CLAUDE.md](./components/CLAUDE.md) |
+| `types/`      | TypeScript 类型集中导出（`project` / `scene` / `character` / `ai`） | —                                              |
 
 ## 导入别名
 
@@ -37,6 +37,6 @@ app/pages   ─┘
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

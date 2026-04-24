@@ -57,10 +57,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
   } catch (error) {
     log.error("Get order error:", error);
-    return NextResponse.json(
-      { error: "Failed to get order" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to get order" }, { status: 500 });
   }
 }
 

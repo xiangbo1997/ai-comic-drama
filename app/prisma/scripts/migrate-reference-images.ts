@@ -50,7 +50,9 @@ async function main() {
 
     await prisma.characterReferenceAsset.createMany({ data: assets });
     migrated++;
-    console.log(`Migrated ${images.length} images for "${char.name}" (${char.id})`);
+    console.log(
+      `Migrated ${images.length} images for "${char.name}" (${char.id})`
+    );
   }
 
   console.log(`\nDone: ${migrated} characters migrated, ${skipped} skipped.`);

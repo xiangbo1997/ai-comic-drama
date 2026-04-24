@@ -10,15 +10,15 @@
 
 ## 全局约定
 
-| 约定 | 说明 |
-|------|------|
-| **鉴权** | 所有受保护端点开头必须 `const session = await auth()`，未登录返回 `401 Unauthorized` |
-| **响应格式** | 统一使用 `NextResponse.json({...})`；错误 `{ error: string }` |
-| **动态路由参数** | 使用 `Promise<{ id: string }>`（Next.js 16 要求 `await params`） |
-| **限流** | 重要端点必须走 `rateLimiters.*`（来自 `@/lib/rate-limit`），失败返回 `429` |
-| **内容安全** | 图像/视频生成前必须 `contentSafetyMiddleware(prompt, kind)` |
-| **积分扣减** | 生成类端点查 `User.credits`，不足返回 `400` |
-| **日志** | 使用 `createLogger("api:<name>")`；不要直接 `console.*` |
+| 约定             | 说明                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| **鉴权**         | 所有受保护端点开头必须 `const session = await auth()`，未登录返回 `401 Unauthorized` |
+| **响应格式**     | 统一使用 `NextResponse.json({...})`；错误 `{ error: string }`                        |
+| **动态路由参数** | 使用 `Promise<{ id: string }>`（Next.js 16 要求 `await params`）                     |
+| **限流**         | 重要端点必须走 `rateLimiters.*`（来自 `@/lib/rate-limit`），失败返回 `429`           |
+| **内容安全**     | 图像/视频生成前必须 `contentSafetyMiddleware(prompt, kind)`                          |
+| **积分扣减**     | 生成类端点查 `User.credits`，不足返回 `400`                                          |
+| **日志**         | 使用 `createLogger("api:<name>")`；不要直接 `console.*`                              |
 
 ## 入口与启动
 
@@ -26,26 +26,26 @@
 
 ## 主要端点族（索引）
 
-| 路径前缀 | 主要端点 | 作用 |
-|----------|----------|------|
-| `/api/auth/**` | NextAuth handlers (`[...nextauth]/route.ts`) + 自定义 `register/` | 登录/注册/会话 |
-| `/api/projects` | `GET`（列表）、`POST`（新建） | 项目 CRUD |
-| `/api/projects/[id]` | `GET` / `PATCH` / `DELETE` | 单项目 |
-| `/api/projects/[id]/scenes` | `POST`（批量保存） | 分镜持久化 |
-| `/api/projects/[id]/export` | `POST`（触发导出）、`GET?taskId=` | 视频合成导出 |
-| `/api/projects/[id]/workflow` | `POST` / `GET` / SSE | 启动/查询 Agent Workflow |
-| `/api/script/parse` | `POST` | 文本 → 分镜 JSON |
-| `/api/generate/image` | `POST` | 图像生成（含 orchestrateImageGeneration） |
-| `/api/generate/video` | `POST` | 视频生成 |
-| `/api/generate/tts` | `POST` | 语音合成 |
-| `/api/characters` + `/api/characters/[id]` | CRUD | 角色管理 |
-| `/api/characters/[id]/reference-assets` | `POST` / `DELETE` | 参考图资产 |
-| `/api/ai-configs` + `/api/ai-configs/[id]` | CRUD | 用户 AI 配置（API Key AES-256 加密） |
-| `/api/ai-configs/[id]/test` | `POST` | 测试配置连通性 |
-| `/api/ai-providers` | `GET` | 系统预置 + 用户自定义提供商 |
-| `/api/credits` + `/api/checkins` | `GET` / `POST` | 积分 / 签到 |
-| `/api/orders` + `/api/payment/**` | 下单 / 回调 | 微信/支付宝/Stripe |
-| `/api/upload` | `POST` | 文件直传 R2 |
+| 路径前缀                                   | 主要端点                                                          | 作用                                      |
+| ------------------------------------------ | ----------------------------------------------------------------- | ----------------------------------------- |
+| `/api/auth/**`                             | NextAuth handlers (`[...nextauth]/route.ts`) + 自定义 `register/` | 登录/注册/会话                            |
+| `/api/projects`                            | `GET`（列表）、`POST`（新建）                                     | 项目 CRUD                                 |
+| `/api/projects/[id]`                       | `GET` / `PATCH` / `DELETE`                                        | 单项目                                    |
+| `/api/projects/[id]/scenes`                | `POST`（批量保存）                                                | 分镜持久化                                |
+| `/api/projects/[id]/export`                | `POST`（触发导出）、`GET?taskId=`                                 | 视频合成导出                              |
+| `/api/projects/[id]/workflow`              | `POST` / `GET` / SSE                                              | 启动/查询 Agent Workflow                  |
+| `/api/script/parse`                        | `POST`                                                            | 文本 → 分镜 JSON                          |
+| `/api/generate/image`                      | `POST`                                                            | 图像生成（含 orchestrateImageGeneration） |
+| `/api/generate/video`                      | `POST`                                                            | 视频生成                                  |
+| `/api/generate/tts`                        | `POST`                                                            | 语音合成                                  |
+| `/api/characters` + `/api/characters/[id]` | CRUD                                                              | 角色管理                                  |
+| `/api/characters/[id]/reference-assets`    | `POST` / `DELETE`                                                 | 参考图资产                                |
+| `/api/ai-configs` + `/api/ai-configs/[id]` | CRUD                                                              | 用户 AI 配置（API Key AES-256 加密）      |
+| `/api/ai-configs/[id]/test`                | `POST`                                                            | 测试配置连通性                            |
+| `/api/ai-providers`                        | `GET`                                                             | 系统预置 + 用户自定义提供商               |
+| `/api/credits` + `/api/checkins`           | `GET` / `POST`                                                    | 积分 / 签到                               |
+| `/api/orders` + `/api/payment/**`          | 下单 / 回调                                                       | 微信/支付宝/Stripe                        |
+| `/api/upload`                              | `POST`                                                            | 文件直传 R2                               |
 
 > 完整清单以实际 `route.ts` 文件为准；本表为采样索引。
 
@@ -97,6 +97,6 @@
 
 ## 变更记录 (Changelog)
 
-| 日期 | 说明 |
-|------|------|
+| 日期       | 说明                               |
+| ---------- | ---------------------------------- |
 | 2026-04-23 | 首次生成（/ccg:init 自适应架构师） |

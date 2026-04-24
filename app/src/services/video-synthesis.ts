@@ -145,12 +145,18 @@ async function sceneToVideoClip(
 
     // 调整视频时长和尺寸
     await runFFmpeg([
-      "-i", videoPath,
-      "-t", scene.duration.toString(),
-      "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
-      "-c:v", "libx264",
-      "-preset", "fast",
-      "-c:a", "aac",
+      "-i",
+      videoPath,
+      "-t",
+      scene.duration.toString(),
+      "-vf",
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "fast",
+      "-c:a",
+      "aac",
       "-y",
       outputPath,
     ]);
@@ -167,13 +173,20 @@ async function sceneToVideoClip(
     );
 
     await runFFmpeg([
-      "-loop", "1",
-      "-i", imagePath,
-      "-t", scene.duration.toString(),
-      "-vf", `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
-      "-c:v", "libx264",
-      "-preset", "fast",
-      "-pix_fmt", "yuv420p",
+      "-loop",
+      "1",
+      "-i",
+      imagePath,
+      "-t",
+      scene.duration.toString(),
+      "-vf",
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
+      "-c:v",
+      "libx264",
+      "-preset",
+      "fast",
+      "-pix_fmt",
+      "yuv420p",
       "-y",
       outputPath,
     ]);
@@ -184,11 +197,16 @@ async function sceneToVideoClip(
 
   // 生成黑色背景视频
   await runFFmpeg([
-    "-f", "lavfi",
-    "-i", `color=c=black:s=${width}x${height}:d=${scene.duration}`,
-    "-c:v", "libx264",
-    "-preset", "fast",
-    "-pix_fmt", "yuv420p",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=black:s=${width}x${height}:d=${scene.duration}`,
+    "-c:v",
+    "libx264",
+    "-preset",
+    "fast",
+    "-pix_fmt",
+    "yuv420p",
     "-y",
     outputPath,
   ]);
@@ -204,7 +222,11 @@ export async function synthesizeVideo(
   options: ExportOptions,
   onProgress?: (progress: number) => void
 ): Promise<Buffer> {
-  const tmpDir = path.join(os.tmpdir(), "ai-comic-export", Date.now().toString());
+  const tmpDir = path.join(
+    os.tmpdir(),
+    "ai-comic-export",
+    Date.now().toString()
+  );
   await mkdir(tmpDir, { recursive: true });
 
   try {
@@ -224,10 +246,14 @@ export async function synthesizeVideo(
     // 3. 合并所有视频片段
     const mergedPath = path.join(tmpDir, "merged.mp4");
     await runFFmpeg([
-      "-f", "concat",
-      "-safe", "0",
-      "-i", listPath,
-      "-c", "copy",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      listPath,
+      "-c",
+      "copy",
       "-y",
       mergedPath,
     ]);
@@ -292,19 +318,27 @@ export async function synthesizeVideo(
       ffmpegArgs.push(
         "-filter_complex",
         `${audioFilters.join(";")}; ${mixInputs}amix=inputs=${audioFilters.length}[aout]`,
-        "-map", "0:v",
-        "-map", "[aout]"
+        "-map",
+        "0:v",
+        "-map",
+        "[aout]"
       );
     }
 
     // 输出设置
     ffmpegArgs.push(
-      "-c:v", "libx264",
-      "-preset", "medium",
-      "-b:v", quality.bitrate,
-      "-c:a", "aac",
-      "-b:a", "128k",
-      "-movflags", "+faststart",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "medium",
+      "-b:v",
+      quality.bitrate,
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      "-movflags",
+      "+faststart",
       "-y",
       outputPath
     );
@@ -350,9 +384,12 @@ export function calculateAlignedDuration(
 export async function getAudioDuration(audioPath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const ffprobe = spawn("ffprobe", [
-      "-v", "error",
-      "-show_entries", "format=duration",
-      "-of", "default=noprint_wrappers=1:nokey=1",
+      "-v",
+      "error",
+      "-show_entries",
+      "format=duration",
+      "-of",
+      "default=noprint_wrappers=1:nokey=1",
       audioPath,
     ]);
 

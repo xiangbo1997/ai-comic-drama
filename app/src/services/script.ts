@@ -11,11 +11,18 @@ import type { AIServiceConfig, SceneScript, ParsedScript } from "@/types";
 import { SCRIPT_PARSE_SYSTEM, buildScriptParseUserPrompt } from "@/lib/prompts";
 import { getSimpleStylePrefix } from "@/lib/prompts";
 import { ScriptParserAgent } from "./agents/script-parser-agent";
-import type { WorkflowConfig, WorkflowContext, ScriptArtifact } from "./agents/types";
+import type {
+  WorkflowConfig,
+  WorkflowContext,
+  ScriptArtifact,
+} from "./agents/types";
 
 export type { SceneScript, ParsedScript };
 
-export async function parseScript(text: string, config?: AIServiceConfig): Promise<ParsedScript> {
+export async function parseScript(
+  text: string,
+  config?: AIServiceConfig
+): Promise<ParsedScript> {
   const userPrompt = buildScriptParseUserPrompt(text);
 
   const response = await chatCompletion(
@@ -71,7 +78,7 @@ export function generateImagePrompt(
  */
 export async function parseScriptWithAgent(
   text: string,
-  config?: AIServiceConfig,
+  config?: AIServiceConfig
 ): Promise<ParsedScript> {
   const agent = new ScriptParserAgent();
 

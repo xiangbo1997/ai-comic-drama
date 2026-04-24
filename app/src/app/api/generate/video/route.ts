@@ -11,7 +11,7 @@ const log = createLogger("api:generate:video");
 
 // 视频生成成本（积分）
 const VIDEO_COST = {
-  5: 10,  // 5秒视频 10积分
+  5: 10, // 5秒视频 10积分
   10: 20, // 10秒视频 20积分
 };
 
@@ -24,18 +24,33 @@ export async function POST(request: NextRequest) {
     }
 
     // 应用限流
-    const rateLimitResult = await rateLimiters.videoGeneration(request, session.user.id);
+    const rateLimitResult = await rateLimiters.videoGeneration(
+      request,
+      session.user.id
+    );
     if (!rateLimitResult.success) {
       return NextResponse.json(
-        { error: "请求过于频繁，请稍后再试", retryAfter: rateLimitResult.retryAfter },
+        {
+          error: "请求过于频繁，请稍后再试",
+          retryAfter: rateLimitResult.retryAfter,
+        },
         { status: 429, headers: rateLimitHeaders(rateLimitResult) }
       );
     }
 
-    const { imageUrl, prompt, duration = 5, projectId, sceneId } = await request.json();
+    const {
+      imageUrl,
+      prompt,
+      duration = 5,
+      projectId,
+      sceneId,
+    } = await request.json();
 
     if (!imageUrl) {
-      return NextResponse.json({ error: "Image URL is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Image URL is required" },
+        { status: 400 }
+      );
     }
 
     // 内容安全检查（如果有提示词）
@@ -47,7 +62,7 @@ export async function POST(request: NextRequest) {
           {
             error: "内容不符合安全规范",
             reason: safetyCheck.reason,
-            blockedKeywords: safetyCheck.blockedKeywords
+            blockedKeywords: safetyCheck.blockedKeywords,
           },
           { status: 400 }
         );
@@ -64,7 +79,11 @@ export async function POST(request: NextRequest) {
 
     if (!user || user.credits < cost) {
       return NextResponse.json(
-        { error: "Insufficient credits", required: cost, current: user?.credits ?? 0 },
+        {
+          error: "Insufficient credits",
+          required: cost,
+          current: user?.credits ?? 0,
+        },
         { status: 400 }
       );
     }

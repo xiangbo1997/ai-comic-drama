@@ -31,10 +31,16 @@ export async function POST(request: NextRequest) {
     }
 
     // 应用限流
-    const rateLimitResult = await rateLimiters.payment(request, session.user.id);
+    const rateLimitResult = await rateLimiters.payment(
+      request,
+      session.user.id
+    );
     if (!rateLimitResult.success) {
       return NextResponse.json(
-        { error: "请求过于频繁，请稍后再试", retryAfter: rateLimitResult.retryAfter },
+        {
+          error: "请求过于频繁，请稍后再试",
+          retryAfter: rateLimitResult.retryAfter,
+        },
         { status: 429, headers: rateLimitHeaders(rateLimitResult) }
       );
     }
@@ -181,17 +187,9 @@ export async function GET() {
       methods: methods.map((m) => ({
         id: m,
         name:
-          m === "WECHAT"
-            ? "微信支付"
-            : m === "ALIPAY"
-              ? "支付宝"
-              : "Stripe",
+          m === "WECHAT" ? "微信支付" : m === "ALIPAY" ? "支付宝" : "Stripe",
         icon:
-          m === "WECHAT"
-            ? "wechat"
-            : m === "ALIPAY"
-              ? "alipay"
-              : "credit-card",
+          m === "WECHAT" ? "wechat" : m === "ALIPAY" ? "alipay" : "credit-card",
       })),
       packages: Object.values(CREDIT_PACKAGES),
       plans: Object.values(SUBSCRIPTION_PLANS),

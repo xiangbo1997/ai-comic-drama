@@ -3,7 +3,13 @@
  * 根据 protocol 字段路由到对应 Provider，不再依赖 baseUrl 猜测
  */
 
-import type { LLMProvider, ImageProvider, VideoProvider, TTSProvider, ImageProviderCapability } from "./types";
+import type {
+  LLMProvider,
+  ImageProvider,
+  VideoProvider,
+  TTSProvider,
+  ImageProviderCapability,
+} from "./types";
 
 // LLM providers
 import { openaiCompatibleLLM } from "./providers/openai-compatible";
@@ -30,12 +36,48 @@ import { openaiCompatibleTTS } from "./providers/tts/openai-compatible";
 
 /** 图像 Provider 能力表 */
 const IMAGE_PROVIDER_CAPABILITIES: Record<string, ImageProviderCapability> = {
-  replicate: { supportsReferenceImage: true, supportsMultipleReferences: false, supportsFaceId: false, supportsInpainting: false, maxReferenceImages: 1 },
-  fal: { supportsReferenceImage: true, supportsMultipleReferences: false, supportsFaceId: false, supportsInpainting: false, maxReferenceImages: 1 },
-  grok: { supportsReferenceImage: false, supportsMultipleReferences: false, supportsFaceId: false, supportsInpainting: false, maxReferenceImages: 0 },
-  siliconflow: { supportsReferenceImage: false, supportsMultipleReferences: false, supportsFaceId: false, supportsInpainting: false, maxReferenceImages: 0 },
-  openai: { supportsReferenceImage: false, supportsMultipleReferences: false, supportsFaceId: false, supportsInpainting: false, maxReferenceImages: 0 },
-  "proxy-unified": { supportsReferenceImage: true, supportsMultipleReferences: false, supportsFaceId: false, supportsInpainting: false, maxReferenceImages: 1 },
+  replicate: {
+    supportsReferenceImage: true,
+    supportsMultipleReferences: false,
+    supportsFaceId: false,
+    supportsInpainting: false,
+    maxReferenceImages: 1,
+  },
+  fal: {
+    supportsReferenceImage: true,
+    supportsMultipleReferences: false,
+    supportsFaceId: false,
+    supportsInpainting: false,
+    maxReferenceImages: 1,
+  },
+  grok: {
+    supportsReferenceImage: false,
+    supportsMultipleReferences: false,
+    supportsFaceId: false,
+    supportsInpainting: false,
+    maxReferenceImages: 0,
+  },
+  siliconflow: {
+    supportsReferenceImage: false,
+    supportsMultipleReferences: false,
+    supportsFaceId: false,
+    supportsInpainting: false,
+    maxReferenceImages: 0,
+  },
+  openai: {
+    supportsReferenceImage: false,
+    supportsMultipleReferences: false,
+    supportsFaceId: false,
+    supportsInpainting: false,
+    maxReferenceImages: 0,
+  },
+  "proxy-unified": {
+    supportsReferenceImage: true,
+    supportsMultipleReferences: false,
+    supportsFaceId: false,
+    supportsInpainting: false,
+    maxReferenceImages: 1,
+  },
 };
 
 const DEFAULT_CAPABILITY: ImageProviderCapability = {
@@ -47,7 +89,9 @@ const DEFAULT_CAPABILITY: ImageProviderCapability = {
 };
 
 /** 获取图像 Provider 能力 */
-export function getImageProviderCapability(protocol: string): ImageProviderCapability {
+export function getImageProviderCapability(
+  protocol: string
+): ImageProviderCapability {
   return IMAGE_PROVIDER_CAPABILITIES[protocol] ?? DEFAULT_CAPABILITY;
 }
 
@@ -65,7 +109,10 @@ export function getLLMProvider(protocol: string): LLMProvider {
 }
 
 /** 获取图像生成 Provider */
-export function getImageProvider(protocol: string, baseUrl?: string): ImageProvider {
+export function getImageProvider(
+  protocol: string,
+  baseUrl?: string
+): ImageProvider {
   switch (protocol) {
     case "proxy-unified":
       return proxyUnifiedImage;
@@ -87,7 +134,8 @@ export function getImageProvider(protocol: string, baseUrl?: string): ImageProvi
   if (baseUrl) {
     if (baseUrl.includes("x.ai")) return grokImage;
     if (baseUrl.includes("siliconflow")) return siliconflowImage;
-    if (baseUrl.includes("fal.run") || baseUrl.includes("fal.ai")) return falImage;
+    if (baseUrl.includes("fal.run") || baseUrl.includes("fal.ai"))
+      return falImage;
     if (baseUrl.includes("replicate") || !baseUrl) return replicateImage;
   }
 
@@ -96,7 +144,10 @@ export function getImageProvider(protocol: string, baseUrl?: string): ImageProvi
 }
 
 /** 获取视频生成 Provider */
-export function getVideoProvider(protocol: string, baseUrl?: string): VideoProvider {
+export function getVideoProvider(
+  protocol: string,
+  baseUrl?: string
+): VideoProvider {
   switch (protocol) {
     case "runway":
       return runwayVideo;
@@ -112,14 +163,18 @@ export function getVideoProvider(protocol: string, baseUrl?: string): VideoProvi
   // 兼容旧配置
   if (baseUrl) {
     if (baseUrl.includes("runwayml")) return runwayVideo;
-    if (baseUrl.includes("fal.run") || baseUrl.includes("fal.ai")) return falVideo;
+    if (baseUrl.includes("fal.run") || baseUrl.includes("fal.ai"))
+      return falVideo;
   }
 
   return runwayVideo;
 }
 
 /** 获取 TTS Provider */
-export function getTTSProvider(protocol: string, baseUrl?: string): TTSProvider {
+export function getTTSProvider(
+  protocol: string,
+  baseUrl?: string
+): TTSProvider {
   switch (protocol) {
     case "volcengine":
       return volcengineTTS;
@@ -133,7 +188,8 @@ export function getTTSProvider(protocol: string, baseUrl?: string): TTSProvider 
 
   // 兼容旧配置
   if (baseUrl) {
-    if (baseUrl.includes("bytedance") || baseUrl.includes("volcengine")) return volcengineTTS;
+    if (baseUrl.includes("bytedance") || baseUrl.includes("volcengine"))
+      return volcengineTTS;
     if (baseUrl.includes("elevenlabs")) return elevenlabsTTS;
   }
 

@@ -32,7 +32,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
 
     if (!character) {
-      return NextResponse.json({ error: "Character not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Character not found" },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json(character);
@@ -61,11 +64,24 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     });
 
     if (!existing) {
-      return NextResponse.json({ error: "Character not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Character not found" },
+        { status: 404 }
+      );
     }
 
     const body = await request.json();
-    const { name, gender, age, description, voiceId, voiceProvider, referenceImages, tagIds, appearance } = body;
+    const {
+      name,
+      gender,
+      age,
+      description,
+      voiceId,
+      voiceProvider,
+      referenceImages,
+      tagIds,
+      appearance,
+    } = body;
 
     // 如果有 tagIds，需要使用事务来处理
     if (tagIds !== undefined) {
@@ -168,7 +184,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     });
 
     if (!existing) {
-      return NextResponse.json({ error: "Character not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Character not found" },
+        { status: 404 }
+      );
     }
 
     await prisma.character.delete({

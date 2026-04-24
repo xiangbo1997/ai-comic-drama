@@ -12,7 +12,11 @@ interface TagManagerModalProps {
   onClose: () => void;
 }
 
-export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerModalProps) {
+export function TagManagerModal({
+  tags,
+  tagsByCategory,
+  onClose,
+}: TagManagerModalProps) {
   const queryClient = useQueryClient();
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [tagFormData, setTagFormData] = useState({
@@ -30,8 +34,13 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
   });
 
   const updateTagMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; category?: string; color?: string } }) =>
-      updateTag(id, data),
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: { name?: string; category?: string; color?: string };
+    }) => updateTag(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tags"] });
       queryClient.invalidateQueries({ queryKey: ["characters"] });
@@ -54,31 +63,38 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-800 rounded-xl w-full max-w-lg max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-gray-800">
+        <div className="flex items-center justify-between border-b border-gray-700 p-4">
           <h2 className="text-lg font-semibold">管理标签</h2>
-          <button onClick={handleClose} className="p-1 hover:bg-gray-700 rounded">
+          <button
+            onClick={handleClose}
+            className="rounded p-1 hover:bg-gray-700"
+          >
             <X size={20} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-6 p-4 bg-gray-700/50 rounded-lg">
-            <h3 className="text-sm font-medium mb-3">创建自定义标签</h3>
+          <div className="mb-6 rounded-lg bg-gray-700/50 p-4">
+            <h3 className="mb-3 text-sm font-medium">创建自定义标签</h3>
             <div className="space-y-3">
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={tagFormData.name}
-                  onChange={(e) => setTagFormData({ ...tagFormData, name: e.target.value })}
+                  onChange={(e) =>
+                    setTagFormData({ ...tagFormData, name: e.target.value })
+                  }
                   placeholder="标签名称"
-                  className="flex-1 px-3 py-2 bg-gray-700 rounded-lg text-sm"
+                  className="flex-1 rounded-lg bg-gray-700 px-3 py-2 text-sm"
                 />
                 <select
                   value={tagFormData.category}
-                  onChange={(e) => setTagFormData({ ...tagFormData, category: e.target.value })}
-                  className="px-3 py-2 bg-gray-700 rounded-lg text-sm"
+                  onChange={(e) =>
+                    setTagFormData({ ...tagFormData, category: e.target.value })
+                  }
+                  className="rounded-lg bg-gray-700 px-3 py-2 text-sm"
                 >
                   <option value="style">风格</option>
                   <option value="gender">性别</option>
@@ -86,16 +102,18 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
                   <option value="other">其他</option>
                 </select>
               </div>
-              <div className="flex gap-2 items-center">
+              <div className="flex items-center gap-2">
                 <label className="text-sm text-gray-400">颜色：</label>
                 <input
                   type="color"
                   value={tagFormData.color}
-                  onChange={(e) => setTagFormData({ ...tagFormData, color: e.target.value })}
-                  className="w-10 h-8 rounded cursor-pointer bg-transparent"
+                  onChange={(e) =>
+                    setTagFormData({ ...tagFormData, color: e.target.value })
+                  }
+                  className="h-8 w-10 cursor-pointer rounded bg-transparent"
                 />
                 <div
-                  className="px-3 py-1 rounded-full text-sm"
+                  className="rounded-full px-3 py-1 text-sm"
                   style={{ backgroundColor: tagFormData.color }}
                 >
                   预览
@@ -103,16 +121,22 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
                 <div className="flex-1" />
                 <button
                   onClick={() => createTagMutation.mutate(tagFormData)}
-                  disabled={!tagFormData.name.trim() || createTagMutation.isPending}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded-lg text-sm flex items-center gap-1"
+                  disabled={
+                    !tagFormData.name.trim() || createTagMutation.isPending
+                  }
+                  className="flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-sm hover:bg-blue-700 disabled:bg-gray-600"
                 >
-                  {createTagMutation.isPending && <Loader2 size={14} className="animate-spin" />}
+                  {createTagMutation.isPending && (
+                    <Loader2 size={14} className="animate-spin" />
+                  )}
                   创建
                 </button>
               </div>
               {createTagMutation.error && (
-                <p className="text-red-400 text-xs">
-                  {createTagMutation.error instanceof Error ? createTagMutation.error.message : "创建失败"}
+                <p className="text-xs text-red-400">
+                  {createTagMutation.error instanceof Error
+                    ? createTagMutation.error.message
+                    : "创建失败"}
                 </p>
               )}
             </div>
@@ -121,33 +145,48 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
           <div className="space-y-4">
             {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
               <div key={category}>
-                <h4 className="text-xs text-gray-500 uppercase mb-2">
+                <h4 className="mb-2 text-xs text-gray-500 uppercase">
                   {CATEGORY_LABELS[category] || category}
                 </h4>
                 <div className="space-y-1">
                   {categoryTags.map((tag) => (
                     <div
                       key={tag.id}
-                      className="flex items-center gap-2 p-2 bg-gray-700/30 rounded-lg hover:bg-gray-700/50 transition"
+                      className="flex items-center gap-2 rounded-lg bg-gray-700/30 p-2 transition hover:bg-gray-700/50"
                     >
                       {editingTagId === tag.id ? (
                         <>
                           <input
                             type="color"
                             value={tagFormData.color}
-                            onChange={(e) => setTagFormData({ ...tagFormData, color: e.target.value })}
-                            className="w-8 h-6 rounded cursor-pointer bg-transparent"
+                            onChange={(e) =>
+                              setTagFormData({
+                                ...tagFormData,
+                                color: e.target.value,
+                              })
+                            }
+                            className="h-6 w-8 cursor-pointer rounded bg-transparent"
                           />
                           <input
                             type="text"
                             value={tagFormData.name}
-                            onChange={(e) => setTagFormData({ ...tagFormData, name: e.target.value })}
-                            className="flex-1 px-2 py-1 bg-gray-700 rounded text-sm"
+                            onChange={(e) =>
+                              setTagFormData({
+                                ...tagFormData,
+                                name: e.target.value,
+                              })
+                            }
+                            className="flex-1 rounded bg-gray-700 px-2 py-1 text-sm"
                           />
                           <select
                             value={tagFormData.category}
-                            onChange={(e) => setTagFormData({ ...tagFormData, category: e.target.value })}
-                            className="px-2 py-1 bg-gray-700 rounded text-sm"
+                            onChange={(e) =>
+                              setTagFormData({
+                                ...tagFormData,
+                                category: e.target.value,
+                              })
+                            }
+                            className="rounded bg-gray-700 px-2 py-1 text-sm"
                           >
                             <option value="style">风格</option>
                             <option value="gender">性别</option>
@@ -155,9 +194,14 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
                             <option value="other">其他</option>
                           </select>
                           <button
-                            onClick={() => updateTagMutation.mutate({ id: tag.id, data: tagFormData })}
+                            onClick={() =>
+                              updateTagMutation.mutate({
+                                id: tag.id,
+                                data: tagFormData,
+                              })
+                            }
                             disabled={updateTagMutation.isPending}
-                            className="p-1 hover:bg-green-600 rounded"
+                            className="rounded p-1 hover:bg-green-600"
                           >
                             {updateTagMutation.isPending ? (
                               <Loader2 size={14} className="animate-spin" />
@@ -168,9 +212,13 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
                           <button
                             onClick={() => {
                               setEditingTagId(null);
-                              setTagFormData({ name: "", category: "other", color: "#6B7280" });
+                              setTagFormData({
+                                name: "",
+                                category: "other",
+                                color: "#6B7280",
+                              });
                             }}
-                            className="p-1 hover:bg-gray-600 rounded"
+                            className="rounded p-1 hover:bg-gray-600"
                           >
                             <X size={14} />
                           </button>
@@ -178,12 +226,12 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
                       ) : (
                         <>
                           <div
-                            className="w-4 h-4 rounded-full"
+                            className="h-4 w-4 rounded-full"
                             style={{ backgroundColor: tag.color || "#6B7280" }}
                           />
                           <span className="flex-1 text-sm">{tag.name}</span>
                           {tag.isSystem ? (
-                            <span className="text-xs text-gray-500 px-2 py-0.5 bg-gray-700 rounded">
+                            <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-500">
                               系统
                             </span>
                           ) : (
@@ -197,18 +245,20 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
                                     color: tag.color || "#6B7280",
                                   });
                                 }}
-                                className="p-1 hover:bg-gray-600 rounded opacity-50 hover:opacity-100"
+                                className="rounded p-1 opacity-50 hover:bg-gray-600 hover:opacity-100"
                               >
                                 <Edit2 size={14} />
                               </button>
                               <button
                                 onClick={() => {
-                                  if (confirm(`确定删除标签「${tag.name}」吗？`)) {
+                                  if (
+                                    confirm(`确定删除标签「${tag.name}」吗？`)
+                                  ) {
                                     deleteTagMutation.mutate(tag.id);
                                   }
                                 }}
                                 disabled={deleteTagMutation.isPending}
-                                className="p-1 hover:bg-red-600 rounded opacity-50 hover:opacity-100"
+                                className="rounded p-1 opacity-50 hover:bg-red-600 hover:opacity-100"
                               >
                                 {deleteTagMutation.isPending ? (
                                   <Loader2 size={14} className="animate-spin" />
@@ -228,10 +278,10 @@ export function TagManagerModal({ tags, tagsByCategory, onClose }: TagManagerMod
           </div>
         </div>
 
-        <div className="p-4 border-t border-gray-700">
+        <div className="border-t border-gray-700 p-4">
           <button
             onClick={handleClose}
-            className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+            className="w-full rounded-lg bg-gray-700 py-2 hover:bg-gray-600"
           >
             关闭
           </button>

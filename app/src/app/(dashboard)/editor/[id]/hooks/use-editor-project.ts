@@ -32,7 +32,10 @@ async function parseScript(text: string) {
   return res.json();
 }
 
-async function saveScenes(projectId: string, scenes: Record<string, unknown>[]) {
+async function saveScenes(
+  projectId: string,
+  scenes: Record<string, unknown>[]
+) {
   const res = await fetch(`/api/projects/${projectId}/scenes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -42,7 +45,11 @@ async function saveScenes(projectId: string, scenes: Record<string, unknown>[]) 
   return res.json();
 }
 
-export async function apiUpdateScene(projectId: string, sceneId: string, data: Partial<Scene>) {
+export async function apiUpdateScene(
+  projectId: string,
+  sceneId: string,
+  data: Partial<Scene>
+) {
   const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -58,7 +65,10 @@ async function fetchAllCharacters(): Promise<Character[]> {
   return res.json();
 }
 
-async function updateProjectCharacters(projectId: string, characterIds: string[]) {
+async function updateProjectCharacters(
+  projectId: string,
+  characterIds: string[]
+) {
   const res = await fetch(`/api/projects/${projectId}/characters`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -78,9 +88,15 @@ export function useEditorProject(projectId: string) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [title, setTitle] = useState("");
   const [showCharacterManager, setShowCharacterManager] = useState(false);
-  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(new Set());
+  const [selectedCharacterIds, setSelectedCharacterIds] = useState<Set<string>>(
+    new Set()
+  );
 
-  const { data: project, isLoading, error } = useQuery({
+  const {
+    data: project,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => fetchProject(projectId),
     enabled: projectId !== "new",
@@ -98,7 +114,8 @@ export function useEditorProject(projectId: string) {
 
   // 更新项目角色关联
   const updateCharactersMutation = useMutation({
-    mutationFn: (characterIds: string[]) => updateProjectCharacters(projectId, characterIds),
+    mutationFn: (characterIds: string[]) =>
+      updateProjectCharacters(projectId, characterIds),
     onSuccess: () => {
       invalidateProject();
       setShowCharacterManager(false);
@@ -110,7 +127,9 @@ export function useEditorProject(projectId: string) {
   useEffect(() => {
     if (showCharacterManager && project) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSelectedCharacterIds(new Set(project.characters.map((c) => c.character.id)));
+      setSelectedCharacterIds(
+        new Set(project.characters.map((c) => c.character.id))
+      );
     }
   }, [showCharacterManager, project]);
 
@@ -135,13 +154,17 @@ export function useEditorProject(projectId: string) {
     mutationFn: () => parseScript(inputText),
     onSuccess: async (result) => {
       await saveScenes(projectId, result.scenes);
-      await apiUpdateProject(projectId, { inputText, title: result.title || title });
+      await apiUpdateProject(projectId, {
+        inputText,
+        title: result.title || title,
+      });
       invalidateProject();
     },
   });
 
   const updateTitleMutation = useMutation({
-    mutationFn: (newTitle: string) => apiUpdateProject(projectId, { title: newTitle }),
+    mutationFn: (newTitle: string) =>
+      apiUpdateProject(projectId, { title: newTitle }),
     onSuccess: () => {
       invalidateProject();
       setEditingTitle(false);
@@ -149,8 +172,13 @@ export function useEditorProject(projectId: string) {
   });
 
   const updateSceneMutation = useMutation({
-    mutationFn: ({ sceneId, data }: { sceneId: string; data: Partial<Scene> }) =>
-      apiUpdateScene(projectId, sceneId, data),
+    mutationFn: ({
+      sceneId,
+      data,
+    }: {
+      sceneId: string;
+      data: Partial<Scene>;
+    }) => apiUpdateScene(projectId, sceneId, data),
     onSuccess: invalidateProject,
   });
 

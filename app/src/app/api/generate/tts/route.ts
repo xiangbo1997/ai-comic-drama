@@ -21,15 +21,28 @@ export async function POST(request: NextRequest) {
     }
 
     // 应用限流
-    const rateLimitResult = await rateLimiters.audioGeneration(request, session.user.id);
+    const rateLimitResult = await rateLimiters.audioGeneration(
+      request,
+      session.user.id
+    );
     if (!rateLimitResult.success) {
       return NextResponse.json(
-        { error: "请求过于频繁，请稍后再试", retryAfter: rateLimitResult.retryAfter },
+        {
+          error: "请求过于频繁，请稍后再试",
+          retryAfter: rateLimitResult.retryAfter,
+        },
         { status: 429, headers: rateLimitHeaders(rateLimitResult) }
       );
     }
 
-    const { text, voiceId, speed, projectId, sceneId, returnUrl = true } = await request.json();
+    const {
+      text,
+      voiceId,
+      speed,
+      projectId,
+      sceneId,
+      returnUrl = true,
+    } = await request.json();
 
     if (!text) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
@@ -47,7 +60,11 @@ export async function POST(request: NextRequest) {
 
     if (!user || user.credits < cost) {
       return NextResponse.json(
-        { error: "Insufficient credits", required: cost, current: user?.credits ?? 0 },
+        {
+          error: "Insufficient credits",
+          required: cost,
+          current: user?.credits ?? 0,
+        },
         { status: 400 }
       );
     }

@@ -20,7 +20,9 @@ function getLevel(): number {
 
 function formatPrefix(level: string, context?: string): string {
   const ts = new Date().toISOString();
-  return context ? `[${ts}] [${level.toUpperCase()}] [${context}]` : `[${ts}] [${level.toUpperCase()}]`;
+  return context
+    ? `[${ts}] [${level.toUpperCase()}] [${context}]`
+    : `[${ts}] [${level.toUpperCase()}]`;
 }
 
 export const logger = {

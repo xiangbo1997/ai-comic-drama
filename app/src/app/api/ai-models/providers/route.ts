@@ -35,10 +35,7 @@ export async function GET() {
     return NextResponse.json({ categories: grouped });
   } catch (error) {
     log.error("Get providers error:", error);
-    return NextResponse.json(
-      { error: "获取提供商列表失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "获取提供商列表失败" }, { status: 500 });
   }
 }
 
@@ -63,10 +60,7 @@ export async function POST(request: Request) {
     // 验证分类
     const validCategories = ["LLM", "IMAGE", "VIDEO", "TTS"];
     if (!validCategories.includes(category)) {
-      return NextResponse.json(
-        { error: "无效的分类" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "无效的分类" }, { status: 400 });
     }
 
     // 生成唯一 slug（用户ID + 时间戳）
@@ -87,7 +81,11 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ id: provider.id, slug: provider.slug, success: true });
+    return NextResponse.json({
+      id: provider.id,
+      slug: provider.slug,
+      success: true,
+    });
   } catch (error) {
     log.error("Create custom provider error:", error);
     return NextResponse.json(

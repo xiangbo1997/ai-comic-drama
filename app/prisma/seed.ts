@@ -27,7 +27,9 @@ const providers = [
       { id: "deepseek-coder", name: "DeepSeek Coder", costPerUnit: 0.001 },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 1,
   },
@@ -43,7 +45,9 @@ const providers = [
       { id: "gpt-4-turbo", name: "GPT-4 Turbo", costPerUnit: 0.01 },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 2,
   },
@@ -55,11 +59,21 @@ const providers = [
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
     models: [
       { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", costPerUnit: 0.00125 },
-      { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", costPerUnit: 0.000075 },
-      { id: "gemini-2.0-flash-exp", name: "Gemini 2.0 Flash (实验)", costPerUnit: 0 },
+      {
+        id: "gemini-1.5-flash",
+        name: "Gemini 1.5 Flash",
+        costPerUnit: 0.000075,
+      },
+      {
+        id: "gemini-2.0-flash-exp",
+        name: "Gemini 2.0 Flash (实验)",
+        costPerUnit: 0,
+      },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 3,
   },
@@ -70,11 +84,21 @@ const providers = [
     description: "Claude 系列，擅长长文本和复杂推理",
     baseUrl: "https://api.anthropic.com/v1",
     models: [
-      { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", costPerUnit: 0.003 },
-      { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", costPerUnit: 0.001 },
+      {
+        id: "claude-3-5-sonnet-20241022",
+        name: "Claude 3.5 Sonnet",
+        costPerUnit: 0.003,
+      },
+      {
+        id: "claude-3-5-haiku-20241022",
+        name: "Claude 3.5 Haiku",
+        costPerUnit: 0.001,
+      },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 4,
   },
@@ -88,12 +112,29 @@ const providers = [
     baseUrl: "https://api.openai.com/v1",
     apiProtocol: "openai",
     models: [
-      { id: "dall-e-3", name: "DALL-E 3", costPerUnit: 2, description: "最新版本，高质量" },
-      { id: "dall-e-2", name: "DALL-E 2", costPerUnit: 1, description: "经典版本" },
-      { id: "gpt-image-1", name: "GPT Image 1", costPerUnit: 3, description: "GPT 图像生成" },
+      {
+        id: "dall-e-3",
+        name: "DALL-E 3",
+        costPerUnit: 2,
+        description: "最新版本，高质量",
+      },
+      {
+        id: "dall-e-2",
+        name: "DALL-E 2",
+        costPerUnit: 1,
+        description: "经典版本",
+      },
+      {
+        id: "gpt-image-1",
+        name: "GPT Image 1",
+        costPerUnit: 3,
+        description: "GPT 图像生成",
+      },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 1,
   },
@@ -104,13 +145,35 @@ const providers = [
     description: "托管多种图像模型，包括 Flux 系列",
     baseUrl: "https://api.replicate.com/v1",
     models: [
-      { id: "flux-schnell", name: "Flux Schnell", costPerUnit: 1, description: "快速生成" },
-      { id: "flux-dev", name: "Flux Dev", costPerUnit: 2, description: "开发版本" },
-      { id: "flux-pro", name: "Flux Pro", costPerUnit: 3, description: "专业版" },
-      { id: "flux-kontext-pro", name: "Flux Kontext Pro", costPerUnit: 3, description: "角色一致性" },
+      {
+        id: "flux-schnell",
+        name: "Flux Schnell",
+        costPerUnit: 1,
+        description: "快速生成",
+      },
+      {
+        id: "flux-dev",
+        name: "Flux Dev",
+        costPerUnit: 2,
+        description: "开发版本",
+      },
+      {
+        id: "flux-pro",
+        name: "Flux Pro",
+        costPerUnit: 3,
+        description: "专业版",
+      },
+      {
+        id: "flux-kontext-pro",
+        name: "Flux Kontext Pro",
+        costPerUnit: 3,
+        description: "角色一致性",
+      },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Token", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Token", type: "password", required: true },
+      ],
     },
     sortOrder: 2,
   },
@@ -125,7 +188,9 @@ const providers = [
       { id: "flux-dev", name: "Flux Dev", costPerUnit: 1 },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 3,
   },
@@ -140,7 +205,9 @@ const providers = [
       { id: "stable-diffusion-3", name: "SD 3", costPerUnit: 1 },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 4,
   },
@@ -153,10 +220,17 @@ const providers = [
     description: "Gen-3 Alpha，顶级图生视频效果",
     baseUrl: "https://api.dev.runwayml.com/v1",
     models: [
-      { id: "gen3a_turbo", name: "Gen-3 Alpha Turbo", costPerUnit: 10, description: "5秒视频" },
+      {
+        id: "gen3a_turbo",
+        name: "Gen-3 Alpha Turbo",
+        costPerUnit: 10,
+        description: "5秒视频",
+      },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 1,
   },
@@ -166,11 +240,11 @@ const providers = [
     category: AICategory.VIDEO,
     description: "Dream Machine，高质量视频生成",
     baseUrl: "https://api.lumalabs.ai",
-    models: [
-      { id: "dream-machine", name: "Dream Machine", costPerUnit: 8 },
-    ],
+    models: [{ id: "dream-machine", name: "Dream Machine", costPerUnit: 8 }],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 2,
   },
@@ -186,8 +260,18 @@ const providers = [
     ],
     configSchema: {
       fields: [
-        { key: "accessKey", label: "Access Key", type: "password", required: true },
-        { key: "secretKey", label: "Secret Key", type: "password", required: true },
+        {
+          key: "accessKey",
+          label: "Access Key",
+          type: "password",
+          required: true,
+        },
+        {
+          key: "secretKey",
+          label: "Secret Key",
+          type: "password",
+          required: true,
+        },
       ],
     },
     sortOrder: 3,
@@ -198,9 +282,7 @@ const providers = [
     category: AICategory.VIDEO,
     description: "MiniMax 视频生成，有免费额度",
     baseUrl: "https://api.minimax.chat",
-    models: [
-      { id: "video-01", name: "Video-01", costPerUnit: 5 },
-    ],
+    models: [{ id: "video-01", name: "Video-01", costPerUnit: 5 }],
     configSchema: {
       fields: [
         { key: "apiKey", label: "API Key", type: "password", required: true },
@@ -218,14 +300,31 @@ const providers = [
     description: "字节跳动 TTS，中文效果好",
     baseUrl: "https://openspeech.bytedance.com",
     models: [
-      { id: "zh_female_shuangkuaisisi_moon_bigtts", name: "中文女声-爽快思思", costPerUnit: 0.5 },
-      { id: "zh_male_rap_moon_bigtts", name: "中文男声-说唱歌手", costPerUnit: 0.5 },
-      { id: "zh_female_tianmeixiaoyuan_moon_bigtts", name: "中文女声-甜美小源", costPerUnit: 0.5 },
+      {
+        id: "zh_female_shuangkuaisisi_moon_bigtts",
+        name: "中文女声-爽快思思",
+        costPerUnit: 0.5,
+      },
+      {
+        id: "zh_male_rap_moon_bigtts",
+        name: "中文男声-说唱歌手",
+        costPerUnit: 0.5,
+      },
+      {
+        id: "zh_female_tianmeixiaoyuan_moon_bigtts",
+        name: "中文女声-甜美小源",
+        costPerUnit: 0.5,
+      },
     ],
     configSchema: {
       fields: [
         { key: "appId", label: "App ID", type: "text", required: true },
-        { key: "accessToken", label: "Access Token", type: "password", required: true },
+        {
+          key: "accessToken",
+          label: "Access Token",
+          type: "password",
+          required: true,
+        },
       ],
     },
     sortOrder: 1,
@@ -236,11 +335,11 @@ const providers = [
     category: AICategory.TTS,
     description: "高质量中文 TTS，支持声音克隆",
     baseUrl: "https://api.fish.audio",
-    models: [
-      { id: "default", name: "默认音色", costPerUnit: 1 },
-    ],
+    models: [{ id: "default", name: "默认音色", costPerUnit: 1 }],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 2,
   },
@@ -255,7 +354,9 @@ const providers = [
       { id: "eleven_turbo_v2_5", name: "Turbo v2.5", costPerUnit: 1 },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 3,
   },
@@ -270,7 +371,9 @@ const providers = [
       { id: "tts-1-hd", name: "TTS-1 HD", costPerUnit: 2 },
     ],
     configSchema: {
-      fields: [{ key: "apiKey", label: "API Key", type: "password", required: true }],
+      fields: [
+        { key: "apiKey", label: "API Key", type: "password", required: true },
+      ],
     },
     sortOrder: 4,
   },

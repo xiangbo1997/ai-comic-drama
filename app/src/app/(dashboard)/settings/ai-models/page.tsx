@@ -14,10 +14,15 @@ export default function AIModelsPage() {
   const queryClient = useQueryClient();
   const [activeCategory, setActiveCategory] = useState<AICategory>("LLM");
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(null);
+  const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(
+    null
+  );
   const [editingConfig, setEditingConfig] = useState<UserConfig | null>(null);
-  const [customProviderDialogOpen, setCustomProviderDialogOpen] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<AIProvider | null>(null);
+  const [customProviderDialogOpen, setCustomProviderDialogOpen] =
+    useState(false);
+  const [editingProvider, setEditingProvider] = useState<AIProvider | null>(
+    null
+  );
 
   const { data: providersData, isLoading: providersLoading } = useQuery({
     queryKey: ["ai-providers"],
@@ -54,7 +59,10 @@ export default function AIModelsPage() {
     return configs.find((c: UserConfig) => c.providerId === providerId);
   };
 
-  const openConfigDialog = (provider: AIProvider, existingConfig?: UserConfig) => {
+  const openConfigDialog = (
+    provider: AIProvider,
+    existingConfig?: UserConfig
+  ) => {
     setSelectedProvider(provider);
     setEditingConfig(existingConfig || null);
     setConfigDialogOpen(true);
@@ -66,7 +74,12 @@ export default function AIModelsPage() {
   };
 
   const deleteCustomProvider = async (provider: AIProvider) => {
-    if (!confirm(`确定要删除自定义提供商「${provider.name}」吗？相关配置也会被删除。`)) return;
+    if (
+      !confirm(
+        `确定要删除自定义提供商「${provider.name}」吗？相关配置也会被删除。`
+      )
+    )
+      return;
     try {
       const res = await fetch(`/api/ai-models/providers/${provider.id}`, {
         method: "DELETE",
@@ -81,20 +94,20 @@ export default function AIModelsPage() {
 
   if (providersLoading || configsLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+      <div className="flex min-h-[400px] items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-6 py-8 max-w-5xl">
+    <div className="container mx-auto max-w-5xl px-6 py-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white mb-2">AI 模型配置</h1>
+        <h1 className="mb-2 text-2xl font-bold text-white">AI 模型配置</h1>
         <p className="text-gray-400">配置你的 AI 服务 API Key，选择默认模型</p>
       </div>
 
-      <div className="flex gap-2 mb-6 bg-gray-800 p-1 rounded-lg w-fit">
+      <div className="mb-6 flex w-fit gap-2 rounded-lg bg-gray-800 p-1">
         {(["LLM", "IMAGE", "VIDEO", "TTS"] as const).map((category) => {
           const Icon = categoryIcons[category];
           const isActive = activeCategory === category;
@@ -102,14 +115,16 @@ export default function AIModelsPage() {
             <button
               key={category}
               onClick={() => setActiveCategory(category)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md transition ${
+              className={`flex items-center gap-2 rounded-md px-4 py-2 transition ${
                 isActive
                   ? "bg-blue-600 text-white"
-                  : "text-gray-400 hover:text-white hover:bg-gray-700"
+                  : "text-gray-400 hover:bg-gray-700 hover:text-white"
               }`}
             >
               <Icon size={18} />
-              <span className="hidden sm:inline">{categoryLabels[category]}</span>
+              <span className="hidden sm:inline">
+                {categoryLabels[category]}
+              </span>
             </button>
           );
         })}
@@ -124,16 +139,26 @@ export default function AIModelsPage() {
               provider={provider}
               config={config}
               onConfigure={() => openConfigDialog(provider, config)}
-              onRefresh={() => queryClient.invalidateQueries({ queryKey: ["ai-configs"] })}
-              onEditProvider={provider.isCustom ? () => openCustomProviderDialog(provider) : undefined}
-              onDeleteProvider={provider.isCustom ? () => deleteCustomProvider(provider) : undefined}
+              onRefresh={() =>
+                queryClient.invalidateQueries({ queryKey: ["ai-configs"] })
+              }
+              onEditProvider={
+                provider.isCustom
+                  ? () => openCustomProviderDialog(provider)
+                  : undefined
+              }
+              onDeleteProvider={
+                provider.isCustom
+                  ? () => deleteCustomProvider(provider)
+                  : undefined
+              }
             />
           );
         })}
 
         <button
           onClick={() => openCustomProviderDialog()}
-          className="w-full bg-gray-800/50 border-2 border-dashed border-gray-600 rounded-xl p-5 hover:border-blue-500 hover:bg-gray-800 transition flex items-center justify-center gap-2 text-gray-400 hover:text-blue-400"
+          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-600 bg-gray-800/50 p-5 text-gray-400 transition hover:border-blue-500 hover:bg-gray-800 hover:text-blue-400"
         >
           <Plus size={20} />
           <span>添加自定义提供商</span>
@@ -141,8 +166,8 @@ export default function AIModelsPage() {
       </div>
 
       {preference && (
-        <div className="mt-8 p-6 bg-gray-800 rounded-xl">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <div className="mt-8 rounded-xl bg-gray-800 p-6">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
             <Settings size={20} />
             生成策略
           </h2>

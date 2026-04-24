@@ -19,10 +19,7 @@ export async function POST(request: NextRequest) {
     const { name, gender, age } = body;
 
     if (!name?.trim()) {
-      return NextResponse.json(
-        { error: "角色名称不能为空" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "角色名称不能为空" }, { status: 400 });
     }
 
     // 获取用户 LLM 配置
@@ -46,7 +43,8 @@ export async function POST(request: NextRequest) {
     const messages = [
       {
         role: "system" as const,
-        content: "你是一个专业的角色设计师，擅长为小说和动漫角色创作生动的外貌描述。",
+        content:
+          "你是一个专业的角色设计师，擅长为小说和动漫角色创作生动的外貌描述。",
       },
       {
         role: "user" as const,

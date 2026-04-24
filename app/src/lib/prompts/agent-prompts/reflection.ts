@@ -14,7 +14,7 @@ export const REFLECTION_SYSTEM = `你是一个提示词优化专家。你的任�
 export function buildReflectionPrompt(
   originalPrompt: string,
   observerFeedback: string,
-  suggestions: string[],
+  suggestions: string[]
 ): string {
   return `原始提示词：
 ${originalPrompt}

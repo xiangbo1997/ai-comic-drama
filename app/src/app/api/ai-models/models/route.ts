@@ -17,7 +17,10 @@ export async function POST(request: Request) {
     const { providerId, apiKey, customBaseUrl } = body;
 
     if (!providerId) {
-      return NextResponse.json({ error: "providerId 是必填项" }, { status: 400 });
+      return NextResponse.json(
+        { error: "providerId 是必填项" },
+        { status: 400 }
+      );
     }
 
     // 获取提供商信息
@@ -84,10 +87,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     log.error("Get models error:", error);
-    return NextResponse.json(
-      { error: "获取模型列表失败" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "获取模型列表失败" }, { status: 500 });
   }
 }
 
@@ -122,12 +122,21 @@ async function fetchModelsFromProvider(
   // 预置提供商
   switch (slug) {
     case "deepseek":
-      return fetchOpenAICompatibleModels(apiKey, baseUrl || "https://api.deepseek.com/v1");
+      return fetchOpenAICompatibleModels(
+        apiKey,
+        baseUrl || "https://api.deepseek.com/v1"
+      );
     case "openai":
     case "openai-tts":
-      return fetchOpenAICompatibleModels(apiKey, baseUrl || "https://api.openai.com/v1");
+      return fetchOpenAICompatibleModels(
+        apiKey,
+        baseUrl || "https://api.openai.com/v1"
+      );
     case "silicon-flow":
-      return fetchOpenAICompatibleModels(apiKey, baseUrl || "https://api.siliconflow.cn/v1");
+      return fetchOpenAICompatibleModels(
+        apiKey,
+        baseUrl || "https://api.siliconflow.cn/v1"
+      );
     case "gemini":
       return fetchGeminiModels(apiKey, baseUrl);
     case "replicate":
