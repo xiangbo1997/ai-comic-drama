@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# 对暂存区里的 app/ 路径文件跑 lint-staged：prettier 格式化 + eslint --fix
+cd "$(dirname "$0")/.."
+pnpm exec lint-staged
