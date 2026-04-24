@@ -106,20 +106,26 @@ export function useEditorProject(projectId: string) {
   });
 
   // 初始化角色选择
+  // TODO(react19): 派生 state 反模式；建议重构为 useMemo 或条件渲染时直接计算
   useEffect(() => {
     if (showCharacterManager && project) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedCharacterIds(new Set(project.characters.map((c) => c.character.id)));
     }
   }, [showCharacterManager, project]);
 
   // 初始化项目数据
+  // TODO(react19): 派生 state 反模式；建议把 title/inputText 改为非受控或由 project 派生
   useEffect(() => {
     if (project) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTitle(project.title);
       if (project.inputText) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setInputText(project.inputText);
       }
       if (project.scenes.length > 0 && !selectedSceneId) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setSelectedSceneId(project.scenes[0].id);
       }
     }
