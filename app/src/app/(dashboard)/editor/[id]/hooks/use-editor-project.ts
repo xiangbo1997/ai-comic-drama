@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Scene, Character, ProjectDetail } from "@/types";
 
@@ -122,33 +122,36 @@ export function useEditorProject(projectId: string) {
     },
   });
 
-  // 初始化角色选择
-  // TODO(react19): 派生 state 反模式；建议重构为 useMemo 或条件渲染时直接计算
-  useEffect(() => {
+  // 对话框打开时快照项目角色 → 初始化 selectedCharacterIds
+  // 参考 React 19 指南 "Adjusting some state when a prop changes"：
+  // 用渲染期间同步 state（追踪前值），避免 useEffect 里的级联渲染。
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [prevShowCharacterManager, setPrevShowCharacterManager] =
+    useState(false);
+  if (showCharacterManager !== prevShowCharacterManager) {
+    setPrevShowCharacterManager(showCharacterManager);
     if (showCharacterManager && project) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedCharacterIds(
         new Set(project.characters.map((c) => c.character.id))
       );
     }
-  }, [showCharacterManager, project]);
+  }
 
-  // 初始化项目数据
-  // TODO(react19): 派生 state 反模式；建议把 title/inputText 改为非受控或由 project 派生
-  useEffect(() => {
-    if (project) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setTitle(project.title);
-      if (project.inputText) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setInputText(project.inputText);
-      }
-      if (project.scenes.length > 0 && !selectedSceneId) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setSelectedSceneId(project.scenes[0].id);
-      }
+  // project 首次加载（或切换到不同项目）时初始化 title/inputText/selectedSceneId
+  // 同模式：渲染期间按 project.id 的变化同步本地 form state
+  const [prevProjectId, setPrevProjectId] = useState<string | undefined>(
+    undefined
+  );
+  if (project && project.id !== prevProjectId) {
+    setPrevProjectId(project.id);
+    setTitle(project.title);
+    if (project.inputText) {
+      setInputText(project.inputText);
     }
-  }, [project, selectedSceneId]);
+    if (project.scenes.length > 0 && !selectedSceneId) {
+      setSelectedSceneId(project.scenes[0].id);
+    }
+  }
 
   const parseMutation = useMutation({
     mutationFn: () => parseScript(inputText),
