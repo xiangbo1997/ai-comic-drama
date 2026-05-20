@@ -146,6 +146,178 @@ export async function POST(
 }
 
 // 测试特定模型的可用性
+/**
+ * 为 flow2api 专属做最小 SSE 探测：
+ * 真发一次 stream:true 请求，只读到第一帧 data: 就 abort 关连接。
+ * 验证 ① HTTP 200 ② SSE 格式正确 ③ 模型 ID 被上游识别 ④ Bearer Key 有效。
+ * 不会真的把视频生成完，也不会消耗用户配额（任务在 Cloudflare 端会立即取消）。
+ */
+async function testFlow2apiVideoModel(
+  apiKey: string,
+  baseUrl: string | null,
+  modelId: string
+): Promise<TestResultDetail> {
+  if (!baseUrl) {
+    return {
+      success: false,
+      message: "缺少 Base URL",
+      errorType: "config",
+      suggestion: "请填写 https://flow2api.cloudsentryai.com",
+    };
+  }
+  const url = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
+  const controller = new AbortController();
+  const probeTimeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: "ping" }],
+        stream: true,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const snippet = text.replace(/\s+/g, " ").trim().slice(0, 200);
+      if (response.status === 401) {
+        return {
+          success: false,
+          message: `flow2api 认证失败 (HTTP 401): API Key 无效`,
+          errorType: "auth",
+          suggestion: "检查 Bearer Token 是否正确",
+        };
+      }
+      if (response.status === 403) {
+        return {
+          success: false,
+          message: `flow2api 拒绝模型「${modelId}」(HTTP 403): 当前账户 Tier 不支持`,
+          errorType: "model",
+          suggestion:
+            "改用非 Ultra / 非 4K 的模型，例如 veo_3_1_t2v_fast_landscape",
+        };
+      }
+      if (response.status === 404) {
+        return {
+          success: false,
+          message: `flow2api 路径未找到 (HTTP 404)：${snippet}`,
+          errorType: "config",
+          suggestion:
+            "检查 Base URL 是否为 https://flow2api.cloudsentryai.com（不要带 /v1 后缀）",
+        };
+      }
+      if (response.status === 429) {
+        return {
+          success: false,
+          message: `flow2api 限流 (HTTP 429)`,
+          errorType: "network",
+          suggestion: "等待 30-60 秒后重试",
+        };
+      }
+      return {
+        success: false,
+        message: `flow2api 测试失败 (HTTP ${response.status}): ${snippet}`,
+        errorType: "unknown",
+      };
+    }
+
+    const ct = response.headers.get("content-type") || "";
+    if (!ct.includes("text/event-stream")) {
+      return {
+        success: false,
+        message: `flow2api 返回了非 SSE 响应 (Content-Type: ${ct})`,
+        errorType: "config",
+        suggestion: "确认 Base URL 与协议正确",
+      };
+    }
+
+    if (!response.body) {
+      return {
+        success: false,
+        message: "flow2api 响应体为空",
+        errorType: "unknown",
+      };
+    }
+
+    // 读 SSE 第一帧（只要看到 data: 行就成功）
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let gotFrame = false;
+    let firstFramePreview = "";
+
+    try {
+      while (!gotFrame) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const idx = buffer.indexOf("\n\n");
+        if (idx >= 0) {
+          const frame = buffer.slice(0, idx);
+          if (frame.includes("data:")) {
+            gotFrame = true;
+            firstFramePreview = frame.replace(/\s+/g, " ").trim().slice(0, 160);
+            // 检测上游错误标记
+            if (frame.includes("❌")) {
+              return {
+                success: false,
+                message: `flow2api 模型「${modelId}」首帧报错: ${firstFramePreview}`,
+                errorType: "model",
+                suggestion: "确认模型 ID 是否在 flow2api 模型清单内",
+              };
+            }
+            break;
+          }
+          buffer = buffer.slice(idx + 2);
+        }
+        if (buffer.length > 16384) break; // 防御：第一帧不应该这么大
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {}
+    }
+
+    if (!gotFrame) {
+      return {
+        success: false,
+        message: "flow2api 未在 15 秒内返回首帧",
+        errorType: "network",
+        suggestion: "可能上游 Google token 不可用；让操作员检查 backend",
+      };
+    }
+
+    return {
+      success: true,
+      message: `flow2api 模型「${modelId}」可用（已收到首帧 SSE）`,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return {
+        success: false,
+        message: "flow2api 测试超时（15 秒未返回首帧）",
+        errorType: "network",
+        suggestion: "网络问题或上游 Google 后端无 token；联系运维",
+      };
+    }
+    return {
+      success: false,
+      message: `flow2api 测试异常: ${err instanceof Error ? err.message : String(err)}`,
+      errorType: "unknown",
+    };
+  } finally {
+    clearTimeout(probeTimeout);
+  }
+}
+
 async function testModelAvailability(
   category: ProviderCategory,
   slug: string,
@@ -163,6 +335,11 @@ async function testModelAvailability(
       modelId,
       apiProtocol
     );
+  }
+
+  // VIDEO 分类专属：flow2api 协议走 SSE 探测
+  if (category === "VIDEO" && apiProtocol === "flow2api") {
+    return testFlow2apiVideoModel(apiKey, baseUrl, modelId);
   }
 
   // 根据协议选择测试方法

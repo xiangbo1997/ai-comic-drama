@@ -28,6 +28,7 @@ import { proxyUnifiedImage } from "./providers/proxy-unified";
 import { runwayVideo } from "./providers/runway";
 import { falVideo } from "./providers/fal";
 import { proxyUnifiedVideo } from "./providers/proxy-unified";
+import { flow2apiVideo } from "./providers/flow2api-video";
 
 // TTS providers
 import { volcengineTTS } from "./providers/tts/volcengine";
@@ -65,11 +66,11 @@ const IMAGE_PROVIDER_CAPABILITIES: Record<string, ImageProviderCapability> = {
     maxReferenceImages: 0,
   },
   openai: {
-    supportsReferenceImage: false,
-    supportsMultipleReferences: false,
+    supportsReferenceImage: true,
+    supportsMultipleReferences: true,
     supportsFaceId: false,
     supportsInpainting: false,
-    maxReferenceImages: 0,
+    maxReferenceImages: 4,
   },
   "proxy-unified": {
     supportsReferenceImage: true,
@@ -153,6 +154,8 @@ export function getVideoProvider(
       return runwayVideo;
     case "fal":
       return falVideo;
+    case "flow2api":
+      return flow2apiVideo;
     case "proxy-unified":
     case "openai":
       return proxyUnifiedVideo;

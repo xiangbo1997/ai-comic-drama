@@ -42,6 +42,8 @@ export async function POST(request: NextRequest) {
       imageUrl,
       prompt,
       duration = 5,
+      aspectRatio,
+      referenceImages,
       projectId,
       sceneId,
     } = await request.json();
@@ -117,6 +119,8 @@ export async function POST(request: NextRequest) {
         imageUrl,
         prompt: safePrompt,
         duration,
+        aspectRatio,
+        referenceImages,
         config: videoConfig ?? undefined,
       });
 

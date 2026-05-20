@@ -278,9 +278,13 @@ async function handleImageGeneration(job: JobInfo): Promise<JobResult> {
  * 处理视频生成任务
  */
 async function handleVideoGeneration(job: JobInfo): Promise<JobResult> {
-  const { imageUrl, duration } = job.data.payload as {
+  const { imageUrl, duration, prompt, aspectRatio, referenceImages } = job.data
+    .payload as {
     imageUrl: string;
     duration: 5 | 10;
+    prompt?: string;
+    aspectRatio?: "1:1" | "9:16" | "16:9";
+    referenceImages?: string[];
   };
 
   try {
@@ -292,10 +296,13 @@ async function handleVideoGeneration(job: JobInfo): Promise<JobResult> {
       });
     }
 
-    // 调用视频生成服务
+    // 调用视频生成服务（透传 prompt / 画幅 / 参考图，让 i2v provider 走正确路由）
     const videoUrl = await generateVideo({
       imageUrl,
       duration,
+      prompt,
+      aspectRatio,
+      referenceImages,
     });
 
     // 更新场景

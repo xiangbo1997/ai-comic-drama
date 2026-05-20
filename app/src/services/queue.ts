@@ -580,6 +580,12 @@ export async function addVideoGenerationJob(params: {
   sceneId?: string;
   imageUrl: string;
   duration?: number;
+  /** 镜头描述，用于 i2v provider（Runway/flow2api/Veo）的 promptText */
+  prompt?: string;
+  /** 画幅，便于 flow2api-video 选择横/竖屏模型 */
+  aspectRatio?: "1:1" | "9:16" | "16:9";
+  /** 参考图列表（首尾帧 / R2V 多参考图） */
+  referenceImages?: string[];
 }): Promise<string> {
   return videoQueue.add({
     type: "video:generate",
@@ -589,6 +595,9 @@ export async function addVideoGenerationJob(params: {
     payload: {
       imageUrl: params.imageUrl,
       duration: params.duration || 5,
+      prompt: params.prompt,
+      aspectRatio: params.aspectRatio,
+      referenceImages: params.referenceImages,
     },
     priority: 2,
   });

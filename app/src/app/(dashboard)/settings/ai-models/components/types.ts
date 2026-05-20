@@ -136,6 +136,20 @@ export const API_PROTOCOLS: APIProtocol[] = [
       TTS: { main: "" },
     },
   },
+  {
+    id: "flow2api",
+    name: "Flow2API (Veo 视频)",
+    description:
+      "Google Labs Flow / Veo 视频生成网关，走 /v1/chat/completions + SSE",
+    authHeader: "Bearer",
+    defaultBaseUrl: "https://flow2api.cloudsentryai.com",
+    endpoints: {
+      LLM: { main: "" },
+      IMAGE: { main: "" },
+      VIDEO: { main: "/v1/chat/completions" },
+      TTS: { main: "" },
+    },
+  },
 ];
 
 export function getProtocolsForCategory(category: AICategory): APIProtocol[] {
