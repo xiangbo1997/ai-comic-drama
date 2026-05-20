@@ -1,88 +1,26 @@
-"use client";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
+import DashboardShell from "./dashboard-shell";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { FolderOpen, Users, Coins, Cpu } from "lucide-react";
-import { UserMenu } from "@/components/user-menu";
-import { CreditsDisplay } from "@/components/credits-display";
-
-const navItems = [
-  { href: "/projects", label: "项目", icon: FolderOpen },
-  { href: "/characters", label: "角色库", icon: Users },
-  { href: "/credits", label: "积分", icon: Coins },
-  { href: "/settings/ai-models", label: "模型配置", icon: Cpu },
-];
-
-export default function DashboardLayout({
+/**
+ * Dashboard 区域的服务端布局：
+ *
+ * - 在 Node.js Runtime（RSC 默认）执行 NextAuth 的 auth() 鉴权
+ * - 未登录立即 redirect("/login")，避免后续子页面访问 DB 时拿到 null user
+ * - 通过 server -> client 的 props 边界，把渲染交给 DashboardShell（client 组件）
+ *
+ * 这层是真正的鉴权关口；middleware.ts 只做轻量 cookie 探测、不查 DB
+ */
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
+  const session = await auth();
 
-  return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4">
-        <div className="container mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <Link
-              href="/"
-              className="flex items-center gap-2 text-xl font-bold"
-            >
-              <span className="text-2xl">🎬</span>
-              AI 漫剧
-            </Link>
-            <nav className="hidden items-center gap-1 md:flex">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname.startsWith(item.href);
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2 rounded-lg px-4 py-2 transition ${
-                      isActive
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-400 hover:bg-gray-800/50 hover:text-white"
-                    }`}
-                  >
-                    <Icon size={18} />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
-          <div className="flex items-center gap-4">
-            <CreditsDisplay />
-            <UserMenu />
-          </div>
-        </div>
-      </header>
+  if (!session?.user?.id) {
+    redirect("/login");
+  }
 
-      {/* Mobile Nav */}
-      <nav className="flex justify-around border-b border-gray-800 px-4 py-2 md:hidden">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = pathname.startsWith(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex flex-col items-center gap-1 rounded-lg px-4 py-2 transition ${
-                isActive ? "text-blue-500" : "text-gray-400"
-              }`}
-            >
-              <Icon size={20} />
-              <span className="text-xs">{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Main Content */}
-      <main>{children}</main>
-    </div>
-  );
+  return <DashboardShell>{children}</DashboardShell>;
 }
