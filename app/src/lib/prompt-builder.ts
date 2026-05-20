@@ -158,6 +158,8 @@ export interface BuildFinalPromptInput {
   emotion?: string | null;
   /** 角色的首张参考图（定妆图）URL —— 激活 orchestrator 的 reference_edit 策略 */
   referenceImageUrl?: string | null;
+  /** 多角色参考图列表（每个角色的定妆图 URL）；优先于 referenceImageUrl */
+  referenceImageUrls?: string[];
   /** 自定义 negative prompt（追加到风格预设之后） */
   customNegative?: string;
   /** 是否保留服务端分析（默认 true；即使是 false，服务端当前仍会分析） */
@@ -168,6 +170,8 @@ export interface BuildFinalPromptOutput {
   prompt: string;
   negativePrompt: string;
   referenceImage?: string;
+  /** 多参考图列表；客户端把它一并传给服务端激活多图一致性 */
+  referenceImages?: string[];
 }
 
 export function buildFinalPrompt(
@@ -179,6 +183,7 @@ export function buildFinalPrompt(
     shotType,
     emotion,
     referenceImageUrl,
+    referenceImageUrls,
     customNegative,
   } = input;
 
@@ -198,10 +203,19 @@ export function buildFinalPrompt(
     .map((s) => s!.trim())
     .join(", ");
 
+  // 合并多图与单图：数组优先；否则把单张包成数组用于服务端
+  const mergedRefs =
+    referenceImageUrls && referenceImageUrls.length > 0
+      ? referenceImageUrls
+      : referenceImageUrl
+        ? [referenceImageUrl]
+        : undefined;
+
   return {
     prompt,
     negativePrompt,
-    referenceImage: referenceImageUrl ?? undefined,
+    referenceImage: mergedRefs?.[0],
+    referenceImages: mergedRefs,
   };
 }
 

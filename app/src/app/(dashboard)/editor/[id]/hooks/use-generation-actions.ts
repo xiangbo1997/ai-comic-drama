@@ -17,6 +17,8 @@ interface GenerateSceneImageOptions {
   imageConfigId?: string;
   /** 角色参考图 URL（通常是 scene.selectedCharacter.referenceImages[0]） */
   referenceImage?: string;
+  /** 多角色参考图列表（优先于 referenceImage） */
+  referenceImages?: string[];
   /** 追加的 negative prompt；服务端会与预设拼接 */
   negativePrompt?: string;
 }
@@ -37,6 +39,7 @@ async function generateSceneImage(
       style: options?.style,
       imageConfigId: options?.imageConfigId,
       referenceImage: options?.referenceImage,
+      referenceImages: options?.referenceImages,
       negativePrompt: options?.negativePrompt,
     }),
   });
@@ -61,13 +64,30 @@ async function generateSceneImage(
  * 的 reference_edit 策略。
  */
 function derivePromptInputs(scene: Scene, project: ProjectDetail | undefined) {
-  const referenceImage = scene.selectedCharacter?.referenceImages?.[0];
+  // 多角色场景：优先 selectedCharacterIds[] -> 映射 project.characters 的首张参考图
+  // 单角色场景：fallback 到 scene.selectedCharacter.referenceImages[0]
+  const projectCharMap = new Map(
+    (project?.characters ?? []).map(({ character }) => [
+      character.id,
+      character,
+    ])
+  );
+
+  const multiRefs = (scene.selectedCharacterIds ?? [])
+    .map((id) => projectCharMap.get(id)?.referenceImages?.[0])
+    .filter((url): url is string => Boolean(url));
+
+  const singleRef = scene.selectedCharacter?.referenceImages?.[0];
+  const referenceImageUrls =
+    multiRefs.length > 0 ? multiRefs : singleRef ? [singleRef] : undefined;
+
   return buildFinalPrompt({
     style: project?.style,
     sceneDescription: scene.description,
     shotType: scene.shotType,
     emotion: scene.emotion,
-    referenceImageUrl: referenceImage,
+    referenceImageUrl: singleRef,
+    referenceImageUrls,
   });
 }
 
@@ -94,16 +114,15 @@ export function useGenerationActions(
       await apiUpdateScene(projectId, sceneId, { imageStatus: "PROCESSING" });
       invalidateProject();
 
-      const { prompt, negativePrompt, referenceImage } = derivePromptInputs(
-        scene,
-        project
-      );
+      const { prompt, negativePrompt, referenceImage, referenceImages } =
+        derivePromptInputs(scene, project);
 
       return generateSceneImage(projectId, sceneId, prompt, {
         style: project?.style,
         imageConfigId,
         negativePrompt,
         referenceImage,
+        referenceImages,
       });
     },
     onSuccess: invalidateProject,
@@ -123,6 +142,16 @@ export function useGenerationActions(
     }) => {
       if (!scene.imageUrl) throw new Error("请先生成图片");
 
+      // 复用图像端的派生：拿到与图像生成相同的 referenceImages
+      // 让 flow2api-video / Veo 能走 R2V / 首尾帧路由
+      const { referenceImages } = derivePromptInputs(scene, project);
+      const aspectRatio =
+        project?.aspectRatio === "9:16" ||
+        project?.aspectRatio === "16:9" ||
+        project?.aspectRatio === "1:1"
+          ? project.aspectRatio
+          : undefined;
+
       const res = await fetch("/api/generate/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,6 +159,8 @@ export function useGenerationActions(
           imageUrl: scene.imageUrl,
           prompt: scene.description,
           duration: scene.duration > 5 ? 10 : 5,
+          aspectRatio,
+          referenceImages,
           projectId,
           sceneId,
         }),
@@ -159,12 +190,17 @@ export function useGenerationActions(
       const text = scene.dialogue || scene.narration;
       if (!text) throw new Error("没有对话或旁白内容");
 
+      // 优先用场景所选角色的 characterId，由服务端查 Character.voiceId 解析音色；
+      // 找不到再走默认音色（保持原有行为）
+      const characterId =
+        scene.selectedCharacter?.id ?? scene.selectedCharacterId ?? undefined;
+
       const res = await fetch("/api/generate/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
-          voiceId: "default",
+          characterId,
           speed: 1.0,
           projectId,
           sceneId,
@@ -201,15 +237,14 @@ export function useGenerationActions(
           });
           invalidateProject();
 
-          const { prompt, negativePrompt, referenceImage } = derivePromptInputs(
-            scene,
-            project
-          );
+          const { prompt, negativePrompt, referenceImage, referenceImages } =
+            derivePromptInputs(scene, project);
 
           await generateSceneImage(projectId, scene.id, prompt, {
             style: project?.style,
             negativePrompt,
             referenceImage,
+            referenceImages,
           });
           results.push({ sceneId: scene.id, success: true });
         } catch (err) {
