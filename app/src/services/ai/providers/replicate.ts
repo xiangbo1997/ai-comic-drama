@@ -6,7 +6,13 @@ import type { ImageProvider } from "../types";
 
 export const replicateImage: ImageProvider = {
   async generateImage(options, config) {
-    const { prompt, referenceImage, aspectRatio = "9:16" } = options;
+    if (!config.apiKey || !config.apiKey.trim()) {
+      throw new Error(
+        "Replicate API Key 未配置或为空。请前往「设置 > AI 模型配置 > 图像生成」补全 Replicate Provider 的 API Key。"
+      );
+    }
+
+    const { prompt, referenceImage, aspectRatio = "9:16", seed } = options;
     const { default: Replicate } = await import("replicate");
     const replicate = new Replicate({ auth: config.apiKey });
 
@@ -22,6 +28,7 @@ export const replicateImage: ImageProvider = {
             aspect_ratio: aspectRatio,
             safety_tolerance: 2,
             output_format: "webp",
+            ...(typeof seed === "number" ? { seed } : {}),
           },
         }
       );
@@ -36,6 +43,7 @@ export const replicateImage: ImageProvider = {
           prompt,
           aspect_ratio: aspectRatio,
           output_format: "webp",
+          ...(typeof seed === "number" ? { seed } : {}),
         },
       }
     );

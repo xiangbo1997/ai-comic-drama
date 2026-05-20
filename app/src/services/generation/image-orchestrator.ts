@@ -73,6 +73,14 @@ export async function orchestrateImageGeneration(
   let lastValidation: ValidationResult | undefined;
   let imageUrl = "";
 
+  // 角色一致性 seed：基于主角色 ID 哈希得到稳定值，跨镜头同角色复用。
+  // 没有主角色（纯环境镜头）时不传 seed，让 provider 走默认随机。
+  const primaryCharId = request.characters?.[0]?.id;
+  const seed =
+    typeof primaryCharId === "string" && primaryCharId.length > 0
+      ? hashStringToSeed(primaryCharId)
+      : undefined;
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     imageUrl = await generateImage({
       prompt: decision.enhancedPrompt,
@@ -81,6 +89,7 @@ export async function orchestrateImageGeneration(
       negativePrompt: request.negativePrompt,
       aspectRatio: request.aspectRatio,
       style: request.style,
+      seed,
       config: request.imageConfig,
     });
 
@@ -123,3 +132,17 @@ export type {
   GenerationStrategy,
   ValidationResult,
 };
+
+/**
+ * 把字符串稳定地映射到 [0, 2^31-1) 区间作为 seed。
+ * 用 32 位 FNV-1a，无依赖、纯函数；同一 character.id 每次得到同一 seed。
+ */
+function hashStringToSeed(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  // 转无符号 32 位，限制在 [0, 2^31-1) 兼容多数 provider 的 seed 范围
+  return (hash >>> 0) % 0x7fffffff;
+}

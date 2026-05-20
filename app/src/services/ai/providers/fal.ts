@@ -39,7 +39,7 @@ async function falPollResult(
 
 export const falImage: ImageProvider = {
   async generateImage(options, config) {
-    const { prompt, referenceImage, aspectRatio = "9:16" } = options;
+    const { prompt, referenceImage, aspectRatio = "9:16", seed } = options;
     const effectiveModel = config.model || "fal-ai/flux/schnell";
 
     const response = await fetch(`https://queue.fal.run/${effectiveModel}`, {
@@ -58,6 +58,7 @@ export const falImage: ImageProvider = {
               ? "landscape_16_9"
               : "square",
         num_images: 1,
+        ...(typeof seed === "number" ? { seed } : {}),
       }),
     });
 

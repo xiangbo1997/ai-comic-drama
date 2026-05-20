@@ -7,7 +7,7 @@ import { fetchWithError, ASPECT_RATIO_TO_SIZE_SF } from "./base";
 
 export const siliconflowImage: ImageProvider = {
   async generateImage(options, config) {
-    const { prompt, referenceImage, aspectRatio = "9:16" } = options;
+    const { prompt, referenceImage, aspectRatio = "9:16", seed } = options;
     const { apiKey, baseUrl, model } = config;
     const effectiveModel = model || "black-forest-labs/FLUX.1-schnell";
     const size = ASPECT_RATIO_TO_SIZE_SF[aspectRatio] || "1024x1024";
@@ -27,6 +27,7 @@ export const siliconflowImage: ImageProvider = {
             : prompt,
           image_size: size,
           num_inference_steps: 20,
+          ...(typeof seed === "number" ? { seed } : {}),
         }),
       },
       "SiliconFlow image generation error"

@@ -33,6 +33,7 @@ export const proxyUnifiedImage: ImageProvider = {
       referenceImages,
       negativePrompt,
       aspectRatio,
+      seed,
     } = options;
     const effectiveModel = config.model || "grok-2-image";
     const url = `${trimUrl(config.baseUrl)}/chat/completions`;
@@ -99,6 +100,7 @@ export const proxyUnifiedImage: ImageProvider = {
           // 附加参数：中转站可按需消费；不支持的字段通常会被忽略
           size: aspectRatioToSize(aspectRatio),
           aspect_ratio: aspectRatio,
+          ...(typeof seed === "number" ? { seed } : {}),
         }),
       },
       "中转站图像生成失败"

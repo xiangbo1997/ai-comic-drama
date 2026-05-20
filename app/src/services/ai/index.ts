@@ -95,6 +95,12 @@ async function generateImageWithEnvReplicate(
   referenceImage?: string,
   aspectRatio: string = "9:16"
 ): Promise<string> {
+  if (!process.env.REPLICATE_API_TOKEN) {
+    throw new Error(
+      "未配置图像生成服务。请前往「设置 > AI 模型配置 > 图像生成」配置 Provider 并将其设为默认；或在服务端环境变量中设置 REPLICATE_API_TOKEN。"
+    );
+  }
+
   const { default: Replicate } = await import("replicate");
   const replicate = new Replicate({ auth: process.env.REPLICATE_API_TOKEN });
 
