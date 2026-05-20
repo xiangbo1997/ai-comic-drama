@@ -445,13 +445,19 @@ export default function EditorPage() {
           if (!text) return;
           setShowMultiAudioDialog(false);
 
+          // 通过 characterId 让服务端从 Character.voiceId 解析音色
+          const characterId =
+            editor.selectedScene?.selectedCharacter?.id ??
+            editor.selectedScene?.selectedCharacterId ??
+            undefined;
+
           const generateOne = async () => {
             const res = await fetch("/api/generate/tts", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 text,
-                voiceId: "default",
+                characterId,
                 speed: 1.0,
                 projectId,
                 sceneId: editor.selectedScene!.id,

@@ -37,12 +37,37 @@ export async function POST(request: NextRequest) {
 
     const {
       text,
-      voiceId,
+      voiceId: voiceIdFromBody,
+      characterId,
       speed,
       projectId,
       sceneId,
       returnUrl = true,
     } = await request.json();
+
+    /*
+     * voiceId 解析顺序：
+     *   1) 请求显式传入的 voiceId（最高优先级，向后兼容）；
+     *   2) 根据 characterId 查 Character.voiceId（让同一角色跨场景音色稳定）；
+     *   3) 兜底 "default"（由 provider 适配器各自映射到默认音色）。
+     */
+    let voiceId: string | undefined = voiceIdFromBody;
+    if (!voiceId && typeof characterId === "string" && characterId) {
+      const character = await prisma.character.findUnique({
+        where: { id: characterId },
+        select: { voiceId: true, userId: true },
+      });
+      if (
+        character &&
+        character.userId === session.user.id &&
+        character.voiceId
+      ) {
+        voiceId = character.voiceId;
+      }
+    }
+    if (!voiceId) {
+      voiceId = "default";
+    }
 
     if (!text) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
