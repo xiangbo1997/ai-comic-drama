@@ -238,7 +238,8 @@ async function executeWorkflow(
 
     // ===== Step 5: 视频 + 音频（并行 Fan-out） =====
     if (config.video || config.tts) {
-      await executeMediaGeneration(storyboard.scenes, ctx);
+      // v2：把 characterBible 传给视频阶段，激活身份前缀 + 多参考图
+      await executeMediaGeneration(storyboard.scenes, ctx, characterBible);
     }
 
     // 标记完成
@@ -420,10 +421,98 @@ async function executeImageGeneration(
   }
 }
 
+/**
+ * v2：把字符串稳定地映射到 [0, 2^31-1) 区间作为 identity seed。
+ * 与 image-orchestrator 的 hashStringToSeed 同构（FNV-1a 32 位），保持图像/视频共享同一 seed。
+ */
+function identitySeedFromCharacterId(characterId: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < characterId.length; i += 1) {
+    hash ^= characterId.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % 0x7fffffff;
+}
+
+/**
+ * v2：构建场景级"角色身份上下文"，用于视频生成时透传：
+ *
+ *  - referenceImages：取每个角色的 isCanonical 参考图（优先 CharacterReferenceAsset，
+ *    退到旧 Character.referenceImages[]），按 role 排序（primary 优先），最多 3 张
+ *  - identityPrompt：拼角色 canonicalPrompt 截断（≤200 字符），用于身份维持前缀
+ *  - identitySeed：FNV-1a(主角色 id)，与图像端共用
+ *
+ * 输入：场景 artifact 中的 characters[] (名字数组) + 项目 ID
+ * 输出：可直接喂给 generateVideo 的 { referenceImages, identityPrompt, seed }
+ */
+async function buildSceneCharacterContext(
+  sceneArtifact: SceneArtifact,
+  projectId: string,
+  characterBible: CharacterBible | undefined
+): Promise<{
+  referenceImages: string[];
+  identityPrompt?: string;
+  seed?: number;
+}> {
+  const characterNames = sceneArtifact.characters ?? [];
+  if (characterNames.length === 0) {
+    return { referenceImages: [] };
+  }
+
+  // 查项目角色（名字匹配）+ 关联参考资产
+  const characters = await prisma.character.findMany({
+    where: {
+      projects: { some: { projectId } },
+      name: { in: characterNames },
+    },
+    include: {
+      referenceAssets: {
+        where: { isCanonical: true },
+        orderBy: [{ qualityScore: "desc" }, { createdAt: "asc" }],
+      },
+    },
+  });
+
+  // 按 sceneArtifact.characters 的顺序排序（第一个角色 = primary）
+  const ordered = characterNames
+    .map((name) => characters.find((c) => c.name === name))
+    .filter((c): c is NonNullable<typeof c> => Boolean(c));
+
+  // 收集参考图：优先 referenceAssets.url，回退 Character.referenceImages[0]
+  const referenceImages: string[] = [];
+  for (const char of ordered) {
+    if (char.referenceAssets.length > 0) {
+      referenceImages.push(char.referenceAssets[0].url);
+    } else if (char.referenceImages.length > 0) {
+      referenceImages.push(char.referenceImages[0]);
+    }
+    if (referenceImages.length >= 3) break;
+  }
+
+  // identityPrompt：取主角色的 CharacterBible canonicalPrompt（前 200 字符）
+  let identityPrompt: string | undefined;
+  if (characterBible && ordered.length > 0) {
+    const primaryName = ordered[0].name;
+    const bibleEntry = characterBible.characters.find(
+      (e) => e.name === primaryName
+    );
+    if (bibleEntry?.canonicalPrompt) {
+      identityPrompt = bibleEntry.canonicalPrompt.slice(0, 200);
+    }
+  }
+
+  // identitySeed：用主角色 DB id 做 FNV-1a 哈希（与 image-orchestrator 一致）
+  const seed =
+    ordered.length > 0 ? identitySeedFromCharacterId(ordered[0].id) : undefined;
+
+  return { referenceImages, identityPrompt, seed };
+}
+
 /** 视频 + 音频并行生成 */
 async function executeMediaGeneration(
   scenes: SceneArtifact[],
-  ctx: WorkflowContext
+  ctx: WorkflowContext,
+  characterBible?: CharacterBible
 ): Promise<void> {
   emitEvent({
     type: "step:started",
@@ -442,6 +531,16 @@ async function executeMediaGeneration(
     orderBy: { order: "asc" },
   });
 
+  // v2：项目级画幅（与图像端一致，便于 flow2api-video 路由横/竖屏模型）
+  const project = await prisma.project.findUnique({
+    where: { id: ctx.projectId },
+    select: { aspectRatio: true },
+  });
+  const projectAspectRatio = (project?.aspectRatio ?? "9:16") as
+    | "1:1"
+    | "9:16"
+    | "16:9";
+
   for (const dbScene of dbScenes) {
     const sceneArtifact = scenes.find((s) => s.order === dbScene.order);
     if (!sceneArtifact || !dbScene.imageUrl) continue;
@@ -450,11 +549,33 @@ async function executeMediaGeneration(
 
     // 视频生成
     if (ctx.config.video) {
+      // v2：在生成前查询场景角色上下文（参考图 / identityPrompt / seed）
+      const charContext = await buildSceneCharacterContext(
+        sceneArtifact,
+        ctx.projectId,
+        characterBible
+      );
+
+      // v2：拼"身份前缀 + 镜头描述"作为最终 prompt（Prompt Pinning）
+      const videoPrompt = charContext.identityPrompt
+        ? `${charContext.identityPrompt}. ${sceneArtifact.description}`
+        : sceneArtifact.description;
+
       tasks.push(
         generateVideo({
           imageUrl: dbScene.imageUrl,
-          prompt: sceneArtifact.description,
+          prompt: videoPrompt,
           duration: sceneArtifact.duration > 5 ? 10 : 5,
+          aspectRatio: projectAspectRatio,
+          // v2：透传角色参考图（激活 flow2api Veo R2V / 后续 Kling Elements / Runway Gen-4 Refs）
+          referenceImages:
+            charContext.referenceImages.length > 0
+              ? charContext.referenceImages
+              : undefined,
+          // v2：透传 identity seed（与图像端共用 FNV-1a）
+          seed: charContext.seed,
+          // v2：透传 identityPrompt（provider 可在内部再做一次强化）
+          identityPrompt: charContext.identityPrompt,
           config: ctx.config.video,
         })
           .then(async (videoUrl) => {

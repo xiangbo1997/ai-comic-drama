@@ -39,6 +39,11 @@ export interface ImageGenerationOptions {
   negativePrompt?: string;
   aspectRatio?: "1:1" | "9:16" | "16:9";
   style?: string;
+  /**
+   * 随机种子；同一角色跨镜头复用同一 seed，可显著提升外貌一致性。
+   * provider 不支持时会被透传忽略（OpenAI DALL-E 等），不影响功能。
+   */
+  seed?: number;
   config?: AIServiceConfig;
 }
 
@@ -47,6 +52,21 @@ export interface VideoGenerationOptions {
   imageUrl: string;
   prompt?: string;
   duration?: 5 | 10;
+  /** 画幅；与图像端一致，便于 i2v provider 路由（flow2api/Veo 横/竖屏）。 */
+  aspectRatio?: "1:1" | "9:16" | "16:9";
+  /** 参考图 URL 列表（首尾帧 / R2V 多参考图；目前 flow2api-video 使用） */
+  referenceImages?: string[];
+  /**
+   * 随机种子（v2 引入）；与图像端共用同一 identitySeed = FNV-1a(characterId)。
+   * provider 不支持时透传忽略；目前 flow2api-video 在 message 元数据中携带。
+   */
+  seed?: number;
+  /**
+   * 身份维持前缀（v2 引入）：从 CharacterBible.canonicalPrompt 截取的核心外貌片段（≤200 字符）。
+   * Provider 在拼最终 prompt 时会前置注入，强制视频模型遵循角色 DNA。
+   * 与 image 端 openai-compatible.ts 的 FACE_ANCHOR_SUFFIX 互补：图像锁脸，视频锁身份。
+   */
+  identityPrompt?: string;
   config?: AIServiceConfig;
 }
 

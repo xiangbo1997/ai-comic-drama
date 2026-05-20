@@ -41,6 +41,23 @@ const ASPECT_RATIOS = {
 };
 
 /**
+ * 把 path-only URL（如 /uploads/...）补全成绝对 URL
+ * 与 openai-compatible.ts / flow2api-video.ts 保持一致逻辑
+ */
+function absolutizeUrl(url: string): string {
+  if (!url) return url;
+  if (url.startsWith("data:")) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  const base =
+    process.env.APP_BASE_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "https://comic.cloudsentryai.com";
+  const trimmedBase = base.replace(/\/+$/, "");
+  const p = url.startsWith("/") ? url : `/${url}`;
+  return `${trimmedBase}${p}`;
+}
+
+/**
  * 下载远程文件到本地临时目录
  */
 async function downloadFile(url: string, filename: string): Promise<string> {
@@ -50,7 +67,11 @@ async function downloadFile(url: string, filename: string): Promise<string> {
   }
 
   const filePath = path.join(tmpDir, filename);
-  const response = await fetch(url);
+  const absoluteUrl = absolutizeUrl(url);
+  const response = await fetch(absoluteUrl);
+  if (!response.ok) {
+    throw new Error(`下载失败 (HTTP ${response.status}): ${absoluteUrl}`);
+  }
   const buffer = await response.arrayBuffer();
   await writeFile(filePath, Buffer.from(buffer));
 
@@ -238,25 +259,70 @@ export async function synthesizeVideo(
       onProgress?.(Math.round(((i + 1) / scenes.length) * 50));
     }
 
-    // 2. 创建视频列表文件
-    const listPath = path.join(tmpDir, "videos.txt");
-    const listContent = videoClips.map((p) => `file '${p}'`).join("\n");
-    await writeFile(listPath, listContent);
-
-    // 3. 合并所有视频片段
+    // 2. 合并所有视频片段
+    //
+    // v2：默认走 xfade 过渡（0.3s 渐隐），消除镜头切换处的"角色跳变"硬切感。
+    //     环境变量 ENABLE_VIDEO_XFADE=0 时回退到 concat -c copy 的旧行为（零重编码、速度快）。
+    //     单镜头或 <2 段时自动跳过 xfade（无意义且 filter 会报错）。
     const mergedPath = path.join(tmpDir, "merged.mp4");
-    await runFFmpeg([
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      listPath,
-      "-c",
-      "copy",
-      "-y",
-      mergedPath,
-    ]);
+    const xfadeEnabled =
+      process.env.ENABLE_VIDEO_XFADE !== "0" && videoClips.length >= 2;
+
+    if (xfadeEnabled) {
+      // xfade filter_complex 链：每两段之间插一段 0.3s fade
+      // offset = 累计前置时长 - 0.3（让 fade 在前一段末尾开始）
+      const FADE_DURATION = 0.3;
+      const filterParts: string[] = [];
+      let prevTag = "[0:v]";
+      let cumulative = 0;
+      for (let i = 1; i < videoClips.length; i += 1) {
+        cumulative += Math.max(scenes[i - 1].duration, 1);
+        const offset = Math.max(cumulative - FADE_DURATION, 0).toFixed(3);
+        const out = i === videoClips.length - 1 ? "[outv]" : `[v${i}]`;
+        filterParts.push(
+          `${prevTag}[${i}:v]xfade=transition=fade:duration=${FADE_DURATION}:offset=${offset}${out}`
+        );
+        prevTag = out;
+      }
+      const filterComplex = filterParts.join(";");
+
+      const args: string[] = [];
+      for (const clip of videoClips) {
+        args.push("-i", clip);
+      }
+      args.push(
+        "-filter_complex",
+        filterComplex,
+        "-map",
+        "[outv]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+        mergedPath
+      );
+      await runFFmpeg(args);
+    } else {
+      // 旧行为：concat demuxer + -c copy
+      const listPath = path.join(tmpDir, "videos.txt");
+      const listContent = videoClips.map((p) => `file '${p}'`).join("\n");
+      await writeFile(listPath, listContent);
+      await runFFmpeg([
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        listPath,
+        "-c",
+        "copy",
+        "-y",
+        mergedPath,
+      ]);
+    }
 
     onProgress?.(60);
 
