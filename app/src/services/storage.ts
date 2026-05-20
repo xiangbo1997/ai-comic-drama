@@ -86,11 +86,35 @@ export async function uploadToR2(
   ); // 7天有效期
 }
 
+// 解析 data URL 为 { buffer, mimeType }；非 data URL 返回 null
+function parseDataUrl(
+  url: string
+): { buffer: Buffer; mimeType: string } | null {
+  if (!url.startsWith("data:")) return null;
+  const match = url.match(/^data:([^;,]+)(;base64)?,(.+)$/);
+  if (!match) {
+    throw new Error("Invalid data URL");
+  }
+  const [, mimeType, base64Marker, payload] = match;
+  const buffer = base64Marker
+    ? Buffer.from(payload, "base64")
+    : Buffer.from(decodeURIComponent(payload), "utf-8");
+  return { buffer, mimeType };
+}
+
 // 从 URL 上传文件到 R2
 export async function uploadFromUrl(
   url: string,
   options: UploadOptions
 ): Promise<string> {
+  const dataUrl = parseDataUrl(url);
+  if (dataUrl) {
+    return uploadToR2(dataUrl.buffer, {
+      ...options,
+      contentType: options.contentType || dataUrl.mimeType,
+    });
+  }
+
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch file from URL: ${url}`);
@@ -221,6 +245,14 @@ export async function uploadFromUrlToLocal(
   url: string,
   options: UploadOptions
 ): Promise<string> {
+  const dataUrl = parseDataUrl(url);
+  if (dataUrl) {
+    return uploadToLocal(dataUrl.buffer, {
+      ...options,
+      contentType: options.contentType || dataUrl.mimeType,
+    });
+  }
+
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch file from URL: ${url}`);
