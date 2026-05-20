@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { checkTextSafety } from "@/lib/content-safety";
 import { getUserLLMConfig } from "@/lib/ai-config";
-import { parseScript } from "@/services/script";
+// Hotfix 2026-05-20：切换到 Agent 版剧本解析（Zod 验证 + 3 轮自修复 + 紧凑版 fallback）
+// 上游 LLM 偶发输出非法 JSON / 智能引号 / trailing comma → 旧 parseScript 直接 500
+import { parseScriptWithAgent } from "@/services/script";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:script:parse");
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await parseScript(text, llmConfig);
+    const result = await parseScriptWithAgent(text, llmConfig);
 
     return NextResponse.json(result);
   } catch (error) {

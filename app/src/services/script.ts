@@ -10,6 +10,7 @@ import { chatCompletion } from "./ai";
 import type { AIServiceConfig, SceneScript, ParsedScript } from "@/types";
 import { SCRIPT_PARSE_SYSTEM, buildScriptParseUserPrompt } from "@/lib/prompts";
 import { getSimpleStylePrefix } from "@/lib/prompts";
+import { parseLooseJSON } from "@/lib/json-repair";
 import { ScriptParserAgent } from "./agents/script-parser-agent";
 import type { WorkflowContext } from "./agents/types";
 
@@ -29,13 +30,9 @@ export async function parseScript(
     { temperature: 0.3, maxTokens: 8192, config }
   );
 
-  // 提取 JSON
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Failed to parse script response");
-  }
-
-  return JSON.parse(jsonMatch[0]) as ParsedScript;
+  // Hotfix 2026-05-20：用 parseLooseJSON 容错（处理 LLM 输出的智能引号 /
+  // trailing comma / 注释 等不规范格式），失败由调用方接住
+  return parseLooseJSON(response) as ParsedScript;
 }
 
 // 生成图像提示词

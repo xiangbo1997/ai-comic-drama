@@ -11,6 +11,7 @@ import {
   buildScriptParserRepairPrompt,
 } from "@/lib/prompts/agent-prompts";
 import { createLogger } from "@/lib/logger";
+import { parseLooseJSON } from "@/lib/json-repair";
 import { resolveLLMParams } from "./llm-params";
 import type {
   Agent,
@@ -55,19 +56,13 @@ const ScriptArtifactSchema = z.object({
 
 const MAX_ATTEMPTS = 3;
 
-/** 从 LLM 响应中提取 JSON */
+/**
+ * 从 LLM 响应中提取 JSON
+ * Hotfix 2026-05-20：使用 parseLooseJSON 容错（处理 trailing comma / 智能引号 /
+ * 单引号 / 注释 / 控制字符等 LLM 常见输出不规范），失败仍由 Zod 接住做语义校验。
+ */
 function extractJSON(text: string): unknown {
-  // 先尝试匹配 ```json 代码块
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
-    return JSON.parse(codeBlockMatch[1].trim());
-  }
-  // 再尝试匹配裸 JSON
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
-  }
-  throw new Error("No JSON found in response");
+  return parseLooseJSON(text);
 }
 
 /** 格式化 Zod 错误为可读字符串 */
