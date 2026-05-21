@@ -36,19 +36,23 @@ const log = createLogger("services:ai");
 
 /**
  * Hotfix2 (2026-05-21)：给单次 LLM 调用加超时
+ * Hotfix3 (2026-05-21)：45s → 120s
  *
  * 背景：上游 LLM 中转站（proxy.cloudsentryai.com）偶发卡住 60-120 秒，
  * 而 Cloudflare 对 origin 的边缘超时是 100 秒 → 用户连接被切断 524。
- * 即便后端最终成功，用户也看不到结果。
+ * Hotfix2B 异步化后总耗时不再受 CF 100s 约束，但 45s 单次超时仍偏激进 ——
+ * 剧本解析在 8K maxTokens 下输出 5K+ tokens 实测常态需要 60-90s。
  *
  * 策略：用 Promise.race 在 facade 层包一层超时，让 provider 调用快速
- * fail（不取消底层 fetch，只让 await 提前 reject），上层 ScriptParserAgent
- * 的 3 轮重试因此能快速进入下一轮。
+ * fail（不取消底层 fetch，只让 await 提前 reject），上层重试机制（如
+ * ScriptParserAgent 的 3 轮自修复）因此能进入下一轮。
  *
- * 默认 45 秒：DeepSeek/GPT-4 在 8K maxTokens 下正常 20-40 秒返回，
- * 45s 是 P99 边界，超过即认定上游异常。调用方可显式覆盖 timeoutMs。
+ * 默认 120 秒：覆盖 LLM 中转站慢路径 + 输出 8K tokens 的 P99 边界。
+ *   - 短任务（chat 1K maxTokens）正常 5-20 秒，120s 完全留余量
+ *   - 长任务（script parse 8K maxTokens）正常 30-90 秒，120s 是合理上限
+ * 调用方可显式覆盖 timeoutMs（如评审/分类等轻任务用更短）。
  */
-const DEFAULT_LLM_TIMEOUT_MS = 45_000;
+const DEFAULT_LLM_TIMEOUT_MS = 120_000;
 
 function withTimeout<T>(
   promise: Promise<T>,

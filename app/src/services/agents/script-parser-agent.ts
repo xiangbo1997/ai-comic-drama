@@ -84,7 +84,13 @@ export class ScriptParserAgent implements Agent<
   ): Promise<AgentResult<ScriptArtifact>> {
     let totalTokens = 0;
     let lastRawOutput = "";
-    let lastError: z.ZodError | null = null;
+    let lastZodError: z.ZodError | null = null;
+    /**
+     * Hotfix3 (2026-05-21)：跟踪非 Zod 错误（超时 / 网络 / JSON 解析失败等）。
+     * 之前所有非 Zod 错误都被默认归类为"JSON 解析错误"，误导用户排查方向 ——
+     * 真实场景大多是 LLM 上游超时或网络抖动。
+     */
+    let lastNonZodError: string | null = null;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       ctx.emit({
@@ -124,7 +130,9 @@ export class ScriptParserAgent implements Agent<
                 role: "user" as const,
                 content: buildScriptParserRepairPrompt(
                   lastRawOutput,
-                  lastError ? formatZodErrors(lastError) : "JSON parse failed"
+                  lastZodError
+                    ? formatZodErrors(lastZodError)
+                    : (lastNonZodError ?? "JSON parse failed")
                 ),
               },
             ];
@@ -158,22 +166,33 @@ export class ScriptParserAgent implements Agent<
           };
         }
 
-        lastError = result.error;
+        lastZodError = result.error;
         log.warn(
           `Attempt ${attempt} validation failed: ${formatZodErrors(result.error)}`
         );
       } catch (err) {
-        log.warn(
-          `Attempt ${attempt} failed: ${err instanceof Error ? err.message : "Unknown"}`
-        );
-        lastRawOutput = String(err);
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn(`Attempt ${attempt} failed: ${message}`);
+        lastRawOutput = message;
+        lastNonZodError = message;
       }
     }
 
     log.error("Script parsing failed after all attempts");
+
+    // Hotfix3：把真实错因传递出来，让用户/运维能定位（超时 vs 上游错误 vs Zod 校验失败）
+    let failureReason: string;
+    if (lastZodError) {
+      failureReason = `LLM 输出未通过结构校验：${formatZodErrors(lastZodError)}`;
+    } else if (lastNonZodError) {
+      failureReason = lastNonZodError;
+    } else {
+      failureReason = "未知错误";
+    }
+
     return {
       success: false,
-      error: `剧本解析失败（尝试 ${MAX_ATTEMPTS} 次）: ${lastError ? formatZodErrors(lastError) : "JSON 解析错误"}`,
+      error: `剧本解析失败（尝试 ${MAX_ATTEMPTS} 次）：${failureReason}`,
       attempts: MAX_ATTEMPTS,
       tokensUsed: totalTokens,
     };
