@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Scene, Character, ProjectDetail } from "@/types";
+import type { Scene, Character, ProjectDetail, ParsedScript } from "@/types";
 
 // ============ API 函数 ============
 
@@ -22,14 +22,68 @@ async function apiUpdateProject(id: string, data: Partial<ProjectDetail>) {
   return res.json();
 }
 
-async function parseScript(text: string) {
-  const res = await fetch("/api/script/parse", {
+/**
+ * Hotfix2 方案 B (2026-05-21)：剧本解析异步化 + 轮询
+ *
+ * 旧行为：单次 POST 等响应（30-120 秒）→ Cloudflare 100s 超时切断 → 用户看到 524
+ * 新行为：
+ *   1) POST 拿 taskId（< 100ms 完成）
+ *   2) 每 2s GET /api/script/parse/[taskId] 轮询
+ *   3) status === "COMPLETED" 返回 result；"FAILED" 抛错；"PROCESSING" 继续轮询
+ *   4) 5 分钟超时兜底（按理 ScriptParserAgent 最多 3 × 45s = 135s 就该结束）
+ */
+async function parseScript(text: string): Promise<ParsedScript> {
+  // 步骤 1：POST 立即拿 taskId
+  const startRes = await fetch("/api/script/parse", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
-  if (!res.ok) throw new Error("Failed to parse script");
-  return res.json();
+  if (!startRes.ok) {
+    const errBody = await startRes.json().catch(() => ({}));
+    throw new Error(errBody?.error ?? "Failed to start script parse task");
+  }
+  // 服务端返回 { taskId, status: "PROCESSING" }；兼容 ?sync=true 直接返回 ParsedScript
+  const startData = (await startRes.json()) as
+    | { taskId: string; status: "PROCESSING" }
+    | ParsedScript;
+
+  // 兼容：sync 路径直接返回完整 ParsedScript（无 taskId 字段）
+  if (!("taskId" in startData)) {
+    return startData;
+  }
+
+  // 步骤 2：轮询任务状态
+  const taskId = startData.taskId;
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_POLL_MS = 5 * 60 * 1000; // 5 分钟兜底（按理 3 × 45s = 135s 就该结束）
+  const deadline = Date.now() + MAX_POLL_MS;
+
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+    const pollRes = await fetch(`/api/script/parse/${taskId}`);
+    if (!pollRes.ok) {
+      const errBody = await pollRes.json().catch(() => ({}));
+      throw new Error(errBody?.error ?? `Poll failed (HTTP ${pollRes.status})`);
+    }
+
+    const pollData = (await pollRes.json()) as {
+      status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+      result?: ParsedScript;
+      error?: string;
+    };
+
+    if (pollData.status === "COMPLETED" && pollData.result) {
+      return pollData.result;
+    }
+    if (pollData.status === "FAILED") {
+      throw new Error(pollData.error ?? "Script parse failed");
+    }
+    // PENDING / PROCESSING → 继续等
+  }
+
+  throw new Error("Script parse timed out after 5 minutes");
 }
 
 async function saveScenes(
@@ -156,7 +210,12 @@ export function useEditorProject(projectId: string) {
   const parseMutation = useMutation({
     mutationFn: () => parseScript(inputText),
     onSuccess: async (result) => {
-      await saveScenes(projectId, result.scenes);
+      // SceneScript[] 与 saveScenes 期望的 Record<string, unknown>[] 在序列化层等价；
+      // 仅为 TypeScript 索引签名校验做 cast，运行时无影响
+      await saveScenes(
+        projectId,
+        result.scenes as unknown as Record<string, unknown>[]
+      );
       await apiUpdateProject(projectId, {
         inputText,
         title: result.title || title,
