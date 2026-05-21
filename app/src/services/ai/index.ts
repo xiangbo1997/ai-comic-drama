@@ -34,11 +34,54 @@ const log = createLogger("services:ai");
 
 // ============ LLM 服务 ============
 
+/**
+ * Hotfix2 (2026-05-21)：给单次 LLM 调用加超时
+ *
+ * 背景：上游 LLM 中转站（proxy.cloudsentryai.com）偶发卡住 60-120 秒，
+ * 而 Cloudflare 对 origin 的边缘超时是 100 秒 → 用户连接被切断 524。
+ * 即便后端最终成功，用户也看不到结果。
+ *
+ * 策略：用 Promise.race 在 facade 层包一层超时，让 provider 调用快速
+ * fail（不取消底层 fetch，只让 await 提前 reject），上层 ScriptParserAgent
+ * 的 3 轮重试因此能快速进入下一轮。
+ *
+ * 默认 45 秒：DeepSeek/GPT-4 在 8K maxTokens 下正常 20-40 秒返回，
+ * 45s 是 P99 边界，超过即认定上游异常。调用方可显式覆盖 timeoutMs。
+ */
+const DEFAULT_LLM_TIMEOUT_MS = 45_000;
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  reason = "LLM call timeout"
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${reason} (${timeoutMs}ms)`));
+    }, timeoutMs);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 export async function chatCompletion(
   messages: LLMMessage[],
   options: LLMOptions = {}
 ): Promise<string> {
-  const { temperature = 0.7, maxTokens = 4096, config } = options;
+  const {
+    temperature = 0.7,
+    maxTokens = 4096,
+    config,
+    timeoutMs = DEFAULT_LLM_TIMEOUT_MS,
+  } = options;
   const resolvedModel = options.model || config?.model;
 
   // Stage 2.9：用 Langfuse 包裹调用；未配置时退化为直接调用
@@ -47,36 +90,46 @@ export async function chatCompletion(
       name: "chat_completion",
       model: resolvedModel,
       input: messages,
-      metadata: { temperature, maxTokens, protocol: config?.protocol ?? "env" },
+      metadata: {
+        temperature,
+        maxTokens,
+        protocol: config?.protocol ?? "env",
+        timeoutMs,
+      },
       tags: ["llm"],
     },
     async () => {
-      if (config) {
-        const protocol = config.protocol || "openai";
-        const provider = getLLMProvider(protocol);
-        return provider.chatCompletion(messages, config, {
-          temperature,
-          maxTokens,
-          model: options.model,
-        });
-      }
+      // 内层 provider 调用 Promise（不强制取消底层 fetch，只让 await 提前 reject）
+      const providerCall = (async () => {
+        if (config) {
+          const protocol = config.protocol || "openai";
+          const provider = getLLMProvider(protocol);
+          return provider.chatCompletion(messages, config, {
+            temperature,
+            maxTokens,
+            model: options.model,
+          });
+        }
 
-      // 回退到环境变量配置（兼容旧代码）
-      const baseUrl =
-        process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
-      const apiKey = process.env.DEEPSEEK_API_KEY;
-      const model = options.model || "deepseek-chat";
+        // 回退到环境变量配置（兼容旧代码）
+        const baseUrl =
+          process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
+        const apiKey = process.env.DEEPSEEK_API_KEY;
+        const model = options.model || "deepseek-chat";
 
-      if (!apiKey) {
-        throw new Error("未配置 LLM 服务，请在 AI 模型配置页面添加配置");
-      }
+        if (!apiKey) {
+          throw new Error("未配置 LLM 服务，请在 AI 模型配置页面添加配置");
+        }
 
-      const provider = getLLMProvider("openai");
-      return provider.chatCompletion(
-        messages,
-        { apiKey, baseUrl: `${baseUrl}/v1`, model, protocol: "openai" },
-        { temperature, maxTokens, model }
-      );
+        const provider = getLLMProvider("openai");
+        return provider.chatCompletion(
+          messages,
+          { apiKey, baseUrl: `${baseUrl}/v1`, model, protocol: "openai" },
+          { temperature, maxTokens, model }
+        );
+      })();
+
+      return withTimeout(providerCall, timeoutMs, "LLM chatCompletion timeout");
     },
     (result) => ({
       output: result,

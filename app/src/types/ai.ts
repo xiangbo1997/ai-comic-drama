@@ -26,6 +26,13 @@ export interface LLMOptions {
   temperature?: number;
   maxTokens?: number;
   config?: AIServiceConfig;
+  /**
+   * 单次调用超时（毫秒）。Hotfix2 引入：
+   * 上游 LLM 中转站偶发卡住到 100+ 秒会导致 Cloudflare 524。
+   * 在 chatCompletion facade 层用 Promise.race 实现，对所有 provider 通用。
+   * 超时不会取消底层 fetch（无法跨 provider 注入 signal），但能让上层快速进入重试。
+   */
+  timeoutMs?: number;
 }
 
 /** 图像生成选项 */
