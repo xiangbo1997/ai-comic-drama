@@ -9,6 +9,7 @@ import {
   OBSERVER_SYSTEM,
   buildImageReviewPrompt,
 } from "@/lib/prompts/agent-prompts";
+import { reviewImageWithVision } from "./vision-reviewer";
 import { createLogger } from "@/lib/logger";
 import type {
   Agent,
@@ -66,6 +67,44 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
           .map((c) => `${c.name}: ${c.canonicalPrompt}`)
           .join("\n")
       : "无角色信息";
+
+    // C2 第一层：视觉评审。当评审图像且有 imageUrl 与 LLM config 时，
+    // 把生成图真正发给多模态模型做 5 维评分（替代原先只看文本的"假评审"）。
+    // 任何失败都落到下方的纯文本路径，保持可回滚。
+    if (input.contentType === "image" && input.imageUrl && ctx.config.llm) {
+      try {
+        const raw = await reviewImageWithVision({
+          imageUrl: input.imageUrl,
+          sceneDescription: input.sceneDescription,
+          characterDescriptions,
+          expectedEmotion: input.expectedEmotion ?? "neutral",
+          expectedShotType: input.expectedShotType ?? "medium shot",
+          llmConfig: ctx.config.llm,
+        });
+        const result = ObserverVerdictSchema.safeParse(raw);
+        if (result.success) {
+          const verdict = result.data as ObserverVerdict;
+          log.info(
+            `Observer(vision) verdict: pass=${verdict.pass}, score=${verdict.score.overall}`
+          );
+          return {
+            success: true,
+            data: verdict,
+            reasoning:
+              verdict.score.feedback ?? `视觉评审 ${verdict.score.overall}/100`,
+            attempts: 1,
+            tokensUsed: 800,
+          };
+        }
+        log.warn("Observer(vision) validation failed, fallback to text review");
+      } catch (err) {
+        log.warn(
+          `Observer(vision) failed, fallback to text review: ${
+            err instanceof Error ? err.message : "Unknown"
+          }`
+        );
+      }
+    }
 
     try {
       const response = await chatCompletion(
