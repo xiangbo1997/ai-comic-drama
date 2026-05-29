@@ -10,6 +10,41 @@ import type { AIServiceConfig } from "@/types";
 export type { AIServiceConfig };
 
 /**
+ * P5：从一条 UserAIConfig(含 provider)装配为 AIServiceConfig。
+ *
+ * 这是四个 getUserXConfig 函数末尾完全重复的"解密 + 组装"逻辑的抽取。
+ * 仅抽取真正同构的部分；各 category 的查询差异(configId/orderBy/默认 model）
+ * 仍保留在各自函数中，避免"伪重复合并"引入行为变化。
+ *
+ * @param config 已 include provider 的配置行
+ * @param fallbackModel 无 selectedModel 时的回退模型(LLM 用 provider 默认，其余用 "")
+ * @param defaultProtocol 无任何 protocol 时的兜底(LLM 用 "openai"，其余用 "")
+ */
+function assembleServiceConfig(
+  config: {
+    apiKey: string;
+    apiKeyIv: string;
+    customBaseUrl: string | null;
+    apiProtocol: string | null;
+    selectedModel: string | null;
+    authType: string | null;
+    provider: { baseUrl: string | null; apiProtocol: string | null };
+  },
+  fallbackModel = "",
+  defaultProtocol = ""
+): AIServiceConfig {
+  return {
+    apiKey: decrypt(config.apiKey, config.apiKeyIv),
+    baseUrl: config.customBaseUrl || config.provider.baseUrl || "",
+    model: config.selectedModel || fallbackModel,
+    protocol:
+      config.apiProtocol || config.provider.apiProtocol || defaultProtocol,
+    authType:
+      (config.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") || "API_KEY",
+  };
+}
+
+/**
  * 获取用户默认的 LLM 配置
  * @param userId 用户 ID
  * @returns LLM 配置或 null
@@ -57,33 +92,11 @@ export async function getUserLLMConfig(
     return null;
   }
 
-  // 解密 API Key
-  const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
-
-  // 确定 Base URL（优先使用自定义 URL）
-  const baseUrl =
-    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
-
-  // 确定协议（优先使用配置级别的协议，否则使用提供商默认协议）
-  const protocol =
-    effectiveConfig.apiProtocol ||
-    effectiveConfig.provider.apiProtocol ||
-    "openai";
-
-  // 确定模型
-  const model =
-    effectiveConfig.selectedModel ||
-    getDefaultModelForProvider(effectiveConfig.provider.slug);
-
-  return {
-    apiKey,
-    baseUrl,
-    model,
-    protocol,
-    authType:
-      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
-      "API_KEY",
-  };
+  return assembleServiceConfig(
+    effectiveConfig,
+    getDefaultModelForProvider(effectiveConfig.provider.slug),
+    "openai"
+  );
 }
 
 /**
@@ -147,24 +160,7 @@ export async function getUserImageConfig(
     return null;
   }
 
-  const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
-  const baseUrl =
-    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
-  const protocol =
-    effectiveConfig.apiProtocol ||
-    effectiveConfig.provider.apiProtocol ||
-    "openai";
-  const model = effectiveConfig.selectedModel || "";
-
-  return {
-    apiKey,
-    baseUrl,
-    model,
-    protocol,
-    authType:
-      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
-      "API_KEY",
-  };
+  return assembleServiceConfig(effectiveConfig, "", "openai");
 }
 
 /**
@@ -208,22 +204,7 @@ export async function getUserVideoConfig(
     return null;
   }
 
-  const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
-  const baseUrl =
-    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
-  const protocol =
-    effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "";
-  const model = effectiveConfig.selectedModel || "";
-
-  return {
-    apiKey,
-    baseUrl,
-    model,
-    protocol,
-    authType:
-      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
-      "API_KEY",
-  };
+  return assembleServiceConfig(effectiveConfig);
 }
 
 /**
@@ -267,22 +248,7 @@ export async function getUserTTSConfig(
     return null;
   }
 
-  const apiKey = decrypt(effectiveConfig.apiKey, effectiveConfig.apiKeyIv);
-  const baseUrl =
-    effectiveConfig.customBaseUrl || effectiveConfig.provider.baseUrl || "";
-  const protocol =
-    effectiveConfig.apiProtocol || effectiveConfig.provider.apiProtocol || "";
-  const model = effectiveConfig.selectedModel || "";
-
-  return {
-    apiKey,
-    baseUrl,
-    model,
-    protocol,
-    authType:
-      (effectiveConfig.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") ||
-      "API_KEY",
-  };
+  return assembleServiceConfig(effectiveConfig);
 }
 
 /**
