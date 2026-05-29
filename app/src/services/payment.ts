@@ -70,18 +70,41 @@ export function generateOrderNo(): string {
 export class WechatPayService {
   private appId: string;
   private mchId: string;
-  private apiKey: string;
+  private apiKey: string; // APIv3 密钥（32字节），用于 AES-256-GCM 解密回调
   private notifyUrl: string;
+  private privateKey: string; // 商户 API 私钥（PEM），用于 RSA-SHA256 请求签名
+  private certSerial: string; // 商户证书序列号
+  private platformPublicKey: string; // 微信平台证书公钥（PEM），用于回调验签
 
   constructor() {
     this.appId = process.env.WECHAT_APP_ID || "";
     this.mchId = process.env.WECHAT_MCH_ID || "";
     this.apiKey = process.env.WECHAT_API_KEY || "";
     this.notifyUrl = process.env.WECHAT_NOTIFY_URL || "";
+    // 私钥/证书支持 \n 转义形式（便于放入单行环境变量）
+    this.privateKey = (process.env.WECHAT_PRIVATE_KEY || "").replace(
+      /\\n/g,
+      "\n"
+    );
+    this.certSerial = process.env.WECHAT_CERT_SERIAL || "";
+    this.platformPublicKey = (
+      process.env.WECHAT_PLATFORM_PUBLIC_KEY || ""
+    ).replace(/\\n/g, "\n");
   }
 
+  /**
+   * C3：要求私钥与证书序列号齐备才算配置完成。
+   * 缺少签名所需材料时返回 false（安全禁用），避免用无效签名"假装"可用 ——
+   * 否则会出现"能创建订单但回调可被伪造"的支付绕过风险。
+   */
   isConfigured(): boolean {
-    return !!(this.appId && this.mchId && this.apiKey);
+    return !!(
+      this.appId &&
+      this.mchId &&
+      this.apiKey &&
+      this.privateKey &&
+      this.certSerial
+    );
   }
 
   /**
@@ -180,10 +203,11 @@ export class WechatPayService {
         return { valid: false, error: "缺少签名参数" };
       }
 
-      // 验证签名逻辑（需要微信平台证书）
-      // 这里简化处理，生产环境需要完整实现
-      // const message = `${timestamp}\n${nonce}\n${body}\n`;
-      // const verified = crypto.verify(...);
+      // C3：用平台证书公钥验签（修复前此处被注释，导致回调可被任意伪造 → 支付绕过）
+      if (!this.verifySignature(timestamp, nonce, body, signature)) {
+        log.warn("微信支付回调验签失败，拒绝处理");
+        return { valid: false, error: "回调签名验证失败" };
+      }
 
       // 解密通知数据
       const notification = JSON.parse(body);
@@ -206,6 +230,10 @@ export class WechatPayService {
     }
   }
 
+  /**
+   * C3：按微信支付 v3 规范用商户私钥做 RSA-SHA256 签名。
+   * 待签名串：method\nurl\ntimestamp\nnonce\nbody\n（每行以 \n 结尾）。
+   */
   private generateSignature(
     method: string,
     url: string,
@@ -214,17 +242,79 @@ export class WechatPayService {
     body: string
   ): string {
     const message = `${method}\n${url}\n${timestamp}\n${nonceStr}\n${body}\n`;
-    // 使用商户私钥签名（需要证书）
-    // 这里返回占位符，生产环境需要完整实现
-    return crypto.createHash("sha256").update(message).digest("base64");
+    const signer = crypto.createSign("RSA-SHA256");
+    signer.update(message);
+    signer.end();
+    return signer.sign(this.privateKey, "base64");
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private decryptResource(resource: Record<string, unknown>): any {
-    // AES-256-GCM 解密（需要 API v3 密钥）
-    // 这里简化处理，生产环境需要完整实现
-    return resource;
+  /**
+   * C3：按微信支付 v3 规范用平台证书公钥验证回调签名。
+   * 待验签串：timestamp\nnonce\nbody\n。
+   */
+  private verifySignature(
+    timestamp: string,
+    nonce: string,
+    body: string,
+    signature: string
+  ): boolean {
+    if (!this.platformPublicKey) {
+      // 未配置平台证书，无法验签 —— 拒绝（不放行未验签的回调）
+      return false;
+    }
+    const message = `${timestamp}\n${nonce}\n${body}\n`;
+    const verifier = crypto.createVerify("RSA-SHA256");
+    verifier.update(message);
+    verifier.end();
+    try {
+      return verifier.verify(this.platformPublicKey, signature, "base64");
+    } catch {
+      return false;
+    }
   }
+
+  /**
+   * C3：用 APIv3 密钥做 AES-256-GCM 解密回调资源。
+   * resource: { ciphertext, nonce, associated_data }（均为微信下发字段）。
+   */
+  private decryptResource(
+    resource: Record<string, unknown>
+  ): WechatDecryptedResource {
+    const ciphertext = String(resource.ciphertext ?? "");
+    const nonce = String(resource.nonce ?? "");
+    const associatedData = String(resource.associated_data ?? "");
+    if (!ciphertext || !nonce) {
+      throw new Error("回调资源缺少 ciphertext/nonce");
+    }
+
+    // 微信 ciphertext 为 base64(密文 + 16字节 GCM authTag)
+    const buf = Buffer.from(ciphertext, "base64");
+    const authTag = buf.subarray(buf.length - 16);
+    const data = buf.subarray(0, buf.length - 16);
+
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      Buffer.from(this.apiKey, "utf-8"),
+      Buffer.from(nonce, "utf-8")
+    );
+    decipher.setAuthTag(authTag);
+    if (associatedData) {
+      decipher.setAAD(Buffer.from(associatedData, "utf-8"));
+    }
+    const decrypted = Buffer.concat([
+      decipher.update(data),
+      decipher.final(),
+    ]).toString("utf-8");
+    return JSON.parse(decrypted) as WechatDecryptedResource;
+  }
+}
+
+/** 微信支付回调解密后的交易资源 */
+interface WechatDecryptedResource {
+  out_trade_no: string;
+  transaction_id: string;
+  amount: { total: number; currency?: string };
+  [key: string]: unknown;
 }
 
 /**
