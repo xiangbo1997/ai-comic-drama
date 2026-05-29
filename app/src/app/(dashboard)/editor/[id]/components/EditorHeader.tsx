@@ -34,9 +34,9 @@ export function EditorHeader({
   onExport,
 }: EditorHeaderProps) {
   return (
-    <header className="flex shrink-0 items-center justify-between border-b border-gray-800 px-4 py-3">
+    <header className="border-border flex shrink-0 items-center justify-between border-b px-4 py-3">
       <div className="flex items-center gap-4">
-        <Link href="/projects" className="rounded-lg p-2 hover:bg-gray-800">
+        <Link href="/projects" className="hover:bg-card rounded-lg p-2">
           <ArrowLeft size={20} />
         </Link>
         {editingTitle ? (
@@ -47,12 +47,12 @@ export function EditorHeader({
             onBlur={() => onTitleSave(title)}
             onKeyDown={(e) => e.key === "Enter" && onTitleSave(title)}
             autoFocus
-            className="rounded bg-gray-800 px-2 py-1 text-lg font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="bg-card focus:ring-primary rounded px-2 py-1 text-lg font-medium focus:ring-2 focus:outline-none"
           />
         ) : (
           <button
             onClick={onEditTitle}
-            className="rounded px-2 py-1 text-lg font-medium hover:bg-gray-800"
+            className="hover:bg-card rounded px-2 py-1 text-lg font-medium"
           >
             {title}
           </button>
@@ -62,20 +62,20 @@ export function EditorHeader({
         <CreditsDisplay />
         <button
           onClick={onToggleTimeline}
-          className={`rounded-lg p-2 transition ${showTimeline ? "bg-blue-600 hover:bg-blue-700" : "hover:bg-gray-800"}`}
+          className={`rounded-lg p-2 transition ${showTimeline ? "bg-primary hover:bg-primary/90" : "hover:bg-card"}`}
           title="时间轴"
         >
           <Clock size={20} />
         </button>
         <button
           onClick={onToggleSettings}
-          className="rounded-lg p-2 hover:bg-gray-800"
+          className="hover:bg-card rounded-lg p-2"
         >
           <Settings size={20} />
         </button>
         <button
           onClick={onPreview}
-          className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-gray-700"
+          className="disabled:bg-secondary flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 hover:bg-green-700 disabled:cursor-not-allowed"
           disabled={!hasScenes}
         >
           <Play size={18} />
@@ -84,7 +84,7 @@ export function EditorHeader({
         <button
           onClick={onExport}
           disabled={!hasScenes}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-700"
+          className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex items-center gap-2 rounded-lg px-4 py-2 disabled:cursor-not-allowed"
         >
           <Download size={18} />
           导出

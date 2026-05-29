@@ -34,13 +34,13 @@ export function SettingsPanel({
   onAspectRatioChange,
 }: SettingsPanelProps) {
   return (
-    <div className="flex items-center gap-6 border-b border-gray-800 bg-gray-800/50 px-4 py-3">
+    <div className="border-border bg-card/50 flex items-center gap-6 border-b px-4 py-3">
       <div className="flex items-center gap-2">
-        <label className="text-sm text-gray-400">风格:</label>
+        <label className="text-muted-foreground text-sm">风格:</label>
         <select
           value={style}
           onChange={(e) => onStyleChange(e.target.value)}
-          className="rounded bg-gray-700 px-2 py-1 text-sm"
+          className="bg-secondary rounded px-2 py-1 text-sm"
         >
           {STYLES.map((s) => (
             <option key={s.value} value={s.value}>
@@ -50,11 +50,11 @@ export function SettingsPanel({
         </select>
       </div>
       <div className="flex items-center gap-2">
-        <label className="text-sm text-gray-400">比例:</label>
+        <label className="text-muted-foreground text-sm">比例:</label>
         <select
           value={aspectRatio}
           onChange={(e) => onAspectRatioChange(e.target.value)}
-          className="rounded bg-gray-700 px-2 py-1 text-sm"
+          className="bg-secondary rounded px-2 py-1 text-sm"
         >
           {ASPECT_RATIOS.map((r) => (
             <option key={r.value} value={r.value}>

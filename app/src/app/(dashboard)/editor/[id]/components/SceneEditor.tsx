@@ -54,11 +54,11 @@ export function SceneEditor({
   if (!scene) {
     return (
       <div className="flex w-1/3 flex-col">
-        <div className="border-b border-gray-800 p-4">
+        <div className="border-border border-b p-4">
           <h2 className="font-semibold">预览 / 编辑</h2>
         </div>
         <div className="flex flex-1 items-center justify-center">
-          <div className="text-center text-gray-500">
+          <div className="text-muted-foreground text-center">
             <ImageIcon size={48} className="mx-auto mb-4 opacity-50" />
             <p>选择分镜进行编辑</p>
           </div>
@@ -81,14 +81,14 @@ export function SceneEditor({
 
   return (
     <div className="flex w-1/3 flex-col">
-      <div className="border-b border-gray-800 p-4">
+      <div className="border-border border-b p-4">
         <h2 className="font-semibold">预览 / 编辑</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
         {/* Preview */}
         <div
-          className={`mb-4 flex items-center justify-center overflow-hidden rounded-xl bg-gray-800 ${
+          className={`bg-card mb-4 flex items-center justify-center overflow-hidden rounded-xl ${
             aspectRatio === "9:16"
               ? "aspect-[9/16] max-h-80"
               : aspectRatio === "16:9"
@@ -100,9 +100,9 @@ export function SceneEditor({
             <div className="text-center">
               <Loader2
                 size={32}
-                className="mx-auto mb-2 animate-spin text-gray-400"
+                className="text-muted-foreground mx-auto mb-2 animate-spin"
               />
-              <p className="text-sm text-gray-500">生成中...</p>
+              <p className="text-muted-foreground text-sm">生成中...</p>
             </div>
           ) : scene.imageUrl ? (
             <img
@@ -112,20 +112,23 @@ export function SceneEditor({
             />
           ) : (
             <div className="text-center">
-              <ImageIcon size={32} className="mx-auto mb-2 text-gray-500" />
-              <p className="text-sm text-gray-500">点击生成图片</p>
+              <ImageIcon
+                size={32}
+                className="text-muted-foreground mx-auto mb-2"
+              />
+              <p className="text-muted-foreground text-sm">点击生成图片</p>
             </div>
           )}
         </div>
 
         {/* Scene Characters Strip with Role Toggle */}
         {sceneCharacters.length > 0 && (
-          <div className="mb-4 rounded-lg border border-gray-700 bg-gray-800/50 p-2">
+          <div className="border-border bg-card/50 mb-4 rounded-lg border p-2">
             <div className="mb-1.5 flex items-center gap-1">
-              <Users size={12} className="text-gray-400" />
-              <span className="text-xs text-gray-400">场景角色</span>
+              <Users size={12} className="text-muted-foreground" />
+              <span className="text-muted-foreground text-xs">场景角色</span>
               {sceneCharacters.length > 1 && (
-                <span className="ml-auto text-[10px] text-gray-500">
+                <span className="text-muted-foreground ml-auto text-[10px]">
                   点击⭐设为主角
                 </span>
               )}
@@ -152,11 +155,11 @@ export function SceneEditor({
                       <img
                         src={c.referenceImages[0]}
                         alt={c.name}
-                        className={`h-10 w-10 rounded-full border-2 object-cover ${idx === 0 ? "border-yellow-500" : "border-gray-600 group-hover:border-gray-400"}`}
+                        className={`h-10 w-10 rounded-full border-2 object-cover ${idx === 0 ? "border-primary" : "border-border group-hover:border-muted-foreground"}`}
                       />
                     ) : (
                       <div
-                        className={`flex h-10 w-10 items-center justify-center rounded-full border-2 bg-gray-700 ${idx === 0 ? "border-yellow-500" : "border-gray-600"}`}
+                        className={`bg-secondary flex h-10 w-10 items-center justify-center rounded-full border-2 ${idx === 0 ? "border-primary" : "border-border"}`}
                       >
                         <span className="text-xs">{c.name[0]}</span>
                       </div>
@@ -164,14 +167,14 @@ export function SceneEditor({
                     {idx === 0 && (
                       <Star
                         size={10}
-                        className="absolute -top-1 -right-1 fill-yellow-500 text-yellow-500"
+                        className="fill-primary text-primary absolute -top-1 -right-1"
                       />
                     )}
                   </div>
-                  <span className="mt-0.5 block max-w-[48px] truncate text-[10px] text-gray-400">
+                  <span className="text-muted-foreground mt-0.5 block max-w-[48px] truncate text-[10px]">
                     {c.name}
                   </span>
-                  <span className="text-[9px] text-gray-600">
+                  <span className="text-muted-foreground text-[9px]">
                     {idx === 0 ? "主角" : "配角"}
                   </span>
                 </button>
@@ -188,7 +191,7 @@ export function SceneEditor({
               <button
                 type="button"
                 onClick={() => setFlickerCompare((v) => !v)}
-                className="flex items-center gap-1 text-xs text-gray-500 transition hover:text-gray-300"
+                className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs transition"
               >
                 <Layers size={12} />
                 {flickerCompare ? "隐藏对比" : "定妆照对比"}
@@ -199,9 +202,9 @@ export function SceneEditor({
                     <img
                       src={sceneCharacters[0].referenceImages[0]}
                       alt="参考"
-                      className="w-full rounded-lg border border-gray-700"
+                      className="border-border w-full rounded-lg border"
                     />
-                    <span className="mt-1 block text-[10px] text-gray-500">
+                    <span className="text-muted-foreground mt-1 block text-[10px]">
                       定妆照
                     </span>
                   </div>
@@ -209,9 +212,9 @@ export function SceneEditor({
                     <img
                       src={scene.imageUrl}
                       alt="生成"
-                      className="w-full rounded-lg border border-gray-700"
+                      className="border-border w-full rounded-lg border"
                     />
-                    <span className="mt-1 block text-[10px] text-gray-500">
+                    <span className="text-muted-foreground mt-1 block text-[10px]">
                       生成图
                     </span>
                   </div>
@@ -222,12 +225,12 @@ export function SceneEditor({
 
         {/* Generation Info */}
         {lastGenerationInfo?.strategy && scene?.imageUrl && (
-          <div className="mb-4 flex items-center gap-2 text-xs text-gray-500">
+          <div className="text-muted-foreground mb-4 flex items-center gap-2 text-xs">
             <span
               className={`rounded px-1.5 py-0.5 ${
                 lastGenerationInfo.strategy === "reference_edit"
                   ? "bg-green-900/30 text-green-400"
-                  : "bg-gray-800 text-gray-400"
+                  : "bg-card text-muted-foreground"
               }`}
             >
               {lastGenerationInfo.strategy === "reference_edit"
@@ -243,13 +246,15 @@ export function SceneEditor({
         {/* Edit Form */}
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-sm text-gray-400">景别</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              景别
+            </label>
             <select
               value={scene.shotType || "中景"}
               onChange={(e) =>
                 onUpdateScene(scene.id, { shotType: e.target.value })
               }
-              className="w-full rounded-lg bg-gray-800 px-3 py-2 text-sm"
+              className="bg-card w-full rounded-lg px-3 py-2 text-sm"
             >
               {SHOT_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -260,19 +265,23 @@ export function SceneEditor({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">画面描述</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              画面描述
+            </label>
             <textarea
               value={scene.description}
               onChange={(e) =>
                 onUpdateScene(scene.id, { description: e.target.value })
               }
               rows={3}
-              className="w-full resize-none rounded-lg bg-gray-800 px-3 py-2 text-sm"
+              className="bg-card w-full resize-none rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">对话</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              对话
+            </label>
             <textarea
               value={scene.dialogue || ""}
               onChange={(e) =>
@@ -280,12 +289,14 @@ export function SceneEditor({
               }
               rows={2}
               placeholder="角色对话内容..."
-              className="w-full resize-none rounded-lg bg-gray-800 px-3 py-2 text-sm"
+              className="bg-card w-full resize-none rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">旁白</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              旁白
+            </label>
             <textarea
               value={scene.narration || ""}
               onChange={(e) =>
@@ -293,19 +304,21 @@ export function SceneEditor({
               }
               rows={2}
               placeholder="旁白内容..."
-              className="w-full resize-none rounded-lg bg-gray-800 px-3 py-2 text-sm"
+              className="bg-card w-full resize-none rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           <div className="flex gap-4">
             <div className="flex-1">
-              <label className="mb-1 block text-sm text-gray-400">情感</label>
+              <label className="text-muted-foreground mb-1 block text-sm">
+                情感
+              </label>
               <select
                 value={scene.emotion || "neutral"}
                 onChange={(e) =>
                   onUpdateScene(scene.id, { emotion: e.target.value })
                 }
-                className="w-full rounded-lg bg-gray-800 px-3 py-2 text-sm"
+                className="bg-card w-full rounded-lg px-3 py-2 text-sm"
               >
                 {EMOTIONS.map((emotion) => (
                   <option key={emotion} value={emotion}>
@@ -315,7 +328,7 @@ export function SceneEditor({
               </select>
             </div>
             <div className="w-24">
-              <label className="mb-1 block text-sm text-gray-400">
+              <label className="text-muted-foreground mb-1 block text-sm">
                 时长(秒)
               </label>
               <input
@@ -328,7 +341,7 @@ export function SceneEditor({
                     duration: parseInt(e.target.value) || 3,
                   })
                 }
-                className="w-full rounded-lg bg-gray-800 px-3 py-2 text-sm"
+                className="bg-card w-full rounded-lg px-3 py-2 text-sm"
               />
             </div>
           </div>
@@ -350,7 +363,7 @@ export function SceneEditor({
                 disabled={
                   scene.imageStatus === "PROCESSING" || isGeneratingImage
                 }
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm hover:bg-blue-700 disabled:opacity-50"
+                className="bg-primary hover:bg-primary/90 flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
               >
                 {scene.imageStatus === "PROCESSING" ? (
                   <Loader2 size={16} className="animate-spin" />

@@ -41,10 +41,10 @@ export function ScriptPanel({
   isWorkflowRunning,
 }: ScriptPanelProps) {
   return (
-    <div className="flex w-1/3 flex-col border-r border-gray-800">
-      <div className="border-b border-gray-800 p-4">
+    <div className="border-border flex w-1/3 flex-col border-r">
+      <div className="border-border border-b p-4">
         <h2 className="mb-2 font-semibold">输入文本</h2>
-        <p className="text-sm text-gray-400">粘贴小说片段或故事大纲</p>
+        <p className="text-muted-foreground text-sm">粘贴小说片段或故事大纲</p>
       </div>
       <div className="flex-1 overflow-hidden p-4">
         <textarea
@@ -60,14 +60,14 @@ export function ScriptPanel({
 男人冷冷地看了她一眼，没有说话，径直走进了电梯。
 
 林萧不知道的是，这个男人就是她即将面对的顶头上司——陆景琛。`}
-          className="h-full w-full resize-none rounded-lg bg-gray-800 p-4 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+          className="bg-card focus:ring-primary h-full w-full resize-none rounded-lg p-4 text-sm focus:ring-2 focus:outline-none"
         />
       </div>
-      <div className="space-y-2 border-t border-gray-800 p-4">
+      <div className="border-border space-y-2 border-t p-4">
         <button
           onClick={onParse}
           disabled={!inputText.trim() || isParsing || isWorkflowRunning}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-700"
+          className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 transition disabled:cursor-not-allowed"
         >
           {isParsing ? (
             <Loader2 size={20} className="animate-spin" />
@@ -80,7 +80,7 @@ export function ScriptPanel({
           <button
             onClick={onStartWorkflow}
             disabled={!inputText.trim() || isParsing || isWorkflowRunning}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-gray-700"
+            className="disabled:bg-secondary flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm transition hover:bg-purple-700 disabled:cursor-not-allowed"
           >
             {isWorkflowRunning ? (
               <Loader2 size={18} className="animate-spin" />
@@ -98,46 +98,46 @@ export function ScriptPanel({
       </div>
 
       {/* 项目角色侧边栏 */}
-      <div className="border-t border-gray-800">
+      <div className="border-border border-t">
         <button
           onClick={onToggleCharacterPanel}
-          className="flex w-full items-center justify-between px-4 py-2 text-sm transition hover:bg-gray-800/50"
+          className="hover:bg-card/50 flex w-full items-center justify-between px-4 py-2 text-sm transition"
         >
           <div className="flex items-center gap-2">
-            <Users size={16} className="text-gray-400" />
-            <span className="text-gray-300">项目角色</span>
+            <Users size={16} className="text-muted-foreground" />
+            <span className="text-foreground">项目角色</span>
             {project.characters.length > 0 && (
-              <span className="text-xs text-gray-500">
+              <span className="text-muted-foreground text-xs">
                 ({project.characters.length})
               </span>
             )}
           </div>
           {showCharacterPanel ? (
-            <ChevronDown size={16} className="text-gray-400" />
+            <ChevronDown size={16} className="text-muted-foreground" />
           ) : (
-            <ChevronUp size={16} className="text-gray-400" />
+            <ChevronUp size={16} className="text-muted-foreground" />
           )}
         </button>
 
         {showCharacterPanel && (
-          <div className="bg-gray-800/30 p-3">
+          <div className="bg-card/30 p-3">
             {project.characters.length > 0 ? (
               <div className="space-y-2">
                 {project.characters.map(({ character }) => (
                   <div
                     key={character.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg bg-gray-800/50 p-2 transition hover:bg-gray-700/50"
+                    className="bg-card/50 hover:bg-secondary/50 flex cursor-pointer items-center gap-2 rounded-lg p-2 transition"
                     title={character.description || character.name}
                   >
                     {character.referenceImages?.[0] ? (
                       <img
                         src={character.referenceImages[0]}
                         alt={character.name}
-                        className="h-8 w-8 rounded-full object-cover ring-2 ring-gray-700"
+                        className="ring-border h-8 w-8 rounded-full object-cover ring-2"
                       />
                     ) : (
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-700">
-                        <User size={14} className="text-gray-400" />
+                      <div className="bg-secondary flex h-8 w-8 items-center justify-center rounded-full">
+                        <User size={14} className="text-muted-foreground" />
                       </div>
                     )}
                     <div className="min-w-0 flex-1">
@@ -145,7 +145,7 @@ export function ScriptPanel({
                         {character.name}
                       </div>
                       {character.description && (
-                        <div className="truncate text-xs text-gray-500">
+                        <div className="text-muted-foreground truncate text-xs">
                           {character.description}
                         </div>
                       )}
@@ -160,7 +160,7 @@ export function ScriptPanel({
                 ))}
                 <button
                   onClick={onManageCharacters}
-                  className="flex w-full items-center justify-center gap-1 rounded px-2 py-1.5 text-xs text-gray-400 transition hover:bg-gray-700/50 hover:text-white"
+                  className="text-muted-foreground hover:bg-secondary/50 flex w-full items-center justify-center gap-1 rounded px-2 py-1.5 text-xs transition hover:text-white"
                 >
                   <Plus size={12} />
                   管理角色
@@ -168,11 +168,16 @@ export function ScriptPanel({
               </div>
             ) : (
               <div className="py-4 text-center">
-                <Users size={24} className="mx-auto mb-2 text-gray-600" />
-                <p className="mb-2 text-xs text-gray-500">暂无关联角色</p>
+                <Users
+                  size={24}
+                  className="text-muted-foreground mx-auto mb-2"
+                />
+                <p className="text-muted-foreground mb-2 text-xs">
+                  暂无关联角色
+                </p>
                 <button
                   onClick={onManageCharacters}
-                  className="text-xs text-blue-400 transition hover:text-blue-300"
+                  className="text-primary hover:text-primary/80 text-xs transition"
                 >
                   + 添加角色
                 </button>

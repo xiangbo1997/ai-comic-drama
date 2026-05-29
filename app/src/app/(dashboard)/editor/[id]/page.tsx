@@ -173,18 +173,18 @@ export default function EditorPage() {
   // Loading / Error states
   if (projectId === "new" || editor.isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-900">
-        <Loader2 size={32} className="animate-spin text-gray-400" />
+      <div className="bg-background flex min-h-screen items-center justify-center">
+        <Loader2 size={32} className="text-muted-foreground animate-spin" />
       </div>
     );
   }
 
   if (editor.error || !editor.project) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-900 text-white">
+      <div className="bg-background flex min-h-screen items-center justify-center text-white">
         <div className="text-center">
           <p className="mb-4 text-red-400">项目加载失败</p>
-          <Link href="/projects" className="text-blue-400 hover:underline">
+          <Link href="/projects" className="text-primary hover:underline">
             返回项目列表
           </Link>
         </div>
@@ -195,7 +195,7 @@ export default function EditorPage() {
   const { project } = editor;
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-900 text-white">
+    <div className="bg-background flex min-h-screen flex-col text-white">
       <EditorHeader
         title={editor.editingTitle ? editor.title : project.title}
         editingTitle={editor.editingTitle}
@@ -320,12 +320,12 @@ export default function EditorPage() {
       {/* Preview Dialog */}
       {showPreviewDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-          <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-gray-900">
-            <div className="flex items-center justify-between border-b border-gray-800 px-6 py-4">
+          <div className="bg-background flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl">
+            <div className="border-border flex items-center justify-between border-b px-6 py-4">
               <h2 className="text-xl font-semibold">预览播放</h2>
               <button
                 onClick={() => setShowPreviewDialog(false)}
-                className="rounded-lg p-2 transition hover:bg-gray-800"
+                className="hover:bg-card rounded-lg p-2 transition"
               >
                 <X size={20} />
               </button>

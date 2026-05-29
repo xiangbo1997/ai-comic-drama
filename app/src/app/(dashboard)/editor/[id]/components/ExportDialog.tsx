@@ -34,10 +34,10 @@ export function ExportDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl bg-gray-800 p-6">
+      <div className="bg-card w-full max-w-md rounded-xl p-6">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold">导出视频</h2>
-          <button onClick={onClose} className="rounded p-1 hover:bg-gray-700">
+          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
             <X size={20} />
           </button>
         </div>
@@ -46,23 +46,25 @@ export function ExportDialog({
           <div className="py-8 text-center">
             <Loader2
               size={40}
-              className="mx-auto mb-4 animate-spin text-blue-500"
+              className="text-primary mx-auto mb-4 animate-spin"
             />
             <p className="mb-2 text-lg">正在导出...</p>
-            <div className="mb-2 h-2 w-full rounded-full bg-gray-700">
+            <div className="bg-secondary mb-2 h-2 w-full rounded-full">
               <div
-                className="h-2 rounded-full bg-blue-500 transition-all"
+                className="bg-primary h-2 rounded-full transition-all"
                 style={{ width: `${exportStatus.progress}%` }}
               />
             </div>
-            <p className="text-sm text-gray-400">{exportStatus.progress}%</p>
+            <p className="text-muted-foreground text-sm">
+              {exportStatus.progress}%
+            </p>
           </div>
         ) : exportStatus.error ? (
           <div className="py-8 text-center">
             <p className="mb-4 text-red-400">{exportStatus.error}</p>
             <button
               onClick={onRetry}
-              className="rounded-lg bg-gray-700 px-4 py-2 hover:bg-gray-600"
+              className="bg-secondary hover:bg-secondary/80 rounded-lg px-4 py-2"
             >
               重试
             </button>
@@ -95,22 +97,24 @@ function ExportForm({
   return (
     <div className="space-y-4">
       <div>
-        <label className="mb-1 block text-sm text-gray-400">格式</label>
+        <label className="text-muted-foreground mb-1 block text-sm">格式</label>
         <select
           value={format}
           onChange={(e) => setFormat(e.target.value)}
-          className="w-full rounded-lg bg-gray-700 px-3 py-2"
+          className="bg-secondary w-full rounded-lg px-3 py-2"
         >
           <option value="mp4">MP4 (推荐)</option>
           <option value="webm">WebM</option>
         </select>
       </div>
       <div>
-        <label className="mb-1 block text-sm text-gray-400">分辨率</label>
+        <label className="text-muted-foreground mb-1 block text-sm">
+          分辨率
+        </label>
         <select
           value={quality}
           onChange={(e) => setQuality(e.target.value)}
-          className="w-full rounded-lg bg-gray-700 px-3 py-2"
+          className="bg-secondary w-full rounded-lg px-3 py-2"
         >
           <option value="480p">480p (标清)</option>
           <option value="720p">720p (高清)</option>
@@ -123,7 +127,7 @@ function ExportForm({
             type="checkbox"
             checked={includeSubtitles}
             onChange={(e) => setIncludeSubtitles(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-600 bg-gray-700"
+            className="border-border bg-secondary h-4 w-4 rounded"
           />
           <span>包含字幕</span>
         </label>
@@ -132,7 +136,7 @@ function ExportForm({
             type="checkbox"
             checked={includeAudio}
             onChange={(e) => setIncludeAudio(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-600 bg-gray-700"
+            className="border-border bg-secondary h-4 w-4 rounded"
           />
           <span>包含配音</span>
         </label>
@@ -140,7 +144,7 @@ function ExportForm({
       <div className="flex gap-2 pt-4">
         <button
           onClick={onCancel}
-          className="flex-1 rounded-lg bg-gray-700 px-4 py-2 hover:bg-gray-600"
+          className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg px-4 py-2"
         >
           取消
         </button>
@@ -148,7 +152,7 @@ function ExportForm({
           onClick={() =>
             onExport({ format, quality, includeSubtitles, includeAudio })
           }
-          className="flex-1 rounded-lg bg-blue-600 px-4 py-2 hover:bg-blue-700"
+          className="bg-primary hover:bg-primary/90 flex-1 rounded-lg px-4 py-2"
         >
           开始导出
         </button>

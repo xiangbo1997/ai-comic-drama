@@ -50,23 +50,23 @@ export function WorkflowPanel({
       : null;
 
   return (
-    <div className="border-t border-gray-800 bg-gray-900/50">
+    <div className="border-border bg-background/50 border-t">
       {/* 摘要栏 */}
       <div
-        className="flex cursor-pointer items-center justify-between px-4 py-2 hover:bg-gray-800/50"
+        className="hover:bg-card/50 flex cursor-pointer items-center justify-between px-4 py-2"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2 text-sm">
           {isRunning ? (
-            <Loader2 size={16} className="animate-spin text-blue-400" />
+            <Loader2 size={16} className="text-primary animate-spin" />
           ) : status?.status === "COMPLETED" ? (
             <CheckCircle2 size={16} className="text-green-400" />
           ) : status?.status === "FAILED" ? (
             <XCircle size={16} className="text-red-400" />
           ) : (
-            <Zap size={16} className="text-yellow-400" />
+            <Zap size={16} className="text-primary" />
           )}
-          <span className="text-gray-300">
+          <span className="text-foreground">
             {isRunning
               ? `Agent 管线运行中 — ${status?.progress ?? 0}%`
               : status?.status === "COMPLETED"
@@ -76,7 +76,7 @@ export function WorkflowPanel({
                   : "Agent 管线"}
           </span>
           {latestMessage && isRunning && (
-            <span className="ml-2 max-w-xs truncate text-gray-500">
+            <span className="text-muted-foreground ml-2 max-w-xs truncate">
               {latestMessage}
             </span>
           )}
@@ -103,9 +103,9 @@ export function WorkflowPanel({
         <div className="space-y-2 px-4 pb-3">
           {/* 进度条 */}
           {status && (
-            <div className="h-1.5 w-full rounded-full bg-gray-800">
+            <div className="bg-card h-1.5 w-full rounded-full">
               <div
-                className="h-1.5 rounded-full bg-blue-500 transition-all duration-500"
+                className="bg-primary h-1.5 rounded-full transition-all duration-500"
                 style={{ width: `${status.progress}%` }}
               />
             </div>
@@ -122,23 +122,23 @@ export function WorkflowPanel({
                   {step.status === "completed" ? (
                     <CheckCircle2 size={12} className="text-green-400" />
                   ) : step.status === "running" ? (
-                    <Loader2 size={12} className="animate-spin text-blue-400" />
+                    <Loader2 size={12} className="text-primary animate-spin" />
                   ) : step.status === "failed" ? (
                     <XCircle size={12} className="text-red-400" />
                   ) : (
-                    <div className="h-3 w-3 rounded-full border border-gray-600" />
+                    <div className="border-border h-3 w-3 rounded-full border" />
                   )}
                   <span
                     className={
                       step.status === "running"
-                        ? "text-blue-300"
-                        : "text-gray-400"
+                        ? "text-primary/80"
+                        : "text-muted-foreground"
                     }
                   >
                     {STEP_LABELS[step.step] ?? step.step}
                   </span>
                   {step.reasoning && step.status === "completed" && (
-                    <span className="max-w-xs truncate text-gray-600">
+                    <span className="text-muted-foreground max-w-xs truncate">
                       {step.reasoning}
                     </span>
                   )}
@@ -149,13 +149,13 @@ export function WorkflowPanel({
 
           {/* 实时事件日志 */}
           {events.length > 0 && (
-            <div className="max-h-32 space-y-0.5 overflow-y-auto font-mono text-xs text-gray-500">
+            <div className="text-muted-foreground max-h-32 space-y-0.5 overflow-y-auto font-mono text-xs">
               {events.slice(-10).map((evt, i) => (
                 <div key={i}>
-                  <span className="text-gray-600">
+                  <span className="text-muted-foreground">
                     {new Date(evt.timestamp).toLocaleTimeString()}
                   </span>{" "}
-                  <span className="text-gray-400">[{evt.type}]</span>{" "}
+                  <span className="text-muted-foreground">[{evt.type}]</span>{" "}
                   {(evt.data as { message?: string }).message ?? ""}
                 </div>
               ))}
