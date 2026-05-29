@@ -24,14 +24,14 @@ export function SearchAndFilter({
       <div className="relative">
         <Search
           size={18}
-          className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-400"
+          className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
         />
         <input
           type="text"
           placeholder="搜索角色名称..."
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full rounded-lg border border-gray-700 bg-gray-800 py-2 pr-4 pl-10 transition focus:border-blue-500 focus:outline-none"
+          className="border-border bg-card w-full rounded-lg border py-2 pr-4 pl-10 transition focus:border-blue-500 focus:outline-none"
         />
       </div>
 
@@ -39,7 +39,7 @@ export function SearchAndFilter({
         <div className="space-y-2">
           {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
             <div key={category}>
-              <div className="mb-1 text-xs text-gray-500">
+              <div className="text-muted-foreground mb-1 text-xs">
                 {CATEGORY_LABELS[category] || category}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -57,7 +57,7 @@ export function SearchAndFilter({
                       }}
                       className={`rounded-full px-3 py-1 text-sm transition ${
                         isSelected
-                          ? "ring-2 ring-offset-2 ring-offset-gray-900"
+                          ? "ring-offset-background ring-2 ring-offset-2"
                           : "opacity-60 hover:opacity-100"
                       } `}
                       style={{
@@ -82,7 +82,7 @@ export function SearchAndFilter({
             onSearchChange("");
             onSelectedTagIdsChange([]);
           }}
-          className="text-sm text-gray-400 transition hover:text-white"
+          className="text-muted-foreground text-sm transition hover:text-white"
         >
           清除筛选
         </button>

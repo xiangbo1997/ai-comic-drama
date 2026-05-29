@@ -40,17 +40,17 @@ export function GenerateReferenceModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-gray-800">
-        <div className="flex items-center justify-between border-b border-gray-700 p-4">
+      <div className="bg-card w-full max-w-md rounded-xl">
+        <div className="border-border flex items-center justify-between border-b p-4">
           <h2 className="text-lg font-semibold">生成参考图</h2>
-          <button onClick={onClose} className="rounded p-1 hover:bg-gray-700">
+          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
             <X size={20} />
           </button>
         </div>
 
         <div className="space-y-4 p-4">
           <div className="space-y-2">
-            <label className="text-sm text-gray-400">图片供应商</label>
+            <label className="text-muted-foreground text-sm">图片供应商</label>
             <div className="flex items-center gap-2">
               <ModelSelector
                 category="IMAGE"
@@ -64,16 +64,16 @@ export function GenerateReferenceModal({
                 size="sm"
                 disabled={generatePending}
               />
-              <span className="text-xs text-gray-500">
+              <span className="text-muted-foreground text-xs">
                 选择已测试成功的图像配置
               </span>
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm text-gray-400">图片来源</label>
+            <label className="text-muted-foreground text-sm">图片来源</label>
             <div className="space-y-2">
-              <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-gray-700/50 p-3 hover:bg-gray-700">
+              <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
                 <input
                   type="radio"
                   name="source"
@@ -85,17 +85,19 @@ export function GenerateReferenceModal({
                       uploadedImage: null,
                     })
                   }
-                  className="h-4 w-4 text-blue-600"
+                  className="text-primary h-4 w-4"
                 />
                 <div className="flex-1">
                   <div className="text-sm font-medium">
                     无参考图（纯 AI 生成）
                   </div>
-                  <div className="text-xs text-gray-500">消耗 3 积分</div>
+                  <div className="text-muted-foreground text-xs">
+                    消耗 3 积分
+                  </div>
                 </div>
               </label>
 
-              <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-gray-700/50 p-3 hover:bg-gray-700">
+              <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
                 <input
                   type="radio"
                   name="source"
@@ -103,16 +105,18 @@ export function GenerateReferenceModal({
                   onChange={() =>
                     onOptionsChange({ ...generateOptions, source: "upload" })
                   }
-                  className="h-4 w-4 text-blue-600"
+                  className="text-primary h-4 w-4"
                 />
                 <div className="flex-1">
                   <div className="text-sm font-medium">上传新图片作为参考</div>
-                  <div className="text-xs text-gray-500">消耗 5 积分</div>
+                  <div className="text-muted-foreground text-xs">
+                    消耗 5 积分
+                  </div>
                 </div>
               </label>
 
               {hasImages && (
-                <label className="flex cursor-pointer items-center gap-3 rounded-lg bg-gray-700/50 p-3 hover:bg-gray-700">
+                <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
                   <input
                     type="radio"
                     name="source"
@@ -124,13 +128,13 @@ export function GenerateReferenceModal({
                         uploadedImage: null,
                       })
                     }
-                    className="h-4 w-4 text-blue-600"
+                    className="text-primary h-4 w-4"
                   />
                   <div className="flex-1">
                     <div className="text-sm font-medium">
                       使用当前图片作为参考
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-muted-foreground text-xs">
                       消耗 5 积分 · 基于当前显示的图片优化
                     </div>
                   </div>
@@ -141,7 +145,9 @@ export function GenerateReferenceModal({
 
           {generateOptions.source === "upload" && (
             <div className="space-y-2">
-              <label className="text-sm text-gray-400">上传参考图</label>
+              <label className="text-muted-foreground text-sm">
+                上传参考图
+              </label>
               {generateOptions.uploadedImage ? (
                 <div className="relative">
                   <img
@@ -162,9 +168,11 @@ export function GenerateReferenceModal({
                   </button>
                 </div>
               ) : (
-                <label className="flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-gray-600 hover:border-gray-500">
-                  <Upload size={24} className="mb-2 text-gray-500" />
-                  <span className="text-sm text-gray-500">点击上传图片</span>
+                <label className="border-border hover:border-border flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed">
+                  <Upload size={24} className="text-muted-foreground mb-2" />
+                  <span className="text-muted-foreground text-sm">
+                    点击上传图片
+                  </span>
                   <input
                     type="file"
                     accept="image/*"
@@ -182,7 +190,9 @@ export function GenerateReferenceModal({
 
           {generateOptions.source === "existing" && character && (
             <div className="space-y-2">
-              <label className="text-sm text-gray-400">当前选中的图片</label>
+              <label className="text-muted-foreground text-sm">
+                当前选中的图片
+              </label>
               <div className="relative">
                 <img
                   src={character.referenceImages[currentImageIndex]}
@@ -197,7 +207,7 @@ export function GenerateReferenceModal({
           )}
 
           <div className="space-y-2">
-            <label className="text-sm text-gray-400">
+            <label className="text-muted-foreground text-sm">
               自定义提示词（可选）
             </label>
             <textarea
@@ -209,19 +219,19 @@ export function GenerateReferenceModal({
                 })
               }
               placeholder="输入额外的描述，如：修改发型为短发、换个表情..."
-              className="w-full resize-none rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+              className="border-border bg-secondary w-full resize-none rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               rows={3}
             />
-            <p className="text-xs text-gray-500">
+            <p className="text-muted-foreground text-xs">
               提示：将与角色基础信息合并生成
             </p>
           </div>
         </div>
 
-        <div className="flex gap-3 border-t border-gray-700 p-4">
+        <div className="border-border flex gap-3 border-t p-4">
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg bg-gray-700 py-2 transition hover:bg-gray-600"
+            className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg py-2 transition"
           >
             取消
           </button>
@@ -232,7 +242,7 @@ export function GenerateReferenceModal({
               (generateOptions.source === "upload" &&
                 !generateOptions.uploadedImage)
             }
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 py-2 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
+            className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex flex-1 items-center justify-center gap-2 rounded-lg py-2 transition disabled:cursor-not-allowed"
           >
             {generatePending ? (
               <>

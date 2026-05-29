@@ -38,16 +38,16 @@ export function CreateCharacterModal({
 }: CreateCharacterModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-gray-800">
-        <div className="flex items-center justify-between border-b border-gray-700 p-4">
+      <div className="bg-card w-full max-w-md rounded-xl">
+        <div className="border-border flex items-center justify-between border-b p-4">
           <h2 className="text-lg font-semibold">创建角色</h2>
-          <button onClick={onClose} className="rounded p-1 hover:bg-gray-700">
+          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
             <X size={20} />
           </button>
         </div>
         <div className="space-y-4 p-4">
           <div>
-            <label className="mb-1 block text-sm text-gray-400">
+            <label className="text-muted-foreground mb-1 block text-sm">
               角色名称 *
             </label>
             <input
@@ -56,40 +56,44 @@ export function CreateCharacterModal({
               onChange={(e) =>
                 onFormDataChange({ ...formData, name: e.target.value })
               }
-              className="w-full rounded-lg bg-gray-700 px-3 py-2"
+              className="bg-secondary w-full rounded-lg px-3 py-2"
               placeholder="如：林萧"
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="mb-1 block text-sm text-gray-400">性别</label>
+              <label className="text-muted-foreground mb-1 block text-sm">
+                性别
+              </label>
               <select
                 value={formData.gender}
                 onChange={(e) =>
                   onFormDataChange({ ...formData, gender: e.target.value })
                 }
-                className="w-full rounded-lg bg-gray-700 px-3 py-2"
+                className="bg-secondary w-full rounded-lg px-3 py-2"
               >
                 <option value="female">女</option>
                 <option value="male">男</option>
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-sm text-gray-400">年龄</label>
+              <label className="text-muted-foreground mb-1 block text-sm">
+                年龄
+              </label>
               <input
                 type="text"
                 value={formData.age}
                 onChange={(e) =>
                   onFormDataChange({ ...formData, age: e.target.value })
                 }
-                className="w-full rounded-lg bg-gray-700 px-3 py-2"
+                className="bg-secondary w-full rounded-lg px-3 py-2"
                 placeholder="如：24"
               />
             </div>
           </div>
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <label className="text-sm text-gray-400">外貌描述</label>
+              <label className="text-muted-foreground text-sm">外貌描述</label>
               <button
                 type="button"
                 onClick={() =>
@@ -102,7 +106,7 @@ export function CreateCharacterModal({
                 disabled={
                   !formData.name.trim() || generateDescriptionMutation.isPending
                 }
-                className="flex items-center gap-1 rounded bg-purple-600 px-2 py-1 text-xs transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-gray-600"
+                className="disabled:bg-secondary flex items-center gap-1 rounded bg-purple-600 px-2 py-1 text-xs transition hover:bg-purple-700 disabled:cursor-not-allowed"
                 title="根据名称、性别、年龄自动生成外貌描述"
               >
                 {generateDescriptionMutation.isPending ? (
@@ -118,7 +122,7 @@ export function CreateCharacterModal({
               onChange={(e) =>
                 onFormDataChange({ ...formData, description: e.target.value })
               }
-              className="w-full resize-none rounded-lg bg-gray-700 px-3 py-2"
+              className="bg-secondary w-full resize-none rounded-lg px-3 py-2"
               rows={3}
               placeholder="如：黑色长发，瓜子脸，大眼睛，身材纤细"
             />
@@ -134,13 +138,13 @@ export function CreateCharacterModal({
             <button
               type="button"
               onClick={onToggleAppearanceEditor}
-              className="mb-2 flex items-center gap-1 text-sm text-blue-400 transition hover:text-blue-300"
+              className="text-primary hover:text-primary/80 mb-2 flex items-center gap-1 text-sm transition"
             >
               {showAppearanceEditor ? "▾" : "▸"}{" "}
               结构化外貌（可选，提升角色一致性）
             </button>
             {showAppearanceEditor && (
-              <div className="rounded-lg border border-gray-700 bg-gray-800 p-3">
+              <div className="border-border bg-card rounded-lg border p-3">
                 <AppearanceEditor
                   value={formData.appearance}
                   onChange={(appearance: AppearanceFormData) =>
@@ -152,13 +156,15 @@ export function CreateCharacterModal({
             )}
           </div>
           <div>
-            <label className="mb-1 block text-sm text-gray-400">声线</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              声线
+            </label>
             <select
               value={formData.voiceId}
               onChange={(e) =>
                 onFormDataChange({ ...formData, voiceId: e.target.value })
               }
-              className="w-full rounded-lg bg-gray-700 px-3 py-2"
+              className="bg-secondary w-full rounded-lg px-3 py-2"
             >
               <option value="">选择声线（可选）</option>
               {VOICE_PRESETS.filter((v) => v.gender === formData.gender).map(
@@ -172,7 +178,9 @@ export function CreateCharacterModal({
           </div>
           {tags.length > 0 && (
             <div>
-              <label className="mb-2 block text-sm text-gray-400">标签</label>
+              <label className="text-muted-foreground mb-2 block text-sm">
+                标签
+              </label>
               <div className="flex flex-wrap gap-2">
                 {tags.map((tag) => {
                   const isSelected = formData.tagIds.includes(tag.id);
@@ -190,7 +198,7 @@ export function CreateCharacterModal({
                       }}
                       className={`rounded-full px-3 py-1 text-sm transition ${
                         isSelected
-                          ? "ring-2 ring-offset-2 ring-offset-gray-800"
+                          ? "ring-offset-card ring-2 ring-offset-2"
                           : "opacity-50 hover:opacity-100"
                       } `}
                       style={{ backgroundColor: tag.color || "#6B7280" }}
@@ -203,17 +211,17 @@ export function CreateCharacterModal({
             </div>
           )}
         </div>
-        <div className="flex gap-3 border-t border-gray-700 p-4">
+        <div className="border-border flex gap-3 border-t p-4">
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg bg-gray-700 py-2 hover:bg-gray-600"
+            className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg py-2"
           >
             取消
           </button>
           <button
             onClick={onCreate}
             disabled={!formData.name.trim() || createPending}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 py-2 hover:bg-blue-700 disabled:bg-gray-600"
+            className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex flex-1 items-center justify-center gap-2 rounded-lg py-2"
           >
             {createPending && <Loader2 size={18} className="animate-spin" />}
             创建

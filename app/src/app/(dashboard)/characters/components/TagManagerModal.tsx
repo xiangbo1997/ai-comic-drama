@@ -65,19 +65,19 @@ export function TagManagerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl bg-gray-800">
-        <div className="flex items-center justify-between border-b border-gray-700 p-4">
+      <div className="bg-card flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl">
+        <div className="border-border flex items-center justify-between border-b p-4">
           <h2 className="text-lg font-semibold">管理标签</h2>
           <button
             onClick={handleClose}
-            className="rounded p-1 hover:bg-gray-700"
+            className="hover:bg-secondary rounded p-1"
           >
             <X size={20} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="mb-6 rounded-lg bg-gray-700/50 p-4">
+          <div className="bg-secondary/50 mb-6 rounded-lg p-4">
             <h3 className="mb-3 text-sm font-medium">创建自定义标签</h3>
             <div className="space-y-3">
               <div className="flex gap-2">
@@ -88,14 +88,14 @@ export function TagManagerModal({
                     setTagFormData({ ...tagFormData, name: e.target.value })
                   }
                   placeholder="标签名称"
-                  className="flex-1 rounded-lg bg-gray-700 px-3 py-2 text-sm"
+                  className="bg-secondary flex-1 rounded-lg px-3 py-2 text-sm"
                 />
                 <select
                   value={tagFormData.category}
                   onChange={(e) =>
                     setTagFormData({ ...tagFormData, category: e.target.value })
                   }
-                  className="rounded-lg bg-gray-700 px-3 py-2 text-sm"
+                  className="bg-secondary rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="style">风格</option>
                   <option value="gender">性别</option>
@@ -104,7 +104,7 @@ export function TagManagerModal({
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-400">颜色：</label>
+                <label className="text-muted-foreground text-sm">颜色：</label>
                 <input
                   type="color"
                   value={tagFormData.color}
@@ -125,7 +125,7 @@ export function TagManagerModal({
                   disabled={
                     !tagFormData.name.trim() || createTagMutation.isPending
                   }
-                  className="flex items-center gap-1 rounded-lg bg-blue-600 px-4 py-2 text-sm hover:bg-blue-700 disabled:bg-gray-600"
+                  className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex items-center gap-1 rounded-lg px-4 py-2 text-sm"
                 >
                   {createTagMutation.isPending && (
                     <Loader2 size={14} className="animate-spin" />
@@ -146,14 +146,14 @@ export function TagManagerModal({
           <div className="space-y-4">
             {Object.entries(tagsByCategory).map(([category, categoryTags]) => (
               <div key={category}>
-                <h4 className="mb-2 text-xs text-gray-500 uppercase">
+                <h4 className="text-muted-foreground mb-2 text-xs uppercase">
                   {CATEGORY_LABELS[category] || category}
                 </h4>
                 <div className="space-y-1">
                   {categoryTags.map((tag) => (
                     <div
                       key={tag.id}
-                      className="flex items-center gap-2 rounded-lg bg-gray-700/30 p-2 transition hover:bg-gray-700/50"
+                      className="bg-secondary/30 hover:bg-secondary/50 flex items-center gap-2 rounded-lg p-2 transition"
                     >
                       {editingTagId === tag.id ? (
                         <>
@@ -177,7 +177,7 @@ export function TagManagerModal({
                                 name: e.target.value,
                               })
                             }
-                            className="flex-1 rounded bg-gray-700 px-2 py-1 text-sm"
+                            className="bg-secondary flex-1 rounded px-2 py-1 text-sm"
                           />
                           <select
                             value={tagFormData.category}
@@ -187,7 +187,7 @@ export function TagManagerModal({
                                 category: e.target.value,
                               })
                             }
-                            className="rounded bg-gray-700 px-2 py-1 text-sm"
+                            className="bg-secondary rounded px-2 py-1 text-sm"
                           >
                             <option value="style">风格</option>
                             <option value="gender">性别</option>
@@ -219,7 +219,7 @@ export function TagManagerModal({
                                 color: "#6B7280",
                               });
                             }}
-                            className="rounded p-1 hover:bg-gray-600"
+                            className="hover:bg-secondary/80 rounded p-1"
                           >
                             <X size={14} />
                           </button>
@@ -232,7 +232,7 @@ export function TagManagerModal({
                           />
                           <span className="flex-1 text-sm">{tag.name}</span>
                           {tag.isSystem ? (
-                            <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-500">
+                            <span className="bg-secondary text-muted-foreground rounded px-2 py-0.5 text-xs">
                               系统
                             </span>
                           ) : (
@@ -246,7 +246,7 @@ export function TagManagerModal({
                                     color: tag.color || "#6B7280",
                                   });
                                 }}
-                                className="rounded p-1 opacity-50 hover:bg-gray-600 hover:opacity-100"
+                                className="hover:bg-secondary/80 rounded p-1 opacity-50 hover:opacity-100"
                               >
                                 <Edit2 size={14} />
                               </button>
@@ -280,10 +280,10 @@ export function TagManagerModal({
           </div>
         </div>
 
-        <div className="border-t border-gray-700 p-4">
+        <div className="border-border border-t p-4">
           <button
             onClick={handleClose}
-            className="w-full rounded-lg bg-gray-700 py-2 hover:bg-gray-600"
+            className="bg-secondary hover:bg-secondary/80 w-full rounded-lg py-2"
           >
             关闭
           </button>

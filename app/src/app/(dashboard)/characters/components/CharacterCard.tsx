@@ -71,9 +71,9 @@ export function CharacterCard({
   generateDescriptionMutation,
 }: CharacterCardProps) {
   return (
-    <div className="overflow-hidden rounded-xl bg-gray-800">
+    <div className="bg-card overflow-hidden rounded-xl">
       {/* Reference Image */}
-      <div className="relative aspect-square bg-gray-700">
+      <div className="bg-secondary relative aspect-square">
         {character.referenceImages.length > 0 ? (
           <img
             src={character.referenceImages[currentImageIndex]}
@@ -81,7 +81,7 @@ export function CharacterCard({
             className="h-full w-full object-cover"
           />
         ) : (
-          <div className="flex h-full w-full flex-col items-center justify-center text-gray-500">
+          <div className="text-muted-foreground flex h-full w-full flex-col items-center justify-center">
             <User size={48} />
             <span className="mt-2 text-sm">无参考图</span>
           </div>
@@ -136,7 +136,7 @@ export function CharacterCard({
           <button
             onClick={() => onOpenGenerateModal(character.id, "none")}
             disabled={generateMutationPending}
-            className="rounded-lg bg-black/50 p-2 transition hover:bg-blue-600"
+            className="hover:bg-primary rounded-lg bg-black/50 p-2 transition"
             title="AI 生成参考图"
           >
             {generateMutationPending &&
@@ -208,7 +208,7 @@ function CharacterEditForm({
         onChange={(e) =>
           onFormDataChange({ ...formData, name: e.target.value })
         }
-        className="w-full rounded-lg bg-gray-700 px-3 py-2 text-sm"
+        className="bg-secondary w-full rounded-lg px-3 py-2 text-sm"
         placeholder="角色名称"
       />
       <div className="flex gap-2">
@@ -217,7 +217,7 @@ function CharacterEditForm({
           onChange={(e) =>
             onFormDataChange({ ...formData, gender: e.target.value })
           }
-          className="flex-1 rounded-lg bg-gray-700 px-3 py-2 text-sm"
+          className="bg-secondary flex-1 rounded-lg px-3 py-2 text-sm"
         >
           <option value="female">女</option>
           <option value="male">男</option>
@@ -228,13 +228,13 @@ function CharacterEditForm({
           onChange={(e) =>
             onFormDataChange({ ...formData, age: e.target.value })
           }
-          className="flex-1 rounded-lg bg-gray-700 px-3 py-2 text-sm"
+          className="bg-secondary flex-1 rounded-lg px-3 py-2 text-sm"
           placeholder="年龄"
         />
       </div>
       <div>
         <div className="mb-1 flex items-center justify-between">
-          <span className="text-xs text-gray-500">外貌描述</span>
+          <span className="text-muted-foreground text-xs">外貌描述</span>
           <button
             type="button"
             onClick={() =>
@@ -247,7 +247,7 @@ function CharacterEditForm({
             disabled={
               !formData.name.trim() || generateDescriptionMutation.isPending
             }
-            className="flex items-center gap-1 rounded bg-purple-600 px-1.5 py-0.5 text-xs transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-gray-600"
+            className="disabled:bg-secondary flex items-center gap-1 rounded bg-purple-600 px-1.5 py-0.5 text-xs transition hover:bg-purple-700 disabled:cursor-not-allowed"
             title="AI 生成外貌描述"
           >
             {generateDescriptionMutation.isPending ? (
@@ -263,7 +263,7 @@ function CharacterEditForm({
           onChange={(e) =>
             onFormDataChange({ ...formData, description: e.target.value })
           }
-          className="w-full resize-none rounded-lg bg-gray-700 px-3 py-2 text-sm"
+          className="bg-secondary w-full resize-none rounded-lg px-3 py-2 text-sm"
           rows={2}
           placeholder="外貌描述"
         />
@@ -272,12 +272,12 @@ function CharacterEditForm({
         <button
           type="button"
           onClick={onToggleAppearanceEditor}
-          className="mb-1 flex items-center gap-1 text-xs text-blue-400 transition hover:text-blue-300"
+          className="text-primary hover:text-primary/80 mb-1 flex items-center gap-1 text-xs transition"
         >
           {showAppearanceEditor ? "▾" : "▸"} 结构化外貌
         </button>
         {showAppearanceEditor && (
-          <div className="rounded border border-gray-700 bg-gray-800 p-2">
+          <div className="border-border bg-card rounded border p-2">
             <AppearanceEditor
               value={formData.appearance}
               onChange={(appearance: AppearanceFormData) =>
@@ -293,7 +293,7 @@ function CharacterEditForm({
         onChange={(e) =>
           onFormDataChange({ ...formData, voiceId: e.target.value })
         }
-        className="w-full rounded-lg bg-gray-700 px-3 py-2 text-sm"
+        className="bg-secondary w-full rounded-lg px-3 py-2 text-sm"
       >
         <option value="">选择声线</option>
         {VOICE_PRESETS.filter((v) => v.gender === formData.gender).map(
@@ -306,7 +306,7 @@ function CharacterEditForm({
       </select>
       {tags.length > 0 && (
         <div className="space-y-2">
-          <div className="text-xs text-gray-500">标签</div>
+          <div className="text-muted-foreground text-xs">标签</div>
           <div className="flex flex-wrap gap-1">
             {tags.map((tag) => {
               const isSelected = formData.tagIds.includes(tag.id);
@@ -336,7 +336,7 @@ function CharacterEditForm({
         <button
           onClick={onUpdate}
           disabled={updatePending}
-          className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-600 py-2 text-sm hover:bg-blue-700"
+          className="bg-primary hover:bg-primary/90 flex flex-1 items-center justify-center gap-1 rounded-lg py-2 text-sm"
         >
           {updatePending ? (
             <Loader2 size={16} className="animate-spin" />
@@ -347,7 +347,7 @@ function CharacterEditForm({
         </button>
         <button
           onClick={onCancel}
-          className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-gray-700 py-2 text-sm hover:bg-gray-600"
+          className="bg-secondary hover:bg-secondary/80 flex flex-1 items-center justify-center gap-1 rounded-lg py-2 text-sm"
         >
           <X size={16} />
           取消
@@ -373,7 +373,7 @@ function CharacterViewInfo({
         <div className="flex gap-1">
           <button
             onClick={onStartEdit}
-            className="rounded p-1.5 hover:bg-gray-700"
+            className="hover:bg-secondary rounded p-1.5"
           >
             <Edit2 size={16} />
           </button>
@@ -395,7 +395,7 @@ function CharacterViewInfo({
           ))}
         </div>
       )}
-      <div className="space-y-1 text-sm text-gray-400">
+      <div className="text-muted-foreground space-y-1 text-sm">
         {character.gender && (
           <p>
             {character.gender === "female" ? "女" : "男"}
@@ -406,7 +406,7 @@ function CharacterViewInfo({
           <p className="line-clamp-2">{character.description}</p>
         )}
         {character.voiceId && (
-          <p className="text-blue-400">
+          <p className="text-primary">
             🎤{" "}
             {VOICE_PRESETS.find((v) => v.id === character.voiceId)?.name ||
               "自定义声线"}
