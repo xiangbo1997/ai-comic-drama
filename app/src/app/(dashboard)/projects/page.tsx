@@ -173,7 +173,7 @@ export default function ProjectsPage() {
                 <button
                   onClick={(e) => handleDelete(e, project.id)}
                   disabled={deletingId === project.id}
-                  className="hover:bg-destructive absolute top-2 right-2 rounded-lg bg-black/50 p-2 text-white opacity-0 transition group-hover:opacity-100"
+                  className="hover:bg-destructive text-foreground absolute top-2 right-2 rounded-lg bg-black/50 p-2 opacity-0 transition group-hover:opacity-100"
                 >
                   {deletingId === project.id ? (
                     <Loader2 size={16} className="animate-spin" />

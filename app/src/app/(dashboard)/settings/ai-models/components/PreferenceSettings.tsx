@@ -37,7 +37,7 @@ export function PreferenceSettings({ preference }: PreferenceSettingsProps) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="mb-2 block text-sm text-gray-400">
+        <label className="text-muted-foreground mb-2 block text-sm">
           多版本生成策略
         </label>
         <div className="flex gap-4">
@@ -47,9 +47,9 @@ export function PreferenceSettings({ preference }: PreferenceSettingsProps) {
               name="mode"
               checked={mode === "SERIAL"}
               onChange={() => setMode("SERIAL")}
-              className="h-4 w-4 border-gray-600 bg-gray-700 text-blue-600"
+              className="border-border bg-secondary text-primary h-4 w-4"
             />
-            <span className="text-gray-300">串行生成（节省资源）</span>
+            <span className="text-foreground">串行生成（节省资源）</span>
           </label>
           <label className="flex cursor-pointer items-center gap-2">
             <input
@@ -57,20 +57,22 @@ export function PreferenceSettings({ preference }: PreferenceSettingsProps) {
               name="mode"
               checked={mode === "PARALLEL"}
               onChange={() => setMode("PARALLEL")}
-              className="h-4 w-4 border-gray-600 bg-gray-700 text-blue-600"
+              className="border-border bg-secondary text-primary h-4 w-4"
             />
-            <span className="text-gray-300">并行生成（更快）</span>
+            <span className="text-foreground">并行生成（更快）</span>
           </label>
         </div>
       </div>
 
       {mode === "PARALLEL" && (
         <div>
-          <label className="mb-2 block text-sm text-gray-400">最大并发数</label>
+          <label className="text-muted-foreground mb-2 block text-sm">
+            最大并发数
+          </label>
           <select
             value={maxConcurrent}
             onChange={(e) => setMaxConcurrent(Number(e.target.value))}
-            className="rounded-lg bg-gray-700 px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="bg-secondary text-foreground focus:ring-primary rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
           >
             {[1, 2, 3, 4, 5].map((n) => (
               <option key={n} value={n}>
@@ -84,7 +86,7 @@ export function PreferenceSettings({ preference }: PreferenceSettingsProps) {
       <button
         onClick={savePreference}
         disabled={saving}
-        className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-700 disabled:opacity-50"
+        className="bg-primary text-foreground hover:bg-primary/90 flex items-center gap-2 rounded-lg px-4 py-2 transition disabled:opacity-50"
       >
         {saving && <Loader2 size={16} className="animate-spin" />}
         保存设置

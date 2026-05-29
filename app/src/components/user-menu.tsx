@@ -21,14 +21,14 @@ export function UserMenu() {
   }, []);
 
   if (status === "loading") {
-    return <div className="h-8 w-8 animate-pulse rounded-full bg-gray-700" />;
+    return <div className="bg-secondary h-8 w-8 animate-pulse rounded-full" />;
   }
 
   if (!session?.user) {
     return (
       <Link
         href="/login"
-        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium transition hover:bg-blue-700"
+        className="bg-primary hover:bg-primary/90 rounded-lg px-4 py-2 text-sm font-medium transition"
       >
         登录
       </Link>
@@ -48,20 +48,20 @@ export function UserMenu() {
             className="h-8 w-8 rounded-full"
           />
         ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-sm font-medium">
+          <div className="bg-primary flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium">
             {session.user.name?.[0] || session.user.email?.[0] || "U"}
           </div>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 z-50 mt-2 w-56 rounded-lg border border-gray-700 bg-gray-800 py-1 shadow-xl">
+        <div className="border-border bg-card absolute right-0 z-50 mt-2 w-56 rounded-lg border py-1 shadow-xl">
           {/* User Info */}
-          <div className="border-b border-gray-700 px-4 py-3">
-            <p className="truncate text-sm font-medium text-white">
+          <div className="border-border border-b px-4 py-3">
+            <p className="text-foreground truncate text-sm font-medium">
               {session.user.name || "用户"}
             </p>
-            <p className="truncate text-xs text-gray-400">
+            <p className="text-muted-foreground truncate text-xs">
               {session.user.email}
             </p>
           </div>
@@ -70,7 +70,7 @@ export function UserMenu() {
           <div className="py-1">
             <Link
               href="/profile"
-              className="flex items-center gap-3 px-4 py-2 text-sm text-gray-300 transition hover:bg-gray-700"
+              className="text-foreground hover:bg-secondary flex items-center gap-3 px-4 py-2 text-sm transition"
               onClick={() => setIsOpen(false)}
             >
               <User size={16} />
@@ -78,7 +78,7 @@ export function UserMenu() {
             </Link>
             <Link
               href="/credits"
-              className="flex items-center gap-3 px-4 py-2 text-sm text-gray-300 transition hover:bg-gray-700"
+              className="text-foreground hover:bg-secondary flex items-center gap-3 px-4 py-2 text-sm transition"
               onClick={() => setIsOpen(false)}
             >
               <CreditCard size={16} />
@@ -86,7 +86,7 @@ export function UserMenu() {
             </Link>
             <Link
               href="/settings"
-              className="flex items-center gap-3 px-4 py-2 text-sm text-gray-300 transition hover:bg-gray-700"
+              className="text-foreground hover:bg-secondary flex items-center gap-3 px-4 py-2 text-sm transition"
               onClick={() => setIsOpen(false)}
             >
               <Settings size={16} />
@@ -95,10 +95,10 @@ export function UserMenu() {
           </div>
 
           {/* Logout */}
-          <div className="border-t border-gray-700 py-1">
+          <div className="border-border border-t py-1">
             <button
               onClick={() => signOut({ callbackUrl: "/" })}
-              className="flex w-full items-center gap-3 px-4 py-2 text-sm text-red-400 transition hover:bg-gray-700"
+              className="hover:bg-secondary flex w-full items-center gap-3 px-4 py-2 text-sm text-red-400 transition"
             >
               <LogOut size={16} />
               退出登录

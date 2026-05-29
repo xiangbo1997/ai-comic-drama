@@ -82,7 +82,7 @@ export function SearchAndFilter({
             onSearchChange("");
             onSelectedTagIdsChange([]);
           }}
-          className="text-muted-foreground text-sm transition hover:text-white"
+          className="text-muted-foreground hover:text-foreground text-sm transition"
         >
           清除筛选
         </button>

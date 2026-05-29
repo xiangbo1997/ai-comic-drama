@@ -101,7 +101,7 @@ export function ModelSelector({
   if (isLoading) {
     return (
       <div
-        className={`flex items-center gap-1 text-gray-400 ${size === "sm" ? "text-xs" : "text-sm"}`}
+        className={`text-muted-foreground flex items-center gap-1 ${size === "sm" ? "text-xs" : "text-sm"}`}
       >
         <Loader2 size={size === "sm" ? 12 : 14} className="animate-spin" />
         <span>加载中...</span>
@@ -113,7 +113,7 @@ export function ModelSelector({
     return (
       <a
         href="/settings/ai-models"
-        className={`text-blue-400 hover:text-blue-300 ${size === "sm" ? "text-xs" : "text-sm"}`}
+        className={`text-primary hover:text-primary/80 ${size === "sm" ? "text-xs" : "text-sm"}`}
       >
         配置模型
       </a>
@@ -131,7 +131,7 @@ export function ModelSelector({
           type="button"
           onClick={() => !disabled && setIsOpen(!isOpen)}
           disabled={disabled}
-          className={`flex items-center ${sizeClasses} rounded-lg bg-gray-700 transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50`}
+          className={`flex items-center ${sizeClasses} bg-secondary hover:bg-secondary/80 rounded-lg transition disabled:cursor-not-allowed disabled:opacity-50`}
         >
           <span className="max-w-[120px] truncate">
             {selectedConfig ? getDisplayName(selectedConfig) : "选择模型"}
@@ -144,7 +144,7 @@ export function ModelSelector({
 
         {/* 下拉菜单 */}
         {isOpen && (
-          <div className="absolute top-full left-0 z-50 mt-1 max-h-60 w-48 overflow-y-auto rounded-lg border border-gray-700 bg-gray-800 py-1 shadow-xl">
+          <div className="border-border bg-card absolute top-full left-0 z-50 mt-1 max-h-60 w-48 overflow-y-auto rounded-lg border py-1 shadow-xl">
             {configs.map((config) => (
               <button
                 key={config.id}
@@ -152,20 +152,20 @@ export function ModelSelector({
                   onChange?.(config.id, config.selectedModel || "");
                   setIsOpen(false);
                 }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-gray-700 ${
-                  selectedConfig?.id === config.id ? "bg-gray-700" : ""
+                className={`hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
+                  selectedConfig?.id === config.id ? "bg-secondary" : ""
                 }`}
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">
                     {getDisplayName(config)}
                   </div>
-                  <div className="truncate text-xs text-gray-400">
+                  <div className="text-muted-foreground truncate text-xs">
                     {config.provider.name}
                   </div>
                 </div>
                 {selectedConfig?.id === config.id && (
-                  <Check size={14} className="shrink-0 text-blue-400" />
+                  <Check size={14} className="text-primary shrink-0" />
                 )}
                 {config.isDefault && (
                   <span className="shrink-0 text-xs text-yellow-400">默认</span>
@@ -182,7 +182,7 @@ export function ModelSelector({
           type="button"
           onClick={onOpenMultiSelect}
           disabled={disabled}
-          className={`${size === "sm" ? "p-1" : "p-1.5"} rounded-lg text-gray-400 transition hover:bg-gray-700 hover:text-white disabled:opacity-50`}
+          className={`${size === "sm" ? "p-1" : "p-1.5"} text-muted-foreground hover:bg-secondary hover:text-foreground rounded-lg transition disabled:opacity-50`}
           title="多版本生成"
         >
           <Settings2 size={size === "sm" ? 14 : 16} />

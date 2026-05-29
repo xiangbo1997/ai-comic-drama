@@ -249,9 +249,9 @@ export function ConfigDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-gray-800">
-        <div className="border-b border-gray-700 p-6">
-          <h2 className="text-xl font-semibold text-white">
+      <div className="bg-card w-full max-w-md rounded-xl">
+        <div className="border-border border-b p-6">
+          <h2 className="text-foreground text-xl font-semibold">
             {existingConfig ? "修改" : "配置"} {provider.name}
           </h2>
         </div>
@@ -262,7 +262,7 @@ export function ConfigDialog({
         >
           {/* 认证方式 Tabs */}
           {showAuthTabs && (
-            <div className="flex gap-1 rounded-lg bg-gray-700/50 p-1">
+            <div className="bg-secondary/50 flex gap-1 rounded-lg p-1">
               {supportedAuth.map((type) => (
                 <button
                   key={type}
@@ -270,8 +270,8 @@ export function ConfigDialog({
                   onClick={() => setAuthType(type)}
                   className={`flex-1 rounded-md px-3 py-1.5 text-sm transition ${
                     authType === type
-                      ? "bg-blue-600 text-white"
-                      : "text-gray-400 hover:text-white"
+                      ? "bg-primary text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   {type === "API_KEY" ? "API Key" : "ChatGPT 账号"}
@@ -333,17 +333,14 @@ export function ConfigDialog({
 
           {/* Gemini 免费 Key 引导 */}
           {provider.slug === "gemini" && authType === "API_KEY" && (
-            <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3">
+            <div className="border-primary/20 bg-primary/10 rounded-lg border p-3">
               <div className="flex items-start gap-2">
-                <Info
-                  size={16}
-                  className="mt-0.5 flex-shrink-0 text-blue-400"
-                />
+                <Info size={16} className="text-primary mt-0.5 flex-shrink-0" />
                 <div className="text-sm">
-                  <p className="mb-1 font-medium text-blue-300">
+                  <p className="text-primary/80 mb-1 font-medium">
                     Gemini API 免费使用
                   </p>
-                  <p className="text-xs text-blue-200/80">
+                  <p className="text-primary/80 text-xs">
                     Google AI Studio 提供免费 API
                     Key，无需信用卡。免费额度：Gemini 2.5 Pro 5次/分钟、Flash
                     10次/分钟。
@@ -356,7 +353,7 @@ export function ConfigDialog({
                         "_blank"
                       )
                     }
-                    className="mt-2 flex w-fit items-center gap-1 rounded-md bg-blue-600 px-3 py-1 text-xs text-white transition hover:bg-blue-700"
+                    className="bg-primary text-foreground hover:bg-primary/90 mt-2 flex w-fit items-center gap-1 rounded-md px-3 py-1 text-xs transition"
                   >
                     <ExternalLink size={12} />
                     获取免费 API Key
@@ -369,7 +366,7 @@ export function ConfigDialog({
           {/* 凭证输入 */}
           {authType === "CHATGPT_TOKEN" ? (
             <div>
-              <label className="mb-1 block text-sm text-gray-400">
+              <label className="text-muted-foreground mb-1 block text-sm">
                 Access Token
               </label>
               <textarea
@@ -381,13 +378,13 @@ export function ConfigDialog({
                     : "粘贴从 chatgpt.com 获取的 accessToken"
                 }
                 rows={3}
-                className="w-full resize-none rounded-lg bg-gray-700 px-4 py-2 font-mono text-xs text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full resize-none rounded-lg px-4 py-2 font-mono text-xs focus:ring-2 focus:outline-none"
               />
             </div>
           ) : (
             configFields.map((field) => (
               <div key={field.key}>
-                <label className="mb-1 block text-sm text-gray-400">
+                <label className="text-muted-foreground mb-1 block text-sm">
                   {field.label}
                   {provider.slug === "gemini" && field.key === "apiKey" && (
                     <button
@@ -398,7 +395,7 @@ export function ConfigDialog({
                           "_blank"
                         )
                       }
-                      className="ml-2 text-xs text-blue-400 hover:text-blue-300"
+                      className="text-primary hover:text-primary/80 ml-2 text-xs"
                     >
                       获取免费 Key
                     </button>
@@ -412,7 +409,7 @@ export function ConfigDialog({
                     placeholder={
                       existingConfig ? "留空保持不变" : `输入 ${field.label}`
                     }
-                    className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
                   />
                 ) : (
                   <input
@@ -426,7 +423,7 @@ export function ConfigDialog({
                     }
                     placeholder={`输入 ${field.label}`}
                     required={field.required && !existingConfig}
-                    className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                    className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
                   />
                 )}
               </div>
@@ -436,7 +433,7 @@ export function ConfigDialog({
           {/* ChatGPT Token 需要代理地址 */}
           {authType === "CHATGPT_TOKEN" && (
             <div>
-              <label className="mb-1 block text-sm text-gray-400">
+              <label className="text-muted-foreground mb-1 block text-sm">
                 代理地址 <span className="text-red-400">*</span>
               </label>
               <input
@@ -445,9 +442,9 @@ export function ConfigDialog({
                 onChange={(e) => setCustomBaseUrl(e.target.value)}
                 placeholder="https://your-chatgpt-proxy.example.com/v1"
                 required
-                className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="text-muted-foreground mt-1 text-xs">
                 需要自部署 ChatGPT-to-API 代理服务，将 ChatGPT 账号转为 OpenAI
                 兼容接口
               </p>
@@ -464,14 +461,16 @@ export function ConfigDialog({
           />
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">API 协议</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              API 协议
+            </label>
             {availableProtocols.length <= 1 ? (
               (() => {
                 const protocol = availableProtocols[0] || API_PROTOCOLS[0];
                 return (
-                  <div className="w-full rounded-lg bg-gray-700/50 px-4 py-2 text-gray-400">
+                  <div className="bg-secondary/50 text-muted-foreground w-full rounded-lg px-4 py-2">
                     {protocol.name}
-                    <span className="ml-2 text-xs text-gray-500">
+                    <span className="text-muted-foreground ml-2 text-xs">
                       (该分类仅支持此协议)
                     </span>
                   </div>
@@ -482,7 +481,7 @@ export function ConfigDialog({
                 <select
                   value={selectedProtocol}
                   onChange={(e) => setSelectedProtocol(e.target.value)}
-                  className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="bg-secondary text-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
                 >
                   {visibleProtocols.map((protocol) => (
                     <option key={protocol.id} value={protocol.id}>
@@ -495,7 +494,7 @@ export function ConfigDialog({
                   <button
                     type="button"
                     onClick={() => setShowAdvancedProtocols((prev) => !prev)}
-                    className="flex items-center gap-1 text-xs text-blue-400 transition hover:text-blue-300"
+                    className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs transition"
                   >
                     {showAdvancedProtocols || selectedProtocolIsAdvanced ? (
                       <ChevronUp size={14} />
@@ -511,17 +510,20 @@ export function ConfigDialog({
             )}
             {currentProtocol && (
               <div className="mt-1 space-y-1">
-                <p className="text-xs text-gray-500">
+                <p className="text-muted-foreground text-xs">
                   {currentProtocol.description}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-muted-foreground text-xs">
                   常用选择：
-                  <span className="text-gray-400"> OpenAI 兼容</span>{" "}
+                  <span className="text-muted-foreground">
+                    {" "}
+                    OpenAI 兼容
+                  </span>{" "}
                   适合绝大多数中转和第三方服务；
-                  <span className="text-gray-400"> Claude</span> 仅用于
+                  <span className="text-muted-foreground"> Claude</span> 仅用于
                   Anthropic；
-                  <span className="text-gray-400"> Gemini</span> 仅用于 Google
-                  Gemini API。
+                  <span className="text-muted-foreground"> Gemini</span> 仅用于
+                  Google Gemini API。
                 </p>
                 {selectedProtocolIsAdvanced && (
                   <p className="text-xs text-yellow-400/80">
@@ -533,8 +535,9 @@ export function ConfigDialog({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">
-              自定义中转节点 <span className="text-gray-500">(可选)</span>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              自定义中转节点{" "}
+              <span className="text-muted-foreground">(可选)</span>
             </label>
             <input
               type="url"
@@ -545,7 +548,7 @@ export function ConfigDialog({
                 provider.baseUrl ||
                 "留空使用默认地址"
               }
-              className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
             />
 
             {urlValidation && urlValidation.warnings.length > 0 && (
@@ -565,12 +568,16 @@ export function ConfigDialog({
             )}
 
             {(customBaseUrl || currentProtocol) && (
-              <div className="mt-2 rounded-lg bg-gray-700/50 p-2">
-                <p className="mb-1 text-xs text-gray-400">API 地址预览：</p>
+              <div className="bg-secondary/50 mt-2 rounded-lg p-2">
+                <p className="text-muted-foreground mb-1 text-xs">
+                  API 地址预览：
+                </p>
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="w-12 text-xs text-gray-500">接口:</span>
-                    <code className="rounded bg-gray-800 px-2 py-0.5 text-xs break-all text-green-400">
+                    <span className="text-muted-foreground w-12 text-xs">
+                      接口:
+                    </span>
+                    <code className="bg-card rounded px-2 py-0.5 text-xs break-all text-green-400">
                       {generateUrlPreview(
                         customBaseUrl ||
                           currentProtocol?.defaultBaseUrl ||
@@ -584,8 +591,10 @@ export function ConfigDialog({
                   </div>
                   {currentProtocol?.endpoints[provider.category]?.list && (
                     <div className="flex items-center gap-2">
-                      <span className="w-12 text-xs text-gray-500">模型:</span>
-                      <code className="rounded bg-gray-800 px-2 py-0.5 text-xs break-all text-blue-400">
+                      <span className="text-muted-foreground w-12 text-xs">
+                        模型:
+                      </span>
+                      <code className="bg-card text-primary rounded px-2 py-0.5 text-xs break-all">
                         {generateUrlPreview(
                           customBaseUrl ||
                             currentProtocol?.defaultBaseUrl ||
@@ -602,7 +611,7 @@ export function ConfigDialog({
               </div>
             )}
 
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="text-muted-foreground mt-1 text-xs">
               如需使用代理或中转服务，请填写基础 URL（不含接口路径）
             </p>
           </div>
@@ -612,9 +621,11 @@ export function ConfigDialog({
               type="checkbox"
               checked={isDefault}
               onChange={(e) => setIsDefault(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+              className="border-border bg-secondary text-primary focus:ring-primary h-4 w-4 rounded"
             />
-            <span className="text-sm text-gray-300">设为该分类的默认模型</span>
+            <span className="text-foreground text-sm">
+              设为该分类的默认模型
+            </span>
           </label>
 
           {testResult && (
@@ -639,7 +650,7 @@ export function ConfigDialog({
                           ? "bg-purple-500/30 text-purple-300"
                           : testResult.errorType === "network"
                             ? "bg-orange-500/30 text-orange-300"
-                            : "bg-gray-500/30 text-gray-300"
+                            : "bg-muted text-foreground"
                     }`}
                   >
                     {testResult.errorType === "auth" && "认证问题"}
@@ -651,7 +662,7 @@ export function ConfigDialog({
                 )}
                 <div className="ml-auto flex items-center gap-2">
                   {testResult.latency && (
-                    <span className="text-gray-400">
+                    <span className="text-muted-foreground">
                       {testResult.latency}ms
                     </span>
                   )}
@@ -667,7 +678,7 @@ export function ConfigDialog({
                       >
                         <Info
                           size={16}
-                          className={showErrorDetails ? "text-blue-400" : ""}
+                          className={showErrorDetails ? "text-primary" : ""}
                         />
                       </button>
                     )}
@@ -716,7 +727,7 @@ export function ConfigDialog({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg bg-gray-700 px-4 py-2 text-white transition hover:bg-gray-600"
+              className="bg-secondary text-foreground hover:bg-secondary/80 rounded-lg px-4 py-2 transition"
             >
               取消
             </button>
@@ -724,7 +735,7 @@ export function ConfigDialog({
               type="button"
               onClick={handleTest}
               disabled={testing || saving}
-              className="flex items-center gap-2 rounded-lg bg-gray-600 px-4 py-2 text-white transition hover:bg-gray-500 disabled:opacity-50"
+              className="bg-secondary text-foreground hover:bg-secondary/80 flex items-center gap-2 rounded-lg px-4 py-2 transition disabled:opacity-50"
             >
               {testing ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -736,7 +747,7 @@ export function ConfigDialog({
             <button
               type="submit"
               disabled={saving || testing}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="bg-primary text-foreground hover:bg-primary/90 flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 transition disabled:opacity-50"
             >
               {saving && <Loader2 size={16} className="animate-spin" />}
               保存

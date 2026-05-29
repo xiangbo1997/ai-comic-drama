@@ -98,7 +98,7 @@ export function CharacterCard({
             >
               <ChevronLeft size={16} />
             </button>
-            <span className="rounded-lg bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+            <span className="text-foreground rounded-lg bg-black/60 px-2.5 py-1 text-xs font-medium backdrop-blur-sm">
               {currentImageIndex + 1} / {character.referenceImages.length}
             </span>
             <button

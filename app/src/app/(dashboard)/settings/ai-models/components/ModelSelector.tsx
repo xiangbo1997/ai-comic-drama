@@ -143,10 +143,10 @@ export function ModelSelector({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <label className="block text-sm text-gray-400">
+        <label className="text-muted-foreground block text-sm">
           选择模型
           {hasCustomUrl && modelSource === "remote" && (
-            <span className="ml-2 text-xs text-gray-500">
+            <span className="text-muted-foreground ml-2 text-xs">
               (绿色=可用, 红色=不可用, 灰色=未检测)
             </span>
           )}
@@ -159,7 +159,7 @@ export function ModelSelector({
             type="button"
             onClick={fetchModels}
             disabled={loading}
-            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+            className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs"
             title="从 API 获取模型列表"
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -168,7 +168,7 @@ export function ModelSelector({
           <button
             type="button"
             onClick={handleManualInputToggle}
-            className="text-xs text-gray-400 hover:text-gray-300"
+            className="text-muted-foreground hover:text-foreground text-xs"
           >
             {isManualInput ? "选择模式" : "手动输入"}
           </button>
@@ -182,12 +182,12 @@ export function ModelSelector({
             value={manualModel}
             onChange={(e) => setManualModel(e.target.value)}
             placeholder="输入模型 ID，如 gpt-4o"
-            className="flex-1 rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary flex-1 rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
           />
           <button
             type="button"
             onClick={handleManualInputConfirm}
-            className="rounded-lg bg-blue-600 px-3 py-2 text-white transition hover:bg-blue-700"
+            className="bg-primary text-foreground hover:bg-primary/90 rounded-lg px-3 py-2 transition"
           >
             <Check size={16} />
           </button>
@@ -197,7 +197,7 @@ export function ModelSelector({
           <button
             type="button"
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="flex w-full items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 text-left text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            className="bg-secondary text-foreground focus:ring-primary flex w-full items-center gap-2 rounded-lg px-4 py-2 text-left focus:ring-2 focus:outline-none"
           >
             {currentModelAvailability === "available" && (
               <span className="h-2 w-2 flex-shrink-0 rounded-full bg-green-500" />
@@ -206,7 +206,7 @@ export function ModelSelector({
               <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500" />
             )}
             {currentModelAvailability === "unknown" && (
-              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-gray-500" />
+              <span className="bg-muted-foreground h-2 w-2 flex-shrink-0 rounded-full" />
             )}
             <span className="flex-1 truncate">
               {currentModelName || "选择模型"}
@@ -222,16 +222,16 @@ export function ModelSelector({
           </button>
 
           {dropdownOpen && (
-            <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg bg-gray-700 shadow-lg">
+            <div className="bg-secondary absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg shadow-lg">
               {models.map((model) => (
                 <button
                   key={model.id}
                   type="button"
                   onClick={() => handleSelectModel(model.id)}
-                  className={`flex w-full items-center gap-2 px-4 py-2 text-left transition hover:bg-gray-600 ${
+                  className={`hover:bg-secondary/80 flex w-full items-center gap-2 px-4 py-2 text-left transition ${
                     selectedModel === model.id
-                      ? "bg-gray-600 text-blue-400"
-                      : "text-white"
+                      ? "bg-secondary text-primary"
+                      : "text-foreground"
                   } ${model.availability === "unavailable" ? "opacity-60" : ""}`}
                 >
                   {model.availability === "available" && (
@@ -248,7 +248,7 @@ export function ModelSelector({
                   )}
                   {model.availability === "unknown" && (
                     <span
-                      className="h-2 w-2 flex-shrink-0 rounded-full bg-gray-500"
+                      className="bg-muted-foreground h-2 w-2 flex-shrink-0 rounded-full"
                       title="未检测"
                     />
                   )}
@@ -265,14 +265,16 @@ export function ModelSelector({
                 </button>
               ))}
               {models.length === 0 && (
-                <div className="px-4 py-2 text-sm text-gray-400">暂无模型</div>
+                <div className="text-muted-foreground px-4 py-2 text-sm">
+                  暂无模型
+                </div>
               )}
             </div>
           )}
         </div>
       )}
 
-      <p className="mt-1 text-xs text-gray-500">
+      <p className="text-muted-foreground mt-1 text-xs">
         点击「刷新」从 API 获取最新模型列表，或切换到「手动输入」添加自定义模型
       </p>
     </div>

@@ -99,7 +99,7 @@ export function SceneList({
           <h2 className="font-semibold">分镜列表</h2>
           <button
             onClick={onManageCharacters}
-            className="text-muted-foreground hover:bg-secondary rounded p-1.5 transition hover:text-white"
+            className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded p-1.5 transition"
             title="管理项目角色"
           >
             <Users size={16} />
@@ -229,7 +229,7 @@ export function SceneList({
                               }}
                               className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition ${
                                 isSelected
-                                  ? "bg-purple-600 text-white"
+                                  ? "text-foreground bg-purple-600"
                                   : "bg-secondary text-foreground hover:bg-secondary/80"
                               }`}
                             >

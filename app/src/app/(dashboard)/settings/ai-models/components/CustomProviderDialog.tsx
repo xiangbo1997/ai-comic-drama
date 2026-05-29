@@ -111,19 +111,19 @@ export function CustomProviderDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-gray-800">
-        <div className="border-b border-gray-700 p-6">
-          <h2 className="text-xl font-semibold text-white">
+      <div className="bg-card max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl">
+        <div className="border-border border-b p-6">
+          <h2 className="text-foreground text-xl font-semibold">
             {existingProvider ? "编辑" : "添加"}自定义提供商
           </h2>
-          <p className="mt-1 text-sm text-gray-400">
+          <p className="text-muted-foreground mt-1 text-sm">
             添加到「{categoryLabels[category]}」分类
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 p-6">
           <div>
-            <label className="mb-1 block text-sm text-gray-400">
+            <label className="text-muted-foreground mb-1 block text-sm">
               提供商名称 <span className="text-red-400">*</span>
             </label>
             <input
@@ -131,31 +131,35 @@ export function CustomProviderDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="如：我的中转站"
-              className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">描述</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              描述
+            </label>
             <input
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="简短描述（可选）"
-              className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">API 协议</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              API 协议
+            </label>
             {(() => {
               const availableProtocols = getProtocolsForCategory(category);
               if (availableProtocols.length <= 1) {
                 const protocol = availableProtocols[0] || API_PROTOCOLS[0];
                 return (
-                  <div className="w-full rounded-lg bg-gray-700/50 px-4 py-2 text-gray-400">
+                  <div className="bg-secondary/50 text-muted-foreground w-full rounded-lg px-4 py-2">
                     {protocol.name}
-                    <span className="ml-2 text-xs text-gray-500">
+                    <span className="text-muted-foreground ml-2 text-xs">
                       (该分类仅支持此协议)
                     </span>
                   </div>
@@ -165,7 +169,7 @@ export function CustomProviderDialog({
                 <select
                   value={apiProtocol}
                   onChange={(e) => setApiProtocol(e.target.value)}
-                  className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="bg-secondary text-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
                 >
                   {availableProtocols.map((protocol) => (
                     <option key={protocol.id} value={protocol.id}>
@@ -176,14 +180,14 @@ export function CustomProviderDialog({
               );
             })()}
             {currentProtocol && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="text-muted-foreground mt-1 text-xs">
                 {currentProtocol.description}
               </p>
             )}
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">
+            <label className="text-muted-foreground mb-1 block text-sm">
               API 基础地址 <span className="text-red-400">*</span>
             </label>
             <input
@@ -193,7 +197,7 @@ export function CustomProviderDialog({
               placeholder={
                 currentProtocol?.defaultBaseUrl || "https://api.example.com/v1"
               }
-              className="w-full rounded-lg bg-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary w-full rounded-lg px-4 py-2 focus:ring-2 focus:outline-none"
             />
 
             {urlValidation && urlValidation.warnings.length > 0 && (
@@ -213,9 +217,11 @@ export function CustomProviderDialog({
             )}
 
             {baseUrl && currentProtocol && (
-              <div className="mt-2 rounded-lg bg-gray-700/50 p-2">
-                <p className="mb-1 text-xs text-gray-400">API 地址预览：</p>
-                <code className="rounded bg-gray-800 px-2 py-0.5 text-xs break-all text-green-400">
+              <div className="bg-secondary/50 mt-2 rounded-lg p-2">
+                <p className="text-muted-foreground mb-1 text-xs">
+                  API 地址预览：
+                </p>
+                <code className="bg-card rounded px-2 py-0.5 text-xs break-all text-green-400">
                   {generateUrlPreview(
                     baseUrl,
                     currentProtocol,
@@ -228,8 +234,10 @@ export function CustomProviderDialog({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">预置模型</label>
-            <p className="mb-2 text-xs text-gray-500">
+            <label className="text-muted-foreground mb-1 block text-sm">
+              预置模型
+            </label>
+            <p className="text-muted-foreground mb-2 text-xs">
               添加常用模型，方便后续快速选择
             </p>
 
@@ -238,18 +246,18 @@ export function CustomProviderDialog({
                 {models.map((model, index) => (
                   <div
                     key={index}
-                    className="flex items-center gap-2 rounded bg-gray-700/50 p-2 text-sm"
+                    className="bg-secondary/50 flex items-center gap-2 rounded p-2 text-sm"
                   >
-                    <span className="flex-1 truncate text-white">
+                    <span className="text-foreground flex-1 truncate">
                       {model.name}
                     </span>
-                    <code className="rounded bg-gray-700 px-1.5 py-0.5 text-xs text-gray-400">
+                    <code className="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-xs">
                       {model.id}
                     </code>
                     <button
                       type="button"
                       onClick={() => handleRemoveModel(index)}
-                      className="p-1 text-gray-400 hover:text-red-400"
+                      className="text-muted-foreground p-1 hover:text-red-400"
                     >
                       <X size={14} />
                     </button>
@@ -264,20 +272,20 @@ export function CustomProviderDialog({
                 value={newModelId}
                 onChange={(e) => setNewModelId(e.target.value)}
                 placeholder="模型 ID"
-                className="flex-1 rounded bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary flex-1 rounded px-3 py-1.5 text-sm focus:ring-1 focus:outline-none"
               />
               <input
                 type="text"
                 value={newModelName}
                 onChange={(e) => setNewModelName(e.target.value)}
                 placeholder="显示名称（可选）"
-                className="flex-1 rounded bg-gray-700 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                className="bg-secondary text-foreground placeholder-muted-foreground focus:ring-primary flex-1 rounded px-3 py-1.5 text-sm focus:ring-1 focus:outline-none"
               />
               <button
                 type="button"
                 onClick={handleAddModel}
                 disabled={!newModelId.trim()}
-                className="rounded bg-gray-600 px-3 py-1.5 text-sm text-white hover:bg-gray-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="bg-secondary text-foreground hover:bg-secondary/80 rounded px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus size={16} />
               </button>
@@ -288,14 +296,14 @@ export function CustomProviderDialog({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-lg bg-gray-700 px-4 py-2 text-white transition hover:bg-gray-600"
+              className="bg-secondary text-foreground hover:bg-secondary/80 rounded-lg px-4 py-2 transition"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="bg-primary text-foreground hover:bg-primary/90 flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 transition disabled:opacity-50"
             >
               {saving && <Loader2 size={16} className="animate-spin" />}
               {existingProvider ? "保存修改" : "创建提供商"}

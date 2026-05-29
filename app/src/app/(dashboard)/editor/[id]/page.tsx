@@ -181,7 +181,7 @@ export default function EditorPage() {
 
   if (editor.error || !editor.project) {
     return (
-      <div className="bg-background flex min-h-screen items-center justify-center text-white">
+      <div className="bg-background text-foreground flex min-h-screen items-center justify-center">
         <div className="text-center">
           <p className="mb-4 text-red-400">项目加载失败</p>
           <Link href="/projects" className="text-primary hover:underline">
@@ -195,7 +195,7 @@ export default function EditorPage() {
   const { project } = editor;
 
   return (
-    <div className="bg-background flex min-h-screen flex-col text-white">
+    <div className="bg-background text-foreground flex min-h-screen flex-col">
       <EditorHeader
         title={editor.editingTitle ? editor.title : project.title}
         editingTitle={editor.editingTitle}

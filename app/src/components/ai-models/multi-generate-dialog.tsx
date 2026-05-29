@@ -170,16 +170,16 @@ export function MultiGenerateDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-xl bg-gray-800">
+      <div className="bg-card w-full max-w-md rounded-xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-700 px-6 py-4">
+        <div className="border-border flex items-center justify-between border-b px-6 py-4">
           <h2 className="text-lg font-semibold">
             多版本{categoryLabels[category]}生成
           </h2>
           <button
             onClick={onClose}
             disabled={isGenerating}
-            className="rounded-lg p-1 transition hover:bg-gray-700 disabled:opacity-50"
+            className="hover:bg-secondary rounded-lg p-1 transition disabled:opacity-50"
           >
             <X size={20} />
           </button>
@@ -189,16 +189,19 @@ export function MultiGenerateDialog({
         <div className="p-6">
           {configsLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 size={24} className="animate-spin text-gray-400" />
+              <Loader2
+                size={24}
+                className="text-muted-foreground animate-spin"
+              />
             </div>
           ) : configs.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="mb-4 text-gray-400">
+              <p className="text-muted-foreground mb-4">
                 暂无可用的{categoryLabels[category]}模型配置
               </p>
               <a
                 href="/settings/ai-models"
-                className="text-blue-400 hover:text-blue-300"
+                className="text-primary hover:text-primary/80"
               >
                 前往配置
               </a>
@@ -207,7 +210,7 @@ export function MultiGenerateDialog({
             <>
               {/* 模型选择 */}
               <div className="mb-6">
-                <label className="mb-3 block text-sm text-gray-400">
+                <label className="text-muted-foreground mb-3 block text-sm">
                   选择模型（可多选）
                 </label>
                 <div className="max-h-60 space-y-2 overflow-y-auto">
@@ -216,25 +219,25 @@ export function MultiGenerateDialog({
                       key={config.id}
                       className={`flex cursor-pointer items-center gap-3 rounded-lg p-3 transition ${
                         selectedConfigs.has(config.id)
-                          ? "border border-blue-500 bg-blue-600/20"
-                          : "border border-transparent bg-gray-700 hover:bg-gray-600"
+                          ? "border-primary bg-primary/20 border"
+                          : "bg-secondary hover:bg-secondary/80 border border-transparent"
                       }`}
                     >
                       <input
                         type="checkbox"
                         checked={selectedConfigs.has(config.id)}
                         onChange={() => toggleConfig(config.id)}
-                        className="h-4 w-4 rounded border-gray-500 bg-gray-600 text-blue-600 focus:ring-blue-500"
+                        className="border-border bg-secondary text-primary focus:ring-primary h-4 w-4 rounded"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="font-medium">
                           {getDisplayName(config)}
                         </div>
-                        <div className="text-xs text-gray-400">
+                        <div className="text-muted-foreground text-xs">
                           {config.provider.name}
                         </div>
                       </div>
-                      <div className="text-sm text-gray-400">
+                      <div className="text-muted-foreground text-sm">
                         ~{getModelCost(config)} 积分
                       </div>
                       {config.isDefault && (
@@ -249,15 +252,15 @@ export function MultiGenerateDialog({
 
               {/* 生成策略 */}
               <div className="mb-6">
-                <label className="mb-3 block text-sm text-gray-400">
+                <label className="text-muted-foreground mb-3 block text-sm">
                   生成策略
                 </label>
                 <div className="flex gap-3">
                   <label
                     className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg p-3 transition ${
                       mode === "SERIAL"
-                        ? "border border-blue-500 bg-blue-600/20"
-                        : "border border-transparent bg-gray-700 hover:bg-gray-600"
+                        ? "border-primary bg-primary/20 border"
+                        : "bg-secondary hover:bg-secondary/80 border border-transparent"
                     }`}
                   >
                     <input
@@ -265,19 +268,21 @@ export function MultiGenerateDialog({
                       name="mode"
                       checked={mode === "SERIAL"}
                       onChange={() => setMode("SERIAL")}
-                      className="h-4 w-4 border-gray-500 bg-gray-600 text-blue-600"
+                      className="border-border bg-secondary text-primary h-4 w-4"
                     />
-                    <Clock size={16} className="text-gray-400" />
+                    <Clock size={16} className="text-muted-foreground" />
                     <div>
                       <div className="text-sm font-medium">串行</div>
-                      <div className="text-xs text-gray-400">依次生成</div>
+                      <div className="text-muted-foreground text-xs">
+                        依次生成
+                      </div>
                     </div>
                   </label>
                   <label
                     className={`flex flex-1 cursor-pointer items-center gap-2 rounded-lg p-3 transition ${
                       mode === "PARALLEL"
-                        ? "border border-blue-500 bg-blue-600/20"
-                        : "border border-transparent bg-gray-700 hover:bg-gray-600"
+                        ? "border-primary bg-primary/20 border"
+                        : "bg-secondary hover:bg-secondary/80 border border-transparent"
                     }`}
                   >
                     <input
@@ -285,20 +290,22 @@ export function MultiGenerateDialog({
                       name="mode"
                       checked={mode === "PARALLEL"}
                       onChange={() => setMode("PARALLEL")}
-                      className="h-4 w-4 border-gray-500 bg-gray-600 text-blue-600"
+                      className="border-border bg-secondary text-primary h-4 w-4"
                     />
-                    <Zap size={16} className="text-gray-400" />
+                    <Zap size={16} className="text-muted-foreground" />
                     <div>
                       <div className="text-sm font-medium">并行</div>
-                      <div className="text-xs text-gray-400">同时生成</div>
+                      <div className="text-muted-foreground text-xs">
+                        同时生成
+                      </div>
                     </div>
                   </label>
                 </div>
               </div>
 
               {/* 预估消耗 */}
-              <div className="mb-6 flex items-center justify-between rounded-lg bg-gray-700/50 px-4 py-3">
-                <span className="text-gray-400">预估消耗</span>
+              <div className="bg-secondary/50 mb-6 flex items-center justify-between rounded-lg px-4 py-3">
+                <span className="text-muted-foreground">预估消耗</span>
                 <span className="text-lg font-semibold text-yellow-400">
                   {estimatedCredits} 积分
                 </span>
@@ -309,14 +316,14 @@ export function MultiGenerateDialog({
                 <button
                   onClick={onClose}
                   disabled={isGenerating}
-                  className="flex-1 rounded-lg bg-gray-700 px-4 py-2 transition hover:bg-gray-600 disabled:opacity-50"
+                  className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg px-4 py-2 transition disabled:opacity-50"
                 >
                   取消
                 </button>
                 <button
                   onClick={handleGenerate}
                   disabled={selectedConfigs.size === 0 || isGenerating}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 transition hover:bg-blue-700 disabled:opacity-50"
+                  className="bg-primary hover:bg-primary/90 flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 transition disabled:opacity-50"
                 >
                   {isGenerating ? (
                     <>

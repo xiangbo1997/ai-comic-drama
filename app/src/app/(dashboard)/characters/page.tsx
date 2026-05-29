@@ -397,10 +397,10 @@ export default function CharactersPage() {
 
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex aspect-[3/4] flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-700 bg-gray-800/50 transition hover:border-blue-500"
+            className="border-border bg-card/50 hover:border-primary flex aspect-[3/4] flex-col items-center justify-center rounded-xl border-2 border-dashed transition"
           >
-            <Plus size={40} className="mb-2 text-gray-500" />
-            <span className="text-gray-500">添加角色</span>
+            <Plus size={40} className="text-muted-foreground mb-2" />
+            <span className="text-muted-foreground">添加角色</span>
           </button>
         </div>
       )}

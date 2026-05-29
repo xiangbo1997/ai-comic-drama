@@ -88,11 +88,11 @@ export function ProviderCard({
   };
 
   return (
-    <div className="rounded-xl border border-gray-700 bg-gray-800 p-5">
+    <div className="border-border bg-card rounded-xl border p-5">
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-3">
-            <h3 className="text-lg font-semibold text-white">
+            <h3 className="text-foreground text-lg font-semibold">
               {provider.name}
             </h3>
             {provider.isCustom && (
@@ -150,24 +150,26 @@ export function ProviderCard({
               }
               return null;
             })()}
-          <p className="mb-3 text-sm text-gray-400">{provider.description}</p>
+          <p className="text-muted-foreground mb-3 text-sm">
+            {provider.description}
+          </p>
 
           {config ? (
-            <div className="text-sm text-gray-300">
-              <span className="text-gray-500">API Key: </span>
-              <code className="rounded bg-gray-700 px-2 py-0.5">
+            <div className="text-foreground text-sm">
+              <span className="text-muted-foreground">API Key: </span>
+              <code className="bg-secondary rounded px-2 py-0.5">
                 {config.apiKeyMasked}
               </code>
               {config.selectedModel && (
                 <span className="ml-4">
-                  <span className="text-gray-500">模型: </span>
+                  <span className="text-muted-foreground">模型: </span>
                   {provider.models.find((m) => m.id === config.selectedModel)
                     ?.name || config.selectedModel}
                 </span>
               )}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">未配置</p>
+            <p className="text-muted-foreground text-sm">未配置</p>
           )}
         </div>
 
@@ -177,7 +179,7 @@ export function ProviderCard({
               {onEditProvider && (
                 <button
                   onClick={onEditProvider}
-                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-blue-400"
+                  className="text-muted-foreground hover:bg-secondary hover:text-primary rounded-lg p-2 transition"
                   title="编辑提供商"
                 >
                   <Edit3 size={18} />
@@ -186,7 +188,7 @@ export function ProviderCard({
               {onDeleteProvider && (
                 <button
                   onClick={onDeleteProvider}
-                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-red-400"
+                  className="text-muted-foreground hover:bg-secondary rounded-lg p-2 transition hover:text-red-400"
                   title="删除提供商"
                 >
                   <Trash2 size={18} />
@@ -199,7 +201,7 @@ export function ProviderCard({
               <button
                 onClick={testConnection}
                 disabled={testing}
-                className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-white"
+                className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded-lg p-2 transition"
                 title="测试连接"
               >
                 {testing ? (
@@ -211,7 +213,7 @@ export function ProviderCard({
               {!config.isDefault && (
                 <button
                   onClick={setAsDefault}
-                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-yellow-400"
+                  className="text-muted-foreground hover:bg-secondary rounded-lg p-2 transition hover:text-yellow-400"
                   title="设为默认"
                 >
                   <Star size={18} />
@@ -220,7 +222,7 @@ export function ProviderCard({
               {!provider.isCustom && (
                 <button
                   onClick={deleteConfig}
-                  className="rounded-lg p-2 text-gray-400 transition hover:bg-gray-700 hover:text-red-400"
+                  className="text-muted-foreground hover:bg-secondary rounded-lg p-2 transition hover:text-red-400"
                   title="删除配置"
                 >
                   <Trash2 size={18} />
@@ -232,8 +234,8 @@ export function ProviderCard({
             onClick={onConfigure}
             className={`flex items-center gap-2 rounded-lg px-4 py-2 transition ${
               config
-                ? "bg-gray-700 text-white hover:bg-gray-600"
-                : "bg-blue-600 text-white hover:bg-blue-700"
+                ? "bg-secondary text-foreground hover:bg-secondary/80"
+                : "bg-primary text-foreground hover:bg-primary/90"
             }`}
           >
             {config ? (

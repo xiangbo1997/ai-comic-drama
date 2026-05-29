@@ -132,7 +132,9 @@ export function AppearanceEditor({
     label: string
   ) => (
     <div className={compact ? "mb-2" : "mb-3"}>
-      <label className="mb-1 block text-xs text-gray-400">{label}</label>
+      <label className="text-muted-foreground mb-1 block text-xs">
+        {label}
+      </label>
       <div className="flex flex-wrap gap-1">
         {options.map((opt) => (
           <button
@@ -141,8 +143,8 @@ export function AppearanceEditor({
             onClick={() => update(field, value[field] === opt ? "" : opt)}
             className={`rounded-full border px-2 py-0.5 text-xs transition ${
               value[field] === opt
-                ? "border-blue-500 bg-blue-600 text-white"
-                : "border-gray-600 bg-gray-800 text-gray-300 hover:border-gray-400"
+                ? "border-primary bg-primary text-foreground"
+                : "border-border bg-card text-foreground hover:border-muted-foreground"
             }`}
           >
             {opt}
@@ -165,44 +167,48 @@ export function AppearanceEditor({
       </div>
       {renderChips("bodyType", BODY_TYPES, "体型")}
       <div className={compact ? "mb-2" : "mb-3"}>
-        <label className="mb-1 block text-xs text-gray-400">身高</label>
+        <label className="text-muted-foreground mb-1 block text-xs">身高</label>
         <input
           type="text"
           value={value.height}
           onChange={(e) => update("height", e.target.value)}
           placeholder="如：170cm"
-          className="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+          className="border-border bg-card focus:border-primary w-full rounded border px-2 py-1 text-sm focus:outline-none"
         />
       </div>
       <div className={compact ? "mb-2" : "mb-3"}>
-        <label className="mb-1 block text-xs text-gray-400">饰品/配件</label>
+        <label className="text-muted-foreground mb-1 block text-xs">
+          饰品/配件
+        </label>
         <input
           type="text"
           value={value.accessories}
           onChange={(e) => update("accessories", e.target.value)}
           placeholder="如：圆框眼镜、红色围巾"
-          className="w-full rounded border border-gray-600 bg-gray-800 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+          className="border-border bg-card focus:border-primary w-full rounded border px-2 py-1 text-sm focus:outline-none"
         />
       </div>
       <div className={compact ? "mb-2" : "mb-3"}>
-        <label className="mb-1 block text-xs text-gray-400">补充描述</label>
+        <label className="text-muted-foreground mb-1 block text-xs">
+          补充描述
+        </label>
         <textarea
           value={value.freeText}
           onChange={(e) => update("freeText", e.target.value)}
           placeholder="其他外貌特征补充"
           rows={2}
-          className="w-full resize-none rounded border border-gray-600 bg-gray-800 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+          className="border-border bg-card focus:border-primary w-full resize-none rounded border px-2 py-1 text-sm focus:outline-none"
         />
       </div>
 
       {/* Clothing Presets */}
       <div className={compact ? "mb-2" : "mb-3"}>
         <div className="mb-1 flex items-center justify-between">
-          <label className="text-xs text-gray-400">服装预设</label>
+          <label className="text-muted-foreground text-xs">服装预设</label>
           <button
             type="button"
             onClick={() => setShowAddClothing(true)}
-            className="flex items-center gap-0.5 text-[10px] text-blue-400 hover:text-blue-300"
+            className="text-primary hover:text-primary/80 flex items-center gap-0.5 text-[10px]"
           >
             <Plus size={10} />
             添加
@@ -213,18 +219,20 @@ export function AppearanceEditor({
             {value.clothingPresets.map((preset, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-1 rounded border border-gray-700 bg-gray-800 px-2 py-1 text-xs"
+                className="border-border bg-card flex items-center gap-1 rounded border px-2 py-1 text-xs"
               >
-                <span className="font-medium text-gray-200">{preset.name}</span>
+                <span className="text-foreground font-medium">
+                  {preset.name}
+                </span>
                 {preset.description && (
-                  <span className="flex-1 truncate text-gray-500">
+                  <span className="text-muted-foreground flex-1 truncate">
                     — {preset.description}
                   </span>
                 )}
                 <button
                   type="button"
                   onClick={() => removeClothingPreset(idx)}
-                  className="ml-auto flex-shrink-0 text-gray-500 hover:text-red-400"
+                  className="text-muted-foreground ml-auto flex-shrink-0 hover:text-red-400"
                 >
                   <X size={12} />
                 </button>
@@ -233,33 +241,33 @@ export function AppearanceEditor({
           </div>
         )}
         {showAddClothing && (
-          <div className="space-y-1.5 rounded border border-gray-700 bg-gray-800/80 p-2">
+          <div className="border-border bg-card/80 space-y-1.5 rounded border p-2">
             <input
               type="text"
               value={newClothingName}
               onChange={(e) => setNewClothingName(e.target.value)}
               placeholder="名称（如：校服、战甲）"
-              className="w-full rounded border border-gray-600 bg-gray-900 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+              className="border-border bg-background focus:border-primary w-full rounded border px-2 py-1 text-xs focus:outline-none"
             />
             <input
               type="text"
               value={newClothingDesc}
               onChange={(e) => setNewClothingDesc(e.target.value)}
               placeholder="描述（如：深蓝色西装外套配白衬衫）"
-              className="w-full rounded border border-gray-600 bg-gray-900 px-2 py-1 text-xs focus:border-blue-500 focus:outline-none"
+              className="border-border bg-background focus:border-primary w-full rounded border px-2 py-1 text-xs focus:outline-none"
             />
             <div className="flex justify-end gap-1">
               <button
                 type="button"
                 onClick={() => setShowAddClothing(false)}
-                className="px-2 py-0.5 text-[10px] text-gray-400 hover:text-gray-200"
+                className="text-muted-foreground hover:text-foreground px-2 py-0.5 text-[10px]"
               >
                 取消
               </button>
               <button
                 type="button"
                 onClick={addClothingPreset}
-                className="rounded bg-blue-600 px-2 py-0.5 text-[10px] text-white hover:bg-blue-700"
+                className="bg-primary text-foreground hover:bg-primary/90 rounded px-2 py-0.5 text-[10px]"
               >
                 添加
               </button>
@@ -267,7 +275,7 @@ export function AppearanceEditor({
           </div>
         )}
         {value.clothingPresets.length === 0 && !showAddClothing && (
-          <p className="text-[10px] text-gray-600">暂无服装预设</p>
+          <p className="text-muted-foreground text-[10px]">暂无服装预设</p>
         )}
       </div>
     </div>

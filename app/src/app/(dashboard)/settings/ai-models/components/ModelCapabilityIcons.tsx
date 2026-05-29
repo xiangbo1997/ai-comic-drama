@@ -11,7 +11,7 @@ export function ModelCapabilityIcons({ modelId }: { modelId: string }) {
       {capabilities.includes("text") &&
         !capabilities.includes("multimodal") && (
           <span title="文本模型">
-            <Cpu size={12} className="text-blue-400" />
+            <Cpu size={12} className="text-primary" />
           </span>
         )}
       {capabilities.includes("multimodal") && (

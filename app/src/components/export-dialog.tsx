@@ -44,11 +44,11 @@ export function ExportDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="w-full max-w-md rounded-xl bg-gray-800 p-6">
+      <div className="bg-card w-full max-w-md rounded-xl p-6">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold">导出视频</h2>
-          <button onClick={onClose} className="rounded p-1 hover:bg-gray-700">
+          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
             <X size={20} />
           </button>
         </div>
@@ -60,12 +60,12 @@ export function ExportDialog({
               <Check size={32} />
             </div>
             <h3 className="mb-2 text-lg font-medium">导出任务已创建</h3>
-            <p className="mb-6 text-sm text-gray-400">
+            <p className="text-muted-foreground mb-6 text-sm">
               视频正在后台合成中，完成后将通知您下载
             </p>
             <button
               onClick={onClose}
-              className="rounded-lg bg-blue-600 px-6 py-2 hover:bg-blue-700"
+              className="bg-primary hover:bg-primary/90 rounded-lg px-6 py-2"
             >
               确定
             </button>
@@ -77,19 +77,19 @@ export function ExportDialog({
               <AlertCircle size={32} />
             </div>
             <h3 className="mb-2 text-lg font-medium">导出失败</h3>
-            <p className="mb-6 text-sm text-gray-400">
+            <p className="text-muted-foreground mb-6 text-sm">
               {exportMutation.error?.message || "请稍后重试"}
             </p>
             <div className="flex justify-center gap-3">
               <button
                 onClick={onClose}
-                className="rounded-lg bg-gray-700 px-6 py-2 hover:bg-gray-600"
+                className="bg-secondary hover:bg-secondary/80 rounded-lg px-6 py-2"
               >
                 取消
               </button>
               <button
                 onClick={handleExport}
-                className="rounded-lg bg-blue-600 px-6 py-2 hover:bg-blue-700"
+                className="bg-primary hover:bg-primary/90 rounded-lg px-6 py-2"
               >
                 重试
               </button>
@@ -100,17 +100,21 @@ export function ExportDialog({
           <>
             <div className="mb-6 space-y-4">
               {/* Info */}
-              <div className="rounded-lg bg-gray-700/50 p-4">
-                <p className="text-sm text-gray-400">
+              <div className="bg-secondary/50 rounded-lg p-4">
+                <p className="text-muted-foreground text-sm">
                   将导出{" "}
-                  <span className="font-medium text-white">{scenesCount}</span>{" "}
+                  <span className="text-foreground font-medium">
+                    {scenesCount}
+                  </span>{" "}
                   个分镜的视频
                 </p>
               </div>
 
               {/* Format */}
               <div>
-                <label className="mb-2 block text-sm text-gray-400">格式</label>
+                <label className="text-muted-foreground mb-2 block text-sm">
+                  格式
+                </label>
                 <div className="flex gap-2">
                   {["mp4", "webm", "mov"].map((f) => (
                     <button
@@ -118,8 +122,8 @@ export function ExportDialog({
                       onClick={() => setFormat(f)}
                       className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
                         format === f
-                          ? "bg-blue-600"
-                          : "bg-gray-700 hover:bg-gray-600"
+                          ? "bg-primary"
+                          : "bg-secondary hover:bg-secondary/80"
                       }`}
                     >
                       {f.toUpperCase()}
@@ -130,7 +134,9 @@ export function ExportDialog({
 
               {/* Quality */}
               <div>
-                <label className="mb-2 block text-sm text-gray-400">质量</label>
+                <label className="text-muted-foreground mb-2 block text-sm">
+                  质量
+                </label>
                 <div className="flex gap-2">
                   {[
                     { value: "480p", label: "480p" },
@@ -142,8 +148,8 @@ export function ExportDialog({
                       onClick={() => setQuality(q.value)}
                       className={`flex-1 rounded-lg py-2 text-sm font-medium transition ${
                         quality === q.value
-                          ? "bg-blue-600"
-                          : "bg-gray-700 hover:bg-gray-600"
+                          ? "bg-primary"
+                          : "bg-secondary hover:bg-secondary/80"
                       }`}
                     >
                       {q.label}
@@ -154,11 +160,13 @@ export function ExportDialog({
 
               {/* Subtitles */}
               <div className="flex items-center justify-between">
-                <label className="text-sm text-gray-400">包含字幕</label>
+                <label className="text-muted-foreground text-sm">
+                  包含字幕
+                </label>
                 <button
                   onClick={() => setIncludeSubtitles(!includeSubtitles)}
                   className={`h-6 w-12 rounded-full transition ${
-                    includeSubtitles ? "bg-blue-600" : "bg-gray-600"
+                    includeSubtitles ? "bg-primary" : "bg-secondary"
                   }`}
                 >
                   <div
@@ -174,14 +182,14 @@ export function ExportDialog({
             <div className="flex gap-3">
               <button
                 onClick={onClose}
-                className="flex-1 rounded-lg bg-gray-700 py-2 hover:bg-gray-600"
+                className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg py-2"
               >
                 取消
               </button>
               <button
                 onClick={handleExport}
                 disabled={exportMutation.isPending}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-600 py-2 hover:bg-blue-700 disabled:opacity-50"
+                className="bg-primary hover:bg-primary/90 flex flex-1 items-center justify-center gap-2 rounded-lg py-2 disabled:opacity-50"
               >
                 {exportMutation.isPending ? (
                   <Loader2 size={18} className="animate-spin" />

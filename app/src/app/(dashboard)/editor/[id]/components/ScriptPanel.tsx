@@ -160,7 +160,7 @@ export function ScriptPanel({
                 ))}
                 <button
                   onClick={onManageCharacters}
-                  className="text-muted-foreground hover:bg-secondary/50 flex w-full items-center justify-center gap-1 rounded px-2 py-1.5 text-xs transition hover:text-white"
+                  className="text-muted-foreground hover:bg-secondary/50 hover:text-foreground flex w-full items-center justify-center gap-1 rounded px-2 py-1.5 text-xs transition"
                 >
                   <Plus size={12} />
                   管理角色

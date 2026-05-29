@@ -150,8 +150,8 @@ export function PreviewPlayer({
 
   if (scenes.length === 0) {
     return (
-      <div className="flex aspect-video items-center justify-center rounded-xl bg-gray-800">
-        <p className="text-gray-500">暂无可预览的内容</p>
+      <div className="bg-card flex aspect-video items-center justify-center rounded-xl">
+        <p className="text-muted-foreground">暂无可预览的内容</p>
       </div>
     );
   }
@@ -164,7 +164,7 @@ export function PreviewPlayer({
         : "aspect-video";
 
   return (
-    <div className="overflow-hidden rounded-xl bg-gray-800">
+    <div className="bg-card overflow-hidden rounded-xl">
       {/* Video/Image Display */}
       <div
         className={`relative ${aspectClass} flex items-center justify-center bg-black`}
@@ -184,7 +184,7 @@ export function PreviewPlayer({
             className="h-full w-full object-contain"
           />
         ) : (
-          <div className="text-gray-500">无内容</div>
+          <div className="text-muted-foreground">无内容</div>
         )}
 
         {/* Audio */}
@@ -197,7 +197,7 @@ export function PreviewPlayer({
           (currentScene?.dialogue || currentScene?.narration) && (
             <div className="absolute right-4 bottom-12 left-4 text-center">
               <div className="inline-block rounded-lg bg-black/70 px-4 py-2">
-                <p className="text-sm text-white">
+                <p className="text-foreground text-sm">
                   {currentScene.dialogue || currentScene.narration}
                 </p>
               </div>
@@ -214,16 +214,16 @@ export function PreviewPlayer({
       <div className="space-y-3 p-4">
         {/* Progress Bar */}
         <div className="flex items-center gap-3">
-          <span className="w-10 text-xs text-gray-400">
+          <span className="text-muted-foreground w-10 text-xs">
             {formatTime(calculateOverallProgress() * totalDuration)}
           </span>
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-gray-700">
+          <div className="bg-secondary h-1 flex-1 overflow-hidden rounded-full">
             <div
-              className="h-full bg-blue-500 transition-all duration-100"
+              className="bg-primary h-full transition-all duration-100"
               style={{ width: `${calculateOverallProgress() * 100}%` }}
             />
           </div>
-          <span className="w-10 text-xs text-gray-400">
+          <span className="text-muted-foreground w-10 text-xs">
             {formatTime(totalDuration)}
           </span>
         </div>
@@ -233,14 +233,14 @@ export function PreviewPlayer({
           <button
             onClick={goToPrevious}
             disabled={currentIndex === 0}
-            className="rounded-lg p-2 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="hover:bg-secondary rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <SkipBack size={20} />
           </button>
 
           <button
             onClick={togglePlay}
-            className="rounded-full bg-blue-600 p-3 hover:bg-blue-700"
+            className="bg-primary hover:bg-primary/90 rounded-full p-3"
           >
             {isPlaying ? <Pause size={24} /> : <Play size={24} />}
           </button>
@@ -248,7 +248,7 @@ export function PreviewPlayer({
           <button
             onClick={goToNext}
             disabled={currentIndex === scenes.length - 1}
-            className="rounded-lg p-2 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="hover:bg-secondary rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <SkipForward size={20} />
           </button>
@@ -257,7 +257,7 @@ export function PreviewPlayer({
 
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className="rounded-lg p-2 hover:bg-gray-700"
+            className="hover:bg-secondary rounded-lg p-2"
           >
             {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
           </button>
@@ -265,7 +265,7 @@ export function PreviewPlayer({
           <button
             onClick={() => setShowSubtitles(!showSubtitles)}
             className={`rounded px-2 py-1 text-xs ${
-              showSubtitles ? "bg-blue-600" : "bg-gray-700"
+              showSubtitles ? "bg-primary" : "bg-secondary"
             }`}
           >
             字幕

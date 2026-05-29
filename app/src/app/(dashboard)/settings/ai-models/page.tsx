@@ -96,7 +96,7 @@ export default function AIModelsPage() {
   if (providersLoading || configsLoading) {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
       </div>
     );
   }
@@ -104,11 +104,13 @@ export default function AIModelsPage() {
   return (
     <div className="container mx-auto max-w-5xl px-6 py-8">
       <div className="mb-8">
-        <h1 className="mb-2 text-2xl font-bold text-white">AI 模型配置</h1>
-        <p className="text-gray-400">配置你的 AI 服务 API Key，选择默认模型</p>
+        <h1 className="text-foreground mb-2 text-2xl font-bold">AI 模型配置</h1>
+        <p className="text-muted-foreground">
+          配置你的 AI 服务 API Key，选择默认模型
+        </p>
       </div>
 
-      <div className="mb-6 flex w-fit gap-2 rounded-lg bg-gray-800 p-1">
+      <div className="bg-card mb-6 flex w-fit gap-2 rounded-lg p-1">
         {(["LLM", "IMAGE", "VIDEO", "TTS"] as const).map((category) => {
           const Icon = categoryIcons[category];
           const isActive = activeCategory === category;
@@ -118,8 +120,8 @@ export default function AIModelsPage() {
               onClick={() => setActiveCategory(category)}
               className={`flex items-center gap-2 rounded-md px-4 py-2 transition ${
                 isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-400 hover:bg-gray-700 hover:text-white"
+                  ? "bg-primary text-foreground"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
             >
               <Icon size={18} />
@@ -159,7 +161,7 @@ export default function AIModelsPage() {
 
         <button
           onClick={() => openCustomProviderDialog()}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-600 bg-gray-800/50 p-5 text-gray-400 transition hover:border-blue-500 hover:bg-gray-800 hover:text-blue-400"
+          className="border-border bg-card/50 text-muted-foreground hover:border-primary hover:bg-card hover:text-primary flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed p-5 transition"
         >
           <Plus size={20} />
           <span>添加自定义提供商</span>
@@ -167,8 +169,8 @@ export default function AIModelsPage() {
       </div>
 
       {preference && (
-        <div className="mt-8 rounded-xl bg-gray-800 p-6">
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
+        <div className="bg-card mt-8 rounded-xl p-6">
+          <h2 className="text-foreground mb-4 flex items-center gap-2 text-lg font-semibold">
             <Settings size={20} />
             生成策略
           </h2>
