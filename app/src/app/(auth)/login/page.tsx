@@ -137,21 +137,21 @@ function LoginContent() {
     <div className="w-full max-w-md">
       {/* Logo */}
       <div className="mb-8 text-center">
-        <Link href="/" className="text-3xl font-bold text-white">
-          AI 漫剧
+        <Link href="/" className="text-foreground text-3xl font-bold">
+          AI 漫剧<span className="text-primary">工作台</span>
         </Link>
-        <p className="mt-2 text-gray-400">一键将小说转化为漫剧视频</p>
+        <p className="text-muted-foreground mt-2">一键将小说转化为漫剧视频</p>
       </div>
 
       {/* Invite Banner */}
       {inviteInfo?.valid && (
-        <div className="mb-6 flex items-center gap-3 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 p-4">
-          <Gift size={24} className="shrink-0 text-white" />
+        <div className="border-primary/30 bg-primary/10 mb-6 flex items-center gap-3 rounded-xl border p-4">
+          <Gift size={24} className="text-primary shrink-0" />
           <div>
-            <p className="font-medium text-white">
+            <p className="text-foreground font-medium">
               {inviteInfo.inviter?.name} 邀请你加入
             </p>
-            <p className="text-sm text-purple-100">
+            <p className="text-muted-foreground text-sm">
               注册即可获得额外 {inviteInfo.reward} 积分奖励！
             </p>
           </div>
@@ -159,9 +159,9 @@ function LoginContent() {
       )}
 
       {/* Login/Register Card */}
-      <div className="rounded-2xl bg-gray-800 p-8 shadow-xl">
-        {/* Tab Switcher */}
-        <div className="mb-6 flex rounded-lg bg-gray-700 p-1">
+      <div className="border-border bg-card rounded-2xl border p-8 shadow-xl">
+        {/* Tab Switcher（分段控件） */}
+        <div className="bg-secondary mb-6 flex rounded-lg p-1">
           <button
             onClick={() => {
               setMode("login");
@@ -169,8 +169,8 @@ function LoginContent() {
             }}
             className={`flex-1 rounded-md py-2 text-sm font-medium transition ${
               mode === "login"
-                ? "bg-blue-600 text-white"
-                : "text-gray-400 hover:text-white"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             登录
@@ -182,8 +182,8 @@ function LoginContent() {
             }}
             className={`flex-1 rounded-md py-2 text-sm font-medium transition ${
               mode === "register"
-                ? "bg-blue-600 text-white"
-                : "text-gray-400 hover:text-white"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             注册
@@ -194,66 +194,75 @@ function LoginContent() {
         <form onSubmit={handleSubmit} className="space-y-4">
           {mode === "register" && (
             <div>
-              <label className="mb-1 block text-sm text-gray-400">
+              <label className="text-muted-foreground mb-1 block text-sm">
                 昵称（可选）
               </label>
               <div className="relative">
                 <User
                   size={18}
-                  className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-500"
+                  className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
                 />
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="输入昵称"
-                  className="w-full rounded-lg bg-gray-700 py-3 pr-4 pl-10 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                  className="border-border bg-input text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary/40 w-full rounded-lg border py-3 pr-4 pl-10 transition focus:ring-2 focus:outline-none"
                 />
               </div>
             </div>
           )}
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">邮箱</label>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              邮箱
+            </label>
             <div className="relative">
               <Mail
                 size={18}
-                className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-500"
+                className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
               />
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="输入邮箱地址"
+                placeholder="example@studio.com"
                 required
-                className="w-full rounded-lg bg-gray-700 py-3 pr-4 pl-10 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="border-border bg-input text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary/40 w-full rounded-lg border py-3 pr-4 pl-10 transition focus:ring-2 focus:outline-none"
               />
             </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-sm text-gray-400">密码</label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-muted-foreground text-sm">密码</label>
+              {mode === "login" && (
+                <a href="#" className="text-primary text-xs hover:underline">
+                  忘记密码？
+                </a>
+              )}
+            </div>
             <div className="relative">
               <Lock
                 size={18}
-                className="absolute top-1/2 left-3 -translate-y-1/2 text-gray-500"
+                className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
               />
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={
-                  mode === "register" ? "设置密码（至少6位）" : "输入密码"
+                  mode === "register" ? "设置密码（至少6位）" : "请输入密码"
                 }
                 required
                 minLength={6}
-                className="w-full rounded-lg bg-gray-700 py-3 pr-4 pl-10 text-white placeholder-gray-500 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                className="border-border bg-input text-foreground placeholder-muted-foreground focus:border-primary focus:ring-primary/40 w-full rounded-lg border py-3 pr-4 pl-10 transition focus:ring-2 focus:outline-none"
               />
             </div>
           </div>
 
           {error && (
-            <div className="rounded-lg bg-red-400/10 py-2 text-center text-sm text-red-400">
+            <div className="bg-destructive/10 text-destructive rounded-lg py-2 text-center text-sm">
               {error}
             </div>
           )}
@@ -261,7 +270,7 @@ function LoginContent() {
           <button
             type="submit"
             disabled={isLoading}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isLoading ? (
               <>
@@ -279,34 +288,36 @@ function LoginContent() {
         {/* Benefits */}
         {mode === "register" && (
           <div className="mt-6 space-y-2">
-            <p className="text-center text-sm text-gray-400">注册即可获得：</p>
-            <div className="flex items-center gap-2 text-sm text-gray-300">
-              <span className="text-green-500">✓</span>
-              <span>
-                100 积分免费体验
-                {inviteInfo?.valid && ` + ${inviteInfo.reward} 邀请奖励`}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-300">
-              <span className="text-green-500">✓</span>
-              <span>作品云端保存</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-300">
-              <span className="text-green-500">✓</span>
-              <span>角色卡永久保存</span>
-            </div>
+            <p className="text-muted-foreground text-center text-sm">
+              注册即可获得：
+            </p>
+            {[
+              `100 积分免费体验${
+                inviteInfo?.valid ? ` + ${inviteInfo.reward} 邀请奖励` : ""
+              }`,
+              "作品云端保存",
+              "角色卡永久保存",
+            ].map((b) => (
+              <div
+                key={b}
+                className="text-foreground/80 flex items-center gap-2 text-sm"
+              >
+                <span className="text-primary">✓</span>
+                <span>{b}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
       {/* Footer */}
-      <p className="mt-6 text-center text-sm text-gray-500">
+      <p className="text-muted-foreground mt-6 text-center text-sm">
         {mode === "login" ? "登录" : "注册"}即表示同意{" "}
-        <a href="#" className="text-blue-400 hover:underline">
+        <a href="#" className="text-primary hover:underline">
           服务条款
         </a>{" "}
         和{" "}
-        <a href="#" className="text-blue-400 hover:underline">
+        <a href="#" className="text-primary hover:underline">
           隐私政策
         </a>
       </p>
@@ -316,11 +327,11 @@ function LoginContent() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-gray-900 to-gray-800 px-4">
+    <div className="bg-background flex min-h-screen items-center justify-center px-4">
       <Suspense
         fallback={
           <div className="flex items-center justify-center">
-            <Loader2 size={32} className="animate-spin text-gray-400" />
+            <Loader2 size={32} className="text-muted-foreground animate-spin" />
           </div>
         }
       >

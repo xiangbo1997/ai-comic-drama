@@ -46,73 +46,87 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
+/*
+ * AI 漫剧工作台设计系统 (P4 / Stitch)
+ * 风格：深色专业创作工具（CapCut / Runway / Figma 风）
+ * 品牌色：电影感琥珀橙（warm cinematic amber），呼应"漫剧 / 叙事"主题
+ * 色板源自 Stitch 原型：底 #19120c·卡 #3c332b·琥珀 #ffb873/#e38d2d·暖白 #efe0d4
+ * 全部转为 OKLCH 以对接 Tailwind v4 token 系统。
+ *
+ * 注：本产品默认深色主题。:root 提供一套配套浅色（备用），.dark 为主用。
+ */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* 浅色（备用主题）：暖白底 + 同一琥珀品牌色 */
+  --background: oklch(0.98 0.008 70);
+  --foreground: oklch(0.22 0.02 60);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.22 0.02 60);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.22 0.02 60);
+  --primary: oklch(0.7 0.142 62);
+  --primary-foreground: oklch(0.2 0.03 60);
+  --secondary: oklch(0.96 0.012 70);
+  --secondary-foreground: oklch(0.28 0.02 60);
+  --muted: oklch(0.96 0.012 70);
+  --muted-foreground: oklch(0.52 0.02 60);
+  --accent: oklch(0.93 0.03 65);
+  --accent-foreground: oklch(0.28 0.04 60);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
+  --border: oklch(0.9 0.012 70);
+  --input: oklch(0.9 0.012 70);
+  --ring: oklch(0.7 0.142 62);
+  --chart-1: oklch(0.7 0.142 62);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.96 0.012 70);
+  --sidebar-foreground: oklch(0.22 0.02 60);
+  --sidebar-primary: oklch(0.7 0.142 62);
+  --sidebar-primary-foreground: oklch(0.2 0.03 60);
+  --sidebar-accent: oklch(0.93 0.03 65);
+  --sidebar-accent-foreground: oklch(0.28 0.04 60);
+  --sidebar-border: oklch(0.9 0.012 70);
+  --sidebar-ring: oklch(0.7 0.142 62);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* 深棕黑底（#19120c 系） */
+  --background: oklch(0.17 0.012 60);
+  --foreground: oklch(0.92 0.018 70);
+  /* 卡片略亮于底（#241c14 系），承载内容区 */
+  --card: oklch(0.22 0.014 60);
+  --card-foreground: oklch(0.92 0.018 70);
+  --popover: oklch(0.22 0.014 60);
+  --popover-foreground: oklch(0.92 0.018 70);
+  /* 品牌琥珀 #ffb873 */
+  --primary: oklch(0.8 0.12 65);
+  --primary-foreground: oklch(0.2 0.04 55);
+  /* 次级：暖灰棕 #3c332b */
+  --secondary: oklch(0.3 0.014 60);
+  --secondary-foreground: oklch(0.92 0.018 70);
+  --muted: oklch(0.28 0.012 60);
+  --muted-foreground: oklch(0.68 0.018 65);
+  --accent: oklch(0.34 0.03 62);
+  --accent-foreground: oklch(0.92 0.018 70);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
+  --border: oklch(0.36 0.014 60);
+  --input: oklch(0.32 0.014 60);
+  --ring: oklch(0.8 0.12 65);
+  --chart-1: oklch(0.8 0.12 65);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-4: oklch(0.627 0.18 50);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.19 0.012 60);
+  --sidebar-foreground: oklch(0.92 0.018 70);
+  --sidebar-primary: oklch(0.8 0.12 65);
+  --sidebar-primary-foreground: oklch(0.2 0.04 55);
+  --sidebar-accent: oklch(0.34 0.03 62);
+  --sidebar-accent-foreground: oklch(0.92 0.018 70);
+  --sidebar-border: oklch(0.36 0.014 60);
+  --sidebar-ring: oklch(0.8 0.12 65);
 }
 
 @layer base {
