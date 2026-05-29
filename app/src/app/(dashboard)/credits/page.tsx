@@ -306,10 +306,10 @@ export default function CreditsPage() {
   return (
     <div className="container mx-auto max-w-4xl px-6 py-8">
       {/* Current Credits */}
-      <div className="mb-8 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 p-6">
+      <div className="bg-primary mb-8 rounded-2xl p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="mb-1 text-blue-100">当前积分</p>
+            <p className="text-primary-foreground/80 mb-1">当前积分</p>
             <div className="flex items-center gap-2">
               <Coins size={32} className="text-yellow-400" />
               {creditsLoading ? (
@@ -321,7 +321,7 @@ export default function CreditsPage() {
               )}
             </div>
           </div>
-          <div className="text-right text-sm text-blue-100">
+          <div className="text-primary-foreground/80 text-right text-sm">
             <p>图片生成: 1-3积分/张</p>
             <p>视频生成: 10积分/5秒</p>
             <p>语音合成: 2积分/100字</p>
@@ -330,10 +330,10 @@ export default function CreditsPage() {
       </div>
 
       {/* Daily Checkin */}
-      <div className="mb-8 rounded-xl bg-gray-800 p-6">
+      <div className="bg-card mb-8 rounded-xl p-6">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Calendar size={24} className="text-blue-400" />
+            <Calendar size={24} className="text-primary" />
             <h2 className="text-lg font-semibold">每日签到</h2>
           </div>
           {checkinData?.streak > 0 && (
@@ -346,12 +346,12 @@ export default function CreditsPage() {
 
         {/* Calendar */}
         <div className="mb-4">
-          <div className="mb-2 text-center text-sm text-gray-400">
+          <div className="text-muted-foreground mb-2 text-center text-sm">
             {year}年{month + 1}月
           </div>
           <div className="grid grid-cols-7 gap-1 text-center text-xs">
             {["日", "一", "二", "三", "四", "五", "六"].map((day) => (
-              <div key={day} className="py-1 text-gray-500">
+              <div key={day} className="text-muted-foreground py-1">
                 {day}
               </div>
             ))}
@@ -368,10 +368,10 @@ export default function CreditsPage() {
                   key={day}
                   className={`rounded-lg py-2 ${
                     isChecked
-                      ? "bg-green-600 text-white"
+                      ? "bg-primary text-primary-foreground"
                       : isToday
-                        ? "bg-blue-600/30 text-blue-400 ring-1 ring-blue-500"
-                        : "text-gray-400"
+                        ? "bg-primary/20 text-primary ring-primary ring-1"
+                        : "text-muted-foreground"
                   }`}
                 >
                   {isChecked ? <Check size={14} className="mx-auto" /> : day}
@@ -391,8 +391,8 @@ export default function CreditsPage() {
           }
           className={`flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition ${
             checkinData?.checkedInToday
-              ? "cursor-not-allowed bg-gray-700 text-gray-400"
-              : "bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600"
+              ? "bg-secondary text-muted-foreground cursor-not-allowed"
+              : "bg-primary hover:bg-primary/90"
           }`}
         >
           {checkinMutation.isPending ? (
@@ -418,18 +418,18 @@ export default function CreditsPage() {
       </div>
 
       {/* Invite Friends */}
-      <div className="mb-8 rounded-xl bg-gray-800 p-6">
+      <div className="bg-card mb-8 rounded-xl p-6">
         <div className="mb-4 flex items-center gap-3">
           <Users size={24} className="text-purple-400" />
           <h2 className="text-lg font-semibold">邀请好友</h2>
         </div>
 
-        <div className="mb-4 rounded-lg bg-gradient-to-r from-purple-600/20 to-pink-600/20 p-4">
+        <div className="bg-primary/10 mb-4 rounded-lg p-4">
           <p className="mb-2 text-purple-200">
             邀请好友注册，双方各得{" "}
-            <span className="font-bold text-white">50 积分</span>
+            <span className="text-foreground font-bold">50 积分</span>
           </p>
-          <p className="text-sm text-gray-400">
+          <p className="text-muted-foreground text-sm">
             好友通过你的链接注册后，你将立即获得奖励
           </p>
         </div>
@@ -440,11 +440,11 @@ export default function CreditsPage() {
             type="text"
             readOnly
             value={inviteData?.inviteLink || "加载中..."}
-            className="flex-1 rounded-lg bg-gray-700 px-4 py-2 text-sm text-gray-300"
+            className="bg-secondary text-foreground flex-1 rounded-lg px-4 py-2 text-sm"
           />
           <button
             onClick={handleCopyInviteLink}
-            className="flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 transition hover:bg-gray-600"
+            className="bg-secondary hover:bg-secondary/80 flex items-center gap-2 rounded-lg px-4 py-2 transition"
           >
             {copied ? <Check size={18} /> : <Copy size={18} />}
             {copied ? "已复制" : "复制"}
@@ -461,23 +461,23 @@ export default function CreditsPage() {
         {/* Stats */}
         {inviteData?.stats && (
           <div className="grid grid-cols-3 gap-4 text-center">
-            <div className="rounded-lg bg-gray-700/50 p-3">
-              <p className="text-2xl font-bold text-white">
+            <div className="bg-secondary/50 rounded-lg p-3">
+              <p className="text-foreground text-2xl font-bold">
                 {inviteData.stats.completed}
               </p>
-              <p className="text-xs text-gray-400">成功邀请</p>
+              <p className="text-muted-foreground text-xs">成功邀请</p>
             </div>
-            <div className="rounded-lg bg-gray-700/50 p-3">
-              <p className="text-2xl font-bold text-white">
+            <div className="bg-secondary/50 rounded-lg p-3">
+              <p className="text-foreground text-2xl font-bold">
                 {inviteData.stats.pending}
               </p>
-              <p className="text-xs text-gray-400">待注册</p>
+              <p className="text-muted-foreground text-xs">待注册</p>
             </div>
-            <div className="rounded-lg bg-gray-700/50 p-3">
+            <div className="bg-secondary/50 rounded-lg p-3">
               <p className="text-2xl font-bold text-yellow-400">
                 {inviteData.stats.totalEarned}
               </p>
-              <p className="text-xs text-gray-400">获得积分</p>
+              <p className="text-muted-foreground text-xs">获得积分</p>
             </div>
           </div>
         )}
@@ -490,14 +490,14 @@ export default function CreditsPage() {
           {PACKAGES.map((pkg) => (
             <div
               key={pkg.id}
-              className={`relative rounded-xl border-2 bg-gray-800 p-6 transition ${
+              className={`bg-card relative rounded-xl border-2 p-6 transition ${
                 pkg.popular
-                  ? "border-blue-500"
-                  : "border-transparent hover:border-gray-600"
+                  ? "border-primary"
+                  : "hover:border-border border-transparent"
               }`}
             >
               {pkg.popular && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-blue-500 px-3 py-1 text-xs">
+                <div className="bg-primary absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-xs">
                   最受欢迎
                 </div>
               )}
@@ -509,7 +509,9 @@ export default function CreditsPage() {
                 <Coins size={18} />
                 <span className="font-medium">{pkg.credits} 积分</span>
               </div>
-              <p className="mb-4 text-sm text-gray-400">{pkg.description}</p>
+              <p className="text-muted-foreground mb-4 text-sm">
+                {pkg.description}
+              </p>
               <button
                 onClick={() =>
                   handlePurchase("credits", {
@@ -521,8 +523,8 @@ export default function CreditsPage() {
                 }
                 className={`w-full rounded-lg py-2 font-medium transition ${
                   pkg.popular
-                    ? "bg-blue-600 hover:bg-blue-700"
-                    : "bg-gray-700 hover:bg-gray-600"
+                    ? "bg-primary hover:bg-primary/90"
+                    : "bg-secondary hover:bg-secondary/80"
                 }`}
               >
                 购买
@@ -539,7 +541,7 @@ export default function CreditsPage() {
           {MONTHLY_PLANS.map((plan) => (
             <div
               key={plan.id}
-              className="rounded-xl border-2 border-transparent bg-gray-800 p-6 transition hover:border-gray-600"
+              className="bg-card hover:border-border rounded-xl border-2 border-transparent p-6 transition"
             >
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-xl font-semibold">{plan.name}</h3>
@@ -551,13 +553,15 @@ export default function CreditsPage() {
               </div>
               <div className="mb-2 flex items-baseline gap-1">
                 <span className="text-3xl font-bold">¥{plan.price}</span>
-                <span className="text-gray-400">/{plan.period}</span>
+                <span className="text-muted-foreground">/{plan.period}</span>
               </div>
               <div className="mb-2 flex items-center gap-2 text-yellow-400">
                 <Coins size={18} />
                 <span className="font-medium">{plan.credits} 积分</span>
               </div>
-              <p className="mb-4 text-sm text-gray-400">{plan.description}</p>
+              <p className="text-muted-foreground mb-4 text-sm">
+                {plan.description}
+              </p>
               <button
                 onClick={() =>
                   handlePurchase("subscription", {
@@ -567,7 +571,7 @@ export default function CreditsPage() {
                     credits: plan.credits,
                   })
                 }
-                className="w-full rounded-lg bg-gray-700 py-2 font-medium transition hover:bg-gray-600"
+                className="bg-secondary hover:bg-secondary/80 w-full rounded-lg py-2 font-medium transition"
               >
                 订阅
               </button>
@@ -577,7 +581,7 @@ export default function CreditsPage() {
       </div>
 
       {/* Benefits */}
-      <div className="rounded-xl bg-gray-800 p-6">
+      <div className="bg-card rounded-xl p-6">
         <h2 className="mb-4 text-lg font-semibold">会员权益</h2>
         <div className="grid gap-4 md:grid-cols-2">
           {[
@@ -590,14 +594,14 @@ export default function CreditsPage() {
           ].map((benefit) => (
             <div key={benefit} className="flex items-center gap-2">
               <Check size={18} className="text-green-500" />
-              <span className="text-gray-300">{benefit}</span>
+              <span className="text-foreground">{benefit}</span>
             </div>
           ))}
         </div>
       </div>
 
       {/* FAQ */}
-      <div className="mt-8 text-center text-sm text-gray-500">
+      <div className="text-muted-foreground mt-8 text-center text-sm">
         <p>如有问题，请联系客服：support@aicomic.com</p>
         <p className="mt-1">积分永久有效，不会过期</p>
       </div>
@@ -605,32 +609,32 @@ export default function CreditsPage() {
       {/* Payment Modal */}
       {showPaymentModal && selectedProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-gray-800 p-6">
+          <div className="bg-card mx-4 w-full max-w-md rounded-xl p-6">
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-xl font-semibold">确认支付</h3>
               <button
                 onClick={handleCloseModal}
-                className="text-gray-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
               >
                 <X size={24} />
               </button>
             </div>
 
             {/* Product Info */}
-            <div className="mb-6 rounded-lg bg-gray-700/50 p-4">
+            <div className="bg-secondary/50 mb-6 rounded-lg p-4">
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-gray-400">商品</span>
+                <span className="text-muted-foreground">商品</span>
                 <span className="font-medium">{selectedProduct.name}</span>
               </div>
               <div className="mb-2 flex items-center justify-between">
-                <span className="text-gray-400">积分</span>
+                <span className="text-muted-foreground">积分</span>
                 <span className="font-medium text-yellow-400">
                   {selectedProduct.credits} 积分
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-gray-400">金额</span>
-                <span className="text-2xl font-bold text-white">
+                <span className="text-muted-foreground">金额</span>
+                <span className="text-foreground text-2xl font-bold">
                   ¥{selectedProduct.price}
                 </span>
               </div>
@@ -646,9 +650,11 @@ export default function CreditsPage() {
                     className="h-48 w-48"
                   />
                 </div>
-                <p className="text-sm text-gray-400">请使用微信扫码支付</p>
+                <p className="text-muted-foreground text-sm">
+                  请使用微信扫码支付
+                </p>
                 {pollingOrder && (
-                  <div className="mt-2 flex items-center justify-center gap-2 text-blue-400">
+                  <div className="text-primary mt-2 flex items-center justify-center gap-2">
                     <Loader2 size={16} className="animate-spin" />
                     <span className="text-sm">等待支付...</span>
                   </div>
@@ -660,7 +666,9 @@ export default function CreditsPage() {
             {!paymentResult && (
               <>
                 <div className="mb-6">
-                  <p className="mb-3 text-sm text-gray-400">选择支付方式</p>
+                  <p className="text-muted-foreground mb-3 text-sm">
+                    选择支付方式
+                  </p>
                   <div className="space-y-2">
                     {paymentInfo?.methods && paymentInfo.methods.length > 0 ? (
                       paymentInfo.methods.map((method) => (
@@ -669,20 +677,20 @@ export default function CreditsPage() {
                           onClick={() => setSelectedMethod(method.id)}
                           className={`flex w-full items-center gap-3 rounded-lg border-2 p-3 transition ${
                             selectedMethod === method.id
-                              ? "border-blue-500 bg-blue-500/10"
-                              : "border-gray-600 hover:border-gray-500"
+                              ? "border-primary bg-primary/10"
+                              : "border-border hover:border-border"
                           }`}
                         >
                           {method.icon === "wechat" && (
                             <div className="flex h-8 w-8 items-center justify-center rounded bg-green-500">
-                              <span className="text-xs font-bold text-white">
+                              <span className="text-foreground text-xs font-bold">
                                 微信
                               </span>
                             </div>
                           )}
                           {method.icon === "alipay" && (
-                            <div className="flex h-8 w-8 items-center justify-center rounded bg-blue-500">
-                              <span className="text-xs font-bold text-white">
+                            <div className="bg-primary flex h-8 w-8 items-center justify-center rounded">
+                              <span className="text-foreground text-xs font-bold">
                                 支付宝
                               </span>
                             </div>
@@ -692,15 +700,12 @@ export default function CreditsPage() {
                           )}
                           <span>{method.name}</span>
                           {selectedMethod === method.id && (
-                            <Check
-                              size={18}
-                              className="ml-auto text-blue-400"
-                            />
+                            <Check size={18} className="text-primary ml-auto" />
                           )}
                         </button>
                       ))
                     ) : (
-                      <p className="py-4 text-center text-gray-500">
+                      <p className="text-muted-foreground py-4 text-center">
                         暂无可用支付方式，请联系管理员配置
                       </p>
                     )}
@@ -711,7 +716,7 @@ export default function CreditsPage() {
                 <button
                   onClick={handleConfirmPayment}
                   disabled={!selectedMethod || paymentMutation.isPending}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-3 font-medium transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-600"
+                  className="bg-primary hover:bg-primary/90 flex w-full items-center justify-center gap-2 rounded-lg py-3 font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {paymentMutation.isPending ? (
                     <>
@@ -737,11 +742,11 @@ export default function CreditsPage() {
             {/* Payment URL Message */}
             {paymentResult?.paymentUrl && !paymentResult.qrCode && (
               <div className="text-center">
-                <p className="mb-4 text-sm text-gray-400">
+                <p className="text-muted-foreground mb-4 text-sm">
                   已在新窗口打开支付页面，请完成支付
                 </p>
                 {pollingOrder && (
-                  <div className="flex items-center justify-center gap-2 text-blue-400">
+                  <div className="text-primary flex items-center justify-center gap-2">
                     <Loader2 size={16} className="animate-spin" />
                     <span className="text-sm">等待支付完成...</span>
                   </div>
@@ -750,7 +755,7 @@ export default function CreditsPage() {
                   onClick={() =>
                     window.open(paymentResult.paymentUrl, "_blank")
                   }
-                  className="mt-4 text-sm text-blue-400 hover:text-blue-300"
+                  className="text-primary hover:text-primary/80 mt-4 text-sm"
                 >
                   重新打开支付页面
                 </button>
