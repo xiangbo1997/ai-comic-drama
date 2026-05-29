@@ -167,22 +167,38 @@ export async function getUserImageConfig(
  * 获取用户默认的视频生成配置
  */
 export async function getUserVideoConfig(
-  userId: string
+  userId: string,
+  configId?: string
 ): Promise<AIServiceConfig | null> {
-  const config = await prisma.userAIConfig.findFirst({
-    where: {
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "VIDEO",
-        isActive: true,
+  // C4：传入 configId 时优先取指定配置（多模型并行生成据此用不同 provider）
+  const selectedConfig = configId
+    ? await prisma.userAIConfig.findFirst({
+        where: {
+          id: configId,
+          userId,
+          isEnabled: true,
+          provider: { category: "VIDEO", isActive: true },
+        },
+        include: { provider: true },
+      })
+    : null;
+
+  const config =
+    selectedConfig ||
+    (await prisma.userAIConfig.findFirst({
+      where: {
+        userId,
+        isEnabled: true,
+        provider: {
+          category: "VIDEO",
+          isActive: true,
+        },
+        isDefault: true,
       },
-      isDefault: true,
-    },
-    include: {
-      provider: true,
-    },
-  });
+      include: {
+        provider: true,
+      },
+    }));
 
   const effectiveConfig =
     config ||
@@ -211,22 +227,38 @@ export async function getUserVideoConfig(
  * 获取用户默认的 TTS 配置
  */
 export async function getUserTTSConfig(
-  userId: string
+  userId: string,
+  configId?: string
 ): Promise<AIServiceConfig | null> {
-  const config = await prisma.userAIConfig.findFirst({
-    where: {
-      userId,
-      isEnabled: true,
-      provider: {
-        category: "TTS",
-        isActive: true,
+  // C4：传入 configId 时优先取指定配置（多音色并行生成据此用不同 provider）
+  const selectedConfig = configId
+    ? await prisma.userAIConfig.findFirst({
+        where: {
+          id: configId,
+          userId,
+          isEnabled: true,
+          provider: { category: "TTS", isActive: true },
+        },
+        include: { provider: true },
+      })
+    : null;
+
+  const config =
+    selectedConfig ||
+    (await prisma.userAIConfig.findFirst({
+      where: {
+        userId,
+        isEnabled: true,
+        provider: {
+          category: "TTS",
+          isActive: true,
+        },
+        isDefault: true,
       },
-      isDefault: true,
-    },
-    include: {
-      provider: true,
-    },
-  });
+      include: {
+        provider: true,
+      },
+    }));
 
   const effectiveConfig =
     config ||

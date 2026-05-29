@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
       projectId,
       sceneId,
       returnUrl = true,
+      ttsConfigId,
     } = await request.json();
 
     /*
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     try {
       // 获取用户 TTS 配置
-      const ttsConfig = await getUserTTSConfig(session.user.id);
+      const ttsConfig = await getUserTTSConfig(session.user.id, ttsConfigId);
 
       // 调用 TTS 服务
       const audioBuffer = await synthesizeSpeech({

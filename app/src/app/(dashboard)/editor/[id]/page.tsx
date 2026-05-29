@@ -408,7 +408,7 @@ export default function EditorPage() {
           if (!editor.selectedScene?.imageUrl) return;
           setShowMultiVideoDialog(false);
 
-          const generateOne = async () => {
+          const generateOne = async (configId?: string) => {
             const res = await fetch("/api/generate/video", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -418,6 +418,7 @@ export default function EditorPage() {
                 duration: editor.selectedScene!.duration > 5 ? 10 : 5,
                 projectId,
                 sceneId: editor.selectedScene!.id,
+                videoConfigId: configId,
               }),
             });
             if (!res.ok) throw new Error("视频生成失败");
@@ -425,11 +426,12 @@ export default function EditorPage() {
           };
 
           if (mode === "PARALLEL") {
-            await Promise.allSettled(configs.map(() => generateOne()));
+            await Promise.allSettled(
+              configs.map((config) => generateOne(config.configId))
+            );
           } else {
-            // TODO: generateOne 未使用 config 参数，这里实际是串行 N 次相同调用
-            for (let i = 0; i < configs.length; i++) {
-              await generateOne().catch(() => {});
+            for (const config of configs) {
+              await generateOne(config.configId).catch(() => {});
             }
           }
           generation.invalidateProject();
@@ -451,7 +453,7 @@ export default function EditorPage() {
             editor.selectedScene?.selectedCharacterId ??
             undefined;
 
-          const generateOne = async () => {
+          const generateOne = async (configId?: string) => {
             const res = await fetch("/api/generate/tts", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -461,6 +463,7 @@ export default function EditorPage() {
                 speed: 1.0,
                 projectId,
                 sceneId: editor.selectedScene!.id,
+                ttsConfigId: configId,
               }),
             });
             if (!res.ok) throw new Error("配音生成失败");
@@ -468,11 +471,12 @@ export default function EditorPage() {
           };
 
           if (mode === "PARALLEL") {
-            await Promise.allSettled(configs.map(() => generateOne()));
+            await Promise.allSettled(
+              configs.map((config) => generateOne(config.configId))
+            );
           } else {
-            // TODO: generateOne 未使用 config 参数，这里实际是串行 N 次相同调用
-            for (let i = 0; i < configs.length; i++) {
-              await generateOne().catch(() => {});
+            for (const config of configs) {
+              await generateOne(config.configId).catch(() => {});
             }
           }
           generation.invalidateProject();

@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       referenceImages,
       projectId,
       sceneId,
+      videoConfigId,
     } = await request.json();
 
     if (!imageUrl) {
@@ -112,7 +113,10 @@ export async function POST(request: NextRequest) {
 
     try {
       // 获取用户视频生成配置
-      const videoConfig = await getUserVideoConfig(session.user.id);
+      const videoConfig = await getUserVideoConfig(
+        session.user.id,
+        videoConfigId
+      );
 
       // 调用视频生成服务（使用净化后的提示词）
       const videoUrl = await generateVideo({
