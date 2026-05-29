@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Edit2, Loader2, X, User, Wand2 } from "lucide-react";
 import type { Character } from "@/types";
+import { useToast } from "@/components/ui/toast";
 
 interface CharacterManagerProps {
   onSelect?: (character: Character) => void;
@@ -58,6 +59,7 @@ export function CharacterManager({
   selectedId,
 }: CharacterManagerProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -130,8 +132,9 @@ export function CharacterManager({
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("确定要删除这个角色吗？")) {
+  const handleDelete = async (id: string) => {
+    const ok = await toast.confirm("确定要删除这个角色吗？");
+    if (ok) {
       deleteMutation.mutate(id);
     }
   };

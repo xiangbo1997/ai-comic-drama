@@ -5,6 +5,7 @@ import { Trash2, Edit2, Loader2, X, Check } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Tag } from "@/types";
 import { CATEGORY_LABELS, createTag, updateTag, deleteTag } from "./constants";
+import { useToast } from "@/components/ui/toast";
 
 interface TagManagerModalProps {
   tags: Tag[];
@@ -17,6 +18,7 @@ export function TagManagerModal({
   onClose,
 }: TagManagerModalProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [tagFormData, setTagFormData] = useState({
     name: "",
@@ -249,10 +251,11 @@ export function TagManagerModal({
                                 <Edit2 size={14} />
                               </button>
                               <button
-                                onClick={() => {
-                                  if (
-                                    confirm(`确定删除标签「${tag.name}」吗？`)
-                                  ) {
+                                onClick={async () => {
+                                  const ok = await toast.confirm(
+                                    `确定删除标签「${tag.name}」吗？`
+                                  );
+                                  if (ok) {
                                     deleteTagMutation.mutate(tag.id);
                                   }
                                 }}

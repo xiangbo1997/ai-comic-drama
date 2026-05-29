@@ -14,6 +14,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
+import { useToast } from "@/components/ui/toast";
 import type { Scene, ProjectDetail } from "@/types";
 import type { UseMutationResult } from "@tanstack/react-query";
 
@@ -76,6 +77,7 @@ export function SceneList({
   onOpenMultiVideoDialog,
   onOpenMultiAudioDialog,
 }: SceneListProps) {
+  const toast = useToast();
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
 
   const toggleSceneExpand = (sceneId: string) => {
@@ -106,13 +108,14 @@ export function SceneList({
         <div className="flex items-center gap-2">
           {batchGenerateImagesMutation && project.scenes.length > 0 && (
             <button
-              onClick={(e) => {
+              onClick={async (e) => {
                 e.stopPropagation();
                 const scenesWithoutImage = project.scenes.filter(
                   (s) => !s.imageUrl && s.imageStatus !== "PROCESSING"
                 );
                 if (scenesWithoutImage.length === 0) {
-                  const all = confirm("所有分镜已有图片，是否全部重新生成？");
+                  const all =
+                    await toast.confirm("所有分镜已有图片，是否全部重新生成？");
                   if (all)
                     batchGenerateImagesMutation.mutate({
                       scenes: project.scenes,

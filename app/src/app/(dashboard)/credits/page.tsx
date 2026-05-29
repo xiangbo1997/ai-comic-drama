@@ -229,7 +229,7 @@ export default function CreditsPage() {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [pollingOrder, queryClient]);
+  }, [pollingOrder, queryClient, toast]);
 
   const handlePurchase = (
     type: "credits" | "subscription",
