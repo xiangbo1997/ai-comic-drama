@@ -10,6 +10,7 @@ import {
   normalizeBaseUrl,
   generateUrlPreview,
 } from "./types";
+import { useToast } from "@/components/ui/toast";
 
 interface CustomProviderDialogProps {
   category: AICategory;
@@ -24,6 +25,7 @@ export function CustomProviderDialog({
   onClose,
   onSuccess,
 }: CustomProviderDialogProps) {
+  const toast = useToast();
   const [name, setName] = useState(existingProvider?.name || "");
   const [description, setDescription] = useState(
     existingProvider?.description || ""
@@ -61,12 +63,12 @@ export function CustomProviderDialog({
     e.preventDefault();
 
     if (!name.trim()) {
-      alert("请输入提供商名称");
+      toast.warning("请输入提供商名称");
       return;
     }
 
     if (!baseUrl.trim()) {
-      alert("请输入 API 基础地址");
+      toast.warning("请输入 API 基础地址");
       return;
     }
 
@@ -99,8 +101,9 @@ export function CustomProviderDialog({
       }
 
       onSuccess();
+      toast.success("已保存");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "保存失败");
+      toast.error(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
     }

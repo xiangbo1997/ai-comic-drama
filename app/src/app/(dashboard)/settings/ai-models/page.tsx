@@ -9,9 +9,11 @@ import { ProviderCard } from "./components/ProviderCard";
 import { ConfigDialog } from "./components/ConfigDialog";
 import { PreferenceSettings } from "./components/PreferenceSettings";
 import { CustomProviderDialog } from "./components/CustomProviderDialog";
+import { useToast } from "@/components/ui/toast";
 
 export default function AIModelsPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [activeCategory, setActiveCategory] = useState<AICategory>("LLM");
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<AIProvider | null>(
@@ -74,12 +76,10 @@ export default function AIModelsPage() {
   };
 
   const deleteCustomProvider = async (provider: AIProvider) => {
-    if (
-      !confirm(
-        `确定要删除自定义提供商「${provider.name}」吗？相关配置也会被删除。`
-      )
-    )
-      return;
+    const ok = await toast.confirm(
+      `确定要删除自定义提供商「${provider.name}」吗？相关配置也会被删除。`
+    );
+    if (!ok) return;
     try {
       const res = await fetch(`/api/ai-models/providers/${provider.id}`, {
         method: "DELETE",
@@ -87,8 +87,9 @@ export default function AIModelsPage() {
       if (!res.ok) throw new Error("删除失败");
       queryClient.invalidateQueries({ queryKey: ["ai-providers"] });
       queryClient.invalidateQueries({ queryKey: ["ai-configs"] });
+      toast.success("提供商已删除");
     } catch {
-      alert("删除失败");
+      toast.error("删除失败");
     }
   };
 

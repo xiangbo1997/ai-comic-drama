@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { Preference } from "./types";
+import { useToast } from "@/components/ui/toast";
 
 interface PreferenceSettingsProps {
   preference: Preference;
@@ -11,6 +12,7 @@ interface PreferenceSettingsProps {
 
 export function PreferenceSettings({ preference }: PreferenceSettingsProps) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [mode, setMode] = useState(preference.concurrencyMode);
   const [maxConcurrent, setMaxConcurrent] = useState(preference.maxConcurrent);
   const [saving, setSaving] = useState(false);
@@ -24,8 +26,9 @@ export function PreferenceSettings({ preference }: PreferenceSettingsProps) {
         body: JSON.stringify({ concurrencyMode: mode, maxConcurrent }),
       });
       queryClient.invalidateQueries({ queryKey: ["ai-preferences"] });
+      toast.success("已保存");
     } catch {
-      alert("保存失败");
+      toast.error("保存失败");
     } finally {
       setSaving(false);
     }

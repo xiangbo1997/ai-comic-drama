@@ -24,6 +24,7 @@ import {
   providerAuthMethods,
 } from "./types";
 import { ModelSelector } from "./ModelSelector";
+import { useToast } from "@/components/ui/toast";
 
 interface ConfigDialogProps {
   provider: AIProvider;
@@ -38,6 +39,7 @@ export function ConfigDialog({
   onClose,
   onSuccess,
 }: ConfigDialogProps) {
+  const toast = useToast();
   const supportedAuth = providerAuthMethods[provider.slug] || [
     "API_KEY" as AuthType,
   ];
@@ -140,7 +142,7 @@ export function ConfigDialog({
         }
         return;
       }
-      alert("请先输入 API Key");
+      toast.warning("请先输入 API Key");
       return;
     }
 
@@ -207,7 +209,7 @@ export function ConfigDialog({
       if (apiKey) {
         body.apiKey = apiKey;
       } else if (!existingConfig) {
-        alert(
+        toast.warning(
           authType === "CHATGPT_TOKEN"
             ? "请输入 Access Token"
             : "请输入 API Key"
@@ -237,8 +239,9 @@ export function ConfigDialog({
       }
 
       onSuccess();
+      toast.success("配置已保存");
     } catch (error) {
-      alert(error instanceof Error ? error.message : "保存失败");
+      toast.error(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
     }

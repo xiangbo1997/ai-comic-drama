@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { AIProvider, UserConfig } from "./types";
+import { useToast } from "@/components/ui/toast";
 
 interface ProviderCardProps {
   provider: AIProvider;
@@ -33,6 +34,7 @@ export function ProviderCard({
   onDeleteProvider,
 }: ProviderCardProps) {
   const [testing, setTesting] = useState(false);
+  const toast = useToast();
 
   const testConnection = async () => {
     if (!config) return;
@@ -43,13 +45,13 @@ export function ProviderCard({
       });
       const data = await res.json();
       if (data.success) {
-        alert(`连接成功！延迟: ${data.latency}ms`);
+        toast.success(`连接成功！延迟: ${data.latency}ms`);
       } else {
-        alert(`连接失败: ${data.message}`);
+        toast.error(`连接失败: ${data.message}`);
       }
       onRefresh();
     } catch {
-      alert("测试失败");
+      toast.error("测试失败");
     } finally {
       setTesting(false);
     }
@@ -64,21 +66,24 @@ export function ProviderCard({
         body: JSON.stringify({ isDefault: true }),
       });
       onRefresh();
+      toast.success("已设为默认");
     } catch {
-      alert("设置失败");
+      toast.error("设置失败");
     }
   };
 
   const deleteConfig = async () => {
     if (!config) return;
-    if (!confirm("确定要删除此配置吗？")) return;
+    const ok = await toast.confirm("确定要删除此配置吗？");
+    if (!ok) return;
     try {
       await fetch(`/api/ai-models/configs/${config.id}`, {
         method: "DELETE",
       });
       onRefresh();
+      toast.success("配置已删除");
     } catch {
-      alert("删除失败");
+      toast.error("删除失败");
     }
   };
 
