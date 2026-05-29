@@ -6,12 +6,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { ProjectListItem } from "@/types";
+import { useToast } from "@/components/ui/toast";
 
 const statusMap = {
-  DRAFT: { label: "草稿", color: "bg-gray-500" },
-  PROCESSING: { label: "生成中", color: "bg-yellow-500" },
-  COMPLETED: { label: "已完成", color: "bg-green-500" },
-  FAILED: { label: "失败", color: "bg-red-500" },
+  DRAFT: { label: "草稿", color: "bg-muted text-muted-foreground" },
+  PROCESSING: { label: "生成中", color: "bg-primary/20 text-primary" },
+  COMPLETED: { label: "已完成", color: "bg-primary text-primary-foreground" },
+  FAILED: { label: "失败", color: "bg-destructive/20 text-destructive" },
 };
 
 async function fetchProjects(): Promise<ProjectListItem[]> {
@@ -42,6 +43,7 @@ async function deleteProject(id: string) {
 export default function ProjectsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const {
@@ -66,13 +68,19 @@ export default function ProjectsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       setDeletingId(null);
+      toast.success("项目已删除");
+    },
+    onError: () => {
+      setDeletingId(null);
+      toast.error("删除失败，请重试");
     },
   });
 
-  const handleDelete = (e: React.MouseEvent, id: string) => {
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (confirm("确定要删除这个项目吗？此操作不可恢复。")) {
+    const ok = await toast.confirm("确定要删除这个项目吗？此操作不可恢复。");
+    if (ok) {
       setDeletingId(id);
       deleteMutation.mutate(id);
     }
@@ -82,13 +90,13 @@ export default function ProjectsPage() {
     <div className="container mx-auto px-6 py-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">我的项目</h1>
-          <p className="mt-1 text-gray-400">创建和管理你的漫剧项目</p>
+          <h1 className="text-foreground text-2xl font-bold">我的项目</h1>
+          <p className="text-muted-foreground mt-1">创建和管理你的漫剧项目</p>
         </div>
         <button
           onClick={() => createMutation.mutate()}
           disabled={createMutation.isPending}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 transition hover:bg-blue-700 disabled:bg-blue-800"
+          className="bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-2 rounded-lg px-4 py-2 font-medium transition disabled:opacity-50"
         >
           {createMutation.isPending ? (
             <Loader2 size={20} className="animate-spin" />
@@ -102,19 +110,19 @@ export default function ProjectsPage() {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 size={32} className="animate-spin text-gray-400" />
+          <Loader2 size={32} className="text-muted-foreground animate-spin" />
         </div>
       )}
 
       {/* Error State */}
       {error && (
         <div className="py-20 text-center">
-          <p className="mb-4 text-red-400">加载失败，请重试</p>
+          <p className="text-destructive mb-4">加载失败，请重试</p>
           <button
             onClick={() =>
               queryClient.invalidateQueries({ queryKey: ["projects"] })
             }
-            className="rounded-lg bg-gray-700 px-4 py-2 hover:bg-gray-600"
+            className="border-border text-foreground hover:bg-secondary rounded-lg border px-4 py-2 transition"
           >
             重新加载
           </button>
@@ -125,12 +133,14 @@ export default function ProjectsPage() {
       {!isLoading && !error && projects?.length === 0 && (
         <div className="py-20 text-center">
           <div className="mb-4 text-6xl">🎬</div>
-          <h2 className="mb-2 text-xl font-semibold">还没有项目</h2>
-          <p className="mb-6 text-gray-400">创建你的第一个漫剧项目吧</p>
+          <h2 className="text-foreground mb-2 text-xl font-semibold">
+            还没有项目
+          </h2>
+          <p className="text-muted-foreground mb-6">创建你的第一个漫剧项目吧</p>
           <button
             onClick={() => createMutation.mutate()}
             disabled={createMutation.isPending}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 hover:bg-blue-700"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center gap-2 rounded-lg px-6 py-3 font-medium transition"
           >
             <Plus size={20} />
             新建项目
@@ -145,10 +155,10 @@ export default function ProjectsPage() {
             <Link
               key={project.id}
               href={`/editor/${project.id}`}
-              className="group relative overflow-hidden rounded-xl bg-gray-800 transition hover:ring-2 hover:ring-blue-500"
+              className="group border-border bg-card hover:ring-primary relative overflow-hidden rounded-xl border transition hover:ring-2"
             >
               {/* Thumbnail */}
-              <div className="relative flex aspect-video items-center justify-center bg-gray-700">
+              <div className="bg-secondary relative flex aspect-video items-center justify-center">
                 {project.thumbnail ? (
                   <img
                     src={project.thumbnail}
@@ -156,14 +166,14 @@ export default function ProjectsPage() {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <span className="text-4xl">🎬</span>
+                  <span className="text-4xl opacity-60">🎬</span>
                 )}
 
                 {/* Delete Button */}
                 <button
                   onClick={(e) => handleDelete(e, project.id)}
                   disabled={deletingId === project.id}
-                  className="absolute top-2 right-2 rounded-lg bg-black/50 p-2 opacity-0 transition group-hover:opacity-100 hover:bg-red-600"
+                  className="hover:bg-destructive absolute top-2 right-2 rounded-lg bg-black/50 p-2 text-white opacity-0 transition group-hover:opacity-100"
                 >
                   {deletingId === project.id ? (
                     <Loader2 size={16} className="animate-spin" />
@@ -176,7 +186,7 @@ export default function ProjectsPage() {
               {/* Info */}
               <div className="p-4">
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="mr-2 flex-1 truncate font-semibold">
+                  <h3 className="text-foreground mr-2 flex-1 truncate font-semibold">
                     {project.title}
                   </h3>
                   <span
@@ -187,7 +197,7 @@ export default function ProjectsPage() {
                     {statusMap[project.status].label}
                   </span>
                 </div>
-                <div className="text-sm text-gray-400">
+                <div className="text-muted-foreground text-sm">
                   {project.scenesCount} 个分镜 ·{" "}
                   {new Date(project.updatedAt).toLocaleDateString("zh-CN")}
                 </div>
@@ -199,14 +209,17 @@ export default function ProjectsPage() {
           <button
             onClick={() => createMutation.mutate()}
             disabled={createMutation.isPending}
-            className="flex aspect-[4/3] flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-700 bg-gray-800/50 transition hover:border-blue-500 disabled:opacity-50"
+            className="border-border bg-card/50 hover:border-primary flex aspect-video flex-col items-center justify-center rounded-xl border-2 border-dashed transition disabled:opacity-50"
           >
             {createMutation.isPending ? (
-              <Loader2 size={40} className="mb-2 animate-spin text-gray-500" />
+              <Loader2
+                size={40}
+                className="text-muted-foreground mb-2 animate-spin"
+              />
             ) : (
-              <Plus size={40} className="mb-2 text-gray-500" />
+              <Plus size={40} className="text-muted-foreground mb-2" />
             )}
-            <span className="text-gray-500">创建新项目</span>
+            <span className="text-muted-foreground">创建新项目</span>
           </button>
         </div>
       )}
