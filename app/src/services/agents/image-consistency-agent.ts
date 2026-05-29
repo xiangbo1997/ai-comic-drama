@@ -11,6 +11,7 @@ import {
   buildReflectionPrompt,
 } from "@/lib/prompts/agent-prompts";
 import { ObserverAgent } from "./observer-agent";
+import { runClosedLoop } from "./closed-loop";
 import { createLogger } from "@/lib/logger";
 import type {
   Agent,
@@ -35,10 +36,17 @@ export class ImageConsistencyAgent implements Agent<
     input: ImageGenerationInput,
     ctx: WorkflowContext
   ): Promise<AgentResult<ImageArtifact>> {
+    const imageConfig = ctx.config.image;
+    if (!imageConfig) {
+      return {
+        success: false,
+        error: "未配置图像生成服务",
+        attempts: 1,
+        tokensUsed: 0,
+      };
+    }
+
     const maxRounds = ctx.config.maxImageReflectionRounds;
-    let totalTokens = 0;
-    let bestResult: ImageArtifact | null = null;
-    let bestScore = 0;
 
     // 构造 SceneCharacterInfo（对接已有 strategy-resolver）
     const sceneCharacters = this.buildSceneCharacters(
@@ -47,147 +55,95 @@ export class ImageConsistencyAgent implements Agent<
       input.existingReferenceImages
     );
 
-    // 使用角色圣经的 canonical prompt 增强场景 prompt
-    let currentPrompt = input.scene.imagePrompt;
+    let totalTokens = 0;
 
-    for (let round = 1; round <= maxRounds + 1; round++) {
-      ctx.emit({
-        type: round === 1 ? "step:started" : "agent:reflection",
-        workflowRunId: ctx.workflowRunId,
-        step: "generate_images",
-        data: {
-          sceneId: input.scene.id,
-          round,
-          message:
-            round === 1
-              ? `正在生成场景 ${input.scene.id} 的图像...`
-              : `图像质量不达标，正在优化提示词（第 ${round} 次）...`,
-        },
-        timestamp: new Date(),
-      });
-
-      try {
-        // 1. 策略选择（复用已有逻辑）
-        const imageConfig = ctx.config.image;
-        if (!imageConfig) {
-          return {
-            success: false,
-            error: "未配置图像生成服务",
-            attempts: round,
-            tokensUsed: totalTokens,
-          };
-        }
-
-        const decision = resolveStrategy(
-          sceneCharacters,
-          currentPrompt,
-          imageConfig,
-          input.scene.shotType
-        );
-
-        // 2. 生成图像
-        const imageUrl = await generateImage({
-          prompt: decision.enhancedPrompt,
-          referenceImage: decision.referenceImageUrl,
-          aspectRatio: "9:16",
-          style: ctx.config.style,
-          config: imageConfig,
-        });
-
-        // 3. Observer 评审
-        const observerResult = await this.observer.run(
-          {
-            contentType: "image",
-            imageUrl,
-            sceneDescription: input.scene.description,
-            characterBible: input.characterBible,
-            expectedEmotion: input.scene.emotion,
-            expectedShotType: input.scene.shotType,
-          },
-          ctx
-        );
-
-        totalTokens += observerResult.tokensUsed;
-
-        const verdict = observerResult.data;
-        if (!verdict) {
-          // Observer 失败，默认接受
-          return {
-            success: true,
-            data: {
-              sceneId: input.scene.id,
-              imageUrl,
-              strategy: decision.strategy,
-              attempts: round,
-            },
-            reasoning: "Observer 不可用，接受当前结果",
-            attempts: round,
-            tokensUsed: totalTokens,
-          };
-        }
-
-        // 记录最佳结果
-        if (verdict.score.overall > bestScore) {
-          bestScore = verdict.score.overall;
-          bestResult = {
-            sceneId: input.scene.id,
-            imageUrl,
-            strategy: decision.strategy,
-            attempts: round,
-            quality: verdict.score,
-          };
-        }
-
-        // 4. 通过检查
-        if (verdict.pass) {
-          log.info(
-            `Scene ${input.scene.id} image passed on round ${round}, score=${verdict.score.overall}`
+    // P3.5：用通用 ReAct 闭环执行器替代原内联循环（行为等价）。
+    // State = 当前 prompt；候选 = { imageUrl, strategy }。
+    const result = await runClosedLoop<
+      { prompt: string },
+      { imageUrl: string; strategy: string }
+    >(
+      {
+        initialState: { prompt: input.scene.imagePrompt },
+        maxRounds,
+        workflowStep: "generate_images",
+        taskLabel: `正在生成场景 ${input.scene.id} 的图像`,
+        generate: async (state) => {
+          const decision = resolveStrategy(
+            sceneCharacters,
+            state.prompt,
+            imageConfig,
+            input.scene.shotType
           );
-          return {
-            success: true,
-            data: bestResult!,
-            reasoning: `图像通过质量评审（评分 ${verdict.score.overall}/100）`,
-            attempts: round,
-            tokensUsed: totalTokens,
-          };
-        }
+          const imageUrl = await generateImage({
+            prompt: decision.enhancedPrompt,
+            referenceImage: decision.referenceImageUrl,
+            aspectRatio: "9:16",
+            style: ctx.config.style,
+            config: imageConfig,
+          });
+          return { imageUrl, strategy: decision.strategy };
+        },
+        evaluate: async (candidate) => {
+          const observerResult = await this.observer.run(
+            {
+              contentType: "image",
+              imageUrl: candidate.imageUrl,
+              sceneDescription: input.scene.description,
+              characterBible: input.characterBible,
+              expectedEmotion: input.scene.emotion,
+              expectedShotType: input.scene.shotType,
+            },
+            ctx
+          );
+          totalTokens += observerResult.tokensUsed;
+          return observerResult.data ?? null;
+        },
+        reflect: async (state, verdict) => {
+          totalTokens += 200; // 粗略估算 reflection token
+          const prompt = await this.reflectAndRefine(
+            state.prompt,
+            verdict.score.feedback ?? "",
+            verdict.suggestions,
+            ctx
+          );
+          return { prompt };
+        },
+      },
+      ctx
+    );
 
-        // 5. 不可重试
-        if (!verdict.retryable || round > maxRounds) {
-          break;
-        }
-
-        // 6. Reflection：优化提示词
-        currentPrompt = await this.reflectAndRefine(
-          currentPrompt,
-          verdict.score.feedback ?? "",
-          verdict.suggestions,
-          ctx
-        );
-        totalTokens += 200; // 粗略估算 reflection token
-      } catch (err) {
-        log.error(
-          `Round ${round} failed: ${err instanceof Error ? err.message : "Unknown"}`
-        );
-        break;
-      }
-    }
-
-    // 返回最佳尝试
-    if (bestResult) {
+    if (!result.best) {
       return {
-        success: true,
-        data: bestResult,
-        reasoning: `使用最佳尝试结果（评分 ${bestScore}/100），Reflection 轮次已用尽`,
-        attempts: maxRounds + 1,
+        success: false,
+        error: "图像生成失败",
+        attempts: result.rounds,
         tokensUsed: totalTokens,
       };
     }
 
+    // 取最优候选对应的 verdict 质量分（若有）
+    const bestRound = result.history.find(
+      (h) => h.candidate.imageUrl === result.best!.imageUrl
+    );
+
+    log.info(
+      `Scene ${input.scene.id} image done: passed=${result.passed}, score=${result.bestScore}, rounds=${result.rounds}`
+    );
+
     return {
-      success: false,
-      error: "图像生成失败",
-      attempts: maxRounds + 1,
+      success: true,
+      data: {
+        sceneId: input.scene.id,
+        imageUrl: result.best.imageUrl,
+        strategy: result.best.strategy,
+        attempts: result.rounds,
+        quality: bestRound?.verdict.score,
+      },
+      reasoning: result.passed
+        ? `图像通过质量评审（评分 ${result.bestScore}/100）`
+        : `使用最佳尝试结果（评分 ${result.bestScore}/100），Reflection 轮次已用尽`,
+      attempts: result.rounds,
       tokensUsed: totalTokens,
     };
   }
