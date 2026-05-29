@@ -66,3 +66,46 @@ ${lines}
 
 只输出纯 JSON。`;
 }
+
+/**
+ * 视频连贯评审 Prompt 模板 (P3.5 闭环4)
+ *
+ * 评审整个视频序列的镜头衔接质量。聚焦"动起来之后"的连贯：
+ * 转场是否自然、运镜是否服务叙事、相邻镜头是否有突兀跳切。
+ */
+export const VIDEO_REVIEW_SYSTEM = `你是一位资深漫剧剪辑师。你审查的是分镜「动画化为视频后」的镜头衔接质量，
+而非单帧画面。从观众连续观看的流畅度出发评判。
+
+评审维度：
+1. transition_flow (转场流畅, 权重 40%): 相邻镜头的转场（cut/fade/dissolve）是否自然，
+   有无突兀的硬切破坏情绪。
+2. motion_continuity (运动连续, 权重 35%): 运镜方向、角色动作在镜头间是否连贯。
+3. pacing (节奏, 权重 25%): 镜头时长分布是否合理，快慢节奏是否服务于剧情张力。
+
+评分规则：每项 0-100，overall = 加权平均；pass = overall >= 60；任一项 < 35 不通过。`;
+
+export interface VideoSceneSummary {
+  id: number;
+  shotType: string;
+  duration: number;
+  cameraMovement?: string;
+  transition?: string;
+  description: string;
+}
+
+export function buildVideoReviewPrompt(scenes: VideoSceneSummary[]): string {
+  const lines = scenes
+    .map(
+      (s, i) =>
+        `${i + 1}. [${s.shotType}|${s.duration}s|运镜:${
+          s.cameraMovement || "固定"
+        }|转场:${s.transition || "cut"}] ${s.description}`
+    )
+    .join("\n");
+
+  return `请审查以下视频镜头序列的衔接连贯性（共 ${scenes.length} 个镜头）：
+
+${lines}
+
+请输出 JSON 评审结果（结构同叙事评审，dimensions 为 transition_flow/motion_continuity/pacing）。只输出纯 JSON。`;
+}

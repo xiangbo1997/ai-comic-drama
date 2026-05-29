@@ -22,5 +22,7 @@ export { REFLECTION_SYSTEM, buildReflectionPrompt } from "./reflection";
 export {
   STORYBOARD_REVIEW_SYSTEM,
   buildStoryboardReviewPrompt,
+  VIDEO_REVIEW_SYSTEM,
+  buildVideoReviewPrompt,
 } from "./narrative-review";
-export type { SceneSummary } from "./narrative-review";
+export type { SceneSummary, VideoSceneSummary } from "./narrative-review";

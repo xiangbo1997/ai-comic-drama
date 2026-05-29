@@ -12,7 +12,10 @@ import { chatCompletion } from "@/services/ai";
 import {
   STORYBOARD_REVIEW_SYSTEM,
   buildStoryboardReviewPrompt,
+  VIDEO_REVIEW_SYSTEM,
+  buildVideoReviewPrompt,
   type SceneSummary,
+  type VideoSceneSummary,
 } from "@/lib/prompts/agent-prompts";
 import { createLogger } from "@/lib/logger";
 import type { ObserverVerdict, WorkflowContext } from "./types";
@@ -40,34 +43,67 @@ function extractJSON(text: string): unknown {
 }
 
 /**
- * 评审分镜序列叙事质量。失败时返回 null（由闭环按 acceptOnEvalFailure 处理）。
+ * 通用的序列级 LLM 评审执行器（闭环3/4 共用）。
+ * 失败时返回 null（由闭环按 acceptOnEvalFailure 处理）。
  */
-export async function reviewStoryboard(
-  scenes: SceneSummary[],
-  ctx: WorkflowContext
+async function runSequenceReview(
+  system: string,
+  userPrompt: string,
+  ctx: WorkflowContext,
+  label: string
 ): Promise<ObserverVerdict | null> {
   if (!ctx.config.llm) return null;
   try {
     const response = await chatCompletion(
       [
-        { role: "system", content: STORYBOARD_REVIEW_SYSTEM },
-        { role: "user", content: buildStoryboardReviewPrompt(scenes) },
+        { role: "system", content: system },
+        { role: "user", content: userPrompt },
       ],
       { temperature: 0.2, maxTokens: 1024, config: ctx.config.llm }
     );
     const parsed = VerdictSchema.safeParse(extractJSON(response));
     if (parsed.success) {
       log.info(
-        `Narrative verdict: pass=${parsed.data.pass}, score=${parsed.data.score.overall}`
+        `${label} verdict: pass=${parsed.data.pass}, score=${parsed.data.score.overall}`
       );
       return parsed.data as ObserverVerdict;
     }
-    log.warn("Narrative review validation failed");
+    log.warn(`${label} review validation failed`);
     return null;
   } catch (err) {
     log.warn(
-      `Narrative review failed: ${err instanceof Error ? err.message : "Unknown"}`
+      `${label} review failed: ${err instanceof Error ? err.message : "Unknown"}`
     );
     return null;
   }
+}
+
+/**
+ * 闭环3：评审分镜序列叙事质量。
+ */
+export async function reviewStoryboard(
+  scenes: SceneSummary[],
+  ctx: WorkflowContext
+): Promise<ObserverVerdict | null> {
+  return runSequenceReview(
+    STORYBOARD_REVIEW_SYSTEM,
+    buildStoryboardReviewPrompt(scenes),
+    ctx,
+    "Narrative"
+  );
+}
+
+/**
+ * 闭环4：评审视频镜头序列衔接连贯性。
+ */
+export async function reviewVideoSequence(
+  scenes: VideoSceneSummary[],
+  ctx: WorkflowContext
+): Promise<ObserverVerdict | null> {
+  return runSequenceReview(
+    VIDEO_REVIEW_SYSTEM,
+    buildVideoReviewPrompt(scenes),
+    ctx,
+    "Video"
+  );
 }
