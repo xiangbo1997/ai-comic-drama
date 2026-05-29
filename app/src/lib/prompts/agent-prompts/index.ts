@@ -18,3 +18,9 @@ export { STORYBOARD_SYSTEM, buildStoryboardPrompt } from "./storyboard";
 export { OBSERVER_SYSTEM, buildImageReviewPrompt } from "./observer";
 
 export { REFLECTION_SYSTEM, buildReflectionPrompt } from "./reflection";
+
+export {
+  STORYBOARD_REVIEW_SYSTEM,
+  buildStoryboardReviewPrompt,
+} from "./narrative-review";
+export type { SceneSummary } from "./narrative-review";

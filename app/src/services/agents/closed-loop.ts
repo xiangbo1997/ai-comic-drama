@@ -16,7 +16,45 @@
  * - history 跨轮记忆：每轮的 verdict 累积传给 reflect，支持"避免重复犯错"
  */
 
-import type { ObserverVerdict, WorkflowContext, WorkflowStep } from "./types";
+import type {
+  ClosedLoopPolicy,
+  ObserverVerdict,
+  WorkflowContext,
+  WorkflowStep,
+} from "./types";
+
+/**
+ * 四闭环默认策略 (P3.5)。
+ * 仅角色一致性默认开启（保持现有行为）；其余三个默认关闭，先上线采集评分数据，
+ * 验证稳定后再逐步开启，符合渐进、可回滚原则。
+ */
+export const DEFAULT_CLOSED_LOOP_POLICIES = {
+  imageConsistency: { enabled: true, maxRounds: 3, passThreshold: 75 },
+  characterBible: { enabled: false, maxRounds: 2, passThreshold: 70 },
+  storyboard: { enabled: false, maxRounds: 2, passThreshold: 70 },
+  videoCoherence: { enabled: false, maxRounds: 1, passThreshold: 60 },
+} as const satisfies Record<string, ClosedLoopPolicy>;
+
+export type ClosedLoopName = keyof typeof DEFAULT_CLOSED_LOOP_POLICIES;
+
+/**
+ * 解析某闭环的最终策略。
+ * 优先级：config.closedLoops[name] > 默认值。
+ * 对 imageConsistency 额外兼容旧字段 maxImageReflectionRounds。
+ */
+export function resolvePolicy(
+  ctx: WorkflowContext,
+  name: ClosedLoopName
+): ClosedLoopPolicy {
+  const fromConfig = ctx.config.closedLoops?.[name];
+  if (fromConfig) return fromConfig;
+
+  const base = DEFAULT_CLOSED_LOOP_POLICIES[name];
+  if (name === "imageConsistency") {
+    return { ...base, maxRounds: ctx.config.maxImageReflectionRounds };
+  }
+  return base;
+}
 
 /** 单轮记录，累积构成跨轮记忆 */
 export interface LoopRound<TOutput> {

@@ -26,6 +26,16 @@ export interface AgentResult<T> {
 
 // ============ Workflow 上下文 ============
 
+/** 单个闭环的策略（P3.5） */
+export interface ClosedLoopPolicy {
+  /** 是否启用此闭环；false 时直接用首轮结果，不做评估/反思 */
+  enabled: boolean;
+  /** 最大反思轮次 */
+  maxRounds: number;
+  /** 通过阈值（0-100） */
+  passThreshold: number;
+}
+
 /** 用户配置的各类 AI 服务 */
 export interface WorkflowConfig {
   llm?: AIServiceConfig;
@@ -34,7 +44,7 @@ export interface WorkflowConfig {
   tts?: AIServiceConfig;
   /** 全自动 or 逐步确认 */
   mode: "auto" | "step_by_step";
-  /** 图像 Reflection 最大轮次 */
+  /** 图像 Reflection 最大轮次（向后兼容；closedLoops.imageConsistency 存在时优先） */
   maxImageReflectionRounds: number;
   /** 图像生成风格 */
   style: string;
@@ -46,6 +56,17 @@ export interface WorkflowConfig {
     negativePreset?: string;
     customNegative?: string;
   };
+  /** P3.5：四闭环策略（可选，缺省用 DEFAULT_CLOSED_LOOP_POLICIES） */
+  closedLoops?: {
+    imageConsistency?: ClosedLoopPolicy;
+    characterBible?: ClosedLoopPolicy;
+    storyboard?: ClosedLoopPolicy;
+    videoCoherence?: ClosedLoopPolicy;
+  };
+  /** P3.5：全局重试预算（所有闭环合计的额外生成次数上限），防成本失控 */
+  globalRetryBudget?: number;
+  /** P3.5：全局 token 预算，超限后闭环强制跳过反思 */
+  globalTokenBudget?: number;
 }
 
 /** Workflow 运行时上下文 */
@@ -102,10 +123,13 @@ export interface ArtifactStore {
 export type WorkflowStep =
   | "parse_script"
   | "build_character_bible"
+  | "review_character_bible"
   | "build_storyboard"
+  | "review_storyboard"
   | "generate_images"
   | "review_images"
   | "generate_videos"
+  | "review_videos"
   | "synthesize_voice"
   | "export_project";
 

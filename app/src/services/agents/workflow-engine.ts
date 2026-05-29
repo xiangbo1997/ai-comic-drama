@@ -18,6 +18,8 @@ import { ScriptParserAgent } from "./script-parser-agent";
 import { CharacterBibleAgent } from "./character-bible-agent";
 import { StoryboardAgent } from "./storyboard-agent";
 import { ImageConsistencyAgent } from "./image-consistency-agent";
+import { reviewStoryboard } from "./narrative-observer";
+import { resolvePolicy } from "./closed-loop";
 import { generateVideo, synthesizeSpeech } from "@/services/ai";
 import { InMemoryArtifactStore } from "./artifact-store";
 import {
@@ -230,6 +232,9 @@ async function executeWorkflow(
       createdBy: "storyboard",
       createdAt: new Date(),
     });
+
+    // ===== 闭环3：叙事连贯评审（P3.5，默认关闭，开启后评分并记录） =====
+    await reviewStoryboardCoherence(storyboard, ctx);
 
     // ===== Step 4: 图像生成（Fan-out per scene） =====
     if (config.image) {
@@ -628,6 +633,51 @@ async function executeMediaGeneration(
     data: { message: "视频和配音生成完成" },
     timestamp: new Date(),
   });
+}
+
+/**
+ * 闭环3：叙事连贯评审 (P3.5)。
+ *
+ * 默认关闭（采数据模式）。开启后从导演视角评审整个分镜序列的叙事质量，
+ * 把评分通过 SSE 事件记录下来，供后续决定是否触发分镜重生成。
+ *
+ * 当前版本只评分不重生成（重生成整套分镜成本高，待数据验证后再开启完整闭环）。
+ */
+async function reviewStoryboardCoherence(
+  storyboard: StoryboardArtifact,
+  ctx: WorkflowContext
+): Promise<void> {
+  const policy = resolvePolicy(ctx, "storyboard");
+  if (!policy.enabled) return;
+
+  const summaries = storyboard.scenes.map((s) => ({
+    id: s.id,
+    shotType: s.shotType,
+    emotion: s.emotion,
+    characters: s.characters,
+    description: s.description,
+  }));
+
+  const verdict = await reviewStoryboard(summaries, ctx);
+  if (!verdict) return;
+
+  emitEvent({
+    type: "step:completed",
+    workflowRunId: ctx.workflowRunId,
+    step: "review_storyboard",
+    data: {
+      pass: verdict.pass,
+      score: verdict.score.overall,
+      passThreshold: policy.passThreshold,
+      feedback: verdict.score.feedback,
+      suggestions: verdict.suggestions,
+    },
+    timestamp: new Date(),
+  });
+
+  log.info(
+    `Storyboard narrative review: score=${verdict.score.overall}, pass=${verdict.pass}`
+  );
 }
 
 // ============ 数据库辅助 ============
