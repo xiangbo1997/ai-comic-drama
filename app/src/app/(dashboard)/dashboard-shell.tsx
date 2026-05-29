@@ -21,9 +21,9 @@ export default function DashboardShell({
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="bg-background text-foreground min-h-screen">
       {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4">
+      <header className="border-border border-b px-6 py-4">
         <div className="container mx-auto flex items-center justify-between">
           <div className="flex items-center gap-8">
             <Link
@@ -31,7 +31,7 @@ export default function DashboardShell({
               className="flex items-center gap-2 text-xl font-bold"
             >
               <span className="text-2xl">🎬</span>
-              AI 漫剧
+              AI 漫剧<span className="text-primary">工作台</span>
             </Link>
             <nav className="hidden items-center gap-1 md:flex">
               {navItems.map((item) => {
@@ -43,8 +43,8 @@ export default function DashboardShell({
                     href={item.href}
                     className={`flex items-center gap-2 rounded-lg px-4 py-2 transition ${
                       isActive
-                        ? "bg-gray-800 text-white"
-                        : "text-gray-400 hover:bg-gray-800/50 hover:text-white"
+                        ? "bg-secondary text-foreground"
+                        : "text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
                     }`}
                   >
                     <Icon size={18} />
@@ -62,7 +62,7 @@ export default function DashboardShell({
       </header>
 
       {/* Mobile Nav */}
-      <nav className="flex justify-around border-b border-gray-800 px-4 py-2 md:hidden">
+      <nav className="border-border flex justify-around border-b px-4 py-2 md:hidden">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname.startsWith(item.href);
@@ -71,7 +71,7 @@ export default function DashboardShell({
               key={item.href}
               href={item.href}
               className={`flex flex-col items-center gap-1 rounded-lg px-4 py-2 transition ${
-                isActive ? "text-blue-500" : "text-gray-400"
+                isActive ? "text-primary" : "text-muted-foreground"
               }`}
             >
               <Icon size={20} />

@@ -23,9 +23,11 @@ import { CharacterCard } from "./components/CharacterCard";
 import { CreateCharacterModal } from "./components/CreateCharacterModal";
 import { TagManagerModal } from "./components/TagManagerModal";
 import { GenerateReferenceModal } from "./components/GenerateReferenceModal";
+import { useToast } from "@/components/ui/toast";
 
 export default function CharactersPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -76,7 +78,8 @@ export default function CharactersPage() {
   };
 
   const handleDeleteImage = async (characterId: string, imageIndex: number) => {
-    if (!confirm("确定要删除这张图片吗?")) return;
+    const ok = await toast.confirm("确定要删除这张图片吗？");
+    if (!ok) return;
     try {
       const res = await fetch(
         `/api/characters/${characterId}/images?index=${imageIndex}`,
@@ -94,9 +97,10 @@ export default function CharactersPage() {
         return newIndices;
       });
       queryClient.invalidateQueries({ queryKey: ["characters"] });
+      toast.success("图片已删除");
     } catch (error) {
       console.error("Delete image error:", error);
-      alert(error instanceof Error ? error.message : "删除失败");
+      toast.error(error instanceof Error ? error.message : "删除失败");
     }
   };
 
@@ -242,7 +246,7 @@ export default function CharactersPage() {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
     },
     onError: (error) => {
-      alert(error instanceof Error ? error.message : "生成参考图失败");
+      toast.error(error instanceof Error ? error.message : "生成参考图失败");
     },
     onSettled: () => {
       setUploadingBaseImageId(null);
@@ -267,8 +271,9 @@ export default function CharactersPage() {
     createMutation.mutate(payload);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("确定要删除这个角色吗？")) {
+  const handleDelete = async (id: string) => {
+    const ok = await toast.confirm("确定要删除这个角色吗？");
+    if (ok) {
       deleteMutation.mutate(id);
     }
   };
@@ -304,22 +309,22 @@ export default function CharactersPage() {
     <div className="container mx-auto px-6 py-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">角色库</h1>
-          <p className="mt-1 text-gray-400">
+          <h1 className="text-foreground text-2xl font-bold">角色库</h1>
+          <p className="text-muted-foreground mt-1">
             管理你的角色，确保生成时保持一致性
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowTagManager(true)}
-            className="flex items-center gap-2 rounded-lg bg-gray-700 px-4 py-2 transition hover:bg-gray-600"
+            className="border-border text-foreground hover:bg-secondary flex items-center gap-2 rounded-lg border px-4 py-2 transition"
           >
             <Settings size={18} />
             管理标签
           </button>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 transition hover:bg-blue-700"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 flex items-center gap-2 rounded-lg px-4 py-2 font-medium transition"
           >
             <Plus size={20} />
             创建角色
@@ -337,20 +342,22 @@ export default function CharactersPage() {
 
       {isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 size={32} className="animate-spin text-gray-400" />
+          <Loader2 size={32} className="text-muted-foreground animate-spin" />
         </div>
       )}
 
       {!isLoading && characters?.length === 0 && (
         <div className="py-20 text-center">
           <div className="mb-4 text-6xl">👤</div>
-          <h2 className="mb-2 text-xl font-semibold">还没有角色</h2>
-          <p className="mb-6 text-gray-400">
+          <h2 className="text-foreground mb-2 text-xl font-semibold">
+            还没有角色
+          </h2>
+          <p className="text-muted-foreground mb-6">
             创建角色卡，让 AI 生成时保持角色一致性
           </p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 hover:bg-blue-700"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center gap-2 rounded-lg px-6 py-3 font-medium transition"
           >
             <Plus size={20} />
             创建角色
