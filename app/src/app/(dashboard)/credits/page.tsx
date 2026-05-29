@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useToast } from "@/components/ui/toast";
 
 interface PaymentMethod {
   id: string;
@@ -144,6 +145,7 @@ async function checkOrderStatus(orderNo: string) {
 
 export default function CreditsPage() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [copied, setCopied] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<{
@@ -219,7 +221,7 @@ export default function CreditsPage() {
           setPaymentResult(null);
           setSelectedProduct(null);
           queryClient.invalidateQueries({ queryKey: ["credits"] });
-          alert(`支付成功！获得 ${order.credits} 积分`);
+          toast.success(`支付成功！获得 ${order.credits} 积分`);
         }
       } catch (error) {
         console.error("Check order error:", error);
