@@ -319,9 +319,9 @@ export default function EditorPage() {
 
       {/* Preview Dialog */}
       {showPreviewDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80">
-          <div className="bg-background flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl">
-            <div className="border-border flex items-center justify-between border-b px-6 py-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="bg-background flex h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl">
+            <div className="border-border flex shrink-0 items-center justify-between border-b px-6 py-4">
               <h2 className="text-xl font-semibold">预览播放</h2>
               <button
                 onClick={() => setShowPreviewDialog(false)}
@@ -330,7 +330,7 @@ export default function EditorPage() {
                 <X size={20} />
               </button>
             </div>
-            <div className="flex min-h-0 flex-1 p-6">
+            <div className="flex min-h-0 flex-1 p-4">
               <PreviewPlayer
                 scenes={project.scenes}
                 aspectRatio={project.aspectRatio}
