@@ -149,28 +149,27 @@ export function PreviewPlayer({
   };
 
   if (scenes.length === 0) {
+    const emptyAspect =
+      aspectRatio === "9:16"
+        ? "aspect-[9/16]"
+        : aspectRatio === "1:1"
+          ? "aspect-square"
+          : "aspect-video";
     return (
-      <div className="bg-card flex aspect-video items-center justify-center rounded-xl">
+      <div
+        className={`bg-card flex ${emptyAspect} items-center justify-center rounded-xl`}
+      >
         <p className="text-muted-foreground">暂无可预览的内容</p>
       </div>
     );
   }
 
-  // 竖屏(9:16)时限制媒体区最大宽度，避免横向过宽导致视频被高度压得很小
-  const mediaMaxWidth =
-    aspectRatio === "9:16"
-      ? "max-w-[calc(56.25vh)]" // 9/16 ≈ 0.5625，按可用高度反推宽度上限
-      : aspectRatio === "1:1"
-        ? "max-w-[calc(80vh)]"
-        : "max-w-full";
-
   return (
     <div className="bg-card flex h-full w-full flex-col overflow-hidden rounded-xl">
-      {/* Video/Image Display — 填充可用高度，视频按比例 object-contain 内缩，
-          竖屏(9:16)也不会撑爆弹窗；控制条始终可见 */}
-      <div
-        className={`relative mx-auto flex min-h-0 w-full flex-1 items-center justify-center bg-black ${mediaMaxWidth}`}
-      >
+      {/* Video/Image Display — flex-1 占据除控制条外的剩余高度，min-h-0 允许收缩；
+          视频/图片用 object-contain 在其中按比例内缩居中，竖屏也完整可见。
+          aspectRatio 用于无媒体时的占位提示。 */}
+      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
         {currentScene?.videoUrl ? (
           <video
             ref={videoRef}
@@ -212,8 +211,8 @@ export function PreviewPlayer({
         </div>
       </div>
 
-      {/* Controls */}
-      <div className="space-y-3 p-4">
+      {/* Controls — shrink-0 确保控制条永不被媒体区挤出可视区 */}
+      <div className="shrink-0 space-y-3 p-4">
         {/* Progress Bar */}
         <div className="flex items-center gap-3">
           <span className="text-muted-foreground w-10 text-xs">
