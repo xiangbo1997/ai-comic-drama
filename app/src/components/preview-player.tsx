@@ -156,18 +156,20 @@ export function PreviewPlayer({
     );
   }
 
-  const aspectClass =
+  // 竖屏(9:16)时限制媒体区最大宽度，避免横向过宽导致视频被高度压得很小
+  const mediaMaxWidth =
     aspectRatio === "9:16"
-      ? "aspect-[9/16]"
+      ? "max-w-[calc(56.25vh)]" // 9/16 ≈ 0.5625，按可用高度反推宽度上限
       : aspectRatio === "1:1"
-        ? "aspect-square"
-        : "aspect-video";
+        ? "max-w-[calc(80vh)]"
+        : "max-w-full";
 
   return (
-    <div className="bg-card overflow-hidden rounded-xl">
-      {/* Video/Image Display */}
+    <div className="bg-card flex h-full w-full flex-col overflow-hidden rounded-xl">
+      {/* Video/Image Display — 填充可用高度，视频按比例 object-contain 内缩，
+          竖屏(9:16)也不会撑爆弹窗；控制条始终可见 */}
       <div
-        className={`relative ${aspectClass} flex items-center justify-center bg-black`}
+        className={`relative mx-auto flex min-h-0 w-full flex-1 items-center justify-center bg-black ${mediaMaxWidth}`}
       >
         {currentScene?.videoUrl ? (
           <video

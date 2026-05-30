@@ -330,7 +330,7 @@ export default function EditorPage() {
                 <X size={20} />
               </button>
             </div>
-            <div className="flex-1 overflow-auto p-6">
+            <div className="flex min-h-0 flex-1 p-6">
               <PreviewPlayer
                 scenes={project.scenes}
                 aspectRatio={project.aspectRatio}
