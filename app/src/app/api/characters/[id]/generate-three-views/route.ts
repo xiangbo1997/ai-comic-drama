@@ -189,6 +189,23 @@ async function runThreeViewsTask(
           );
         }
       }
+
+      // 同步追加到旧 referenceImages 数组（角色卡 UI 读此字段，保持全局一致）。
+      // 读最新值再追加，避免覆盖已有图片。
+      const current = await tx.character.findUnique({
+        where: { id: characterId },
+        select: { referenceImages: true },
+      });
+      await tx.character.update({
+        where: { id: characterId },
+        data: {
+          referenceImages: [
+            ...(current?.referenceImages ?? []),
+            ...results.map((r) => r.url),
+          ],
+        },
+      });
+
       await chargeCredits(tx, {
         userId,
         amount: THREE_VIEW_COST,
