@@ -13,6 +13,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { CharacterListItem, Tag } from "@/types";
+import { extractThreeViews, type ThreeViewPose } from "@/lib/three-views";
 import { AppearanceEditor } from "@/components/appearance-editor";
 import type { AppearanceFormData } from "@/components/appearance-editor";
 import { VOICE_PRESETS, type CharacterFormData } from "./constants";
@@ -148,6 +149,9 @@ export function CharacterCard({
           </button>
         </div>
       </div>
+
+      {/* 三视图三联展示（防生成崩坏的转面图，与普通参考图区分） */}
+      <ThreeViewStrip character={character} />
 
       {/* Info */}
       <div className="p-4">
@@ -414,5 +418,57 @@ function CharacterViewInfo({
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * 三视图三联展示：把 front/side/back 三张转面图独立横排展示，
+ * 与普通参考图轮播区分，一眼看出是角色定妆/锁形象图。
+ * 无三视图（任一角度缺失）时不渲染。
+ */
+function ThreeViewStrip({ character }: { character: CharacterListItem }) {
+  const views = extractThreeViews(character.referenceAssets);
+  const items: { pose: ThreeViewPose; label: string; url?: string }[] = [
+    { pose: "front", label: "正面", url: views.front },
+    { pose: "side", label: "侧面", url: views.side },
+    { pose: "back", label: "背面", url: views.back },
+  ];
+
+  // 三个角度都没有就不显示
+  if (!items.some((it) => it.url)) return null;
+
+  return (
+    <div className="border-border border-t px-4 py-3">
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className="text-muted-foreground text-xs font-medium">
+          角色三视图
+        </span>
+        <span className="text-muted-foreground/60 text-[10px]">
+          锁形象 · 生视频自动多参考
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {items.map((it) => (
+          <div key={it.pose} className="space-y-1">
+            <div className="bg-secondary relative aspect-square overflow-hidden rounded-lg">
+              {it.url ? (
+                <img
+                  src={it.url}
+                  alt={it.label}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="text-muted-foreground/50 flex h-full w-full items-center justify-center text-[10px]">
+                  缺{it.label}
+                </div>
+              )}
+            </div>
+            <p className="text-muted-foreground text-center text-[10px]">
+              {it.label}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Scene, ProjectDetail } from "@/types";
 import { buildFinalPrompt } from "@/lib/prompt-builder";
+import { getThreeViewUrls } from "@/lib/three-views";
 import { apiUpdateScene } from "./use-editor-project";
 
 export interface GenerateImageResult {
@@ -63,9 +64,28 @@ async function generateSceneImage(
  * 无参考图。现在统一走 `buildFinalPrompt`，并把 `referenceImage` 传给服务端激活 orchestrator
  * 的 reference_edit 策略。
  */
+/**
+ * 收集单个角色的参考图：优先三视图（front/side/back 多角度锁形象），
+ * 再追加定妆照兜底；去重。无三视图则回落到 referenceImages[0]。
+ */
+function collectCharacterRefs(character: {
+  referenceImages?: string[];
+  referenceAssets?: { url: string; pose?: string | null; createdAt?: string }[];
+}): string[] {
+  const urls: string[] = [];
+  // 三视图（多角度参考，放前面优先喂给模型）
+  for (const url of getThreeViewUrls(character.referenceAssets)) {
+    if (!urls.includes(url)) urls.push(url);
+  }
+  // 定妆照兜底（referenceImages[0]）
+  const canonical = character.referenceImages?.[0];
+  if (canonical && !urls.includes(canonical)) urls.push(canonical);
+  return urls;
+}
+
 function derivePromptInputs(scene: Scene, project: ProjectDetail | undefined) {
-  // 多角色场景：优先 selectedCharacterIds[] -> 映射 project.characters 的首张参考图
-  // 单角色场景：fallback 到 scene.selectedCharacter.referenceImages[0]
+  // 多角色场景：优先 selectedCharacterIds[] -> 映射 project.characters
+  // 单角色场景：fallback 到 scene.selectedCharacter
   const projectCharMap = new Map(
     (project?.characters ?? []).map(({ character }) => [
       character.id,
@@ -73,13 +93,19 @@ function derivePromptInputs(scene: Scene, project: ProjectDetail | undefined) {
     ])
   );
 
+  // 每个选中角色收集其三视图+定妆照（充分利用三视图锁形象）
   const multiRefs = (scene.selectedCharacterIds ?? [])
-    .map((id) => projectCharMap.get(id)?.referenceImages?.[0])
-    .filter((url): url is string => Boolean(url));
+    .map((id) => projectCharMap.get(id))
+    .filter((c): c is NonNullable<typeof c> => Boolean(c))
+    .flatMap((c) => collectCharacterRefs(c));
 
-  const singleRef = scene.selectedCharacter?.referenceImages?.[0];
-  const referenceImageUrls =
-    multiRefs.length > 0 ? multiRefs : singleRef ? [singleRef] : undefined;
+  const singleChar = scene.selectedCharacter;
+  const singleRefs = singleChar ? collectCharacterRefs(singleChar) : [];
+
+  const collected = multiRefs.length > 0 ? multiRefs : singleRefs;
+  const referenceImageUrls = collected.length > 0 ? collected : undefined;
+  // 单图字段保持兼容（取首张，通常是三视图正面或定妆照）
+  const singleRef = collected[0];
 
   return buildFinalPrompt({
     style: project?.style,

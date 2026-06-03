@@ -55,6 +55,10 @@ export async function GET(request: NextRequest) {
           },
         },
         appearance: true,
+        // 三视图等参考资产（供独立三联展示与生视频多参考）
+        referenceAssets: {
+          orderBy: { createdAt: "desc" },
+        },
       },
       orderBy: { updatedAt: "desc" },
     });

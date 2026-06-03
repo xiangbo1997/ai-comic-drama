@@ -11,6 +11,8 @@ export interface Character {
   description: string | null;
   voiceId: string | null;
   referenceImages: string[];
+  /** 参考图资产（含三视图 pose），生视频多参考用；老数据为 undefined */
+  referenceAssets?: CharacterReferenceAsset[];
 }
 
 /** 角色列表项（角色管理页使用，含额外字段） */
@@ -19,6 +21,8 @@ export interface CharacterListItem extends Character {
   createdAt: string;
   tags?: CharacterTag[];
   appearance?: CharacterAppearance | null;
+  /** 参考图资产（含三视图 pose=front/side/back），用于独立三联展示与生视频多参考 */
+  referenceAssets?: CharacterReferenceAsset[];
 }
 
 /** 角色标签关联 */

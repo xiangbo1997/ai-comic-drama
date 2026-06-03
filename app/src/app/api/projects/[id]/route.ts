@@ -45,7 +45,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         },
         characters: {
           include: {
-            character: true,
+            character: {
+              include: {
+                // 三视图等参考资产，供生视频多参考锁形象
+                referenceAssets: {
+                  orderBy: { createdAt: "desc" },
+                },
+              },
+            },
           },
         },
       },
