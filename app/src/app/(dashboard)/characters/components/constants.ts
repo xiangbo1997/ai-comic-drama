@@ -124,21 +124,48 @@ export async function generateReference(
   return res.json();
 }
 
-/** 一键生成角色三视图（正/侧/背，防生成崩坏），扣 9 积分 */
+/**
+ * 一键生成角色三视图（正/侧/背，防生成崩坏），扣 9 积分。
+ *
+ * 异步化（绕开 Cloudflare 100s 超时）：POST 拿 taskId → 轮询任务状态。
+ */
 export async function generateThreeViews(
   id: string,
   options: { imageConfigId?: string } = {}
 ): Promise<{ views: { pose: string; url: string }[]; cost: number }> {
-  const res = await fetch(`/api/characters/${id}/generate-three-views`, {
+  const startRes = await fetch(`/api/characters/${id}/generate-three-views`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(options),
   });
-  if (!res.ok) {
-    const error = await res.json().catch(() => null);
+  if (!startRes.ok) {
+    const error = await startRes.json().catch(() => null);
     throw new Error(error?.error || "生成三视图失败");
   }
-  return res.json();
+  const { taskId } = (await startRes.json()) as { taskId: string };
+
+  // 轮询：3 张串行生图，给足 3 分钟（90 × 2s）
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_POLLS = 90;
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    const pollRes = await fetch(
+      `/api/characters/${id}/generate-three-views/${taskId}`
+    );
+    if (!pollRes.ok) {
+      const error = await pollRes.json().catch(() => null);
+      throw new Error(error?.error || "轮询三视图状态失败");
+    }
+    const data = (await pollRes.json()) as {
+      status: string;
+      result?: { views: { pose: string; url: string }[]; cost: number };
+      error?: string;
+    };
+    if (data.status === "COMPLETED" && data.result) return data.result;
+    if (data.status === "FAILED")
+      throw new Error(data.error || "生成三视图失败");
+  }
+  throw new Error("生成超时，请稍后刷新角色查看");
 }
 
 export async function fetchTags(): Promise<Tag[]> {
