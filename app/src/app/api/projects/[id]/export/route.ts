@@ -174,7 +174,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       userId: session.user.id,
       projectTitle: project.title,
       format,
-    }).catch(console.error);
+    }).catch((err) => log.error("后台导出任务失败:", err));
 
     return NextResponse.json({
       taskId: task.id,

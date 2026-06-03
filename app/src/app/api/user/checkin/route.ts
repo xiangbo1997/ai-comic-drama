@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { grantCredits } from "@/lib/credits";
 import { NextResponse } from "next/server";
 
 import { createLogger } from "@/lib/logger";
@@ -116,24 +117,29 @@ export async function POST() {
       );
     }
 
-    // 创建签到记录并增加积分
-    await prisma.$transaction([
-      prisma.checkin.create({
+    // 创建签到记录并增加积分（同一事务内，经统一积分服务记流水）
+    const userId = session.user.id;
+    await prisma.$transaction(async (tx) => {
+      await tx.checkin.create({
         data: {
-          userId: session.user.id,
+          userId,
           date: today,
           credits: CHECKIN_CREDITS,
         },
-      }),
-      prisma.user.update({
-        where: { id: session.user.id },
-        data: { credits: { increment: CHECKIN_CREDITS } },
-      }),
-    ]);
+      });
+      await grantCredits(tx, {
+        userId,
+        amount: CHECKIN_CREDITS,
+        type: "CHECKIN",
+        source: "checkin",
+        sourceId: today.toISOString().split("T")[0],
+        note: "每日签到奖励",
+      });
+    });
 
     // 获取更新后的积分
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: userId },
       select: { credits: true },
     });
 

@@ -3,6 +3,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { grantCredits } from "@/lib/credits";
 import { cookies } from "next/headers";
 
 import { createLogger } from "@/lib/logger";
@@ -111,28 +112,32 @@ export async function registerUser(
         });
 
         if (inviter && inviter.id !== user.id) {
-          // 更新被邀请人
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { invitedBy: inviter.id },
-          });
+          // 邀请处理三步包进同一事务，保证原子：更新被邀请人 + 创建邀请记录 + 给邀请人发奖励（经统一积分服务记流水）
+          await prisma.$transaction(async (tx) => {
+            await tx.user.update({
+              where: { id: user.id },
+              data: { invitedBy: inviter.id },
+            });
 
-          // 创建邀请记录
-          await prisma.invitation.create({
-            data: {
-              inviterId: inviter.id,
-              inviteeId: user.id,
-              inviteeEmail: user.email,
-              credits: INVITE_REWARD,
-              status: "COMPLETED",
-              completedAt: new Date(),
-            },
-          });
+            await tx.invitation.create({
+              data: {
+                inviterId: inviter.id,
+                inviteeId: user.id,
+                inviteeEmail: user.email,
+                credits: INVITE_REWARD,
+                status: "COMPLETED",
+                completedAt: new Date(),
+              },
+            });
 
-          // 给邀请人增加积分
-          await prisma.user.update({
-            where: { id: inviter.id },
-            data: { credits: { increment: INVITE_REWARD } },
+            await grantCredits(tx, {
+              userId: inviter.id,
+              amount: INVITE_REWARD,
+              type: "INVITE",
+              source: "invite",
+              sourceId: user.id,
+              note: "邀请新用户注册奖励",
+            });
           });
         }
       }

@@ -19,8 +19,8 @@ export type ChargeType =
   | "GENERATE_TTS"
   | "GENERATE_REFERENCE";
 
-/** 发放类型（充值/订阅） */
-export type GrantType = "PAYMENT" | "SUBSCRIPTION";
+/** 发放类型（充值/订阅/签到/邀请奖励） */
+export type GrantType = "PAYMENT" | "SUBSCRIPTION" | "CHECKIN" | "INVITE";
 
 /**
  * 积分不足异常

@@ -1,10 +1,26 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { encrypt, maskApiKey } from "@/lib/encryption";
+import { encrypt, decrypt, maskApiKey } from "@/lib/encryption";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs");
+
+/**
+ * 解密 API Key 后掩码展示；单条解密失败（如密钥轮换/密文损坏）不影响整体列表，返回占位掩码。
+ */
+function maskDecryptedKey(
+  apiKey: string | null,
+  apiKeyIv: string | null
+): string | null {
+  if (!apiKey || !apiKeyIv) return null;
+  try {
+    return maskApiKey(decrypt(apiKey, apiKeyIv));
+  } catch (error) {
+    log.error("解密 API Key 失败，返回占位掩码:", error);
+    return "****";
+  }
+}
 
 // GET /api/ai-models/configs - 获取用户的所有 AI 配置
 export async function GET() {
@@ -41,9 +57,8 @@ export async function GET() {
       testStatus: config.testStatus,
       lastTestedAt: config.lastTestedAt,
       hasApiKey: !!config.apiKey,
-      apiKeyMasked: config.apiKey
-        ? maskApiKey(config.apiKey.slice(0, 20))
-        : null,
+      // 先解密再掩码：展示真实 Key 的首尾若干位（旧实现误对密文掩码，无意义）
+      apiKeyMasked: maskDecryptedKey(config.apiKey, config.apiKeyIv),
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     }));
