@@ -124,6 +124,23 @@ export async function generateReference(
   return res.json();
 }
 
+/** 一键生成角色三视图（正/侧/背，防生成崩坏），扣 9 积分 */
+export async function generateThreeViews(
+  id: string,
+  options: { imageConfigId?: string } = {}
+): Promise<{ views: { pose: string; url: string }[]; cost: number }> {
+  const res = await fetch(`/api/characters/${id}/generate-three-views`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(error?.error || "生成三视图失败");
+  }
+  return res.json();
+}
+
 export async function fetchTags(): Promise<Tag[]> {
   const res = await fetch("/api/tags");
   if (!res.ok) throw new Error("Failed to fetch tags");

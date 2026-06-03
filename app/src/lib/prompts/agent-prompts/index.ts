@@ -9,6 +9,18 @@ export {
 } from "./script-parser";
 
 export {
+  DRAMA_SCRIPT_SYSTEM,
+  buildDramaScriptUserPrompt,
+  buildDramaScriptRepairPrompt,
+} from "./drama-script";
+
+export {
+  STORYBOARD_TABLE_SYSTEM,
+  buildStoryboardTableUserPrompt,
+  buildStoryboardTableRepairPrompt,
+} from "./storyboard-table";
+
+export {
   CHARACTER_BIBLE_SYSTEM,
   buildCharacterBiblePrompt,
 } from "./character-bible";

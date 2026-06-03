@@ -127,6 +127,34 @@ model Project {
   scenes       Scene[]
   characters   ProjectCharacter[]
   workflowRuns WorkflowRun[]
+  shortDramaScripts ShortDramaScript[]
+}
+
+// 短剧创作脚本：承载「世界观→结构化脚本」+「九宫格分镜表」+「一键九宫格图」
+// 与 Scene（一镜一图的执行单元）解耦，作为可反复打磨的创作态草稿
+model ShortDramaScript {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // 结构化脚本元信息（创作者可打磨）
+  filmTitle    String?  // 片名
+  genre        String?  // 类型
+  durationSec  Int      @default(90) // 时长（秒）
+  aspectRatio  String   @default("9:16") // 画幅
+  style        String   @default("anime") // 风格
+  protagonist  String?  @db.Text // 主角身份
+  worldview    String?  @db.Text // 世界观
+
+  scriptDoc    Json     @default("{}") // 阶段1：结构化脚本主体（分场景）
+  storyboard   Json?    // 阶段2：九宫格分镜表 9 格
+  gridImageUrl String?  // 阶段3：一键九宫格合成图 URL
+
+  version      Int      @default(1) // 打磨版本号
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 enum ProjectStatus {

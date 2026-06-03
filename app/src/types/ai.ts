@@ -58,7 +58,7 @@ export interface ImageGenerationOptions {
 export interface VideoGenerationOptions {
   imageUrl: string;
   prompt?: string;
-  duration?: 5 | 10;
+  duration?: 5 | 10 | 15;
   /** 画幅；与图像端一致，便于 i2v provider 路由（flow2api/Veo 横/竖屏）。 */
   aspectRatio?: "1:1" | "9:16" | "16:9";
   /** 参考图 URL 列表（首尾帧 / R2V 多参考图；目前 flow2api-video 使用） */

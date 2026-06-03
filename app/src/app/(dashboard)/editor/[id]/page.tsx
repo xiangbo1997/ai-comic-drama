@@ -14,6 +14,7 @@ import {
 } from "./hooks/use-generation-actions";
 import { EditorHeader } from "./components/EditorHeader";
 import { ScriptPanel } from "./components/ScriptPanel";
+import { DramaScriptPanel } from "./components/DramaScriptPanel";
 import { SceneList } from "./components/SceneList";
 import { SceneEditor } from "./components/SceneEditor";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -241,6 +242,13 @@ export default function EditorPage() {
             workflow.start(editor.inputText, { style: project.style })
           }
           isWorkflowRunning={workflow.isRunning}
+          dramaScriptSlot={
+            <DramaScriptPanel
+              projectId={projectId}
+              project={project}
+              onApplyAsInput={editor.setInputText}
+            />
+          }
         />
 
         <SceneList

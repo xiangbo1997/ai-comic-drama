@@ -158,7 +158,8 @@ export function useGenerationActions(
         body: JSON.stringify({
           imageUrl: scene.imageUrl,
           prompt: scene.description,
-          duration: scene.duration > 5 ? 10 : 5,
+          // 按场景时长分档映射到 provider 支持的 5/10/15s（15s 适配 Seedance 2.0 直出）
+          duration: scene.duration > 10 ? 15 : scene.duration > 5 ? 10 : 5,
           aspectRatio,
           referenceImages,
           projectId,

@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Wand2, Upload, X } from "lucide-react";
+import { Loader2, Wand2, Upload, X, Grid2x2 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { CharacterListItem } from "@/types";
 import type { GenerateOptions } from "./constants";
@@ -14,6 +14,9 @@ interface GenerateReferenceModalProps {
   onClose: () => void;
   onGenerate: () => void;
   generatePending: boolean;
+  /** 一键三视图（正/侧/背，防崩坏），由父组件注入 mutation */
+  onGenerateThreeViews?: () => void;
+  threeViewsPending?: boolean;
 }
 
 export function GenerateReferenceModal({
@@ -25,6 +28,8 @@ export function GenerateReferenceModal({
   onClose,
   onGenerate,
   generatePending,
+  onGenerateThreeViews,
+  threeViewsPending,
 }: GenerateReferenceModalProps) {
   const character = characters.find((c) => c.id === characterId);
   const hasImages = (character?.referenceImages?.length ?? 0) > 0;
@@ -226,6 +231,27 @@ export function GenerateReferenceModal({
               提示：将与角色基础信息合并生成
             </p>
           </div>
+
+          {/* 一键三视图：正/侧/背，防生成崩坏 */}
+          {onGenerateThreeViews && (
+            <button
+              onClick={onGenerateThreeViews}
+              disabled={threeViewsPending || generatePending}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-purple-500/40 bg-purple-500/10 py-2 text-sm text-purple-300 transition hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {threeViewsPending ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  生成三视图中（约1分钟）...
+                </>
+              ) : (
+                <>
+                  <Grid2x2 size={16} />
+                  一键生成三视图（正/侧/背，9 积分）
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         <div className="border-border flex gap-3 border-t p-4">

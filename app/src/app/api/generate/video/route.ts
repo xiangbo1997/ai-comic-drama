@@ -14,6 +14,7 @@ const log = createLogger("api:generate:video");
 const VIDEO_COST = {
   5: 10, // 5秒视频 10积分
   10: 20, // 10秒视频 20积分
+  15: 30, // 15秒视频 30积分（Seedance 2.0 直出）
 };
 
 export async function POST(request: NextRequest) {

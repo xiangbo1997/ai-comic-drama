@@ -5,6 +5,7 @@ import { generateImage } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { createLogger } from "@/lib/logger";
 import { chargeCredits } from "@/lib/credits";
+import { buildCharacterBasePrompt } from "@/lib/prompts/character-reference";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -123,39 +124,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 构建提示词
-    // 性别文本 - 使用更强的关键词
-    const genderText =
-      character.gender === "male"
-        ? "1man, male, masculine, handsome man, male character, boy"
-        : character.gender === "female"
-          ? "1woman, female, feminine, beautiful woman, female character, girl"
-          : "";
-
-    const ageText = character.age ? `${character.age} years old` : "";
-
-    // 提取标签名称（排除性别标签，避免重复）
-    const tagNames =
-      character.tags
-        ?.map((ct) => ct.tag.name)
-        .filter(
-          (name) =>
-            name !== "男" &&
-            name !== "女" &&
-            name !== "male" &&
-            name !== "female"
-        ) || [];
-    const tagsText = tagNames.length > 0 ? tagNames.join(", ") : "";
-
-    // 组合完整提示词 - 性别关键词放在最前面
-    const basePromptParts = [
-      genderText, // 第一优先级：多个性别关键词
-      character.name, // 角色名称
-      ageText,
-      character.description || "", // 外貌描述
-      tagsText, // 风格标签
-      "detailed face, clean background, masterpiece", // 质量
-    ].filter(Boolean);
+    // 构建提示词（与三视图共用 buildCharacterBasePrompt，保证一致）
+    const basePromptParts = [buildCharacterBasePrompt(character)];
 
     // 添加自定义提示词（如果有）
     if (customPrompt?.trim()) {
@@ -306,7 +276,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           gender: character.gender,
           age: character.age,
           description: character.description,
-          tags: tagNames,
+          tags: character.tags?.map((ct) => ct.tag.name) ?? [],
         },
       },
     });

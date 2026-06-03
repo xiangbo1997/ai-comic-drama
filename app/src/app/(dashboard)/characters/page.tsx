@@ -13,6 +13,7 @@ import {
   updateCharacter,
   deleteCharacter,
   generateReference,
+  generateThreeViews,
   fetchTags,
   generateDescription,
   type CharacterFormData,
@@ -253,6 +254,24 @@ export default function CharactersPage() {
     },
   });
 
+  // 一键三视图（正/侧/背，防生成崩坏）
+  const generateThreeViewsMutation = useMutation({
+    mutationFn: ({
+      id,
+      imageConfigId,
+    }: {
+      id: string;
+      imageConfigId?: string;
+    }) => generateThreeViews(id, { imageConfigId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["characters"] });
+      toast.success("三视图生成成功");
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "生成三视图失败");
+    },
+  });
+
   const generateDescriptionMutation = useMutation({
     mutationFn: generateDescription,
     onSuccess: (data) => {
@@ -440,6 +459,13 @@ export default function CharactersPage() {
           onClose={closeGenerateModal}
           onGenerate={handleGenerate}
           generatePending={generateMutation.isPending}
+          onGenerateThreeViews={() =>
+            generateThreeViewsMutation.mutate({
+              id: generateModalCharacterId,
+              imageConfigId: generateOptions.imageConfigId,
+            })
+          }
+          threeViewsPending={generateThreeViewsMutation.isPending}
         />
       )}
     </div>

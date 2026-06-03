@@ -25,6 +25,8 @@ interface ScriptPanelProps {
   /** Agent 全自动模式 */
   onStartWorkflow?: () => void;
   isWorkflowRunning?: boolean;
+  /** 世界观创作区（DramaScriptPanel），由上层注入，置于输入文本上方 */
+  dramaScriptSlot?: React.ReactNode;
 }
 
 export function ScriptPanel({
@@ -39,9 +41,13 @@ export function ScriptPanel({
   onManageCharacters,
   onStartWorkflow,
   isWorkflowRunning,
+  dramaScriptSlot,
 }: ScriptPanelProps) {
   return (
-    <div className="border-border flex w-1/3 flex-col border-r">
+    <div className="border-border flex w-1/3 flex-col overflow-y-auto border-r">
+      {dramaScriptSlot && (
+        <div className="border-border border-b">{dramaScriptSlot}</div>
+      )}
       <div className="border-border border-b p-4">
         <h2 className="mb-2 font-semibold">输入文本</h2>
         <p className="text-muted-foreground text-sm">粘贴小说片段或故事大纲</p>

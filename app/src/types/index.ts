@@ -51,3 +51,12 @@ export type {
   AICategory,
   AIProviderProtocol,
 } from "./ai";
+
+// 短剧创作工作流
+export type {
+  DramaScriptInput,
+  DramaSceneScript,
+  DramaScriptArtifact,
+  StoryboardCell,
+  StoryboardTableArtifact,
+} from "./drama";

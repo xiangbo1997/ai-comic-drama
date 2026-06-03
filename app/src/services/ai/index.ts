@@ -344,6 +344,7 @@ export const COSTS = {
   imageWithRef: 0.03,
   video5s: 0.25,
   video10s: 0.5,
+  video15s: 0.75,
   tts: 0.002,
 };
 
@@ -353,13 +354,15 @@ export function estimateCost(params: {
   imagesWithRef?: number;
   video5s?: number;
   video10s?: number;
+  video15s?: number;
   ttsChars?: number;
 }): { usd: number; cny: number } {
   const usd =
     (params.images || 0) * COSTS.image +
     (params.imagesWithRef || 0) * COSTS.imageWithRef +
     (params.video5s || 0) * COSTS.video5s +
-    (params.video10s || 0) * COSTS.video10s;
+    (params.video10s || 0) * COSTS.video10s +
+    (params.video15s || 0) * COSTS.video15s;
 
   const cny =
     (params.tokens || 0) * COSTS.llm + (params.ttsChars || 0) * COSTS.tts;
