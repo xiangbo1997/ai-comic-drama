@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { generateVideo } from "@/services/ai";
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
+import { chargeCredits } from "@/lib/credits";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:generate:video");
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // 在事务闭包内 TS 会丢失对 session.user.id 的收窄，提前固化为局部常量
+    const userId = session.user.id;
 
     // 应用限流
     const rateLimitResult = await rateLimiters.videoGeneration(
@@ -128,28 +132,40 @@ export async function POST(request: NextRequest) {
         config: videoConfig ?? undefined,
       });
 
-      // 更新任务状态
-      await prisma.generationTask.update({
-        where: { id: task.id },
-        data: {
-          status: "COMPLETED",
-          output: { videoUrl },
-          completedAt: new Date(),
-        },
-      });
-
-      // 如果有场景ID，更新场景
-      if (projectId && sceneId) {
-        await prisma.scene.update({
-          where: { id: sceneId },
-          data: { videoUrl, videoStatus: "COMPLETED" },
+      // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
+      // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
+      // 余额不足会抛错并自动回滚 task/scene 的本次写入。
+      // R2：扣费时机为「生成成功后」，失败路径（catch）下用户从未被扣，无需退款。
+      await prisma.$transaction(async (tx) => {
+        // 更新任务状态
+        await tx.generationTask.update({
+          where: { id: task.id },
+          data: {
+            status: "COMPLETED",
+            output: { videoUrl },
+            completedAt: new Date(),
+          },
         });
-      }
 
-      // 扣减积分
-      await prisma.user.update({
-        where: { id: session.user.id },
-        data: { credits: { decrement: cost } },
+        // 如果有场景ID，更新场景
+        if (projectId && sceneId) {
+          await tx.scene.update({
+            where: { id: sceneId },
+            data: { videoUrl, videoStatus: "COMPLETED" },
+          });
+        }
+
+        // 扣减积分（事务内扣费+记流水+余额校验）
+        await chargeCredits(tx, {
+          userId,
+          amount: cost,
+          type: "GENERATE_VIDEO",
+          source: "generate:video",
+          sourceId: task.id,
+          note: sceneId
+            ? `场景 ${sceneId} 视频生成（时长 ${duration}s）`
+            : `视频生成（时长 ${duration}s）`,
+        });
       });
 
       return NextResponse.json({ videoUrl, cost });

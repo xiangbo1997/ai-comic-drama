@@ -33,6 +33,26 @@ model User {
   generationPreference UserGenerationPreference?
   customProviders AIProvider[] // 用户自定义的 AI 提供商
   workflowRuns  WorkflowRun[]
+  creditTransactions CreditTransaction[] // 积分流水
+}
+
+// 积分流水表（统一积分服务的审计账本）
+// 每次积分变动都写一条记录，并保存变动后余额快照便于审计与对账
+model CreditTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  delta        Int      // 积分变动：正=增加 负=扣减
+  balanceAfter Int      // 变动后余额快照（审计用）
+  type         String   // 业务类型：GENERATE_IMAGE/GENERATE_VIDEO/GENERATE_TTS/GENERATE_REFERENCE/PAYMENT/SUBSCRIPTION/REFUND/CHECKIN/INVITE
+  source       String?  // 业务来源（模块/场景标识）
+  sourceId     String?  // 关联ID（taskId/orderNo 等），用于幂等去重
+  note         String?  // 备注
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([sourceId])
 }
 
 // 签到记录
@@ -383,7 +403,7 @@ model Order {
   type        OrderType   // 订单类型
   productId   String      // 商品ID（积分包ID或订阅计划ID）
   productName String      // 商品名称
-  amount      Float       // 支付金额（元）
+  amount      Decimal     @db.Decimal(10, 2) // 支付金额（元），两位小数精度
   credits     Int         // 获得积分
   status      OrderStatus @default(PENDING)
 

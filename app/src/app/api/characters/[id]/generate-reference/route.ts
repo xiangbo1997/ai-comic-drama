@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { generateImage } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { createLogger } from "@/lib/logger";
+import { chargeCredits } from "@/lib/credits";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -64,6 +65,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // 在事务闭包内 TS 会丢失对 session.user.id 的收窄，提前固化为局部常量
+    const userId = session.user.id;
 
     // 解析请求体，获取可选参数
     const body = await request.json().catch(() => ({}));
@@ -263,21 +267,33 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // R1：将「角色 referenceImages 更新 + 扣费」包进同一事务，保证原子性。
+    // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
+    // 余额不足会抛错并自动回滚本次 character 更新。
+    // R2：扣费时机为「生成成功后」，失败路径（外层 catch）下用户从未被扣，无需退款。
     // 同步更新旧 referenceImages 数组（兼容遗留代码）
     // 新图片追加到末尾，保持 [0] 为定妆照不变
-    const updatedCharacter = await prisma.character.update({
-      where: { id },
-      data: {
-        referenceImages: isFirstImage
-          ? [imageUrl]
-          : [...character.referenceImages, imageUrl],
-      },
-    });
+    const updatedCharacter = await prisma.$transaction(async (tx) => {
+      const updated = await tx.character.update({
+        where: { id },
+        data: {
+          referenceImages: isFirstImage
+            ? [imageUrl]
+            : [...character.referenceImages, imageUrl],
+        },
+      });
 
-    // 扣减积分
-    await prisma.user.update({
-      where: { id: session.user.id },
-      data: { credits: { decrement: creditCost } },
+      // 扣减积分（事务内扣费+记流水+余额校验）
+      await chargeCredits(tx, {
+        userId,
+        amount: creditCost,
+        type: "GENERATE_REFERENCE",
+        source: "characters:generate-reference",
+        sourceId: id,
+        note: `角色 ${character.name} 参考图生成`,
+      });
+
+      return updated;
     });
 
     return NextResponse.json({
