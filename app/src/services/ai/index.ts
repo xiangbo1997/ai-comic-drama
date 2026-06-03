@@ -54,6 +54,15 @@ const log = createLogger("services:ai");
  */
 const DEFAULT_LLM_TIMEOUT_MS = 120_000;
 
+/**
+ * 视频生成默认超时（5 分钟）。
+ *
+ * 视频生成为同步阻塞调用，正常耗时数十秒到数分钟；超过此上限基本是上游
+ * API 卡死。超时后抛错 → API 路由 catch 标记任务 FAILED（且未扣费），
+ * 避免请求无限挂起。调用方可通过 options.timeoutMs 覆盖。
+ */
+const DEFAULT_VIDEO_TIMEOUT_MS = 300_000;
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -267,6 +276,7 @@ export async function generateVideo(
   options: VideoGenerationOptions
 ): Promise<string> {
   const { config, imageUrl, duration, prompt } = options;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_VIDEO_TIMEOUT_MS;
 
   // Stage 2.10：Langfuse trace
   return observeLLM(
@@ -274,27 +284,32 @@ export async function generateVideo(
       name: "generate_video",
       model: config?.model,
       input: { imageUrl, duration, prompt },
-      metadata: { protocol: config?.protocol ?? "env" },
+      metadata: { protocol: config?.protocol ?? "env", timeoutMs },
       tags: ["video"],
     },
     async () => {
-      if (config) {
-        const protocol = config.protocol || "runway";
-        const provider = getVideoProvider(protocol, config.baseUrl);
-        return provider.generateVideo(options, config);
-      }
+      // 用 withTimeout 包裹 provider 调用，防止上游 API 卡死导致请求无限挂起
+      const providerCall = (async () => {
+        if (config) {
+          const protocol = config.protocol || "runway";
+          const provider = getVideoProvider(protocol, config.baseUrl);
+          return provider.generateVideo(options, config);
+        }
 
-      const apiKey = process.env.RUNWAY_API_KEY;
-      if (!apiKey) {
-        throw new Error("未配置视频生成服务，请在 AI 模型配置页面添加配置");
-      }
-      const provider = getVideoProvider("runway");
-      return provider.generateVideo(options, {
-        apiKey,
-        baseUrl: "",
-        model: "",
-        protocol: "runway",
-      });
+        const apiKey = process.env.RUNWAY_API_KEY;
+        if (!apiKey) {
+          throw new Error("未配置视频生成服务，请在 AI 模型配置页面添加配置");
+        }
+        const provider = getVideoProvider("runway");
+        return provider.generateVideo(options, {
+          apiKey,
+          baseUrl: "",
+          model: "",
+          protocol: "runway",
+        });
+      })();
+
+      return withTimeout(providerCall, timeoutMs, "视频生成超时");
     },
     (url) => ({ output: url })
   );

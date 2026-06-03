@@ -74,6 +74,8 @@ export interface VideoGenerationOptions {
    * 与 image 端 openai-compatible.ts 的 FACE_ANCHOR_SUFFIX 互补：图像锁脸，视频锁身份。
    */
   identityPrompt?: string;
+  /** 生成超时（毫秒）；默认 5 分钟，防止上游 API 卡死导致请求无限挂起。 */
+  timeoutMs?: number;
   config?: AIServiceConfig;
 }
 

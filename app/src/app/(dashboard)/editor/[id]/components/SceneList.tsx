@@ -18,6 +18,23 @@ import { useToast } from "@/components/ui/toast";
 import type { Scene, ProjectDetail } from "@/types";
 import type { UseMutationResult } from "@tanstack/react-query";
 
+/** 单个媒体类型（图/视/音）的配置控制三元组 */
+export interface MediaConfigControl {
+  /** 当前选中的 AI 配置 ID */
+  selected?: string;
+  /** 切换配置 */
+  onChange: (id: string | undefined) => void;
+  /** 打开多配置批量生成对话框 */
+  onOpenMultiSelect: () => void;
+}
+
+/** 图/视/音三类媒体配置控制集合（收口原先分散的 9 个 props） */
+export interface MediaConfigControls {
+  image: MediaConfigControl;
+  video: MediaConfigControl;
+  audio: MediaConfigControl;
+}
+
 interface SceneListProps {
   project: ProjectDetail;
   selectedSceneId: string | null;
@@ -44,15 +61,8 @@ interface SceneListProps {
     { scenes: Scene[] }
   >;
   updateScene: (sceneId: string, data: Partial<Scene>) => void;
-  selectedImageConfig?: string;
-  selectedVideoConfig?: string;
-  selectedAudioConfig?: string;
-  onImageConfigChange: (id: string | undefined) => void;
-  onVideoConfigChange: (id: string | undefined) => void;
-  onAudioConfigChange: (id: string | undefined) => void;
-  onOpenMultiImageDialog: () => void;
-  onOpenMultiVideoDialog: () => void;
-  onOpenMultiAudioDialog: () => void;
+  /** 图/视/音三类媒体配置控制（收口原先 9 个分散 props） */
+  mediaConfig: MediaConfigControls;
   queryClient: { invalidateQueries: (opts: { queryKey: string[] }) => void };
   projectId: string;
 }
@@ -67,15 +77,7 @@ export function SceneList({
   generateAudioMutation,
   batchGenerateImagesMutation,
   updateScene,
-  selectedImageConfig,
-  selectedVideoConfig,
-  selectedAudioConfig,
-  onImageConfigChange,
-  onVideoConfigChange,
-  onAudioConfigChange,
-  onOpenMultiImageDialog,
-  onOpenMultiVideoDialog,
-  onOpenMultiAudioDialog,
+  mediaConfig,
 }: SceneListProps) {
   const toast = useToast();
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
@@ -363,9 +365,9 @@ export function SceneList({
           <div className="flex items-center gap-2">
             <ModelSelector
               category="IMAGE"
-              value={selectedImageConfig}
-              onChange={onImageConfigChange}
-              onOpenMultiSelect={onOpenMultiImageDialog}
+              value={mediaConfig.image.selected}
+              onChange={mediaConfig.image.onChange}
+              onOpenMultiSelect={mediaConfig.image.onOpenMultiSelect}
               showMultiSelectButton
               size="sm"
             />
@@ -388,9 +390,9 @@ export function SceneList({
           <div className="flex items-center gap-2">
             <ModelSelector
               category="VIDEO"
-              value={selectedVideoConfig}
-              onChange={onVideoConfigChange}
-              onOpenMultiSelect={onOpenMultiVideoDialog}
+              value={mediaConfig.video.selected}
+              onChange={mediaConfig.video.onChange}
+              onOpenMultiSelect={mediaConfig.video.onOpenMultiSelect}
               showMultiSelectButton
               size="sm"
             />
@@ -417,9 +419,9 @@ export function SceneList({
           <div className="flex items-center gap-2">
             <ModelSelector
               category="TTS"
-              value={selectedAudioConfig}
-              onChange={onAudioConfigChange}
-              onOpenMultiSelect={onOpenMultiAudioDialog}
+              value={mediaConfig.audio.selected}
+              onChange={mediaConfig.audio.onChange}
+              onOpenMultiSelect={mediaConfig.audio.onOpenMultiSelect}
               showMultiSelectButton
               size="sm"
             />

@@ -253,15 +253,23 @@ export default function EditorPage() {
           generateAudioMutation={generation.generateAudioMutation}
           batchGenerateImagesMutation={generation.batchGenerateImagesMutation}
           updateScene={handleUpdateSceneFromList}
-          selectedImageConfig={selectedImageConfig}
-          selectedVideoConfig={selectedVideoConfig}
-          selectedAudioConfig={selectedAudioConfig}
-          onImageConfigChange={setSelectedImageConfig}
-          onVideoConfigChange={setSelectedVideoConfig}
-          onAudioConfigChange={setSelectedAudioConfig}
-          onOpenMultiImageDialog={() => setShowMultiImageDialog(true)}
-          onOpenMultiVideoDialog={() => setShowMultiVideoDialog(true)}
-          onOpenMultiAudioDialog={() => setShowMultiAudioDialog(true)}
+          mediaConfig={{
+            image: {
+              selected: selectedImageConfig,
+              onChange: setSelectedImageConfig,
+              onOpenMultiSelect: () => setShowMultiImageDialog(true),
+            },
+            video: {
+              selected: selectedVideoConfig,
+              onChange: setSelectedVideoConfig,
+              onOpenMultiSelect: () => setShowMultiVideoDialog(true),
+            },
+            audio: {
+              selected: selectedAudioConfig,
+              onChange: setSelectedAudioConfig,
+              onOpenMultiSelect: () => setShowMultiAudioDialog(true),
+            },
+          }}
           queryClient={editor.queryClient}
           projectId={projectId}
         />

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
@@ -6,6 +7,15 @@ import { isLLMModel } from "@/services/ai/providers/openai-compatible";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs:[id]:test");
+
+// 测试请求体校验：modelId/customBaseUrl 均可选；约束长度与格式，防注入/超长输入
+const TestConfigSchema = z.object({
+  modelId: z.string().trim().max(255).optional(),
+  // customBaseUrl 允许空字符串（用户清空时回退默认配置），非空时必须是合法 URL
+  customBaseUrl: z
+    .union([z.literal(""), z.string().trim().url().max(500)])
+    .optional(),
+});
 
 // 测试结果详情类型
 interface TestResultDetail {
@@ -44,15 +54,27 @@ export async function POST(
 
     const { id } = await params;
 
-    // 解析请求体，获取可选的 modelId 和 customBaseUrl
+    // 校验路由参数 id 格式（cuid/字母数字下划线连字符），防止异常值
+    if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) {
+      return NextResponse.json({ error: "无效的配置 ID" }, { status: 400 });
+    }
+
+    // 解析并校验请求体，获取可选的 modelId 和 customBaseUrl
     let bodyModelId: string | undefined;
     let bodyCustomBaseUrl: string | undefined;
     try {
-      const body = await request.json();
-      bodyModelId = body.modelId;
-      bodyCustomBaseUrl = body.customBaseUrl;
+      const raw = await request.json();
+      const parsed = TestConfigSchema.safeParse(raw);
+      if (!parsed.success) {
+        return NextResponse.json(
+          { error: "请求参数无效", details: parsed.error.flatten() },
+          { status: 400 }
+        );
+      }
+      bodyModelId = parsed.data.modelId;
+      bodyCustomBaseUrl = parsed.data.customBaseUrl;
     } catch {
-      // 请求体为空或解析失败，使用保存的配置
+      // 请求体为空或非 JSON，使用保存的配置（合法场景，不报错）
     }
 
     // 获取配置
