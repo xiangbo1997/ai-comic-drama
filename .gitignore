@@ -94,3 +94,6 @@ public/uploads/
 *.mp4.tmp
 *.wav.tmp
 .ace-tool/
+
+# codegraph 本地索引产物
+.codegraph/

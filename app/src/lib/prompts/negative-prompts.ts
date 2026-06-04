@@ -66,3 +66,32 @@ export function getNegativePromptPreset(style?: string | null): string {
 export function getNegativeBaseline(): string {
   return NEGATIVE_BASELINE;
 }
+
+/**
+ * 多角色镜头的负向护栏（借鉴 open-storyboard-canvas MultiAnglePanel 的负向约束）。
+ *
+ * 单人/无角色场景不需要——返回基线 + 风格特化即可；
+ * 多人场景额外抑制"人数漂移 / 克隆脸 / 多余人物"等高频崩坏。
+ * 与 image-prompt.ts 的 buildConsistencyGuard（正向）配对使用：
+ * 正向说"保持什么"，负向说"不要什么"。
+ *
+ * @param style          风格 key
+ * @param characterCount 画面内角色数量
+ */
+export function getSceneNegativePrompt(
+  style: string | null | undefined,
+  characterCount: number
+): string {
+  const base = getNegativePromptPreset(style);
+  if (characterCount <= 1) {
+    return base;
+  }
+  const multiPersonNegative = [
+    "extra people",
+    "duplicated person",
+    "cloned face",
+    "merged characters",
+    "missing person",
+  ].join(", ");
+  return [base, multiPersonNegative].join(", ");
+}

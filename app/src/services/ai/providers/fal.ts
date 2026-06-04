@@ -3,38 +3,60 @@
  */
 
 import type { ImageProvider, VideoProvider } from "../types";
+import { pollUntilDone, type PollStep } from "./poll";
 
-/** Fal.ai 队列轮询等待结果 */
+const FAL_QUEUE_BASE = "https://queue.fal.run";
+
+/**
+ * Fal.ai 队列轮询：提交后按 requestId 轮询状态，完成则拉取结果 JSON。
+ *
+ * 统一了原先图像/视频两处逐行重复的 while(true) 轮询：
+ * - 增加超时上限（经 pollUntilDone，防止上游卡死无限挂起）；
+ * - 失败时尽量带上上游错误详情，而非笼统的"任务失败"。
+ */
 async function falPollResult(
   model: string,
   requestId: string,
-  apiKey: string
+  apiKey: string,
+  options: { intervalMs?: number; timeoutMs?: number; label: string }
 ): Promise<Record<string, unknown>> {
-  while (true) {
+  const headers = { Authorization: `Key ${apiKey}` };
+
+  const step = async (): Promise<PollStep<Record<string, unknown>>> => {
     const statusResponse = await fetch(
-      `https://queue.fal.run/${model}/requests/${requestId}/status`,
-      {
-        headers: { Authorization: `Key ${apiKey}` },
-      }
+      `${FAL_QUEUE_BASE}/${model}/requests/${requestId}/status`,
+      { headers }
     );
     const status = await statusResponse.json();
 
     if (status.status === "COMPLETED") {
       const resultResponse = await fetch(
-        `https://queue.fal.run/${model}/requests/${requestId}`,
-        {
-          headers: { Authorization: `Key ${apiKey}` },
-        }
+        `${FAL_QUEUE_BASE}/${model}/requests/${requestId}`,
+        { headers }
       );
-      return resultResponse.json();
+      const result = (await resultResponse.json()) as Record<string, unknown>;
+      return { done: true, result };
     }
 
     if (status.status === "FAILED") {
-      throw new Error(`Fal.ai 任务失败`);
+      // 尽量保留上游错误详情，便于排查
+      const detail =
+        typeof status.error === "string"
+          ? `: ${status.error}`
+          : status.logs
+            ? `: ${JSON.stringify(status.logs).slice(0, 200)}`
+            : "";
+      return { failed: true, reason: `${options.label}失败${detail}` };
     }
 
-    await new Promise((r) => setTimeout(r, 2000));
-  }
+    return { pending: true };
+  };
+
+  return pollUntilDone(step, {
+    intervalMs: options.intervalMs,
+    timeoutMs: options.timeoutMs,
+    timeoutLabel: options.label,
+  });
 }
 
 export const falImage: ImageProvider = {
@@ -42,7 +64,7 @@ export const falImage: ImageProvider = {
     const { prompt, referenceImage, aspectRatio = "9:16", seed } = options;
     const effectiveModel = config.model || "fal-ai/flux/schnell";
 
-    const response = await fetch(`https://queue.fal.run/${effectiveModel}`, {
+    const response = await fetch(`${FAL_QUEUE_BASE}/${effectiveModel}`, {
       method: "POST",
       headers: {
         Authorization: `Key ${config.apiKey}`,
@@ -73,7 +95,11 @@ export const falImage: ImageProvider = {
     const result = await falPollResult(
       effectiveModel,
       request_id,
-      config.apiKey
+      config.apiKey,
+      {
+        intervalMs: 2000,
+        label: "Fal.ai 图像生成",
+      }
     );
     return (
       (result as { images?: Array<{ url: string }> }).images?.[0]?.url ?? ""
@@ -90,7 +116,7 @@ export const falVideo: VideoProvider = {
     } = options;
     const model = config.model || "fal-ai/minimax/video-01-live/image-to-video";
 
-    const response = await fetch(`https://queue.fal.run/${model}`, {
+    const response = await fetch(`${FAL_QUEUE_BASE}/${model}`, {
       method: "POST",
       headers: {
         Authorization: `Key ${config.apiKey}`,
@@ -109,32 +135,20 @@ export const falVideo: VideoProvider = {
     }
 
     const { request_id } = await response.json();
-
-    while (true) {
-      const statusResponse = await fetch(
-        `https://queue.fal.run/${model}/requests/${request_id}/status`,
-        {
-          headers: { Authorization: `Key ${config.apiKey}` },
-        }
-      );
-      const status = await statusResponse.json();
-
-      if (status.status === "COMPLETED") {
-        const resultResponse = await fetch(
-          `https://queue.fal.run/${model}/requests/${request_id}`,
-          {
-            headers: { Authorization: `Key ${config.apiKey}` },
-          }
-        );
-        const result = await resultResponse.json();
-        return result.video?.url || result.output?.url;
-      }
-
-      if (status.status === "FAILED") {
-        throw new Error("Fal.ai 视频生成失败");
-      }
-
-      await new Promise((r) => setTimeout(r, 5000));
+    // 视频生成更慢：轮询间隔 5s，超时上限 10 分钟
+    const result = await falPollResult(model, request_id, config.apiKey, {
+      intervalMs: 5000,
+      timeoutMs: 600_000,
+      label: "Fal.ai 视频生成",
+    });
+    const video = result as {
+      video?: { url?: string };
+      output?: { url?: string };
+    };
+    const url = video.video?.url || video.output?.url;
+    if (!url) {
+      throw new Error("Fal.ai 视频生成完成但响应缺少视频 URL");
     }
+    return url;
   },
 };

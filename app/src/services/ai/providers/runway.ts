@@ -4,6 +4,7 @@
 
 import type { VideoProvider } from "../types";
 import { fetchWithError } from "./base";
+import { pollUntilDone, type PollStep } from "./poll";
 
 export const runwayVideo: VideoProvider = {
   async generateVideo(options, config) {
@@ -40,7 +41,8 @@ export const runwayVideo: VideoProvider = {
 
     const { id: taskId } = await response.json();
 
-    while (true) {
+    // 轮询任务状态：间隔 5s，超时上限 10 分钟（防止上游卡死无限挂起）
+    const step = async (): Promise<PollStep<string>> => {
       const statusResponse = await fetch(
         `https://api.dev.runwayml.com/v1/tasks/${taskId}`,
         {
@@ -50,13 +52,24 @@ export const runwayVideo: VideoProvider = {
       const result = await statusResponse.json();
 
       if (result.status === "SUCCEEDED") {
-        return result.output[0];
+        return { done: true, result: result.output[0] as string };
       }
       if (result.status === "FAILED") {
-        throw new Error("Runway 视频生成失败");
+        const detail =
+          typeof result.failure === "string"
+            ? `: ${result.failure}`
+            : result.failureCode
+              ? `: ${result.failureCode}`
+              : "";
+        return { failed: true, reason: `Runway 视频生成失败${detail}` };
       }
+      return { pending: true };
+    };
 
-      await new Promise((r) => setTimeout(r, 5000));
-    }
+    return pollUntilDone(step, {
+      intervalMs: 5000,
+      timeoutMs: 600_000,
+      timeoutLabel: "Runway 视频生成",
+    });
   },
 };

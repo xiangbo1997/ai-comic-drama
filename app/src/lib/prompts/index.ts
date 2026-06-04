@@ -10,9 +10,12 @@ export {
   getStylePrefix,
   getShotTypeDescription,
   getSimpleStylePrefix,
+  getLightingPrefix,
+  buildConsistencyGuard,
 } from "./image-prompt";
 export {
   getNegativePromptPreset,
   getNegativeBaseline,
+  getSceneNegativePrompt,
 } from "./negative-prompts";
 export type { NegativePromptPreset } from "./negative-prompts";

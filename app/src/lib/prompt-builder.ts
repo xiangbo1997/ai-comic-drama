@@ -18,9 +18,15 @@ export type {
 };
 
 // 风格和景别函数已迁移到 lib/prompts/image-prompt.ts，这里重导出保持兼容
-import { getStylePrefix, getShotTypeDescription } from "@/lib/prompts";
+import {
+  getStylePrefix,
+  getShotTypeDescription,
+  getLightingPrefix,
+  buildConsistencyGuard,
+} from "@/lib/prompts";
 import {
   getNegativePromptPreset,
+  getSceneNegativePrompt,
   type NegativePromptPreset,
 } from "@/lib/prompts/negative-prompts";
 
@@ -101,9 +107,10 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     parts.push(analysis.environment);
   }
 
-  // 6. 光线
-  if (analysis.lighting) {
-    parts.push(analysis.lighting);
+  // 6. 光线（过灯光预设映射：命中预设 key 翻译成电影级布光片段，自由文本原样保留）
+  const lighting = getLightingPrefix(analysis.lighting);
+  if (lighting) {
+    parts.push(lighting);
   }
 
   // 7. 景别
@@ -124,10 +131,8 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     parts.push(originalPrompt);
   }
 
-  // 11. 质量标签 + 保持角色一致性的强化提示
-  parts.push(
-    "IMPORTANT: Keep character appearance exactly as described above, consistent facial features, consistent hairstyle, consistent clothing"
-  );
+  // 11. 质量标签 + 分级身份一致性护栏（单人锁脸/发/服装；多人额外锁人数/顺序/不克隆）
+  parts.push(buildConsistencyGuard(characters.length));
   parts.push("masterpiece, best quality, highly detailed");
 
   return parts.filter(Boolean).join(", ");
@@ -197,12 +202,6 @@ export function buildFinalPrompt(
 
   const prompt = parts.filter(Boolean).join(", ");
 
-  const baseNegative = getNegativePromptPreset(style ?? undefined);
-  const negativePrompt = [baseNegative, customNegative]
-    .filter(Boolean)
-    .map((s) => s!.trim())
-    .join(", ");
-
   // 合并多图与单图：数组优先；否则把单张包成数组用于服务端
   const mergedRefs =
     referenceImageUrls && referenceImageUrls.length > 0
@@ -210,6 +209,18 @@ export function buildFinalPrompt(
       : referenceImageUrl
         ? [referenceImageUrl]
         : undefined;
+
+  // 角色数从参考图数量推断：多角色场景自动叠加"不克隆脸/保持人数"负向护栏，
+  // 与服务端 buildEnhancedPrompt 的正向一致性护栏首尾呼应。
+  const characterCount = mergedRefs?.length ?? 0;
+  const baseNegative = getSceneNegativePrompt(
+    style ?? undefined,
+    characterCount
+  );
+  const negativePrompt = [baseNegative, customNegative]
+    .filter(Boolean)
+    .map((s) => s!.trim())
+    .join(", ");
 
   return {
     prompt,
