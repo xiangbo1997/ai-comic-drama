@@ -97,7 +97,7 @@ export function SceneEditor({
 
   if (!scene) {
     return (
-      <div className="flex w-1/3 flex-col">
+      <div className="border-border flex w-[30%] min-w-[320px] flex-col border-l">
         <div className="border-border border-b p-4">
           <h2 className="font-semibold">预览 / 编辑</h2>
         </div>
@@ -124,7 +124,7 @@ export function SceneEditor({
       : [];
 
   return (
-    <div className="flex w-1/3 flex-col">
+    <div className="border-border flex w-[30%] min-w-[320px] flex-col border-l">
       <div className="border-border border-b p-4">
         <h2 className="font-semibold">预览 / 编辑</h2>
       </div>
