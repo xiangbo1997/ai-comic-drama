@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, X } from "lucide-react";
+import { Loader2, X, Download, CheckCircle2 } from "lucide-react";
 
 interface ExportStatus {
   isExporting: boolean;
   taskId: string | null;
   progress: number;
   error: string | null;
+  videoUrl?: string | null;
 }
 
 interface ExportDialogProps {
@@ -67,6 +68,27 @@ export function ExportDialog({
               className="bg-secondary hover:bg-secondary/80 rounded-lg px-4 py-2"
             >
               重试
+            </button>
+          </div>
+        ) : exportStatus.videoUrl ? (
+          <div className="py-8 text-center">
+            <CheckCircle2 size={40} className="text-primary mx-auto mb-4" />
+            <p className="mb-4 text-lg">导出完成</p>
+            <a
+              href={exportStatus.videoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+              className="bg-primary hover:bg-primary/90 mx-auto flex w-fit items-center gap-2 rounded-lg px-4 py-2 text-sm"
+            >
+              <Download size={16} />
+              下载视频
+            </a>
+            <button
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground mt-3 text-sm"
+            >
+              关闭
             </button>
           </div>
         ) : (

@@ -55,6 +55,9 @@ export async function POST(request: NextRequest) {
     const {
       prompt,
       referenceImage,
+      // Stage 修复：客户端三视图会传 referenceImages 数组（front/side/back），
+      // 此前未解构导致多张参考图被丢弃，三视图锁形象在服务端实质失效。
+      referenceImages,
       aspectRatio,
       style,
       projectId,
@@ -104,7 +107,10 @@ export async function POST(request: NextRequest) {
     const safePrompt = safetyCheck.sanitizedText || prompt;
 
     // 成本预估（编排器使用参考图时成本更高，此处做保守预扣）
-    const hasExplicitRef = !!referenceImage;
+    const hasExplicitRef = !!(
+      referenceImage ||
+      (Array.isArray(referenceImages) && referenceImages.length > 0)
+    );
     const cost = hasExplicitRef ? IMAGE_COST.withRef : IMAGE_COST.normal;
 
     // 检查积分
@@ -310,7 +316,12 @@ export async function POST(request: NextRequest) {
         llmConfig: llmConfig || undefined,
         userId: session.user.id,
         negativePrompt: negativePrompt || undefined,
-        referenceImages: referenceImage ? [referenceImage] : undefined,
+        referenceImages:
+          Array.isArray(referenceImages) && referenceImages.length > 0
+            ? referenceImages
+            : referenceImage
+              ? [referenceImage]
+              : undefined,
       });
 
       let imageUrl = result.imageUrl;

@@ -8,6 +8,7 @@ import {
   Users,
   Star,
   Layers,
+  AlertCircle,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { Scene, ShotType, Emotion, Character } from "@/types";
@@ -103,6 +104,14 @@ export function SceneEditor({
                 className="text-muted-foreground mx-auto mb-2 animate-spin"
               />
               <p className="text-muted-foreground text-sm">生成中...</p>
+            </div>
+          ) : scene.imageStatus === "FAILED" && !scene.imageUrl ? (
+            <div className="text-center">
+              <AlertCircle
+                size={32}
+                className="text-destructive mx-auto mb-2"
+              />
+              <p className="text-destructive text-sm">生成失败，点击下方重试</p>
             </div>
           ) : scene.imageUrl ? (
             <img
@@ -367,12 +376,18 @@ export function SceneEditor({
               >
                 {scene.imageStatus === "PROCESSING" ? (
                   <Loader2 size={16} className="animate-spin" />
+                ) : scene.imageStatus === "FAILED" && !scene.imageUrl ? (
+                  <RefreshCw size={16} />
                 ) : scene.imageUrl ? (
                   <RefreshCw size={16} />
                 ) : (
                   <ImageIcon size={16} />
                 )}
-                {scene.imageUrl ? "重新生成" : "生成图片"}
+                {scene.imageStatus === "FAILED" && !scene.imageUrl
+                  ? "重试生成"
+                  : scene.imageUrl
+                    ? "重新生成"
+                    : "生成图片"}
               </button>
             </div>
           </div>

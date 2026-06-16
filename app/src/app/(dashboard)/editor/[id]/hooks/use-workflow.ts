@@ -24,13 +24,19 @@ interface WorkflowStartOptions {
   style?: string;
 }
 
-export function useWorkflow(projectId: string): UseWorkflowReturn {
+export function useWorkflow(
+  projectId: string,
+  // Workflow 成功完成后的回调（用于刷新项目分镜数据）。
+  onComplete?: () => void
+): UseWorkflowReturn {
   const [status, setStatus] = useState<WorkflowStatus | null>(null);
   const [events, setEvents] = useState<WorkflowEvent[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const workflowIdRef = useRef<string | null>(null);
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   // 清理 SSE 连接
   const closeSSE = useCallback(() => {
@@ -60,6 +66,8 @@ export function useWorkflow(projectId: string): UseWorkflowReturn {
             closeSSE();
             // 获取最终状态
             fetchStatus(workflowRunId);
+            // 刷新项目分镜数据，否则 Agent 全自动跑完后列表不更新
+            onCompleteRef.current?.();
           } else if (event.type === "workflow:failed") {
             setIsRunning(false);
             setError(

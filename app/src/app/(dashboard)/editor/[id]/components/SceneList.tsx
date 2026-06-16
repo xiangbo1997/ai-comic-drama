@@ -12,6 +12,8 @@ import {
   User,
   Users,
   Wand2,
+  AlertCircle,
+  RotateCw,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
@@ -43,22 +45,22 @@ interface SceneListProps {
   generateImageMutation: UseMutationResult<
     unknown,
     Error,
-    { sceneId: string; scene: Scene }
+    { sceneId: string; scene: Scene; imageConfigId?: string }
   >;
   generateVideoMutation: UseMutationResult<
     unknown,
     Error,
-    { sceneId: string; scene: Scene }
+    { sceneId: string; scene: Scene; videoConfigId?: string }
   >;
   generateAudioMutation: UseMutationResult<
     unknown,
     Error,
-    { sceneId: string; scene: Scene }
+    { sceneId: string; scene: Scene; ttsConfigId?: string }
   >;
   batchGenerateImagesMutation?: UseMutationResult<
     unknown,
     Error,
-    { scenes: Scene[] }
+    { scenes: Scene[]; imageConfigId?: string }
   >;
   updateScene: (sceneId: string, data: Partial<Scene>) => void;
   /** 图/视/音三类媒体配置控制（收口原先 9 个分散 props） */
@@ -120,10 +122,12 @@ export function SceneList({
                     await toast.confirm("所有分镜已有图片，是否全部重新生成？");
                   if (all)
                     batchGenerateImagesMutation.mutate({
+                      imageConfigId: mediaConfig.image.selected,
                       scenes: project.scenes,
                     });
                 } else {
                   batchGenerateImagesMutation.mutate({
+                    imageConfigId: mediaConfig.image.selected,
                     scenes: scenesWithoutImage,
                   });
                 }
@@ -190,6 +194,8 @@ export function SceneList({
                       size={20}
                       className="text-muted-foreground animate-spin"
                     />
+                  ) : scene.imageStatus === "FAILED" && !scene.imageUrl ? (
+                    <AlertCircle size={20} className="text-destructive" />
                   ) : scene.imageUrl ? (
                     <img
                       src={scene.imageUrl}
@@ -296,17 +302,27 @@ export function SceneList({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    generateImageMutation.mutate({ sceneId: scene.id, scene });
+                    generateImageMutation.mutate({
+                      sceneId: scene.id,
+                      scene,
+                      imageConfigId: mediaConfig.image.selected,
+                    });
                   }}
                   disabled={
                     scene.imageStatus === "PROCESSING" ||
                     generateImageMutation.isPending
                   }
                   className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-                  title="生成图片"
+                  title={
+                    scene.imageStatus === "FAILED"
+                      ? "图片生成失败，点击重试"
+                      : "生成图片"
+                  }
                 >
                   {scene.imageStatus === "PROCESSING" ? (
                     <Loader2 size={14} className="animate-spin" />
+                  ) : scene.imageStatus === "FAILED" ? (
+                    <RotateCw size={14} className="text-destructive" />
                   ) : (
                     <ImageIcon size={14} />
                   )}
@@ -314,7 +330,11 @@ export function SceneList({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    generateVideoMutation.mutate({ sceneId: scene.id, scene });
+                    generateVideoMutation.mutate({
+                      sceneId: scene.id,
+                      scene,
+                      videoConfigId: mediaConfig.video.selected,
+                    });
                   }}
                   disabled={
                     !scene.imageUrl ||
@@ -322,10 +342,18 @@ export function SceneList({
                     generateVideoMutation.isPending
                   }
                   className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-                  title={!scene.imageUrl ? "请先生成图片" : "生成视频"}
+                  title={
+                    !scene.imageUrl
+                      ? "请先生成图片"
+                      : scene.videoStatus === "FAILED"
+                        ? "视频生成失败，点击重试"
+                        : "生成视频"
+                  }
                 >
                   {scene.videoStatus === "PROCESSING" ? (
                     <Loader2 size={14} className="animate-spin" />
+                  ) : scene.videoStatus === "FAILED" ? (
+                    <RotateCw size={14} className="text-destructive" />
                   ) : (
                     <Video size={14} />
                   )}
@@ -333,7 +361,11 @@ export function SceneList({
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    generateAudioMutation.mutate({ sceneId: scene.id, scene });
+                    generateAudioMutation.mutate({
+                      sceneId: scene.id,
+                      scene,
+                      ttsConfigId: mediaConfig.audio.selected,
+                    });
                   }}
                   disabled={
                     (!scene.dialogue && !scene.narration) ||
@@ -344,11 +376,15 @@ export function SceneList({
                   title={
                     !scene.dialogue && !scene.narration
                       ? "没有对话或旁白"
-                      : "生成配音"
+                      : scene.audioStatus === "FAILED"
+                        ? "配音生成失败，点击重试"
+                        : "生成配音"
                   }
                 >
                   {scene.audioStatus === "PROCESSING" ? (
                     <Loader2 size={14} className="animate-spin" />
+                  ) : scene.audioStatus === "FAILED" ? (
+                    <RotateCw size={14} className="text-destructive" />
                   ) : (
                     <Volume2 size={14} />
                   )}
@@ -375,7 +411,11 @@ export function SceneList({
               onClick={() => {
                 project.scenes.forEach((scene) => {
                   if (!scene.imageUrl && scene.imageStatus !== "PROCESSING") {
-                    generateImageMutation.mutate({ sceneId: scene.id, scene });
+                    generateImageMutation.mutate({
+                      sceneId: scene.id,
+                      scene,
+                      imageConfigId: mediaConfig.image.selected,
+                    });
                   }
                 });
               }}
@@ -404,7 +444,11 @@ export function SceneList({
                     !scene.videoUrl &&
                     scene.videoStatus !== "PROCESSING"
                   ) {
-                    generateVideoMutation.mutate({ sceneId: scene.id, scene });
+                    generateVideoMutation.mutate({
+                      sceneId: scene.id,
+                      scene,
+                      videoConfigId: mediaConfig.video.selected,
+                    });
                   }
                 });
               }}
@@ -433,7 +477,11 @@ export function SceneList({
                     !scene.audioUrl &&
                     scene.audioStatus !== "PROCESSING"
                   ) {
-                    generateAudioMutation.mutate({ sceneId: scene.id, scene });
+                    generateAudioMutation.mutate({
+                      sceneId: scene.id,
+                      scene,
+                      ttsConfigId: mediaConfig.audio.selected,
+                    });
                   }
                 });
               }}

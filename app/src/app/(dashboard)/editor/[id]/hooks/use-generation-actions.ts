@@ -5,6 +5,7 @@ import type { Scene, ProjectDetail } from "@/types";
 import { buildFinalPrompt } from "@/lib/prompt-builder";
 import { getThreeViewUrls } from "@/lib/three-views";
 import { apiUpdateScene } from "./use-editor-project";
+import { useToast } from "@/components/ui/toast";
 
 export interface GenerateImageResult {
   imageUrl: string;
@@ -124,6 +125,7 @@ export function useGenerationActions(
   project: ProjectDetail | undefined
 ) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const invalidateProject = () =>
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
 
@@ -152,9 +154,10 @@ export function useGenerationActions(
       });
     },
     onSuccess: invalidateProject,
-    onError: async (_error, { sceneId }) => {
+    onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { imageStatus: "FAILED" });
       invalidateProject();
+      toast.error(error instanceof Error ? error.message : "图片生成失败");
     },
   });
 
@@ -162,9 +165,11 @@ export function useGenerationActions(
     mutationFn: async ({
       sceneId,
       scene,
+      videoConfigId,
     }: {
       sceneId: string;
       scene: Scene;
+      videoConfigId?: string;
     }) => {
       if (!scene.imageUrl) throw new Error("请先生成图片");
 
@@ -190,6 +195,7 @@ export function useGenerationActions(
           referenceImages,
           projectId,
           sceneId,
+          videoConfigId,
         }),
       });
 
@@ -200,9 +206,10 @@ export function useGenerationActions(
       return res.json();
     },
     onSuccess: invalidateProject,
-    onError: async (_error, { sceneId }) => {
+    onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { videoStatus: "FAILED" });
       invalidateProject();
+      toast.error(error instanceof Error ? error.message : "视频生成失败");
     },
   });
 
@@ -210,9 +217,11 @@ export function useGenerationActions(
     mutationFn: async ({
       sceneId,
       scene,
+      ttsConfigId,
     }: {
       sceneId: string;
       scene: Scene;
+      ttsConfigId?: string;
     }) => {
       const text = scene.dialogue || scene.narration;
       if (!text) throw new Error("没有对话或旁白内容");
@@ -231,6 +240,7 @@ export function useGenerationActions(
           speed: 1.0,
           projectId,
           sceneId,
+          ttsConfigId,
         }),
       });
 
@@ -241,14 +251,21 @@ export function useGenerationActions(
       return res.json();
     },
     onSuccess: invalidateProject,
-    onError: async (_error, { sceneId }) => {
+    onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { audioStatus: "FAILED" });
       invalidateProject();
+      toast.error(error instanceof Error ? error.message : "配音生成失败");
     },
   });
 
   const batchGenerateImagesMutation = useMutation({
-    mutationFn: async ({ scenes }: { scenes: Scene[] }) => {
+    mutationFn: async ({
+      scenes,
+      imageConfigId,
+    }: {
+      scenes: Scene[];
+      imageConfigId?: string;
+    }) => {
       const results: Array<{
         sceneId: string;
         success: boolean;
@@ -269,6 +286,7 @@ export function useGenerationActions(
 
           await generateSceneImage(projectId, scene.id, prompt, {
             style: project?.style,
+            imageConfigId,
             negativePrompt,
             referenceImage,
             referenceImages,

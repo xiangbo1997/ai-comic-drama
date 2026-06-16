@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
@@ -30,7 +30,8 @@ export default function EditorPage() {
   // 项目数据 & 操作
   const editor = useEditorProject(projectId);
   const generation = useGenerationActions(projectId, editor.project);
-  const workflow = useWorkflow(projectId);
+  // Workflow 完成后刷新分镜数据（修复 Agent 全自动跑完列表不更新）
+  const workflow = useWorkflow(projectId, () => editor.invalidateProject());
 
   // UI 状态
   const [showSettings, setShowSettings] = useState(false);
@@ -55,7 +56,24 @@ export default function EditorPage() {
     taskId: string | null;
     progress: number;
     error: string | null;
-  }>({ isExporting: false, taskId: null, progress: 0, error: null });
+    videoUrl: string | null;
+  }>({
+    isExporting: false,
+    taskId: null,
+    progress: 0,
+    error: null,
+    videoUrl: null,
+  });
+  // 导出进度轮询定时器引用——用于卸载/关闭时清理，避免僵尸轮询
+  const exportPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopExportPoll = () => {
+    if (exportPollRef.current) {
+      clearTimeout(exportPollRef.current);
+      exportPollRef.current = null;
+    }
+  };
+  // 组件卸载时停止轮询
+  useEffect(() => stopExportPoll, []);
 
   // 导出视频
   const handleExport = async (options: {
@@ -64,11 +82,13 @@ export default function EditorPage() {
     includeSubtitles: boolean;
     includeAudio: boolean;
   }) => {
+    stopExportPoll();
     setExportStatus({
       isExporting: true,
       taskId: null,
       progress: 0,
       error: null,
+      videoUrl: null,
     });
 
     try {
@@ -91,9 +111,10 @@ export default function EditorPage() {
           taskId: null,
           progress: 100,
           error: null,
+          videoUrl,
         });
+        // 尝试自动打开；若被浏览器拦截，弹窗内仍有下载链接兜底
         window.open(videoUrl, "_blank");
-        setShowExportDialog(false);
       } else {
         setExportStatus((prev) => ({ ...prev, taskId }));
         pollExportProgress(taskId);
@@ -104,6 +125,7 @@ export default function EditorPage() {
         taskId: null,
         progress: 0,
         error: err instanceof Error ? err.message : "导出失败",
+        videoUrl: null,
       });
     }
   };
@@ -117,34 +139,40 @@ export default function EditorPage() {
         const data = await res.json();
 
         if (data.status === "completed") {
+          stopExportPoll();
           setExportStatus({
             isExporting: false,
             taskId: null,
             progress: 100,
             error: null,
+            videoUrl: data.videoUrl || null,
           });
+          // 尝试自动打开；被拦截时弹窗内有下载链接兜底，不再静默关闭
           if (data.videoUrl) window.open(data.videoUrl, "_blank");
-          setShowExportDialog(false);
         } else if (data.status === "failed") {
+          stopExportPoll();
           setExportStatus({
             isExporting: false,
             taskId: null,
             progress: 0,
             error: data.error || "导出失败",
+            videoUrl: null,
           });
         } else {
           setExportStatus((prev) => ({
             ...prev,
             progress: data.progress || 0,
           }));
-          setTimeout(poll, 2000);
+          exportPollRef.current = setTimeout(poll, 2000);
         }
       } catch {
+        stopExportPoll();
         setExportStatus({
           isExporting: false,
           taskId: null,
           progress: 0,
           error: "获取进度失败",
+          videoUrl: null,
         });
       }
     };
@@ -363,15 +391,20 @@ export default function EditorPage() {
         isOpen={showExportDialog}
         exportStatus={exportStatus}
         onExport={handleExport}
-        onClose={() => setShowExportDialog(false)}
-        onRetry={() =>
+        onClose={() => {
+          stopExportPoll();
+          setShowExportDialog(false);
+        }}
+        onRetry={() => {
+          stopExportPoll();
           setExportStatus({
             isExporting: false,
             taskId: null,
             progress: 0,
             error: null,
-          })
-        }
+            videoUrl: null,
+          });
+        }}
       />
 
       {/* Multi-Generate Dialogs */}
