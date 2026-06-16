@@ -60,3 +60,7 @@ export type {
   StoryboardCell,
   StoryboardTableArtifact,
 } from "./drama";
+
+// 导出样式（字幕 + 水印）
+export type { SubtitleStyle, Watermark } from "./export-style";
+export { DEFAULT_SUBTITLE_STYLE, DEFAULT_WATERMARK } from "./export-style";

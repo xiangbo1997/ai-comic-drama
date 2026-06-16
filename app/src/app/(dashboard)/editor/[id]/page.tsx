@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import type { Scene } from "@/types";
+import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -82,6 +83,8 @@ export default function EditorPage() {
     quality: string;
     includeSubtitles: boolean;
     includeAudio: boolean;
+    subtitleStyle?: SubtitleStyle;
+    watermark?: Watermark;
   }) => {
     stopExportPoll();
     setExportStatus({

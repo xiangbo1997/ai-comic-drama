@@ -8,6 +8,11 @@ import { writeFile, unlink, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import os from "os";
+// 字幕样式 / 水印类型统一从 types/export-style 导入（单一权威来源），
+// 避免与前端、导出 API 各自重复定义导致字段漂移。
+import type { SubtitleStyle, Watermark } from "@/types/export-style";
+
+export type { SubtitleStyle, Watermark };
 
 export interface SceneMedia {
   id: string;
@@ -26,6 +31,11 @@ export interface ExportOptions {
   aspectRatio: "9:16" | "16:9" | "1:1";
   includeSubtitles: boolean;
   includeAudio: boolean;
+  /** 字幕样式，仅在 includeSubtitles=true 时生效 */
+  subtitleStyle?: SubtitleStyle;
+  /** 商标水印配置 */
+  watermark?: Watermark;
+  // TODO 批次5.3：stickers?: StickerLayer[] 贴纸层支持
 }
 
 const QUALITY_SETTINGS = {
@@ -118,6 +128,92 @@ function formatSrtTime(seconds: number): string {
   const ms = Math.floor((seconds % 1) * 1000);
 
   return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
+}
+
+/**
+ * 将 #RRGGBB 转换为 ASS 颜色格式 &H00BBGGRR
+ * ASS 颜色顺序是 BGR（与 HTML 相反），alpha 通道 00 = 不透明
+ */
+function hexToAssColor(hex: string): string {
+  // 去掉 # 号，提取 RGB 分量
+  const cleaned = hex.replace(/^#/, "");
+  const r = cleaned.substring(0, 2);
+  const g = cleaned.substring(2, 4);
+  const b = cleaned.substring(4, 6);
+  // ASS 格式：&H{alpha:2}{B:2}{G:2}{R:2}，alpha 00 = 完全不透明
+  return `&H00${b}${g}${r}`.toUpperCase();
+}
+
+/**
+ * 将 position 转换为 ASS Alignment 数值
+ * ASS Alignment：numpad 布局，8=上 5=中 2=下
+ */
+function positionToAssAlignment(position: SubtitleStyle["position"]): number {
+  const map: Record<SubtitleStyle["position"], number> = {
+    top: 8,
+    middle: 5,
+    bottom: 2,
+  };
+  return map[position];
+}
+
+/**
+ * 构建字幕 force_style 参数字符串
+ * 将 SubtitleStyle 转换为 FFmpeg subtitles filter 的 force_style 格式
+ */
+function buildSubtitleForceStyle(style: SubtitleStyle): string {
+  const alignment = positionToAssAlignment(style.position);
+  // BorderStyle: 4=底框(OpaqueBox) 1=描边(Outline)
+  const borderStyle = style.backgroundBox ? 4 : 1;
+  const bold = style.bold ? 1 : 0;
+  const primaryColour = hexToAssColor(style.fontColor);
+  const outlineColour = hexToAssColor(style.outlineColor);
+
+  return [
+    `FontSize=${style.fontSize}`,
+    `PrimaryColour=${primaryColour}`,
+    `OutlineColour=${outlineColour}`,
+    `Outline=${style.outlineWidth}`,
+    `Alignment=${alignment}`,
+    `Bold=${bold}`,
+    `BorderStyle=${borderStyle}`,
+  ].join(",");
+}
+
+/**
+ * 构建字幕 filter 片段
+ * 仅在 includeSubtitles && subtitlePath 不为 null 时调用
+ */
+function buildSubtitleFilter(
+  subtitlePath: string,
+  subtitleStyle?: SubtitleStyle
+): string {
+  // 转义路径中的单引号（FFmpeg filter 语法要求）
+  const escapedPath = subtitlePath
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/:/g, "\\:");
+
+  if (subtitleStyle) {
+    const forceStyle = buildSubtitleForceStyle(subtitleStyle);
+    return `subtitles='${escapedPath}':force_style='${forceStyle}'`;
+  }
+  // 无自定义样式时使用默认渲染
+  return `subtitles='${escapedPath}'`;
+}
+
+/**
+ * 获取水印位置的 FFmpeg overlay 坐标表达式（边距 20px）
+ */
+function getWatermarkOverlayExpr(position: Watermark["position"]): string {
+  const map: Record<Watermark["position"], string> = {
+    tl: "20:20",
+    tr: "W-w-20:20",
+    bl: "20:H-h-20",
+    br: "W-w-20:H-h-20",
+    center: "(W-w)/2:(H-h)/2",
+  };
+  return map[position];
 }
 
 /**
@@ -237,6 +333,12 @@ async function sceneToVideoClip(
 
 /**
  * 合成完整视频
+ *
+ * filter_complex 架构说明（有水印时）：
+ *   [0:v] scale+pad+subtitles [base];
+ *   [logoIdx:v] scale,format=rgba,colorchannelmixer=aa=<opacity> [wm];
+ *   [base][wm] overlay=<expr> [outv];
+ *   （音频链独立用 ; 分隔）
  */
 export async function synthesizeVideo(
   scenes: SceneMedia[],
@@ -359,61 +461,156 @@ export async function synthesizeVideo(
 
     onProgress?.(80);
 
-    // 6. 最终合成
+    // 6. 下载水印 logo（如果启用）
+    let logoPath: string | null = null;
+    if (options.watermark?.enabled && options.watermark.imageUrl) {
+      try {
+        logoPath = await downloadFile(
+          options.watermark.imageUrl,
+          `watermark_logo.png`
+        );
+      } catch (err) {
+        // 水印下载失败不阻塞主流程，记录警告后继续
+        console.warn("[video-synthesis] 水印 logo 下载失败，跳过水印:", err);
+        logoPath = null;
+      }
+    }
+
+    // 7. 最终合成
     const quality = QUALITY_SETTINGS[options.quality];
     const outputPath = path.join(tmpDir, `output.${options.format}`);
 
-    const ffmpegArgs = ["-i", mergedPath];
+    // 判断是否需要水印（logo 下载成功）
+    const hasWatermark = logoPath !== null && options.watermark?.enabled;
 
-    // 添加音频输入
-    ffmpegArgs.push(...audioInputs);
+    if (hasWatermark && options.watermark) {
+      // ─────────────────────────────────────────────────────────────────
+      // 有水印：必须使用 filter_complex（多输入 overlay 不能用 -vf）
+      // 输入顺序：[0]=merged视频  [1..N]=音频轨  [N+1]=logo
+      // ─────────────────────────────────────────────────────────────────
+      const ffmpegArgs: string[] = ["-i", mergedPath];
 
-    // 视频滤镜
-    let videoFilter = `scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
+      // 先添加音频输入，记录 logo 的输入索引
+      ffmpegArgs.push(...audioInputs);
+      const logoInputIndex = 1 + audioInputs.length / 2; // audioInputs 每条音轨用 2 个元素("-i", path)
 
-    // 添加字幕
-    if (subtitlePath) {
-      videoFilter += `,subtitles='${subtitlePath.replace(/'/g, "'\\''")}'`;
-    }
+      // 添加 logo 输入
+      ffmpegArgs.push("-i", logoPath!);
 
-    ffmpegArgs.push("-vf", videoFilter);
+      // ── 视频链 ──────────────────────────────────────────────────────
+      // [0:v] → scale+pad → 可选字幕 → [base]
+      let videoChain = `[0:v]scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
+      if (subtitlePath) {
+        videoChain += `,${buildSubtitleFilter(subtitlePath, options.subtitleStyle)}`;
+      }
+      videoChain += "[base]";
 
-    // 音频混合
-    if (audioFilters.length > 0) {
-      const mixInputs = audioFilters.map((_, i) => `[a${i}]`).join("");
+      // ── logo 处理链 ─────────────────────────────────────────────────
+      // [logoIdx:v] → scale到画面宽*scale → 调透明度 → [wm]
+      const wm = options.watermark;
+      const overlayExpr = getWatermarkOverlayExpr(wm.position);
+      // 使用 iw（输入宽度）表达式乘以比例，FFmpeg 会自动推导高度保持比例
+      const logoScale = `${quality.width}*${wm.scale}`;
+      const logoChain = `[${logoInputIndex}:v]scale=${logoScale}:-1,format=rgba,colorchannelmixer=aa=${wm.opacity}[wm]`;
+
+      // ── overlay 合成 ────────────────────────────────────────────────
+      const overlayChain = `[base][wm]overlay=${overlayExpr}[outv]`;
+
+      // ── 音频链（与视频链用 ; 分隔，共同放入同一 filter_complex）──────
+      const filterParts: string[] = [videoChain, logoChain, overlayChain];
+      if (audioFilters.length > 0) {
+        // 音频 adelay 的索引需要从 1 开始（音频输入在 merged 之后），不受 logo 影响
+        filterParts.push(...audioFilters);
+        const mixInputs = audioFilters.map((_, i) => `[a${i}]`).join("");
+        filterParts.push(
+          `${mixInputs}amix=inputs=${audioFilters.length}[aout]`
+        );
+      }
+
+      ffmpegArgs.push("-filter_complex", filterParts.join(";"));
+
+      // ── map 输出流 ──────────────────────────────────────────────────
+      ffmpegArgs.push("-map", "[outv]");
+      if (audioFilters.length > 0) {
+        ffmpegArgs.push("-map", "[aout]");
+      }
+
+      // ── 编码参数 ────────────────────────────────────────────────────
       ffmpegArgs.push(
-        "-filter_complex",
-        `${audioFilters.join(";")}; ${mixInputs}amix=inputs=${audioFilters.length}[aout]`,
-        "-map",
-        "0:v",
-        "-map",
-        "[aout]"
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-b:v",
+        quality.bitrate,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        "-y",
+        outputPath
       );
+
+      await runFFmpeg(ffmpegArgs);
+    } else {
+      // ─────────────────────────────────────────────────────────────────
+      // 无水印：保持原有路径（-vf 处理视频，-filter_complex 处理音频混合）
+      // 最小改动，不破坏现有音频/字幕行为
+      // ─────────────────────────────────────────────────────────────────
+      const ffmpegArgs: string[] = ["-i", mergedPath];
+
+      // 添加音频输入
+      ffmpegArgs.push(...audioInputs);
+
+      // 构建视频滤镜（-vf 路径）
+      let videoFilter = `scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
+
+      // 添加字幕（带可选样式）
+      if (subtitlePath) {
+        videoFilter += `,${buildSubtitleFilter(subtitlePath, options.subtitleStyle)}`;
+      }
+
+      ffmpegArgs.push("-vf", videoFilter);
+
+      // 音频混合（单独的 filter_complex，与 -vf 共存）
+      if (audioFilters.length > 0) {
+        const mixInputs = audioFilters.map((_, i) => `[a${i}]`).join("");
+        ffmpegArgs.push(
+          "-filter_complex",
+          `${audioFilters.join(";")}; ${mixInputs}amix=inputs=${audioFilters.length}[aout]`,
+          "-map",
+          "0:v",
+          "-map",
+          "[aout]"
+        );
+      }
+
+      // 输出设置
+      ffmpegArgs.push(
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-b:v",
+        quality.bitrate,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-movflags",
+        "+faststart",
+        "-y",
+        outputPath
+      );
+
+      await runFFmpeg(ffmpegArgs);
     }
-
-    // 输出设置
-    ffmpegArgs.push(
-      "-c:v",
-      "libx264",
-      "-preset",
-      "medium",
-      "-b:v",
-      quality.bitrate,
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-movflags",
-      "+faststart",
-      "-y",
-      outputPath
-    );
-
-    await runFFmpeg(ffmpegArgs);
 
     onProgress?.(95);
 
-    // 7. 读取输出文件
+    // 8. 读取输出文件
     const { readFile } = await import("fs/promises");
     const videoBuffer = await readFile(outputPath);
 

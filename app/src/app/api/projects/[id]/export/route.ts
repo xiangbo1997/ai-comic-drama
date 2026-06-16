@@ -7,6 +7,12 @@ import {
   type ExportOptions,
 } from "@/services/video-synthesis";
 import { uploadToR2, isR2Configured } from "@/services/storage";
+import {
+  DEFAULT_SUBTITLE_STYLE,
+  DEFAULT_WATERMARK,
+  type SubtitleStyle,
+  type Watermark,
+} from "@/types/export-style";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:export");
@@ -25,10 +31,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 获取项目和所有分镜
+    // 获取项目和所有分镜（含 generationParams 以读取样式配置）
     const project = await prisma.project.findFirst({
       where: { id, userId: session.user.id },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        aspectRatio: true,
+        status: true,
+        generationParams: true,
         scenes: {
           orderBy: { order: "asc" },
         },
@@ -45,7 +56,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       includeSubtitles = true,
       includeAudio = true,
       sync = false, // 是否同步处理（默认异步）
+      // 可选：由前端直接覆盖样式，优先级高于 generationParams
+      subtitleStyle: bodySubtitleStyle,
+      watermark: bodyWatermark,
     } = await request.json();
+
+    // 从 generationParams 中解析样式配置（兼容旧项目：缺失时使用默认值）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const genParams = (project.generationParams as Record<string, any>) ?? {};
+    const resolvedSubtitleStyle: SubtitleStyle = {
+      ...DEFAULT_SUBTITLE_STYLE,
+      ...(genParams.subtitleStyle ?? {}),
+      ...(bodySubtitleStyle ?? {}),
+    };
+    const resolvedWatermark: Watermark = {
+      ...DEFAULT_WATERMARK,
+      ...(genParams.watermark ?? {}),
+      ...(bodyWatermark ?? {}),
+    };
 
     // 检查是否有足够的内容可以导出
     const scenesWithContent = project.scenes.filter(
@@ -96,12 +124,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       narration: scene.narration,
     }));
 
+    // subtitleStyle / watermark 字段已由 video-synthesis 的 ExportOptions 显式声明，
+    // 使用类型注解而非断言，确保字段被真正类型检查。
     const exportOptions: ExportOptions = {
       format: format as "mp4" | "webm",
       quality: quality as "480p" | "720p" | "1080p",
       aspectRatio: project.aspectRatio as "9:16" | "16:9" | "1:1",
       includeSubtitles,
       includeAudio,
+      subtitleStyle: resolvedSubtitleStyle,
+      watermark: resolvedWatermark,
     };
 
     // 如果是同步模式，立即处理
