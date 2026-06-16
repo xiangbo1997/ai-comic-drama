@@ -17,6 +17,10 @@ import {
   List,
   LayoutGrid,
   Grid3x3,
+  MoreVertical,
+  Copy,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
@@ -103,6 +107,61 @@ function SceneListImpl({
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
   // 视图密度：列表 / 2 列网格 / 3 列网格
   const [viewMode, setViewMode] = useState<"list" | "grid2" | "grid3">("list");
+  // 当前打开三点菜单的分镜 id
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  const refreshProject = () =>
+    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+
+  // 复制分镜
+  const handleDuplicateScene = async (sceneId: string) => {
+    setOpenMenuId(null);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/scenes/${sceneId}/duplicate`,
+        { method: "POST" }
+      );
+      if (!res.ok) throw new Error();
+      refreshProject();
+      toast.success("已复制分镜");
+    } catch {
+      toast.error("复制分镜失败");
+    }
+  };
+
+  // 在指定分镜后插入空白分镜
+  const handleInsertScene = async (afterSceneId: string) => {
+    setOpenMenuId(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/scenes/insert`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ afterSceneId }),
+      });
+      if (!res.ok) throw new Error();
+      refreshProject();
+      toast.success("已插入新分镜");
+    } catch {
+      toast.error("插入分镜失败");
+    }
+  };
+
+  // 删除分镜（需确认）
+  const handleDeleteScene = async (sceneId: string) => {
+    setOpenMenuId(null);
+    const ok = await toast.confirm("确定删除这个分镜？此操作不可撤销。");
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error();
+      refreshProject();
+      toast.success("已删除分镜");
+    } catch {
+      toast.error("删除分镜失败");
+    }
+  };
 
   const toggleSceneExpand = (sceneId: string) => {
     setExpandedScenes((prev) => {
@@ -428,6 +487,65 @@ function SceneListImpl({
                             <ChevronDown size={14} />
                           )}
                         </button>
+                        {/* 三点菜单：复制 / 插入 / 删除 */}
+                        <div className="relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(
+                                openMenuId === scene.id ? null : scene.id
+                              );
+                            }}
+                            className="hover:bg-secondary rounded p-1"
+                            title="更多操作"
+                          >
+                            <MoreVertical size={14} />
+                          </button>
+                          {openMenuId === scene.id && (
+                            <>
+                              {/* 点击外部关闭 */}
+                              <div
+                                className="fixed inset-0 z-10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuId(null);
+                                }}
+                              />
+                              <div className="bg-card border-border absolute top-7 left-0 z-20 w-32 overflow-hidden rounded-lg border shadow-lg">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDuplicateScene(scene.id);
+                                  }}
+                                  className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
+                                >
+                                  <Copy size={13} />
+                                  复制分镜
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleInsertScene(scene.id);
+                                  }}
+                                  className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
+                                >
+                                  <Plus size={13} />
+                                  下方插入
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteScene(scene.id);
+                                  }}
+                                  className="text-destructive flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-red-500/10"
+                                >
+                                  <Trash2 size={13} />
+                                  删除分镜
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                         <div className="flex-1" />
                         <button
                           onClick={(e) => {
