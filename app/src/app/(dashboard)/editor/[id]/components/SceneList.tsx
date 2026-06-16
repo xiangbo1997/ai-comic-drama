@@ -14,6 +14,9 @@ import {
   Wand2,
   AlertCircle,
   RotateCw,
+  List,
+  LayoutGrid,
+  Grid3x3,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
@@ -98,6 +101,8 @@ function SceneListImpl({
 }: SceneListProps) {
   const toast = useToast();
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
+  // 视图密度：列表 / 2 列网格 / 3 列网格
+  const [viewMode, setViewMode] = useState<"list" | "grid2" | "grid3">("list");
 
   const toggleSceneExpand = (sceneId: string) => {
     setExpandedScenes((prev) => {
@@ -192,12 +197,45 @@ function SceneListImpl({
               批量生成
             </button>
           )}
+          {/* 视图密度切换：列表 / 2 列 / 3 列 */}
+          <div className="bg-secondary flex items-center gap-0.5 rounded p-0.5">
+            {(
+              [
+                ["list", List],
+                ["grid2", LayoutGrid],
+                ["grid3", Grid3x3],
+              ] as const
+            ).map(([mode, Icon]) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`rounded p-1 transition ${
+                  viewMode === mode
+                    ? "bg-card text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title={
+                  mode === "list" ? "列表" : mode === "grid2" ? "2 列" : "3 列"
+                }
+              >
+                <Icon size={14} />
+              </button>
+            ))}
+          </div>
           <span className="text-muted-foreground text-sm">
             {project.scenes.length} 个分镜
           </span>
         </div>
       </div>
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+      <div
+        className={`flex-1 overflow-y-auto p-4 ${
+          viewMode === "list"
+            ? "space-y-3"
+            : viewMode === "grid2"
+              ? "grid grid-cols-2 gap-3"
+              : "grid grid-cols-3 gap-3"
+        }`}
+      >
         {project.scenes.length === 0 ? (
           <div className="text-muted-foreground flex h-full flex-col items-center justify-center">
             <div className="mb-4 text-4xl">🎬</div>
@@ -255,12 +293,14 @@ function SceneListImpl({
                             {scene.description}
                           </p>
                         </div>
-                        <div className="bg-secondary flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded">
+                        <div className="bg-secondary relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded">
+                          {/* 三状态角标：生成中 / 完成 / 失败 */}
+                          <SceneStatusBadge
+                            status={scene.imageStatus}
+                            hasImage={!!scene.imageUrl}
+                          />
                           {scene.imageStatus === "PROCESSING" ? (
-                            <Loader2
-                              size={20}
-                              className="text-muted-foreground animate-spin"
-                            />
+                            <div className="bg-secondary h-full w-full animate-pulse" />
                           ) : scene.imageStatus === "FAILED" &&
                             !scene.imageUrl ? (
                             <AlertCircle
@@ -590,6 +630,43 @@ function SceneListImpl({
       )}
     </div>
   );
+}
+
+/**
+ * 分镜缩略图三状态角标（对标 Boords/AI Storyboard pipeline 的 Queued/Generating/Ready）。
+ * 叠在缩略图右上角，克制小巧，不喧宾夺主。
+ */
+function SceneStatusBadge({
+  status,
+  hasImage,
+}: {
+  status?: string | null;
+  hasImage: boolean;
+}) {
+  if (status === "PROCESSING") {
+    return (
+      <span className="bg-primary/90 text-primary-foreground absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-none">
+        <span className="bg-primary-foreground inline-block h-1.5 w-1.5 animate-pulse rounded-full" />
+        生成中
+      </span>
+    );
+  }
+  if (status === "FAILED" && !hasImage) {
+    return (
+      <span className="bg-destructive/90 absolute top-1 right-1 z-10 rounded px-1 py-0.5 text-[10px] leading-none text-white">
+        失败
+      </span>
+    );
+  }
+  if (hasImage) {
+    return (
+      <span className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded bg-green-600/90 px-1 py-0.5 text-[10px] leading-none text-white">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
+        就绪
+      </span>
+    );
+  }
+  return null;
 }
 
 // memo：分镜列表含 20+ 卡片，避免编辑器顶层弹窗 state 变化时整列表重渲染。
