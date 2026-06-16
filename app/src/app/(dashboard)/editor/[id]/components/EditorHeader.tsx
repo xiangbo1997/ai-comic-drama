@@ -50,12 +50,17 @@ export function EditorHeader({
             className="bg-card focus:ring-primary rounded px-2 py-1 text-lg font-medium focus:ring-2 focus:outline-none"
           />
         ) : (
-          <button
-            onClick={onEditTitle}
-            className="hover:bg-card rounded px-2 py-1 text-lg font-medium"
-          >
-            {title}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onEditTitle}
+              className="hover:bg-card rounded px-2 py-1 text-lg font-medium"
+            >
+              {title}
+            </button>
+            <span className="bg-secondary text-muted-foreground rounded px-2 py-0.5 text-xs">
+              编辑中
+            </span>
+          </div>
         )}
       </div>
       <div className="flex items-center gap-2">
@@ -75,7 +80,7 @@ export function EditorHeader({
         </button>
         <button
           onClick={onPreview}
-          className="border-border text-foreground hover:bg-secondary flex items-center gap-2 rounded-lg border px-4 py-2 transition disabled:cursor-not-allowed disabled:opacity-50"
+          className="border-agent text-agent hover:bg-agent/10 flex items-center gap-2 rounded-lg border px-4 py-2 transition disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!hasScenes}
         >
           <Play size={18} />

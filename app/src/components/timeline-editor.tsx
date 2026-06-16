@@ -246,6 +246,9 @@ function TimelineEditorImpl({
           >
             <Video size={14} className="text-muted-foreground" />
             <span className="text-xs">视频</span>
+            <span className="text-muted-foreground text-[10px]">
+              ({scenes.filter((s) => s.videoUrl).length})
+            </span>
           </div>
           <div
             className="border-border flex items-center gap-2 border-b px-2"
@@ -253,6 +256,9 @@ function TimelineEditorImpl({
           >
             <ImageIcon size={14} className="text-primary" />
             <span className="text-xs">图片</span>
+            <span className="text-muted-foreground text-[10px]">
+              ({scenes.filter((s) => s.imageUrl).length})
+            </span>
           </div>
           <div
             className="border-border flex items-center gap-2 border-b px-2"
@@ -260,6 +266,9 @@ function TimelineEditorImpl({
           >
             <Music size={14} className="text-muted-foreground" />
             <span className="text-xs">音频</span>
+            <span className="text-muted-foreground text-[10px]">
+              ({scenes.filter((s) => s.audioUrl).length})
+            </span>
           </div>
           <div
             className="flex items-center gap-2 px-2"
@@ -267,6 +276,9 @@ function TimelineEditorImpl({
           >
             <Type size={14} className="text-muted-foreground" />
             <span className="text-xs">字幕</span>
+            <span className="text-muted-foreground text-[10px]">
+              ({scenes.filter((s) => s.dialogue || s.narration).length})
+            </span>
           </div>
         </div>
 

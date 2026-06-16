@@ -125,8 +125,13 @@ export function SceneEditor({
 
   return (
     <div className="border-border flex w-[30%] min-w-[320px] flex-col border-l">
-      <div className="border-border border-b p-4">
+      <div className="border-border flex items-center justify-between border-b p-4">
         <h2 className="font-semibold">预览 / 编辑</h2>
+        {typeof scene.order === "number" && (
+          <span className="bg-secondary text-muted-foreground rounded px-2 py-0.5 text-xs">
+            分镜 #{scene.order + 1}
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
