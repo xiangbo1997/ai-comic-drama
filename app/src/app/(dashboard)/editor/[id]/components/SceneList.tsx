@@ -331,11 +331,11 @@ function SceneListImpl({
                       }`}
                       onClick={() => onSceneSelect(scene.id)}
                     >
-                      {/* Scene Header */}
+                      {/* Scene Header — 大缩略图在左(16:9, 叠序号/景别/时长/三状态) + 描述在右 */}
                       <div className="flex items-start gap-3 p-3">
                         <button
                           type="button"
-                          className="text-muted-foreground mt-1 cursor-grab touch-none active:cursor-grabbing"
+                          className="text-muted-foreground mt-1 shrink-0 cursor-grab touch-none active:cursor-grabbing"
                           title="拖拽调整顺序"
                           onClick={(e) => e.stopPropagation()}
                           {...attributes}
@@ -343,47 +343,61 @@ function SceneListImpl({
                         >
                           <GripVertical size={16} />
                         </button>
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex items-center gap-2">
-                            <span className="bg-secondary rounded px-2 py-0.5 text-xs">
-                              #{index + 1}
-                            </span>
-                            <span className="text-muted-foreground text-xs">
-                              {scene.shotType || "中景"}
-                            </span>
-                            <span className="text-muted-foreground text-xs">
-                              {scene.duration}s
-                            </span>
-                          </div>
-                          <p className="text-foreground line-clamp-2 text-sm">
-                            {scene.description}
-                          </p>
-                        </div>
-                        <div className="bg-secondary relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded">
+                        {/* 大缩略图 16:9 */}
+                        <div className="bg-secondary relative aspect-video w-32 shrink-0 overflow-hidden rounded-md">
                           {/* 三状态角标：生成中 / 完成 / 失败 */}
                           <SceneStatusBadge
                             status={scene.imageStatus}
                             hasImage={!!scene.imageUrl}
                           />
-                          {scene.imageStatus === "PROCESSING" ? (
-                            <div className="bg-secondary h-full w-full animate-pulse" />
-                          ) : scene.imageStatus === "FAILED" &&
-                            !scene.imageUrl ? (
-                            <AlertCircle
-                              size={20}
-                              className="text-destructive"
-                            />
-                          ) : scene.imageUrl ? (
-                            <img
-                              src={scene.imageUrl}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <ImageIcon
-                              size={20}
-                              className="text-muted-foreground"
-                            />
+                          {/* 左上角序号 */}
+                          <span className="bg-background/70 absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium backdrop-blur-sm">
+                            #{index + 1}
+                          </span>
+                          {/* 左下角景别 + 时长 */}
+                          <div className="absolute bottom-1 left-1 z-10 flex items-center gap-1">
+                            <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
+                              {scene.shotType || "中景"}
+                            </span>
+                            <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
+                              {scene.duration}s
+                            </span>
+                          </div>
+                          {/* 图像内容 */}
+                          <div className="flex h-full w-full items-center justify-center">
+                            {scene.imageStatus === "PROCESSING" ? (
+                              <div className="bg-secondary h-full w-full animate-pulse" />
+                            ) : scene.imageStatus === "FAILED" &&
+                              !scene.imageUrl ? (
+                              <AlertCircle
+                                size={22}
+                                className="text-destructive"
+                              />
+                            ) : scene.imageUrl ? (
+                              <img
+                                src={scene.imageUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <ImageIcon
+                                size={22}
+                                className="text-muted-foreground"
+                              />
+                            )}
+                          </div>
+                        </div>
+                        {/* 右侧描述 + 标签 chips */}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-foreground line-clamp-3 text-sm">
+                            {scene.description}
+                          </p>
+                          {scene.emotion && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              <span className="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-[10px] leading-none">
+                                #{scene.emotion}
+                              </span>
+                            </div>
                           )}
                         </div>
                       </div>
