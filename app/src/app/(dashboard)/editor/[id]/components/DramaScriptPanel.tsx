@@ -60,7 +60,7 @@ export function DramaScriptPanel({
   return (
     <div className="space-y-3 p-4">
       <div className="flex items-center gap-2">
-        <Sparkles size={16} className="text-purple-500" />
+        <Sparkles size={16} className="text-agent" />
         <h3 className="text-sm font-semibold">世界观创作</h3>
         <span className="text-muted-foreground text-xs">
           根据世界观生成结构化短剧脚本
@@ -97,7 +97,7 @@ export function DramaScriptPanel({
       <button
         onClick={handleGenerate}
         disabled={!worldview.trim() || generateMutation.isPending}
-        className="disabled:bg-secondary flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm transition hover:bg-purple-700 disabled:cursor-not-allowed"
+        className="bg-agent text-agent-foreground disabled:bg-secondary disabled:text-foreground flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm transition hover:opacity-90 disabled:cursor-not-allowed"
       >
         {generateMutation.isPending ? (
           <Loader2 size={18} className="animate-spin" />

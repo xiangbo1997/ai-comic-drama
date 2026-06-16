@@ -86,7 +86,7 @@ export function ScriptPanel({
           <button
             onClick={onStartWorkflow}
             disabled={!inputText.trim() || isParsing || isWorkflowRunning}
-            className="disabled:bg-secondary flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm transition hover:bg-purple-700 disabled:cursor-not-allowed"
+            className="bg-agent text-agent-foreground disabled:bg-secondary disabled:text-foreground flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm transition hover:opacity-90 disabled:cursor-not-allowed"
           >
             {isWorkflowRunning ? (
               <Loader2 size={18} className="animate-spin" />

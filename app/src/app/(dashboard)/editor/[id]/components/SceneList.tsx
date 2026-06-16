@@ -21,6 +21,7 @@ import {
   Copy,
   Plus,
   Trash2,
+  Film,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
@@ -296,10 +297,16 @@ function SceneListImpl({
         }`}
       >
         {project.scenes.length === 0 ? (
-          <div className="text-muted-foreground flex h-full flex-col items-center justify-center">
-            <div className="mb-4 text-4xl">🎬</div>
-            <p>暂无分镜</p>
-            <p className="text-sm">输入文本后点击&ldquo;智能拆解&rdquo;</p>
+          <div className="flex h-full flex-col items-center justify-center">
+            <div className="border-border flex flex-col items-center rounded-xl border border-dashed px-8 py-6 text-center">
+              <Film size={40} className="text-muted-foreground/40 mb-3" />
+              <p className="text-muted-foreground text-sm font-medium">
+                暂无分镜
+              </p>
+              <p className="text-muted-foreground/60 mt-1 text-xs">
+                粘贴小说文本并点击「智能拆解分镜」
+              </p>
+            </div>
           </div>
         ) : (
           <DndContext
@@ -418,7 +425,7 @@ function SceneListImpl({
                                       }}
                                       className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition ${
                                         isSelected
-                                          ? "text-foreground bg-purple-600"
+                                          ? "bg-agent text-agent-foreground"
                                           : "bg-secondary text-foreground hover:bg-secondary/80"
                                       }`}
                                     >

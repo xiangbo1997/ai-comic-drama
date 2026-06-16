@@ -75,7 +75,7 @@ export function EditorHeader({
         </button>
         <button
           onClick={onPreview}
-          className="disabled:bg-secondary flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 hover:bg-green-700 disabled:cursor-not-allowed"
+          className="border-border text-foreground hover:bg-secondary flex items-center gap-2 rounded-lg border px-4 py-2 transition disabled:cursor-not-allowed disabled:opacity-50"
           disabled={!hasScenes}
         >
           <Play size={18} />

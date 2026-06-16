@@ -244,7 +244,7 @@ function TimelineEditorImpl({
             className="border-border flex items-center gap-2 border-b px-2"
             style={{ height: TRACK_HEIGHT }}
           >
-            <Video size={14} className="text-purple-400" />
+            <Video size={14} className="text-muted-foreground" />
             <span className="text-xs">视频</span>
           </div>
           <div
@@ -258,14 +258,14 @@ function TimelineEditorImpl({
             className="border-border flex items-center gap-2 border-b px-2"
             style={{ height: TRACK_HEIGHT }}
           >
-            <Music size={14} className="text-green-400" />
+            <Music size={14} className="text-muted-foreground" />
             <span className="text-xs">音频</span>
           </div>
           <div
             className="flex items-center gap-2 px-2"
             style={{ height: TRACK_HEIGHT }}
           >
-            <Type size={14} className="text-yellow-400" />
+            <Type size={14} className="text-muted-foreground" />
             <span className="text-xs">字幕</span>
           </div>
         </div>
@@ -298,7 +298,7 @@ function TimelineEditorImpl({
                     selectedSceneId === scene.id
                       ? "ring-primary ring-2"
                       : "hover:ring-1 hover:ring-gray-500"
-                  } ${scene.videoUrl ? "bg-purple-600/50" : "bg-secondary/50"}`}
+                  } ${scene.videoUrl ? "bg-primary/40" : "bg-secondary/50"}`}
                   style={{
                     left: sceneStartTimes[scene.id] * pixelsPerSecond,
                     width: scene.duration * pixelsPerSecond - 2,
@@ -358,7 +358,7 @@ function TimelineEditorImpl({
                 <div
                   key={`audio-${scene.id}`}
                   className={`absolute top-1 bottom-1 rounded ${
-                    scene.audioUrl ? "bg-green-600/50" : "bg-secondary/30"
+                    scene.audioUrl ? "bg-primary/40" : "bg-secondary/30"
                   }`}
                   style={{
                     left: sceneStartTimes[scene.id] * pixelsPerSecond,
@@ -373,7 +373,7 @@ function TimelineEditorImpl({
                           {WAVEFORM_HEIGHTS.map((h, i) => (
                             <div
                               key={i}
-                              className="flex-1 bg-green-400"
+                              className="bg-primary/70 flex-1"
                               style={{ height: `${h}%` }}
                             />
                           ))}
@@ -393,7 +393,7 @@ function TimelineEditorImpl({
                   <div
                     key={`subtitle-${scene.id}`}
                     className={`absolute top-1 bottom-1 rounded ${
-                      text ? "bg-yellow-600/50" : "bg-secondary/30"
+                      text ? "bg-primary/40" : "bg-secondary/30"
                     }`}
                     style={{
                       left: sceneStartTimes[scene.id] * pixelsPerSecond,
