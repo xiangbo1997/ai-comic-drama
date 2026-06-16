@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
 import type { Scene } from "@/types";
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
+import { DEFAULT_SUBTITLE_STYLE } from "@/types/export-style";
+import { SubtitleStylePanel } from "./components/SubtitleStylePanel";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -40,6 +42,7 @@ export default function EditorPage() {
   const [showTimeline, setShowTimeline] = useState(true);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [showSubtitleStyleDialog, setShowSubtitleStyleDialog] = useState(false);
   const [showMultiImageDialog, setShowMultiImageDialog] = useState(false);
   const [showMultiVideoDialog, setShowMultiVideoDialog] = useState(false);
   const [showMultiAudioDialog, setShowMultiAudioDialog] = useState(false);
@@ -361,7 +364,49 @@ export default function EditorPage() {
           onSceneSelect={editor.setSelectedSceneId}
           onSceneDurationChange={editor.handleSceneDurationChange}
           selectedSceneId={editor.selectedSceneId}
+          onSubtitleClick={() => setShowSubtitleStyleDialog(true)}
         />
+      )}
+
+      {/* 字幕样式弹窗（点击时间轴字幕轨触发，全片统一样式） */}
+      {showSubtitleStyleDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-card flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl">
+            <div className="border-border flex shrink-0 items-center justify-between border-b px-5 py-4">
+              <h2 className="font-semibold">字幕样式（全片统一）</h2>
+              <button
+                onClick={() => setShowSubtitleStyleDialog(false)}
+                className="hover:bg-secondary rounded-lg p-1.5 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-5">
+              <SubtitleStylePanel
+                value={
+                  project.generationParams?.subtitleStyle ??
+                  DEFAULT_SUBTITLE_STYLE
+                }
+                onChange={(style: SubtitleStyle) => {
+                  editor.updateProject({
+                    generationParams: {
+                      ...project.generationParams,
+                      subtitleStyle: style,
+                    },
+                  });
+                }}
+              />
+            </div>
+            <div className="border-border flex shrink-0 justify-end border-t px-5 py-3">
+              <button
+                onClick={() => setShowSubtitleStyleDialog(false)}
+                className="bg-primary hover:bg-primary/90 rounded-lg px-4 py-2 text-sm"
+              >
+                完成
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Preview Dialog */}

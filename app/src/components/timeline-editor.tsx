@@ -12,6 +12,7 @@ import {
   Video,
   Music,
   Type,
+  Settings2,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
 
@@ -20,6 +21,8 @@ interface TimelineEditorProps {
   onSceneSelect: (sceneId: string) => void;
   onSceneDurationChange: (sceneId: string, duration: number) => void;
   selectedSceneId: string | null;
+  /** 点击字幕轨/字幕片段时触发，用于打开全片字幕样式面板 */
+  onSubtitleClick?: () => void;
 }
 
 const TRACK_HEIGHT = 48;
@@ -39,6 +42,7 @@ function TimelineEditorImpl({
   onSceneSelect,
   onSceneDurationChange,
   selectedSceneId,
+  onSubtitleClick,
 }: TimelineEditorProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -270,16 +274,23 @@ function TimelineEditorImpl({
               ({scenes.filter((s) => s.audioUrl).length})
             </span>
           </div>
-          <div
-            className="flex items-center gap-2 px-2"
+          <button
+            type="button"
+            onClick={onSubtitleClick}
+            className="hover:bg-secondary/50 group flex items-center gap-2 px-2 transition"
             style={{ height: TRACK_HEIGHT }}
+            title="调整字幕样式"
           >
             <Type size={14} className="text-muted-foreground" />
             <span className="text-xs">字幕</span>
             <span className="text-muted-foreground text-[10px]">
               ({scenes.filter((s) => s.dialogue || s.narration).length})
             </span>
-          </div>
+            <Settings2
+              size={12}
+              className="text-muted-foreground ml-auto opacity-0 transition group-hover:opacity-100"
+            />
+          </button>
         </div>
 
         {/* 时间轴内容 */}
@@ -404,13 +415,17 @@ function TimelineEditorImpl({
                 return (
                   <div
                     key={`subtitle-${scene.id}`}
+                    onClick={text ? onSubtitleClick : undefined}
                     className={`absolute top-1 bottom-1 rounded ${
-                      text ? "bg-primary/40" : "bg-secondary/30"
+                      text
+                        ? "bg-primary/40 hover:ring-primary cursor-pointer hover:ring-1"
+                        : "bg-secondary/30"
                     }`}
                     style={{
                       left: sceneStartTimes[scene.id] * pixelsPerSecond,
                       width: scene.duration * pixelsPerSecond - 2,
                     }}
+                    title={text ? "点击调整字幕样式" : undefined}
                   >
                     {text && (
                       <div className="truncate px-2 py-1 text-xs">{text}</div>

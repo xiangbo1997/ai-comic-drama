@@ -2,6 +2,8 @@
  * 项目相关类型定义
  */
 
+import type { SubtitleStyle, Watermark } from "./export-style";
+
 /** 项目状态 — 与 Prisma enum ProjectStatus 对齐 */
 export type ProjectStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "FAILED";
 
@@ -21,6 +23,10 @@ export interface GenerationParams {
   negativePreset?: string;
   /** 自定义 negative prompt（追加到预设之后） */
   customNegative?: string;
+  /** 全片统一字幕样式（导出时 FFmpeg force_style 生效） */
+  subtitleStyle?: SubtitleStyle;
+  /** 全片商标水印配置 */
+  watermark?: Watermark;
 }
 
 /** 项目基础信息 */
