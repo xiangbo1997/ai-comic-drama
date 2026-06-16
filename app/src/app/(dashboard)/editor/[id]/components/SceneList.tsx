@@ -322,7 +322,7 @@ function SceneListImpl({
                 <SortableItem key={scene.id} id={scene.id}>
                   {({ attributes, listeners, isDragging }) => (
                     <div
-                      className={`bg-card cursor-pointer overflow-hidden rounded-lg transition ${
+                      className={`bg-card relative cursor-pointer rounded-lg transition ${
                         isDragging ? "shadow-lg" : ""
                       } ${
                         selectedSceneId === scene.id
