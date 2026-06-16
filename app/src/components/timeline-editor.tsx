@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import {
   Play,
   Pause,
@@ -27,7 +27,14 @@ const PIXELS_PER_SECOND = 60;
 const MIN_DURATION = 1;
 const MAX_DURATION = 30;
 
-export function TimelineEditor({
+// 固定的伪波形高度序列：装饰性音频波形，避免在 render 中调用 Math.random
+// 导致每帧（播放头每 100ms 更新）重渲染时波形抖动。所有音频轨共用同一形状。
+const WAVEFORM_HEIGHTS = Array.from(
+  { length: 20 },
+  (_, i) => 35 + ((Math.sin(i * 1.7) + 1) / 2) * 60
+);
+
+function TimelineEditorImpl({
   scenes,
   onSceneSelect,
   onSceneDurationChange,
@@ -363,13 +370,11 @@ export function TimelineEditor({
                       <div className="h-4 flex-1 overflow-hidden rounded bg-green-500/30">
                         {/* 简化的波形图 */}
                         <div className="flex h-full items-center gap-px">
-                          {Array.from({ length: 20 }).map((_, i) => (
+                          {WAVEFORM_HEIGHTS.map((h, i) => (
                             <div
                               key={i}
                               className="flex-1 bg-green-400"
-                              style={{
-                                height: `${30 + Math.random() * 70}%`,
-                              }}
+                              style={{ height: `${h}%` }}
                             />
                           ))}
                         </div>
@@ -425,3 +430,7 @@ export function TimelineEditor({
     </div>
   );
 }
+
+// memo：props 多为稳定引用（setState / useCallback / RQ 缓存），
+// 避免编辑器弹窗类 state 变化时重渲染整条时间轴。
+export const TimelineEditor = memo(TimelineEditorImpl);

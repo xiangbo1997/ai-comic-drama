@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Image as ImageIcon,
   Loader2,
@@ -52,6 +52,49 @@ export function SceneEditor({
   onCharacterRoleChange,
 }: SceneEditorProps) {
   const [flickerCompare, setFlickerCompare] = useState(false);
+
+  // 文本字段本地草稿 + 防抖落库：避免每次 keystroke 都 PATCH 数据库（高频写+竞态）。
+  // 本地 state 保证输入即时响应，停止输入 400ms 后才提交。
+  const [draft, setDraft] = useState({
+    description: scene?.description ?? "",
+    dialogue: scene?.dialogue ?? "",
+    narration: scene?.narration ?? "",
+  });
+  const [draftSceneId, setDraftSceneId] = useState<string | undefined>(
+    scene?.id
+  );
+  // 渲染期间按 scene.id 同步草稿（切换分镜时重置为新分镜内容）
+  if (scene && scene.id !== draftSceneId) {
+    setDraftSceneId(scene.id);
+    setDraft({
+      description: scene.description ?? "",
+      dialogue: scene.dialogue ?? "",
+      narration: scene.narration ?? "",
+    });
+  }
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    },
+    []
+  );
+  const commitField = (
+    sceneId: string,
+    field: "description" | "dialogue" | "narration",
+    value: string
+  ) => {
+    setDraft((prev) => ({ ...prev, [field]: value }));
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      const payload =
+        field === "description"
+          ? { description: value }
+          : { [field]: value || null };
+      onUpdateScene(sceneId, payload as Partial<Scene>);
+    }, 400);
+  };
+
   if (!scene) {
     return (
       <div className="flex w-1/3 flex-col">
@@ -278,12 +321,12 @@ export function SceneEditor({
               画面描述
             </label>
             <textarea
-              value={scene.description}
+              value={draft.description}
               onChange={(e) =>
-                onUpdateScene(scene.id, { description: e.target.value })
+                commitField(scene.id, "description", e.target.value)
               }
               rows={3}
-              className="bg-card w-full resize-none rounded-lg px-3 py-2 text-sm"
+              className="bg-card focus:ring-primary w-full resize-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:outline-none"
             />
           </div>
 
@@ -292,13 +335,13 @@ export function SceneEditor({
               对话
             </label>
             <textarea
-              value={scene.dialogue || ""}
+              value={draft.dialogue}
               onChange={(e) =>
-                onUpdateScene(scene.id, { dialogue: e.target.value || null })
+                commitField(scene.id, "dialogue", e.target.value)
               }
               rows={2}
               placeholder="角色对话内容..."
-              className="bg-card w-full resize-none rounded-lg px-3 py-2 text-sm"
+              className="bg-card focus:ring-primary w-full resize-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:outline-none"
             />
           </div>
 
@@ -307,13 +350,13 @@ export function SceneEditor({
               旁白
             </label>
             <textarea
-              value={scene.narration || ""}
+              value={draft.narration}
               onChange={(e) =>
-                onUpdateScene(scene.id, { narration: e.target.value || null })
+                commitField(scene.id, "narration", e.target.value)
               }
               rows={2}
               placeholder="旁白内容..."
-              className="bg-card w-full resize-none rounded-lg px-3 py-2 text-sm"
+              className="bg-card focus:ring-primary w-full resize-none rounded-lg px-3 py-2 text-sm focus:ring-2 focus:outline-none"
             />
           </div>
 

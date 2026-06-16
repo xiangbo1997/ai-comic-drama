@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import {
   Image as ImageIcon,
   Video,
@@ -69,7 +69,7 @@ interface SceneListProps {
   projectId: string;
 }
 
-export function SceneList({
+function SceneListImpl({
   project,
   selectedSceneId,
   onSceneSelect,
@@ -497,3 +497,6 @@ export function SceneList({
     </div>
   );
 }
+
+// memo：分镜列表含 20+ 卡片，避免编辑器顶层弹窗 state 变化时整列表重渲染。
+export const SceneList = memo(SceneListImpl);

@@ -241,7 +241,46 @@ export function useEditorProject(projectId: string) {
       sceneId: string;
       data: Partial<Scene>;
     }) => apiUpdateScene(projectId, sceneId, data),
-    onSuccess: invalidateProject,
+    // 乐观更新：避免改一个分镜字段就全量重拉整个 project（含所有分镜+角色+媒体URL）。
+    onMutate: async ({ sceneId, data }) => {
+      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
+      const previous = queryClient.getQueryData<ProjectDetail>([
+        "project",
+        projectId,
+      ]);
+      if (previous) {
+        queryClient.setQueryData<ProjectDetail>(["project", projectId], {
+          ...previous,
+          scenes: previous.scenes.map((sc) =>
+            sc.id === sceneId ? { ...sc, ...data } : sc
+          ),
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      // 失败回滚到快照
+      if (context?.previous) {
+        queryClient.setQueryData(["project", projectId], context.previous);
+      }
+    },
+    onSuccess: (updatedScene, { sceneId }) => {
+      // 用服务端返回的 scene 精确合并对应项，无需整 project 重拉
+      const current = queryClient.getQueryData<ProjectDetail>([
+        "project",
+        projectId,
+      ]);
+      if (current && updatedScene && typeof updatedScene === "object") {
+        queryClient.setQueryData<ProjectDetail>(["project", projectId], {
+          ...current,
+          scenes: current.scenes.map((sc) =>
+            sc.id === sceneId
+              ? { ...sc, ...(updatedScene as Partial<Scene>) }
+              : sc
+          ),
+        });
+      }
+    },
   });
 
   const handleSceneDurationChange = useCallback(
@@ -252,8 +291,13 @@ export function useEditorProject(projectId: string) {
   );
 
   const updateProject = useCallback(
-    (data: Partial<ProjectDetail>) => apiUpdateProject(projectId, data),
-    [projectId]
+    (data: Partial<ProjectDetail>) =>
+      apiUpdateProject(projectId, data).then((res) => {
+        // 修复：此前 fire-and-forget 不刷新缓存，导致 style/aspectRatio 改后 UI 不更新
+        invalidateProject();
+        return res;
+      }),
+    [projectId, invalidateProject]
   );
 
   const selectedScene = project?.scenes.find((s) => s.id === selectedSceneId);

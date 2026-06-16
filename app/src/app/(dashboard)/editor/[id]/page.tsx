@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams } from "next/navigation";
+import type { Scene } from "@/types";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -189,15 +190,14 @@ export default function EditorPage() {
     editor.setSelectedCharacterIds(newSet);
   };
 
-  const handleUpdateSceneFromList = (
-    sceneId: string,
-    data: Record<string, unknown>
-  ) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    apiUpdateScene(projectId, sceneId, data as any).then(() =>
-      editor.invalidateProject()
-    );
-  };
+  const handleUpdateSceneFromList = useCallback(
+    (sceneId: string, data: Partial<Scene>) => {
+      apiUpdateScene(projectId, sceneId, data).then(() =>
+        editor.invalidateProject()
+      );
+    },
+    [projectId, editor.invalidateProject]
+  );
 
   // Loading / Error states
   if (projectId === "new" || editor.isLoading) {
