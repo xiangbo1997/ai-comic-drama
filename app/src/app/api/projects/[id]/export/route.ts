@@ -74,6 +74,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ...(genParams.watermark ?? {}),
       ...(bodyWatermark ?? {}),
     };
+    // 贴图列表（仅从 generationParams 读取，无 body 覆盖）
+    const resolvedStickers = Array.isArray(genParams.stickers)
+      ? genParams.stickers
+      : [];
 
     // 检查是否有足够的内容可以导出
     const scenesWithContent = project.scenes.filter(
@@ -134,6 +138,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       includeAudio,
       subtitleStyle: resolvedSubtitleStyle,
       watermark: resolvedWatermark,
+      stickers: resolvedStickers,
     };
 
     // 如果是同步模式，立即处理

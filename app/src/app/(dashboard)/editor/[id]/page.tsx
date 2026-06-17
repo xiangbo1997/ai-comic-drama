@@ -6,6 +6,7 @@ import type { Scene } from "@/types";
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import { SubtitleStyleDialog } from "./components/SubtitleStyleDialog";
 import { WatermarkDialog } from "./components/WatermarkDialog";
+import { StickerDialog } from "./components/StickerDialog";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -44,6 +45,7 @@ export default function EditorPage() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showSubtitleStyleDialog, setShowSubtitleStyleDialog] = useState(false);
   const [showWatermarkDialog, setShowWatermarkDialog] = useState(false);
+  const [showStickerDialog, setShowStickerDialog] = useState(false);
   const [showMultiImageDialog, setShowMultiImageDialog] = useState(false);
   const [showMultiVideoDialog, setShowMultiVideoDialog] = useState(false);
   const [showMultiAudioDialog, setShowMultiAudioDialog] = useState(false);
@@ -367,6 +369,7 @@ export default function EditorPage() {
           selectedSceneId={editor.selectedSceneId}
           onSubtitleClick={() => setShowSubtitleStyleDialog(true)}
           onWatermarkClick={() => setShowWatermarkDialog(true)}
+          onStickerClick={() => setShowStickerDialog(true)}
         />
       )}
 
@@ -402,6 +405,27 @@ export default function EditorPage() {
         />
       )}
 
+      {/* 贴图管理弹窗（点击时间轴 + 贴图 入口触发） */}
+      {showStickerDialog && (
+        <StickerDialog
+          initialStickers={project.generationParams?.stickers}
+          scenes={project.scenes.map((s) => ({
+            id: s.id,
+            order: s.order,
+            description: s.description,
+          }))}
+          onSave={(stickers) =>
+            editor.updateProject({
+              generationParams: {
+                ...project.generationParams,
+                stickers,
+              },
+            })
+          }
+          onClose={() => setShowStickerDialog(false)}
+        />
+      )}
+
       {/* Preview Dialog */}
       {showPreviewDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
@@ -423,6 +447,7 @@ export default function EditorPage() {
                 currentSceneId={editor.selectedSceneId ?? undefined}
                 subtitleStyle={project.generationParams?.subtitleStyle}
                 watermark={project.generationParams?.watermark}
+                stickers={project.generationParams?.stickers}
               />
             </div>
           </div>

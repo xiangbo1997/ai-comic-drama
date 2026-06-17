@@ -10,9 +10,9 @@ import path from "path";
 import os from "os";
 // 字幕样式 / 水印类型统一从 types/export-style 导入（单一权威来源），
 // 避免与前端、导出 API 各自重复定义导致字段漂移。
-import type { SubtitleStyle, Watermark } from "@/types/export-style";
+import type { SubtitleStyle, Watermark, Sticker } from "@/types/export-style";
 
-export type { SubtitleStyle, Watermark };
+export type { SubtitleStyle, Watermark, Sticker };
 
 export interface SceneMedia {
   id: string;
@@ -35,7 +35,8 @@ export interface ExportOptions {
   subtitleStyle?: SubtitleStyle;
   /** 商标水印配置 */
   watermark?: Watermark;
-  // TODO 批次5.3：stickers?: StickerLayer[] 贴纸层支持
+  /** 贴图列表（按分镜叠加，导出时 overlay + enable 时间窗） */
+  stickers?: Sticker[];
 }
 
 const QUALITY_SETTINGS = {
@@ -214,6 +215,68 @@ function getWatermarkOverlayExpr(position: Watermark["position"]): string {
     center: "(W-w)/2:(H-h)/2",
   };
   return map[position];
+}
+
+/** 解析后的贴图：已下载本地路径 + 时间窗 + 位置缩放 */
+interface PreparedSticker {
+  localPath: string;
+  /** 出现起始秒（全片时间轴） */
+  start: number;
+  /** 结束秒（全片时间轴） */
+  end: number;
+  /** 相对画面 0-1 位置 */
+  x: number;
+  y: number;
+  /** 相对画面宽缩放 0-1 */
+  scale: number;
+}
+
+/**
+ * 下载并准备贴图：按分镜计算时间窗（全片累计起始 + 分镜内偏移/时长）。
+ * 下载失败的贴图静默跳过。
+ */
+async function prepareStickers(
+  stickers: Sticker[],
+  scenes: SceneMedia[],
+  _tmpDir: string
+): Promise<PreparedSticker[]> {
+  // 计算每个分镜的全片起始时间
+  const sceneStart: Record<string, number> = {};
+  let cursor = 0;
+  for (const sc of scenes) {
+    sceneStart[sc.id] = cursor;
+    cursor += sc.duration;
+  }
+
+  const prepared: PreparedSticker[] = [];
+  let idx = 0;
+  for (const st of stickers) {
+    if (!st.imageUrl || sceneStart[st.sceneId] === undefined) continue;
+    const scene = scenes.find((s) => s.id === st.sceneId);
+    if (!scene) continue;
+    const base = sceneStart[st.sceneId];
+    const offset = st.startOffset ?? 0;
+    const start = base + offset;
+    const end =
+      st.duration !== undefined
+        ? Math.min(start + st.duration, base + scene.duration)
+        : base + scene.duration;
+    try {
+      const localPath = await downloadFile(st.imageUrl, `sticker_${idx}.png`);
+      prepared.push({
+        localPath,
+        start,
+        end,
+        x: st.x,
+        y: st.y,
+        scale: st.scale,
+      });
+      idx += 1;
+    } catch {
+      // 单个贴图下载失败不阻塞导出
+    }
+  }
+  return prepared;
 }
 
 /**
@@ -476,28 +539,33 @@ export async function synthesizeVideo(
       }
     }
 
+    // 6.5 准备贴图（按分镜时间窗 overlay）
+    const preparedStickers =
+      options.stickers && options.stickers.length > 0
+        ? await prepareStickers(options.stickers, scenes, tmpDir)
+        : [];
+
     // 7. 最终合成
     const quality = QUALITY_SETTINGS[options.quality];
     const outputPath = path.join(tmpDir, `output.${options.format}`);
 
-    // 判断是否需要水印（logo 下载成功）
+    // 判断是否需要 overlay 链（水印或贴图任一启用都走 filter_complex）
     const hasWatermark = logoPath !== null && options.watermark?.enabled;
+    const hasStickers = preparedStickers.length > 0;
 
-    if (hasWatermark && options.watermark) {
+    if (hasWatermark || hasStickers) {
       // ─────────────────────────────────────────────────────────────────
       // 有水印：必须使用 filter_complex（多输入 overlay 不能用 -vf）
       // 输入顺序：[0]=merged视频  [1..N]=音频轨  [N+1]=logo
       // ─────────────────────────────────────────────────────────────────
       const ffmpegArgs: string[] = ["-i", mergedPath];
 
-      // 先添加音频输入，记录 logo 的输入索引
+      // 先添加音频输入；overlay 图片输入排在音频之后
       ffmpegArgs.push(...audioInputs);
-      const logoInputIndex = 1 + audioInputs.length / 2; // audioInputs 每条音轨用 2 个元素("-i", path)
+      // audioInputs 每条音轨用 2 个元素("-i", path)；overlay 输入索引从此处开始
+      let nextInputIndex = 1 + audioInputs.length / 2;
 
-      // 添加 logo 输入
-      ffmpegArgs.push("-i", logoPath!);
-
-      // ── 视频链 ──────────────────────────────────────────────────────
+      // ── 视频基链 ────────────────────────────────────────────────────
       // [0:v] → scale+pad → 可选字幕 → [base]
       let videoChain = `[0:v]scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
       if (subtitlePath) {
@@ -505,19 +573,62 @@ export async function synthesizeVideo(
       }
       videoChain += "[base]";
 
-      // ── logo 处理链 ─────────────────────────────────────────────────
-      // [logoIdx:v] → scale到画面宽*scale → 调透明度 → [wm]
-      const wm = options.watermark;
-      const overlayExpr = getWatermarkOverlayExpr(wm.position);
-      // 使用 iw（输入宽度）表达式乘以比例，FFmpeg 会自动推导高度保持比例
-      const logoScale = `${quality.width}*${wm.scale}`;
-      const logoChain = `[${logoInputIndex}:v]scale=${logoScale}:-1,format=rgba,colorchannelmixer=aa=${wm.opacity}[wm]`;
+      const filterParts: string[] = [videoChain];
+      // 当前 overlay 链的输入标签（从 base 开始，逐层叠加）
+      let currentLabel = "[base]";
+      let overlayCounter = 0;
 
-      // ── overlay 合成 ────────────────────────────────────────────────
-      const overlayChain = `[base][wm]overlay=${overlayExpr}[outv]`;
+      // ── 水印 logo 链（如有）─────────────────────────────────────────
+      if (hasWatermark && options.watermark && logoPath) {
+        const wm = options.watermark;
+        const logoIdx = nextInputIndex;
+        ffmpegArgs.push("-i", logoPath);
+        nextInputIndex += 1;
+        const overlayExpr = getWatermarkOverlayExpr(wm.position);
+        const logoScale = `${quality.width}*${wm.scale}`;
+        filterParts.push(
+          `[${logoIdx}:v]scale=${logoScale}:-1,format=rgba,colorchannelmixer=aa=${wm.opacity}[wm]`
+        );
+        const outLabel = "[ov0]";
+        filterParts.push(
+          `${currentLabel}[wm]overlay=${overlayExpr}${outLabel}`
+        );
+        currentLabel = outLabel;
+        overlayCounter += 1;
+      }
+
+      // ── 贴图链（每个带时间窗 enable）─────────────────────────────────
+      for (const st of preparedStickers) {
+        const stIdx = nextInputIndex;
+        ffmpegArgs.push("-i", st.localPath);
+        nextInputIndex += 1;
+        const stScale = `${quality.width}*${st.scale}`;
+        const sLabel = `[s${overlayCounter}]`;
+        filterParts.push(
+          `[${stIdx}:v]scale=${stScale}:-1,format=rgba${sLabel}`
+        );
+        // 位置：x*(W) 偏移；用 main_w/main_h 算绝对像素
+        const posX = `(W-w)*${st.x}`;
+        const posY = `(H-h)*${st.y}`;
+        const outLabel = `[ov${overlayCounter + 1}]`;
+        filterParts.push(
+          `${currentLabel}${sLabel}overlay=${posX}:${posY}:enable='between(t,${st.start.toFixed(2)},${st.end.toFixed(2)})'${outLabel}`
+        );
+        currentLabel = outLabel;
+        overlayCounter += 1;
+      }
+
+      // 最终视频输出标签统一为 [outv]：把最后一条 overlay 的尾部输出标签替换
+      if (currentLabel !== "[base]") {
+        const lastIdx = filterParts.length - 1;
+        // 仅替换结尾处的输出标签（currentLabel 必定出现在该条末尾）
+        filterParts[lastIdx] = filterParts[lastIdx].replace(
+          new RegExp(`${currentLabel.replace(/[[\]]/g, "\\$&")}$`),
+          "[outv]"
+        );
+      }
 
       // ── 音频链（与视频链用 ; 分隔，共同放入同一 filter_complex）──────
-      const filterParts: string[] = [videoChain, logoChain, overlayChain];
       if (audioFilters.length > 0) {
         // 音频 adelay 的索引需要从 1 开始（音频输入在 merged 之后），不受 logo 影响
         filterParts.push(...audioFilters);

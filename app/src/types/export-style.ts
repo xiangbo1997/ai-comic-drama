@@ -52,6 +52,28 @@ export interface Watermark {
 }
 
 /**
+ * 贴图 / 贴纸配置
+ * 按分镜叠加图片（表情、Logo、装饰），导出时在该分镜时间段内 overlay。
+ */
+export interface Sticker {
+  /** 唯一 id（前端生成） */
+  id: string;
+  /** 贴图图片 URL（R2 公开 URL） */
+  imageUrl: string;
+  /** 归属分镜 id（在该分镜时间段内显示） */
+  sceneId: string;
+  /** 相对画面左上角的位置 0-1 */
+  x: number;
+  y: number;
+  /** 相对视频宽度的缩放比例 0-1，默认 0.2 */
+  scale: number;
+  /** 在该分镜内的出现偏移（秒），默认 0 */
+  startOffset?: number;
+  /** 持续时长（秒）；缺省=持续到分镜结束 */
+  duration?: number;
+}
+
+/**
  * 字幕样式默认值
  */
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {

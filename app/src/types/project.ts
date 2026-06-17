@@ -2,7 +2,7 @@
  * 项目相关类型定义
  */
 
-import type { SubtitleStyle, Watermark } from "./export-style";
+import type { SubtitleStyle, Watermark, Sticker } from "./export-style";
 
 /** 项目状态 — 与 Prisma enum ProjectStatus 对齐 */
 export type ProjectStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "FAILED";
@@ -27,6 +27,8 @@ export interface GenerationParams {
   subtitleStyle?: SubtitleStyle;
   /** 全片商标水印配置 */
   watermark?: Watermark;
+  /** 贴图列表（按分镜叠加） */
+  stickers?: Sticker[];
 }
 
 /** 项目基础信息 */

@@ -20,6 +20,8 @@ interface PreviewPlayerProps {
   subtitleStyle?: import("@/types/export-style").SubtitleStyle;
   /** 全片商标水印（预览叠加 logo） */
   watermark?: import("@/types/export-style").Watermark;
+  /** 贴图列表（预览时按当前分镜叠加） */
+  stickers?: import("@/types/export-style").Sticker[];
 }
 
 export function PreviewPlayer({
@@ -29,6 +31,7 @@ export function PreviewPlayer({
   currentSceneId,
   subtitleStyle,
   watermark,
+  stickers,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -221,6 +224,25 @@ export function PreviewPlayer({
             }}
           />
         )}
+
+        {/* Stickers — 当前分镜的贴图预览（与导出 overlay 位置一致） */}
+        {currentScene &&
+          stickers
+            ?.filter((st) => st.sceneId === currentScene.id && st.imageUrl)
+            .map((st) => (
+              <img
+                key={st.id}
+                src={st.imageUrl}
+                alt=""
+                className="pointer-events-none absolute"
+                style={{
+                  width: `${st.scale * 100}%`,
+                  left: `${st.x * 100}%`,
+                  top: `${st.y * 100}%`,
+                  transform: `translate(-${st.x * 100}%, -${st.y * 100}%)`,
+                }}
+              />
+            ))}
 
         {/* Subtitles — 应用全片字幕样式，与导出保持一致预览 */}
         {showSubtitles &&

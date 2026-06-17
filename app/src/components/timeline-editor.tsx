@@ -14,6 +14,7 @@ import {
   Type,
   Settings2,
   Stamp,
+  Sticker,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
 
@@ -26,6 +27,8 @@ interface TimelineEditorProps {
   onSubtitleClick?: () => void;
   /** 点击品牌水印入口时触发，用于打开全片水印面板 */
   onWatermarkClick?: () => void;
+  /** 点击贴图入口时触发，用于打开贴图管理面板 */
+  onStickerClick?: () => void;
 }
 
 const TRACK_HEIGHT = 48;
@@ -47,6 +50,7 @@ function TimelineEditorImpl({
   selectedSceneId,
   onSubtitleClick,
   onWatermarkClick,
+  onStickerClick,
 }: TimelineEditorProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -229,6 +233,13 @@ function TimelineEditorImpl({
           >
             <Stamp size={14} />
             品牌水印
+          </button>
+          <button
+            onClick={onStickerClick}
+            className="text-muted-foreground hover:bg-secondary hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-xs transition"
+            title="添加贴图 / 表情"
+          >
+            <Sticker size={14} />+ 贴图
           </button>
         </div>
 

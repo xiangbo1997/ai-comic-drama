@@ -214,6 +214,33 @@ function normalizeGenerationParams(
         typeof wm.scale === "number" ? clampNumber(wm.scale, 0.02, 0.5) : 0.12,
     };
   }
+  // 贴图列表：校验每个贴图后放行（最多 50 个）
+  if (Array.isArray(src.stickers)) {
+    out.stickers = src.stickers
+      .slice(0, 50)
+      .filter(
+        (st): st is Record<string, unknown> => !!st && typeof st === "object"
+      )
+      .map((st) => ({
+        id: typeof st.id === "string" ? st.id.slice(0, 64) : "",
+        imageUrl:
+          typeof st.imageUrl === "string" && st.imageUrl.length <= 2048
+            ? st.imageUrl
+            : "",
+        sceneId: typeof st.sceneId === "string" ? st.sceneId.slice(0, 64) : "",
+        x: typeof st.x === "number" ? clampNumber(st.x, 0, 1) : 0.5,
+        y: typeof st.y === "number" ? clampNumber(st.y, 0, 1) : 0.5,
+        scale:
+          typeof st.scale === "number" ? clampNumber(st.scale, 0.02, 1) : 0.2,
+        ...(typeof st.startOffset === "number"
+          ? { startOffset: clampNumber(st.startOffset, 0, 600) }
+          : {}),
+        ...(typeof st.duration === "number"
+          ? { duration: clampNumber(st.duration, 0.1, 600) }
+          : {}),
+      }))
+      .filter((st) => st.imageUrl && st.sceneId);
+  }
   return out;
 }
 
