@@ -2,7 +2,13 @@
  * 项目相关类型定义
  */
 
-import type { SubtitleStyle, Watermark, Sticker } from "./export-style";
+import type {
+  SubtitleStyle,
+  Watermark,
+  Sticker,
+  Transition,
+  SceneEffect,
+} from "./export-style";
 
 /** 项目状态 — 与 Prisma enum ProjectStatus 对齐 */
 export type ProjectStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "FAILED";
@@ -29,6 +35,10 @@ export interface GenerationParams {
   watermark?: Watermark;
   /** 贴图列表（按分镜叠加） */
   stickers?: Sticker[];
+  /** 分镜间转场配置（第 k 项 = 第 k 与 k+1 分镜之间；缺省 fade 0.3s） */
+  transitions?: Transition[];
+  /** 分镜级滤镜 / 变速（按 sceneId 关联） */
+  sceneEffects?: SceneEffect[];
 }
 
 /** 项目基础信息 */

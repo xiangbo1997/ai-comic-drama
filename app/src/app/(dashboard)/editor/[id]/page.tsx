@@ -7,6 +7,8 @@ import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import { SubtitleStyleDialog } from "./components/SubtitleStyleDialog";
 import { WatermarkDialog } from "./components/WatermarkDialog";
 import { StickerDialog } from "./components/StickerDialog";
+import { TransitionDialog } from "./components/TransitionDialog";
+import { SceneEffectDialog } from "./components/SceneEffectDialog";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -46,6 +48,8 @@ export default function EditorPage() {
   const [showSubtitleStyleDialog, setShowSubtitleStyleDialog] = useState(false);
   const [showWatermarkDialog, setShowWatermarkDialog] = useState(false);
   const [showStickerDialog, setShowStickerDialog] = useState(false);
+  const [showTransitionDialog, setShowTransitionDialog] = useState(false);
+  const [showEffectDialog, setShowEffectDialog] = useState(false);
   const [showMultiImageDialog, setShowMultiImageDialog] = useState(false);
   const [showMultiVideoDialog, setShowMultiVideoDialog] = useState(false);
   const [showMultiAudioDialog, setShowMultiAudioDialog] = useState(false);
@@ -396,6 +400,8 @@ export default function EditorPage() {
           onSubtitleClick={() => setShowSubtitleStyleDialog(true)}
           onWatermarkClick={() => setShowWatermarkDialog(true)}
           onStickerClick={() => setShowStickerDialog(true)}
+          onTransitionClick={() => setShowTransitionDialog(true)}
+          onEffectClick={() => setShowEffectDialog(true)}
         />
       )}
 
@@ -450,6 +456,48 @@ export default function EditorPage() {
             })
           }
           onClose={() => setShowStickerDialog(false)}
+        />
+      )}
+
+      {/* 转场设置弹窗（点击时间轴转场入口触发，分镜之间逐个配置） */}
+      {showTransitionDialog && (
+        <TransitionDialog
+          initialTransitions={project.generationParams?.transitions}
+          scenes={project.scenes.map((s) => ({
+            id: s.id,
+            order: s.order,
+            description: s.description,
+          }))}
+          onSave={(transitions) =>
+            editor.updateProject({
+              generationParams: {
+                ...project.generationParams,
+                transitions,
+              },
+            })
+          }
+          onClose={() => setShowTransitionDialog(false)}
+        />
+      )}
+
+      {/* 滤镜 / 变速弹窗（点击时间轴滤镜入口触发，按分镜配置） */}
+      {showEffectDialog && (
+        <SceneEffectDialog
+          initialEffects={project.generationParams?.sceneEffects}
+          scenes={project.scenes.map((s) => ({
+            id: s.id,
+            order: s.order,
+            description: s.description,
+          }))}
+          onSave={(sceneEffects) =>
+            editor.updateProject({
+              generationParams: {
+                ...project.generationParams,
+                sceneEffects,
+              },
+            })
+          }
+          onClose={() => setShowEffectDialog(false)}
         />
       )}
 

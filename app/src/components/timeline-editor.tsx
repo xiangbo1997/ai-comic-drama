@@ -15,6 +15,8 @@ import {
   Settings2,
   Stamp,
   Sticker,
+  ArrowLeftRight,
+  SlidersHorizontal,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
 
@@ -29,6 +31,10 @@ interface TimelineEditorProps {
   onWatermarkClick?: () => void;
   /** 点击贴图入口时触发，用于打开贴图管理面板 */
   onStickerClick?: () => void;
+  /** 点击转场入口时触发，用于打开分镜转场设置面板 */
+  onTransitionClick?: () => void;
+  /** 点击滤镜入口时触发，用于打开分镜滤镜/变速面板 */
+  onEffectClick?: () => void;
 }
 
 const TRACK_HEIGHT = 48;
@@ -51,6 +57,8 @@ function TimelineEditorImpl({
   onSubtitleClick,
   onWatermarkClick,
   onStickerClick,
+  onTransitionClick,
+  onEffectClick,
 }: TimelineEditorProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -240,6 +248,22 @@ function TimelineEditorImpl({
             title="添加贴图 / 表情"
           >
             <Sticker size={14} />+ 贴图
+          </button>
+          <button
+            onClick={onTransitionClick}
+            className="text-muted-foreground hover:bg-secondary hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-xs transition"
+            title="设置分镜间转场"
+          >
+            <ArrowLeftRight size={14} />
+            转场
+          </button>
+          <button
+            onClick={onEffectClick}
+            className="text-muted-foreground hover:bg-secondary hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-xs transition"
+            title="设置分镜滤镜 / 变速"
+          >
+            <SlidersHorizontal size={14} />
+            滤镜
           </button>
         </div>
 
