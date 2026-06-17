@@ -16,6 +16,8 @@ interface PreviewPlayerProps {
   aspectRatio: string;
   onSceneChange?: (sceneId: string) => void;
   currentSceneId?: string;
+  /** 全片字幕样式（与导出保持一致的预览） */
+  subtitleStyle?: import("@/types/export-style").SubtitleStyle;
 }
 
 export function PreviewPlayer({
@@ -23,6 +25,7 @@ export function PreviewPlayer({
   aspectRatio,
   onSceneChange,
   currentSceneId,
+  subtitleStyle,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -193,15 +196,38 @@ export function PreviewPlayer({
           <audio ref={audioRef} src={currentScene.audioUrl} />
         )}
 
-        {/* Subtitles */}
+        {/* Subtitles — 应用全片字幕样式，与导出保持一致预览 */}
         {showSubtitles &&
           (currentScene?.dialogue || currentScene?.narration) && (
-            <div className="absolute right-4 bottom-12 left-4 text-center">
-              <div className="inline-block rounded-lg bg-black/70 px-4 py-2">
-                <p className="text-foreground text-sm">
-                  {currentScene.dialogue || currentScene.narration}
-                </p>
-              </div>
+            <div
+              className={`absolute right-4 left-4 flex ${
+                subtitleStyle?.position === "top"
+                  ? "top-12 items-start"
+                  : subtitleStyle?.position === "middle"
+                    ? "inset-y-0 items-center"
+                    : "bottom-12 items-end"
+              } justify-center`}
+            >
+              <p
+                className="inline-block rounded-lg px-4 py-2 text-center leading-snug"
+                style={{
+                  fontSize: `${subtitleStyle?.fontSize ?? 16}px`,
+                  color: subtitleStyle?.fontColor ?? "#FFFFFF",
+                  fontWeight: subtitleStyle?.bold ? 700 : 400,
+                  background: subtitleStyle?.backgroundBox
+                    ? "rgba(0,0,0,0.7)"
+                    : "transparent",
+                  textShadow: subtitleStyle
+                    ? `${subtitleStyle.outlineColor} 1px 1px 0, ${subtitleStyle.outlineColor} -1px -1px 0, ${subtitleStyle.outlineColor} 1px -1px 0, ${subtitleStyle.outlineColor} -1px 1px 0`
+                    : "rgba(0,0,0,0.8) 0 1px 2px",
+                  WebkitTextStroke:
+                    subtitleStyle && subtitleStyle.outlineWidth > 0
+                      ? `${Math.min(subtitleStyle.outlineWidth, 2) * 0.5}px ${subtitleStyle.outlineColor}`
+                      : undefined,
+                }}
+              >
+                {currentScene.dialogue || currentScene.narration}
+              </p>
             </div>
           )}
 

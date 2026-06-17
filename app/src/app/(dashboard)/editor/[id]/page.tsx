@@ -402,6 +402,7 @@ export default function EditorPage() {
                 aspectRatio={project.aspectRatio}
                 onSceneChange={editor.setSelectedSceneId}
                 currentSceneId={editor.selectedSceneId ?? undefined}
+                subtitleStyle={project.generationParams?.subtitleStyle}
               />
             </div>
           </div>
