@@ -10,9 +10,17 @@ import path from "path";
 import os from "os";
 // 字幕样式 / 水印类型统一从 types/export-style 导入（单一权威来源），
 // 避免与前端、导出 API 各自重复定义导致字段漂移。
-import type { SubtitleStyle, Watermark, Sticker } from "@/types/export-style";
+import type {
+  SubtitleStyle,
+  Watermark,
+  Sticker,
+  Transition,
+  TransitionType,
+  SceneEffect,
+  SceneEffectId,
+} from "@/types/export-style";
 
-export type { SubtitleStyle, Watermark, Sticker };
+export type { SubtitleStyle, Watermark, Sticker, Transition, SceneEffect };
 
 export interface SceneMedia {
   id: string;
@@ -37,6 +45,16 @@ export interface ExportOptions {
   watermark?: Watermark;
   /** 贴图列表（按分镜叠加，导出时 overlay + enable 时间窗） */
   stickers?: Sticker[];
+  /**
+   * 分镜间转场配置（第 k 项 = 第 k 与 k+1 分镜之间）。
+   * 缺省或某项缺失时回退默认 fade 0.3s，保持与旧行为一致。
+   */
+  transitions?: Transition[];
+  /**
+   * 分镜级画面调节（滤镜 / 变速），按 sceneId 关联。
+   * 缺省时片段不加滤镜、不变速。
+   */
+  sceneEffects?: SceneEffect[];
 }
 
 const QUALITY_SETTINGS = {
@@ -50,6 +68,90 @@ const ASPECT_RATIOS = {
   "16:9": { width: 1920, height: 1080 },
   "1:1": { width: 1080, height: 1080 },
 };
+
+/**
+ * 片段滤镜预设：id → FFmpeg 滤镜表达式
+ * 移植自 MagicalCanvas，覆盖常用调色/做旧效果。
+ */
+const FX_FILTERS: Record<SceneEffectId, string> = {
+  bw: "hue=s=0",
+  vivid: "eq=saturation=1.45:contrast=1.08",
+  sepia: "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131",
+  cold: "colorbalance=bs=.18:rs=-.05",
+  warm: "colorbalance=rs=.16:bs=-.12",
+  vignette: "vignette=PI/4.5",
+  blur: "gblur=sigma=8",
+  oldfilm:
+    "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,noise=alls=10:allf=t,vignette=PI/4.5",
+  sharpen: "unsharp=5:5:1.0",
+  vintage: "curves=preset=vintage",
+  tealorange: "colorbalance=rs=.2:bs=-.2,eq=saturation=1.25",
+  dreampurple: "colorbalance=rs=.1:bs=.25",
+};
+
+/**
+ * FFmpeg xfade 支持的转场类型白名单。
+ * 不在白名单内（或 "none"）的一律回退 fade，避免 filter 报错。
+ */
+const XFADE_TYPES = new Set<TransitionType>([
+  "fade",
+  "fadeblack",
+  "fadewhite",
+  "dissolve",
+  "wipeleft",
+  "wiperight",
+  "wipeup",
+  "wipedown",
+  "slideleft",
+  "slideright",
+  "slideup",
+  "slidedown",
+  "circleopen",
+  "circleclose",
+  "radial",
+  "smoothleft",
+  "smoothright",
+]);
+
+/** 默认转场时长（秒），与历史行为一致 */
+const DEFAULT_FADE_DURATION = 0.3;
+
+/**
+ * 把任意变速倍率拆成 FFmpeg atempo 允许的 0.5–2.0 链。
+ * atempo 单次只接受 0.5–2.0，超出需级联。移植自 MagicalCanvas。
+ */
+function buildAtempoChain(speed: number): string[] {
+  const parts: string[] = [];
+  let s = speed;
+  while (s > 2.0) {
+    parts.push("atempo=2.0");
+    s /= 2.0;
+  }
+  while (s < 0.5) {
+    parts.push("atempo=0.5");
+    s /= 0.5;
+  }
+  if (Math.abs(s - 1) > 0.001) parts.push(`atempo=${s.toFixed(4)}`);
+  return parts;
+}
+
+/**
+ * 解析某分镜的画面调节配置（滤镜 + 变速），带边界校验。
+ */
+function resolveSceneEffect(
+  sceneId: string,
+  effects?: SceneEffect[]
+): { effect: string | null; speed: number } {
+  const found = effects?.find((e) => e.sceneId === sceneId);
+  const effectId = found?.effect;
+  const effect = effectId && FX_FILTERS[effectId] ? FX_FILTERS[effectId] : null;
+  const rawSpeed = found?.speed;
+  const speed =
+    rawSpeed != null && !isNaN(Number(rawSpeed))
+      ? Math.min(4, Math.max(0.25, Number(rawSpeed)))
+      : 1;
+  return { effect, speed };
+}
 
 /**
  * 把 path-only URL（如 /uploads/...）补全成绝对 URL
@@ -94,24 +196,28 @@ async function downloadFile(url: string, filename: string): Promise<string> {
  */
 async function generateSubtitleFile(
   scenes: SceneMedia[],
-  outputPath: string
+  outputPath: string,
+  sceneEffects?: SceneEffect[]
 ): Promise<string> {
   let srtContent = "";
   let index = 1;
   let currentTime = 0;
 
   for (const scene of scenes) {
+    // 字幕时轴用「有效时长」（变速后），与画面/配音对齐
+    const { speed } = resolveSceneEffect(scene.id, sceneEffects);
+    const effDuration = scene.duration / speed;
     const text = scene.dialogue || scene.narration;
     if (text) {
       const startTime = formatSrtTime(currentTime);
-      const endTime = formatSrtTime(currentTime + scene.duration);
+      const endTime = formatSrtTime(currentTime + effDuration);
 
       srtContent += `${index}\n`;
       srtContent += `${startTime} --> ${endTime}\n`;
       srtContent += `${text}\n\n`;
       index++;
     }
-    currentTime += scene.duration;
+    currentTime += effDuration;
   }
 
   const srtPath = path.join(outputPath, "subtitles.srt");
@@ -238,14 +344,19 @@ interface PreparedSticker {
 async function prepareStickers(
   stickers: Sticker[],
   scenes: SceneMedia[],
-  _tmpDir: string
+  _tmpDir: string,
+  sceneEffects?: SceneEffect[]
 ): Promise<PreparedSticker[]> {
-  // 计算每个分镜的全片起始时间
+  // 计算每个分镜的全片起始时间与有效时长（随变速对齐）
   const sceneStart: Record<string, number> = {};
+  const sceneEffDur: Record<string, number> = {};
   let cursor = 0;
   for (const sc of scenes) {
+    const { speed } = resolveSceneEffect(sc.id, sceneEffects);
+    const effDuration = sc.duration / speed;
     sceneStart[sc.id] = cursor;
-    cursor += sc.duration;
+    sceneEffDur[sc.id] = effDuration;
+    cursor += effDuration;
   }
 
   const prepared: PreparedSticker[] = [];
@@ -255,12 +366,13 @@ async function prepareStickers(
     const scene = scenes.find((s) => s.id === st.sceneId);
     if (!scene) continue;
     const base = sceneStart[st.sceneId];
+    const sceneEnd = base + sceneEffDur[st.sceneId];
     const offset = st.startOffset ?? 0;
     const start = base + offset;
     const end =
       st.duration !== undefined
-        ? Math.min(start + st.duration, base + scene.duration)
-        : base + scene.duration;
+        ? Math.min(start + st.duration, sceneEnd)
+        : sceneEnd;
     try {
       const localPath = await downloadFile(st.imageUrl, `sticker_${idx}.png`);
       prepared.push({
@@ -305,16 +417,50 @@ function runFFmpeg(args: string[]): Promise<void> {
   });
 }
 
+/** 单分镜片段产物：本地路径 + 变速后的有效时长（供 xfade/音频累计对齐） */
+interface SceneClip {
+  path: string;
+  /** 片段在成片时间轴上的有效时长（秒）= scene.duration / speed */
+  effectiveDuration: number;
+}
+
 /**
- * 将单个分镜转换为视频片段
+ * 构建片段视频滤镜链：scale+pad（统一画幅）→ 可选 FX 滤镜 → 可选变速。
+ * 变速用 setpts=PTS/speed 改变视频流时长。
+ */
+function buildClipVideoFilter(
+  width: number,
+  height: number,
+  effect: string | null,
+  speed: number
+): string {
+  const parts = [
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
+  ];
+  if (effect) parts.push(effect);
+  if (speed !== 1) parts.push(`setpts=PTS/${speed.toFixed(4)}`);
+  return parts.join(",");
+}
+
+/**
+ * 将单个分镜转换为视频片段。
+ * 支持滤镜（FX）与变速（speed）：变速同时作用于画面（setpts）与音轨（atempo），
+ * 并返回变速后的有效时长，供后续 xfade offset 与音频 adelay 累计对齐。
  */
 async function sceneToVideoClip(
   scene: SceneMedia,
   outputDir: string,
   options: ExportOptions
-): Promise<string> {
+): Promise<SceneClip> {
   const { width, height } = ASPECT_RATIOS[options.aspectRatio];
   const outputPath = path.join(outputDir, `scene_${scene.order}.mp4`);
+
+  const { effect, speed } = resolveSceneEffect(scene.id, options.sceneEffects);
+  // 截断时长用原始 duration（截在变速前的源时间轴上）；
+  // 有效时长 = 原始时长 / 倍速（成片时间轴上的占位）。
+  const effectiveDuration = scene.duration / speed;
+  const vf = buildClipVideoFilter(width, height, effect, speed);
 
   // 如果有视频，直接使用
   if (scene.videoUrl) {
@@ -323,14 +469,21 @@ async function sceneToVideoClip(
       `video_${scene.order}.mp4`
     );
 
-    // 调整视频时长和尺寸
-    await runFFmpeg([
+    // 视频带音轨：用 filter_complex 同时处理画面与音频变速
+    const filterComplex =
+      speed !== 1
+        ? `[0:v]${vf}[v];[0:a]${buildAtempoChain(speed).join(",")}[a]`
+        : `[0:v]${vf}[v]`;
+    const args = [
       "-i",
       videoPath,
       "-t",
       scene.duration.toString(),
-      "-vf",
-      `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
+      "-filter_complex",
+      filterComplex,
+      "-map",
+      "[v]",
+      ...(speed !== 1 ? ["-map", "[a]"] : ["-map", "0:a?"]),
       "-c:v",
       "libx264",
       "-preset",
@@ -339,28 +492,32 @@ async function sceneToVideoClip(
       "aac",
       "-y",
       outputPath,
-    ]);
+    ];
+    await runFFmpeg(args);
 
     await unlink(videoPath);
-    return outputPath;
+    return { path: outputPath, effectiveDuration };
   }
 
-  // 如果只有图片，生成静态视频
+  // 如果只有图片，生成静态视频（图片无音轨，变速仅影响时长 → 直接用有效时长生成）
   if (scene.imageUrl) {
     const imagePath = await downloadFile(
       scene.imageUrl,
       `image_${scene.order}.jpg`
     );
 
+    // 图片场景：滤镜照常应用，但变速对静态图无意义（画面不动），
+    // 用有效时长直接 -t 即可（无需 setpts）。
+    const imgVf = buildClipVideoFilter(width, height, effect, 1);
     await runFFmpeg([
       "-loop",
       "1",
       "-i",
       imagePath,
       "-t",
-      scene.duration.toString(),
+      effectiveDuration.toString(),
       "-vf",
-      `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
+      imgVf,
       "-c:v",
       "libx264",
       "-preset",
@@ -372,7 +529,7 @@ async function sceneToVideoClip(
     ]);
 
     await unlink(imagePath);
-    return outputPath;
+    return { path: outputPath, effectiveDuration };
   }
 
   // 生成黑色背景视频
@@ -380,7 +537,7 @@ async function sceneToVideoClip(
     "-f",
     "lavfi",
     "-i",
-    `color=c=black:s=${width}x${height}:d=${scene.duration}`,
+    `color=c=black:s=${width}x${height}:d=${effectiveDuration}`,
     "-c:v",
     "libx264",
     "-preset",
@@ -391,7 +548,7 @@ async function sceneToVideoClip(
     outputPath,
   ]);
 
-  return outputPath;
+  return { path: outputPath, effectiveDuration };
 }
 
 /**
@@ -416,38 +573,79 @@ export async function synthesizeVideo(
   await mkdir(tmpDir, { recursive: true });
 
   try {
-    // 1. 生成每个分镜的视频片段
-    const videoClips: string[] = [];
+    // 1. 生成每个分镜的视频片段（含滤镜/变速；返回变速后的有效时长）
+    const clips: SceneClip[] = [];
     for (let i = 0; i < scenes.length; i++) {
       const clip = await sceneToVideoClip(scenes[i], tmpDir, options);
-      videoClips.push(clip);
+      clips.push(clip);
       onProgress?.(Math.round(((i + 1) / scenes.length) * 50));
     }
+    const videoClips = clips.map((c) => c.path);
+    // 成片时间轴上各片段的有效时长（变速后），用于 xfade offset 与音频累计对齐
+    const effDurations = clips.map((c) => c.effectiveDuration);
+
+    // 解析每个衔接处（k = 第 k 与 k+1 分镜之间）的转场类型与时长。
+    // 转场时长上限不超过相邻两段有效时长的一半，避免 offset 越界导致 xfade 报错。
+    const resolveTransition = (
+      k: number
+    ): { type: TransitionType; duration: number } => {
+      const t = options.transitions?.[k];
+      const rawType = t?.type;
+      const type: TransitionType =
+        rawType && XFADE_TYPES.has(rawType) ? rawType : "fade";
+      // "none"（硬切）用极短淡化≈0.04s 近似，统一走 xfade 管线
+      const isNone = rawType === "none";
+      const rawDur = isNone ? 0.04 : (t?.duration ?? DEFAULT_FADE_DURATION);
+      const maxDur = Math.max(
+        0.1,
+        Math.min(effDurations[k], effDurations[k + 1]) / 2
+      );
+      const duration = Math.min(Math.max(rawDur, 0.04), maxDur);
+      return { type: isNone ? "fade" : type, duration };
+    };
 
     // 2. 合并所有视频片段
     //
-    // v2：默认走 xfade 过渡（0.3s 渐隐），消除镜头切换处的"角色跳变"硬切感。
-    //     环境变量 ENABLE_VIDEO_XFADE=0 时回退到 concat -c copy 的旧行为（零重编码、速度快）。
-    //     单镜头或 <2 段时自动跳过 xfade（无意义且 filter 会报错）。
+    // v3：默认走 xfade 过渡，消除镜头切换处的"角色跳变"硬切感。
+    //     - 转场类型/时长可由 options.transitions 配置（缺省 fade 0.3s）。
+    //     - 每段进 xfade 前用 tpad 克隆末帧补垫，修复转场窗口落在视频流末尾后的"黑闪"
+    //       （部分视频容器声明时长 > 视频流实际时长）。
+    //     环境变量 ENABLE_VIDEO_XFADE=0 时回退 concat -c copy 旧行为（零重编码、速度快）。
+    //     单镜头或 <2 段时自动跳过 xfade。
     const mergedPath = path.join(tmpDir, "merged.mp4");
     const xfadeEnabled =
       process.env.ENABLE_VIDEO_XFADE !== "0" && videoClips.length >= 2;
 
     if (xfadeEnabled) {
-      // xfade filter_complex 链：每两段之间插一段 0.3s fade
-      // offset = 累计前置时长 - 0.3（让 fade 在前一段末尾开始）
-      const FADE_DURATION = 0.3;
       const filterParts: string[] = [];
-      let prevTag = "[0:v]";
-      let cumulative = 0;
+
+      // ── 2a. 每段先 tpad 补垫（补「该段右侧转场时长 + 0.2s 余量」）──
+      // 末段无右侧转场，不补垫。
+      for (let i = 0; i < videoClips.length; i += 1) {
+        const padOut =
+          i < videoClips.length - 1 ? resolveTransition(i).duration + 0.2 : 0;
+        if (padOut > 0) {
+          filterParts.push(
+            `[${i}:v]tpad=stop_mode=clone:stop_duration=${padOut.toFixed(3)}[vp${i}]`
+          );
+        } else {
+          // 末段直接透传（保持标签统一为 vp{i}）
+          filterParts.push(`[${i}:v]null[vp${i}]`);
+        }
+      }
+
+      // ── 2b. xfade 链：offset = 累计有效时长 - 当前转场时长 ──
+      let prevTag = "[vp0]";
+      let cumulative = effDurations[0];
       for (let i = 1; i < videoClips.length; i += 1) {
-        cumulative += Math.max(scenes[i - 1].duration, 1);
-        const offset = Math.max(cumulative - FADE_DURATION, 0).toFixed(3);
-        const out = i === videoClips.length - 1 ? "[outv]" : `[v${i}]`;
+        const { type, duration } = resolveTransition(i - 1);
+        const offset = Math.max(cumulative - duration, 0).toFixed(3);
+        const out = i === videoClips.length - 1 ? "[outv]" : `[vx${i}]`;
         filterParts.push(
-          `${prevTag}[${i}:v]xfade=transition=fade:duration=${FADE_DURATION}:offset=${offset}${out}`
+          `${prevTag}[vp${i}]xfade=transition=${type}:duration=${duration.toFixed(3)}:offset=${offset}${out}`
         );
         prevTag = out;
+        cumulative += effDurations[i] - duration;
       }
       const filterComplex = filterParts.join(";");
 
@@ -497,6 +695,8 @@ export async function synthesizeVideo(
     let audioIndex = 0;
 
     if (options.includeAudio) {
+      // 累计用「有效时长」（变速后），与视频片段在成片时间轴上对齐，
+      // 避免分镜变速后配音延迟错位。
       let currentTime = 0;
       for (const scene of scenes) {
         if (scene.audioUrl) {
@@ -510,16 +710,21 @@ export async function synthesizeVideo(
           );
           audioIndex++;
         }
-        currentTime += scene.duration;
+        const { speed } = resolveSceneEffect(scene.id, options.sceneEffects);
+        currentTime += scene.duration / speed;
       }
     }
 
     onProgress?.(70);
 
-    // 5. 生成字幕
+    // 5. 生成字幕（时轴随变速对齐）
     let subtitlePath: string | null = null;
     if (options.includeSubtitles) {
-      subtitlePath = await generateSubtitleFile(scenes, tmpDir);
+      subtitlePath = await generateSubtitleFile(
+        scenes,
+        tmpDir,
+        options.sceneEffects
+      );
     }
 
     onProgress?.(80);
@@ -539,10 +744,15 @@ export async function synthesizeVideo(
       }
     }
 
-    // 6.5 准备贴图（按分镜时间窗 overlay）
+    // 6.5 准备贴图（按分镜时间窗 overlay，时间窗随变速对齐）
     const preparedStickers =
       options.stickers && options.stickers.length > 0
-        ? await prepareStickers(options.stickers, scenes, tmpDir)
+        ? await prepareStickers(
+            options.stickers,
+            scenes,
+            tmpDir,
+            options.sceneEffects
+          )
         : [];
 
     // 7. 最终合成

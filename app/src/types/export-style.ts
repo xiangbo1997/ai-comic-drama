@@ -74,6 +74,74 @@ export interface Sticker {
 }
 
 /**
+ * 转场类型白名单
+ * 对应 FFmpeg xfade filter 的 transition 取值（ffmpeg ≥ 4.3 内置）。
+ * "none" 为硬切（用极短淡化≈0 实现，统一管线）。
+ */
+export type TransitionType =
+  | "none"
+  | "fade"
+  | "fadeblack"
+  | "fadewhite"
+  | "dissolve"
+  | "wipeleft"
+  | "wiperight"
+  | "wipeup"
+  | "wipedown"
+  | "slideleft"
+  | "slideright"
+  | "slideup"
+  | "slidedown"
+  | "circleopen"
+  | "circleclose"
+  | "radial"
+  | "smoothleft"
+  | "smoothright";
+
+/**
+ * 分镜间转场配置
+ * 第 k 项描述「第 k 个分镜」与「第 k+1 个分镜」之间的转场，
+ * 因此长度应为 scenes.length - 1（缺省项按默认 fade 处理）。
+ */
+export interface Transition {
+  /** 转场类型，默认 fade */
+  type: TransitionType;
+  /** 转场时长（秒），默认 0.3，范围 0.1–2.0 */
+  duration: number;
+}
+
+/**
+ * 片段滤镜特效预设 id 白名单
+ * 对应 video-synthesis 的 FX_FILTERS 映射表。
+ */
+export type SceneEffectId =
+  | "bw"
+  | "vivid"
+  | "sepia"
+  | "cold"
+  | "warm"
+  | "vignette"
+  | "blur"
+  | "oldfilm"
+  | "sharpen"
+  | "vintage"
+  | "tealorange"
+  | "dreampurple";
+
+/**
+ * 单分镜的画面调节配置（滤镜 / 变速）
+ * 按 sceneId 关联，导出时作用于该分镜片段。
+ */
+export interface SceneEffect {
+  /** 归属分镜 id */
+  sceneId: string;
+  /** 滤镜预设 id；缺省或 null = 不加滤镜 */
+  effect?: SceneEffectId | null;
+  /** 变速倍率（0.25–4），默认 1（不变速） */
+  speed?: number;
+}
+
+/**
  * 字幕样式默认值
  */
 export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
@@ -95,4 +163,12 @@ export const DEFAULT_WATERMARK: Watermark = {
   position: "br",
   opacity: 0.8,
   scale: 0.12,
+};
+
+/**
+ * 默认转场（与旧行为一致：fade 0.3s）
+ */
+export const DEFAULT_TRANSITION: Transition = {
+  type: "fade",
+  duration: 0.3,
 };

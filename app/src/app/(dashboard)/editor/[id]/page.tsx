@@ -189,6 +189,32 @@ export default function EditorPage() {
     poll();
   };
 
+  // 智能字幕：从各分镜配音识别字幕，回填 dialogue（识别文本即字幕来源）
+  const handleTranscribe = async (): Promise<string> => {
+    const res = await fetch(`/api/projects/${projectId}/transcribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || "语音识别失败");
+    }
+    const dialogues: Record<string, string> = data.dialogues ?? {};
+    const entries = Object.entries(dialogues);
+    if (entries.length === 0) {
+      return data.message || "未识别到有效语音";
+    }
+    // 批量回填各分镜 dialogue
+    await Promise.all(
+      entries.map(([sceneId, text]) =>
+        apiUpdateScene(projectId, sceneId, { dialogue: text })
+      )
+    );
+    editor.invalidateProject();
+    return `已识别并回填 ${entries.length} 个分镜的字幕`;
+  };
+
   const handleToggleCharacter = (id: string) => {
     const newSet = new Set(editor.selectedCharacterIds);
     if (newSet.has(id)) {
@@ -385,6 +411,7 @@ export default function EditorPage() {
               },
             })
           }
+          onTranscribe={handleTranscribe}
           onClose={() => setShowSubtitleStyleDialog(false)}
         />
       )}
@@ -459,6 +486,9 @@ export default function EditorPage() {
         isOpen={showExportDialog}
         exportStatus={exportStatus}
         onExport={handleExport}
+        // 时间轴入口已配置的字幕/水印作为导出表单初值，保证预览/时间轴/导出三处一致
+        initialSubtitleStyle={project.generationParams?.subtitleStyle}
+        initialWatermark={project.generationParams?.watermark}
         onClose={() => {
           stopExportPoll();
           setShowExportDialog(false);

@@ -78,6 +78,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const resolvedStickers = Array.isArray(genParams.stickers)
       ? genParams.stickers
       : [];
+    // 转场配置 / 分镜画面调节（滤镜+变速）：从 generationParams 读取，
+    // 缺省时 video-synthesis 自动回退默认行为（fade 0.3s / 不加滤镜变速）。
+    const resolvedTransitions = Array.isArray(genParams.transitions)
+      ? genParams.transitions
+      : undefined;
+    const resolvedSceneEffects = Array.isArray(genParams.sceneEffects)
+      ? genParams.sceneEffects
+      : undefined;
 
     // 检查是否有足够的内容可以导出
     const scenesWithContent = project.scenes.filter(
@@ -139,6 +147,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       subtitleStyle: resolvedSubtitleStyle,
       watermark: resolvedWatermark,
       stickers: resolvedStickers,
+      transitions: resolvedTransitions,
+      sceneEffects: resolvedSceneEffects,
     };
 
     // 如果是同步模式，立即处理
