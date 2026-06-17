@@ -241,6 +241,71 @@ function normalizeGenerationParams(
       }))
       .filter((st) => st.imageUrl && st.sceneId);
   }
+  // 转场列表：校验每项的类型白名单 + 时长范围（与 video-synthesis XFADE_TYPES 一致）
+  if (Array.isArray(src.transitions)) {
+    const transitionTypes = [
+      "none",
+      "fade",
+      "fadeblack",
+      "fadewhite",
+      "dissolve",
+      "wipeleft",
+      "wiperight",
+      "wipeup",
+      "wipedown",
+      "slideleft",
+      "slideright",
+      "slideup",
+      "slidedown",
+      "circleopen",
+      "circleclose",
+      "radial",
+      "smoothleft",
+      "smoothright",
+    ];
+    out.transitions = src.transitions
+      .slice(0, 200)
+      .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+      .map((t) => ({
+        type:
+          typeof t.type === "string" && transitionTypes.includes(t.type)
+            ? t.type
+            : "fade",
+        duration:
+          typeof t.duration === "number"
+            ? clampNumber(t.duration, 0.1, 2)
+            : 0.3,
+      }));
+  }
+  // 分镜滤镜/变速：校验滤镜 id 白名单 + 变速范围（与 video-synthesis FX_FILTERS 一致）
+  if (Array.isArray(src.sceneEffects)) {
+    const effectIds = [
+      "bw",
+      "vivid",
+      "sepia",
+      "cold",
+      "warm",
+      "vignette",
+      "blur",
+      "oldfilm",
+      "sharpen",
+      "vintage",
+      "tealorange",
+      "dreampurple",
+    ];
+    out.sceneEffects = src.sceneEffects
+      .slice(0, 200)
+      .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+      .map((e) => ({
+        sceneId: typeof e.sceneId === "string" ? e.sceneId.slice(0, 64) : "",
+        effect:
+          typeof e.effect === "string" && effectIds.includes(e.effect)
+            ? e.effect
+            : null,
+        speed: typeof e.speed === "number" ? clampNumber(e.speed, 0.25, 4) : 1,
+      }))
+      .filter((e) => e.sceneId);
+  }
   return out;
 }
 
