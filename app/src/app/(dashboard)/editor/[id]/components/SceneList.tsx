@@ -697,6 +697,10 @@ function SceneListImpl({
             >
               <ImageIcon size={16} />
               批量图片
+              <span className="text-muted-foreground ml-1 text-xs">
+                {project.scenes.filter((s) => s.imageUrl).length}/
+                {project.scenes.length}
+              </span>
             </button>
           </div>
 
@@ -730,6 +734,10 @@ function SceneListImpl({
             >
               <Video size={16} />
               批量视频
+              <span className="text-muted-foreground ml-1 text-xs">
+                {project.scenes.filter((s) => s.videoUrl).length}/
+                {project.scenes.length}
+              </span>
             </button>
           </div>
 
@@ -763,6 +771,10 @@ function SceneListImpl({
             >
               <Volume2 size={16} />
               批量配音
+              <span className="text-muted-foreground ml-1 text-xs">
+                {project.scenes.filter((s) => s.audioUrl).length}/
+                {project.scenes.filter((s) => s.dialogue || s.narration).length}
+              </span>
             </button>
           </div>
         </div>

@@ -422,6 +422,7 @@ export default function EditorPage() {
                 onSceneChange={editor.setSelectedSceneId}
                 currentSceneId={editor.selectedSceneId ?? undefined}
                 subtitleStyle={project.generationParams?.subtitleStyle}
+                watermark={project.generationParams?.watermark}
               />
             </div>
           </div>

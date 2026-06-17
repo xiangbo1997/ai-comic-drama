@@ -18,6 +18,8 @@ interface PreviewPlayerProps {
   currentSceneId?: string;
   /** 全片字幕样式（与导出保持一致的预览） */
   subtitleStyle?: import("@/types/export-style").SubtitleStyle;
+  /** 全片商标水印（预览叠加 logo） */
+  watermark?: import("@/types/export-style").Watermark;
 }
 
 export function PreviewPlayer({
@@ -26,6 +28,7 @@ export function PreviewPlayer({
   onSceneChange,
   currentSceneId,
   subtitleStyle,
+  watermark,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -194,6 +197,29 @@ export function PreviewPlayer({
         {/* Audio */}
         {currentScene?.audioUrl && (
           <audio ref={audioRef} src={currentScene.audioUrl} />
+        )}
+
+        {/* Watermark — 全片商标水印预览（与导出 overlay 一致位置） */}
+        {watermark?.enabled && watermark.imageUrl && (
+          <img
+            src={watermark.imageUrl}
+            alt=""
+            className={`pointer-events-none absolute ${
+              watermark.position === "tl"
+                ? "top-3 left-3"
+                : watermark.position === "tr"
+                  ? "top-3 right-3"
+                  : watermark.position === "bl"
+                    ? "bottom-3 left-3"
+                    : watermark.position === "center"
+                      ? "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                      : "right-3 bottom-3"
+            }`}
+            style={{
+              width: `${(watermark.scale ?? 0.12) * 100}%`,
+              opacity: watermark.opacity ?? 0.8,
+            }}
+          />
         )}
 
         {/* Subtitles — 应用全片字幕样式，与导出保持一致预览 */}
