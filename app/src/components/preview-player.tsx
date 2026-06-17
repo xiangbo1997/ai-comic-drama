@@ -10,6 +10,16 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
+import type {
+  SubtitleStyle,
+  Watermark,
+  Sticker,
+  Transition,
+  TransitionType,
+  SceneEffect,
+  SceneEffectId,
+} from "@/types/export-style";
+import { SceneFilterDefs, sceneFilterCss } from "./scene-filters";
 
 interface PreviewPlayerProps {
   scenes: ScenePreview[];
@@ -17,11 +27,42 @@ interface PreviewPlayerProps {
   onSceneChange?: (sceneId: string) => void;
   currentSceneId?: string;
   /** 全片字幕样式（与导出保持一致的预览） */
-  subtitleStyle?: import("@/types/export-style").SubtitleStyle;
+  subtitleStyle?: SubtitleStyle;
   /** 全片商标水印（预览叠加 logo） */
-  watermark?: import("@/types/export-style").Watermark;
+  watermark?: Watermark;
   /** 贴图列表（预览时按当前分镜叠加） */
-  stickers?: import("@/types/export-style").Sticker[];
+  stickers?: Sticker[];
+  /** 分镜间转场（第 k 项 = 第 k 与 k+1 分镜之间），双层叠化预览 */
+  transitions?: Transition[];
+  /** 分镜滤镜 / 变速（按 sceneId），预览用 SVG filter 精确复现 */
+  sceneEffects?: SceneEffect[];
+}
+
+/** 解析某分镜的滤镜 id 与变速（与导出侧 resolveSceneEffect 等价） */
+function resolveEffect(
+  sceneId: string,
+  effects?: SceneEffect[]
+): { effect: SceneEffectId | null; speed: number } {
+  const found = effects?.find((e) => e.sceneId === sceneId);
+  const speed =
+    found?.speed != null && !isNaN(Number(found.speed))
+      ? Math.min(4, Math.max(0.25, Number(found.speed)))
+      : 1;
+  return { effect: found?.effect ?? null, speed };
+}
+
+/** 解析某衔接的转场类型与时长（缺省 fade 0.3s；"none" 视为无转场） */
+function resolveTransition(
+  index: number,
+  transitions?: Transition[]
+): { type: TransitionType; duration: number } {
+  const t = transitions?.[index];
+  const type = t?.type ?? "fade";
+  const duration =
+    type === "none"
+      ? 0
+      : Math.min(2, Math.max(0.1, Number(t?.duration ?? 0.3)));
+  return { type, duration };
 }
 
 export function PreviewPlayer({
@@ -32,19 +73,39 @@ export function PreviewPlayer({
   subtitleStyle,
   watermark,
   stickers,
+  transitions,
+  sceneEffects,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [showSubtitles, setShowSubtitles] = useState(true);
+  // 转场进度 0-1：>0 表示正在向下一镜叠化（驱动双层透明度/位移）
+  const [transitionT, setTransitionT] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentScene = scenes[currentIndex];
-  const totalDuration = scenes.reduce((sum, s) => sum + s.duration, 0);
+  const nextScene =
+    currentIndex < scenes.length - 1 ? scenes[currentIndex + 1] : null;
+
+  // 当前镜与下一镜的滤镜/变速
+  const curFx = currentScene
+    ? resolveEffect(currentScene.id, sceneEffects)
+    : { effect: null, speed: 1 };
+  const nextFx = nextScene
+    ? resolveEffect(nextScene.id, sceneEffects)
+    : { effect: null, speed: 1 };
+  // 当前镜右侧转场（与下一镜之间）
+  const curTransition = resolveTransition(currentIndex, transitions);
+
+  // 有效时长 = 原始时长 / 变速（与导出侧成片时间轴一致）
+  const effDur = (s: ScenePreview) =>
+    s.duration / resolveEffect(s.id, sceneEffects).speed;
+  const totalDuration = scenes.reduce((sum, s) => sum + effDur(s), 0);
 
   // 同步外部选中的场景
   const sceneIndex = currentSceneId
@@ -58,31 +119,44 @@ export function PreviewPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneIndex]);
 
-  // 播放控制
+  // 播放控制：进度按「有效时长」计时；进入末尾转场窗口后驱动双层叠化
   useEffect(() => {
     if (isPlaying && currentScene) {
-      const duration = currentScene.duration * 1000;
+      const durationMs = effDur(currentScene) * 1000;
+      // 该镜右侧转场时长（末镜无转场）
+      const hasNext = currentIndex < scenes.length - 1;
+      const tdMs = hasNext ? curTransition.duration * 1000 : 0;
       const startTime = Date.now();
 
       timerRef.current = setInterval(() => {
         const elapsed = Date.now() - startTime;
-        const sceneProgress = Math.min(elapsed / duration, 1);
+        const sceneProgress = Math.min(elapsed / durationMs, 1);
         setProgress(sceneProgress);
 
+        // 转场叠化：进入 [durationMs - tdMs, durationMs] 窗口时，
+        // transitionT 从 0 线性升到 1（驱动下一镜淡入/当前镜淡出）
+        if (tdMs > 0) {
+          const remain = durationMs - elapsed;
+          if (remain <= tdMs) {
+            setTransitionT(Math.min(1, (tdMs - remain) / tdMs));
+          }
+        }
+
         if (sceneProgress >= 1) {
-          // 切换到下一个场景
-          if (currentIndex < scenes.length - 1) {
+          if (hasNext) {
             setCurrentIndex((prev) => prev + 1);
             setProgress(0);
+            setTransitionT(0);
             onSceneChange?.(scenes[currentIndex + 1].id);
           } else {
             // 播放结束
             setIsPlaying(false);
             setProgress(0);
+            setTransitionT(0);
             setCurrentIndex(0);
           }
         }
-      }, 50);
+      }, 30);
 
       // 播放视频
       if (videoRef.current && currentScene.videoUrl) {
@@ -110,7 +184,13 @@ export function PreviewPlayer({
         clearInterval(timerRef.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, currentIndex, currentScene, scenes, onSceneChange]);
+
+  // 手动切换分镜时重置转场进度
+  useEffect(() => {
+    setTransitionT(0);
+  }, [currentIndex]);
 
   // 静音控制
   useEffect(() => {
@@ -145,9 +225,9 @@ export function PreviewPlayer({
   const calculateOverallProgress = () => {
     let elapsed = 0;
     for (let i = 0; i < currentIndex; i++) {
-      elapsed += scenes[i].duration;
+      elapsed += effDur(scenes[i]);
     }
-    elapsed += currentScene ? currentScene.duration * progress : 0;
+    elapsed += currentScene ? effDur(currentScene) * progress : 0;
     return totalDuration > 0 ? elapsed / totalDuration : 0;
   };
 
@@ -155,6 +235,70 @@ export function PreviewPlayer({
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  /**
+   * 计算转场叠化时「当前镜（上层）」的视觉样式。
+   * transitionT: 0→1 表示叠化进度。按转场类型映射为透明度/位移/裁切。
+   */
+  const transitionLayerStyle = (): React.CSSProperties => {
+    const t = transitionT;
+    if (t <= 0) return {};
+    const type = curTransition.type;
+    // fade 系：当前镜淡出
+    if (
+      type === "fade" ||
+      type === "dissolve" ||
+      type === "fadeblack" ||
+      type === "fadewhite"
+    ) {
+      return { opacity: 1 - t };
+    }
+    // slide 系：当前镜被推走
+    if (type === "slideleft") return { transform: `translateX(-${t * 100}%)` };
+    if (type === "slideright") return { transform: `translateX(${t * 100}%)` };
+    if (type === "slideup") return { transform: `translateY(-${t * 100}%)` };
+    if (type === "slidedown") return { transform: `translateY(${t * 100}%)` };
+    // wipe 系：当前镜逐渐被裁掉
+    if (type === "wipeleft") return { clipPath: `inset(0 ${t * 100}% 0 0)` };
+    if (type === "wiperight") return { clipPath: `inset(0 0 0 ${t * 100}%)` };
+    if (type === "wipeup") return { clipPath: `inset(0 0 ${t * 100}% 0)` };
+    if (type === "wipedown") return { clipPath: `inset(${t * 100}% 0 0 0)` };
+    // 圆形/径向/平滑：用透明度近似（双层叠化）
+    return { opacity: 1 - t };
+  };
+
+  /** 渲染一镜的媒体（video / image / 占位），应用其滤镜。withRef 仅当前镜用 */
+  const renderMedia = (
+    scene: ScenePreview | null,
+    effect: SceneEffectId | null,
+    withRef: boolean
+  ) => {
+    const filterCss = sceneFilterCss(effect);
+    if (scene?.videoUrl) {
+      return (
+        <video
+          ref={withRef ? videoRef : undefined}
+          src={scene.videoUrl}
+          className="h-full w-full object-contain"
+          style={{ filter: filterCss }}
+          loop
+          playsInline
+          muted={!withRef}
+        />
+      );
+    }
+    if (scene?.imageUrl) {
+      return (
+        <img
+          src={scene.imageUrl}
+          alt=""
+          className="h-full w-full object-contain"
+          style={{ filter: filterCss }}
+        />
+      );
+    }
+    return <div className="text-muted-foreground">无内容</div>;
   };
 
   if (scenes.length === 0) {
@@ -178,24 +322,24 @@ export function PreviewPlayer({
       {/* Video/Image Display — flex-1 占据除控制条外的剩余高度，min-h-0 允许收缩；
           视频/图片用 object-contain 在其中按比例内缩居中，竖屏也完整可见。
           aspectRatio 用于无媒体时的占位提示。 */}
-      <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
-        {currentScene?.videoUrl ? (
-          <video
-            ref={videoRef}
-            src={currentScene.videoUrl}
-            className="h-full w-full object-contain"
-            loop
-            playsInline
-          />
-        ) : currentScene?.imageUrl ? (
-          <img
-            src={currentScene.imageUrl}
-            alt=""
-            className="h-full w-full object-contain"
-          />
-        ) : (
-          <div className="text-muted-foreground">无内容</div>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black">
+        {/* SVG 滤镜定义（精确复现 FFmpeg FX_FILTERS），仅注入一次 */}
+        <SceneFilterDefs />
+
+        {/* 底层：下一镜——仅转场进行中（transitionT>0）显现，应用下一镜滤镜 */}
+        {nextScene && transitionT > 0 && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            {renderMedia(nextScene, nextFx.effect, false)}
+          </div>
         )}
+
+        {/* 上层：当前镜——应用当前镜滤镜 + 转场叠化动画（fade/slide/wipe） */}
+        <div
+          className="absolute inset-0 flex items-center justify-center"
+          style={transitionLayerStyle()}
+        >
+          {renderMedia(currentScene, curFx.effect, true)}
+        </div>
 
         {/* Audio */}
         {currentScene?.audioUrl && (

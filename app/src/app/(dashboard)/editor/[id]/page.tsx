@@ -523,6 +523,8 @@ export default function EditorPage() {
                 subtitleStyle={project.generationParams?.subtitleStyle}
                 watermark={project.generationParams?.watermark}
                 stickers={project.generationParams?.stickers}
+                transitions={project.generationParams?.transitions}
+                sceneEffects={project.generationParams?.sceneEffects}
               />
             </div>
           </div>
