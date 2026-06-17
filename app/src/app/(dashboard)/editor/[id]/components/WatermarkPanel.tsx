@@ -72,9 +72,10 @@ export function WatermarkPanel({ value, onChange }: WatermarkPanelProps) {
         throw new Error(error ?? "获取上传凭证失败");
       }
 
-      const { uploadUrl, publicUrl } = (await presignRes.json()) as {
+      // 后端 getPresignedUploadUrl 返回 { uploadUrl, fileUrl }
+      const { uploadUrl, fileUrl } = (await presignRes.json()) as {
         uploadUrl: string;
-        publicUrl: string;
+        fileUrl: string;
       };
 
       // 第二步：直接 PUT 到 R2
@@ -89,7 +90,7 @@ export function WatermarkPanel({ value, onChange }: WatermarkPanelProps) {
       }
 
       // 第三步：写入 imageUrl（不可变更新）
-      onChange({ ...value, imageUrl: publicUrl });
+      onChange({ ...value, imageUrl: fileUrl });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "上传出错");
     } finally {

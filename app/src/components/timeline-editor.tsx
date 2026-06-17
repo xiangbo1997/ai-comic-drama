@@ -13,6 +13,7 @@ import {
   Music,
   Type,
   Settings2,
+  Stamp,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
 
@@ -23,6 +24,8 @@ interface TimelineEditorProps {
   selectedSceneId: string | null;
   /** 点击字幕轨/字幕片段时触发，用于打开全片字幕样式面板 */
   onSubtitleClick?: () => void;
+  /** 点击品牌水印入口时触发，用于打开全片水印面板 */
+  onWatermarkClick?: () => void;
 }
 
 const TRACK_HEIGHT = 48;
@@ -43,6 +46,7 @@ function TimelineEditorImpl({
   onSceneDurationChange,
   selectedSceneId,
   onSubtitleClick,
+  onWatermarkClick,
 }: TimelineEditorProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -216,6 +220,15 @@ function TimelineEditorImpl({
             className="hover:bg-secondary rounded p-1.5"
           >
             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          <div className="bg-border mx-1 h-5 w-px" />
+          <button
+            onClick={onWatermarkClick}
+            className="text-muted-foreground hover:bg-secondary hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-xs transition"
+            title="设置品牌水印 / Logo"
+          >
+            <Stamp size={14} />
+            品牌水印
           </button>
         </div>
 

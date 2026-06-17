@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import type { Scene } from "@/types";
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import { SubtitleStyleDialog } from "./components/SubtitleStyleDialog";
+import { WatermarkDialog } from "./components/WatermarkDialog";
 import Link from "next/link";
 import { Loader2, X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -42,6 +43,7 @@ export default function EditorPage() {
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showSubtitleStyleDialog, setShowSubtitleStyleDialog] = useState(false);
+  const [showWatermarkDialog, setShowWatermarkDialog] = useState(false);
   const [showMultiImageDialog, setShowMultiImageDialog] = useState(false);
   const [showMultiVideoDialog, setShowMultiVideoDialog] = useState(false);
   const [showMultiAudioDialog, setShowMultiAudioDialog] = useState(false);
@@ -364,6 +366,7 @@ export default function EditorPage() {
           onSceneDurationChange={editor.handleSceneDurationChange}
           selectedSceneId={editor.selectedSceneId}
           onSubtitleClick={() => setShowSubtitleStyleDialog(true)}
+          onWatermarkClick={() => setShowWatermarkDialog(true)}
         />
       )}
 
@@ -380,6 +383,22 @@ export default function EditorPage() {
             })
           }
           onClose={() => setShowSubtitleStyleDialog(false)}
+        />
+      )}
+
+      {/* 品牌水印弹窗（点击时间轴品牌水印入口触发，全片统一） */}
+      {showWatermarkDialog && (
+        <WatermarkDialog
+          initialValue={project.generationParams?.watermark}
+          onSave={(watermark) =>
+            editor.updateProject({
+              generationParams: {
+                ...project.generationParams,
+                watermark,
+              },
+            })
+          }
+          onClose={() => setShowWatermarkDialog(false)}
         />
       )}
 
