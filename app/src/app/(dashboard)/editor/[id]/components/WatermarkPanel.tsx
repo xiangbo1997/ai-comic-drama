@@ -57,13 +57,16 @@ export function WatermarkPanel({ value, onChange }: WatermarkPanelProps) {
     setUploading(true);
     try {
       // 第一步：获取预签名上传凭证
+      // fileType 用 "watermark" 走后端专用校验分支（图片类型 + 2MB 限制 + 路径前缀），
+      // 与 /api/upload 的契约对齐；此前误传 "image" 跳过了水印专属校验。
       const presignRes = await fetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           fileName: file.name,
           contentType: file.type,
-          fileType: "image",
+          fileType: "watermark",
+          fileSize: file.size,
         }),
       });
 
@@ -89,8 +92,10 @@ export function WatermarkPanel({ value, onChange }: WatermarkPanelProps) {
         throw new Error("上传失败，请重试");
       }
 
-      // 第三步：写入 imageUrl（不可变更新）
-      onChange({ ...value, imageUrl: fileUrl });
+      // 第三步：写入 imageUrl 并自动开启水印（不可变更新）。
+      // 用户既然上传了 Logo 即表达启用意图，自动 enabled 可避免
+      // “开关开着但无图”或“传了图却忘开开关”这类无效中间态。
+      onChange({ ...value, imageUrl: fileUrl, enabled: true });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "上传出错");
     } finally {

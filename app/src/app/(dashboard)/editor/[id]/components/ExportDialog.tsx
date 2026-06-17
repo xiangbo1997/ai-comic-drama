@@ -32,6 +32,10 @@ interface ExportDialogProps {
   }) => void;
   onClose: () => void;
   onRetry: () => void;
+  /** 时间轴入口已配置的字幕样式，作为导出表单初值（保持三处一致） */
+  initialSubtitleStyle?: SubtitleStyle;
+  /** 时间轴入口已配置的品牌水印，作为导出表单初值（保持三处一致） */
+  initialWatermark?: Watermark;
 }
 
 export function ExportDialog({
@@ -40,6 +44,8 @@ export function ExportDialog({
   onExport,
   onClose,
   onRetry,
+  initialSubtitleStyle,
+  initialWatermark,
 }: ExportDialogProps) {
   if (!isOpen) return null;
 
@@ -106,7 +112,12 @@ export function ExportDialog({
               </button>
             </div>
           ) : (
-            <ExportForm onExport={onExport} onCancel={onClose} />
+            <ExportForm
+              onExport={onExport}
+              onCancel={onClose}
+              initialSubtitleStyle={initialSubtitleStyle}
+              initialWatermark={initialWatermark}
+            />
           )}
         </div>
       </div>
@@ -152,6 +163,8 @@ function CollapsibleSection({
 function ExportForm({
   onExport,
   onCancel,
+  initialSubtitleStyle,
+  initialWatermark,
 }: {
   onExport: (options: {
     format: string;
@@ -162,6 +175,8 @@ function ExportForm({
     watermark: Watermark;
   }) => void;
   onCancel: () => void;
+  initialSubtitleStyle?: SubtitleStyle;
+  initialWatermark?: Watermark;
 }) {
   /* ---- 基础导出选项（保持原有字段不破坏） ---- */
   const [format, setFormat] = useState("mp4");
@@ -169,13 +184,15 @@ function ExportForm({
   const [includeSubtitles, setIncludeSubtitles] = useState(true);
   const [includeAudio, setIncludeAudio] = useState(true);
 
-  /* ---- 字幕样式状态（合理默认值） ---- */
+  /* ---- 字幕样式状态：优先用时间轴入口已存配置，回退默认 ---- */
   const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>(
-    DEFAULT_SUBTITLE_STYLE
+    initialSubtitleStyle ?? DEFAULT_SUBTITLE_STYLE
   );
 
-  /* ---- 水印状态（默认关闭） ---- */
-  const [watermark, setWatermark] = useState<Watermark>(DEFAULT_WATERMARK);
+  /* ---- 水印状态：优先用时间轴入口已存配置，回退默认（关闭） ---- */
+  const [watermark, setWatermark] = useState<Watermark>(
+    initialWatermark ?? DEFAULT_WATERMARK
+  );
 
   const handleExport = () => {
     onExport({

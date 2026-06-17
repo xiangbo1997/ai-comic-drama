@@ -225,6 +225,14 @@ export function PreviewPlayer({
           />
         )}
 
+        {/* 防呆：水印开关已开启但未上传 Logo —— 显式提示，
+            避免“静默不渲染”被误判为功能失效（此前空 imageUrl 时整块短路不显示）。 */}
+        {watermark?.enabled && !watermark.imageUrl && (
+          <div className="pointer-events-none absolute right-3 bottom-3 rounded-md border border-amber-400/60 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200 backdrop-blur-sm">
+            水印已开启，但未上传 Logo
+          </div>
+        )}
+
         {/* Stickers — 当前分镜的贴图预览（与导出 overlay 位置一致） */}
         {currentScene &&
           stickers
