@@ -165,6 +165,55 @@ function normalizeGenerationParams(
   ) {
     out.customNegative = src.customNegative;
   }
+  // 字幕样式（全片统一）：校验后整体放行
+  if (src.subtitleStyle && typeof src.subtitleStyle === "object") {
+    const ss = src.subtitleStyle as Record<string, unknown>;
+    const positions = ["top", "middle", "bottom"];
+    out.subtitleStyle = {
+      fontSize:
+        typeof ss.fontSize === "number" ? clampNumber(ss.fontSize, 8, 96) : 24,
+      fontColor:
+        typeof ss.fontColor === "string" &&
+        /^#[0-9a-fA-F]{6}$/.test(ss.fontColor)
+          ? ss.fontColor
+          : "#FFFFFF",
+      outlineColor:
+        typeof ss.outlineColor === "string" &&
+        /^#[0-9a-fA-F]{6}$/.test(ss.outlineColor)
+          ? ss.outlineColor
+          : "#000000",
+      outlineWidth:
+        typeof ss.outlineWidth === "number"
+          ? clampNumber(ss.outlineWidth, 0, 10)
+          : 2,
+      position:
+        typeof ss.position === "string" && positions.includes(ss.position)
+          ? ss.position
+          : "bottom",
+      bold: ss.bold === true,
+      backgroundBox: ss.backgroundBox === true,
+    };
+  }
+  // 商标水印：校验后整体放行
+  if (src.watermark && typeof src.watermark === "object") {
+    const wm = src.watermark as Record<string, unknown>;
+    const wmPos = ["tl", "tr", "bl", "br", "center"];
+    out.watermark = {
+      enabled: wm.enabled === true,
+      imageUrl:
+        typeof wm.imageUrl === "string" && wm.imageUrl.length <= 2048
+          ? wm.imageUrl
+          : "",
+      position:
+        typeof wm.position === "string" && wmPos.includes(wm.position)
+          ? wm.position
+          : "br",
+      opacity:
+        typeof wm.opacity === "number" ? clampNumber(wm.opacity, 0, 1) : 0.8,
+      scale:
+        typeof wm.scale === "number" ? clampNumber(wm.scale, 0.02, 0.5) : 0.12,
+    };
+  }
   return out;
 }
 
