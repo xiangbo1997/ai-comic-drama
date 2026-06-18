@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Loader2, Upload, ImageIcon } from "lucide-react";
 import type { Watermark } from "@/types/export-style";
+import { uploadFileViaApi } from "@/lib/upload-client";
 
 interface WatermarkPanelProps {
   /** 当前水印配置 */
@@ -46,8 +47,10 @@ export function WatermarkPanel({ value, onChange }: WatermarkPanelProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
 
   /**
-   * 处理 Logo 文件上传
-   * 先请求 /api/upload 获取预签名 URL，再 PUT 上传文件，最终写入 imageUrl。
+   * 处理 Logo 文件上传。
+   * 通过 uploadFileViaApi 上传（自动适配 R2 预签名直传 / 本地存储直传两种后端），
+   * 成功后写入 imageUrl。fileType 用 "watermark" 走后端专用校验分支
+   * （图片类型 + 2MB 限制 + 路径前缀）。
    */
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -56,43 +59,9 @@ export function WatermarkPanel({ value, onChange }: WatermarkPanelProps) {
     setUploadError(null);
     setUploading(true);
     try {
-      // 第一步：获取预签名上传凭证
-      // fileType 用 "watermark" 走后端专用校验分支（图片类型 + 2MB 限制 + 路径前缀），
-      // 与 /api/upload 的契约对齐；此前误传 "image" 跳过了水印专属校验。
-      const presignRes = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: file.name,
-          contentType: file.type,
-          fileType: "watermark",
-          fileSize: file.size,
-        }),
-      });
+      const fileUrl = await uploadFileViaApi({ file, fileType: "watermark" });
 
-      if (!presignRes.ok) {
-        const { error } = (await presignRes.json()) as { error: string };
-        throw new Error(error ?? "获取上传凭证失败");
-      }
-
-      // 后端 getPresignedUploadUrl 返回 { uploadUrl, fileUrl }
-      const { uploadUrl, fileUrl } = (await presignRes.json()) as {
-        uploadUrl: string;
-        fileUrl: string;
-      };
-
-      // 第二步：直接 PUT 到 R2
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-
-      if (!putRes.ok) {
-        throw new Error("上传失败，请重试");
-      }
-
-      // 第三步：写入 imageUrl 并自动开启水印（不可变更新）。
+      // 写入 imageUrl 并自动开启水印（不可变更新）。
       // 用户既然上传了 Logo 即表达启用意图，自动 enabled 可避免
       // “开关开着但无图”或“传了图却忘开开关”这类无效中间态。
       onChange({ ...value, imageUrl: fileUrl, enabled: true });

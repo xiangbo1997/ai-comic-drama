@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { X, Upload, Trash2, Loader2 } from "lucide-react";
 import type { Sticker } from "@/types/export-style";
+import { uploadFileViaApi } from "@/lib/upload-client";
 
 interface SceneOption {
   id: string;
@@ -43,27 +44,8 @@ export function StickerDialog({
     setError(null);
     setUploading(true);
     try {
-      const presignRes = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fileName: file.name,
-          contentType: file.type,
-          fileType: "image",
-          fileSize: file.size,
-        }),
-      });
-      if (!presignRes.ok) throw new Error("获取上传地址失败");
-      const { uploadUrl, fileUrl } = (await presignRes.json()) as {
-        uploadUrl: string;
-        fileUrl: string;
-      };
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("上传失败，请重试");
+      // 通过 uploadFileViaApi 上传（自动适配 R2 / 本地存储两种后端）
+      const fileUrl = await uploadFileViaApi({ file, fileType: "image" });
       // 新贴图默认绑定第一个分镜，居中
       const newSticker: Sticker = {
         id: `stk_${Date.now()}`,
