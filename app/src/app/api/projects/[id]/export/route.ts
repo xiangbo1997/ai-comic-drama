@@ -6,7 +6,7 @@ import {
   synthesizeVideo,
   type ExportOptions,
 } from "@/services/video-synthesis";
-import { uploadToR2, isR2Configured } from "@/services/storage";
+import { uploadFile } from "@/services/storage";
 import {
   DEFAULT_SUBTITLE_STYLE,
   DEFAULT_WATERMARK,
@@ -159,16 +159,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           exportOptions
         );
 
-        let videoUrl: string | null = null;
-        if (isR2Configured()) {
-          videoUrl = await uploadToR2(videoBuffer, {
-            fileName: `${project.title}_export_${Date.now()}.${format}`,
-            contentType: format === "mp4" ? "video/mp4" : "video/webm",
-            fileType: "video",
-            userId: session.user.id,
-            projectId: id,
-          });
-        }
+        // R2 已配走云存储，未配自动降级本地盘（public/uploads），
+        // 不再因缺 R2 而丢弃合成产物导致导出"无产物"。
+        const videoUrl = await uploadFile(videoBuffer, {
+          fileName: `${project.title}_export_${Date.now()}.${format}`,
+          contentType: format === "mp4" ? "video/mp4" : "video/webm",
+          fileType: "video",
+          userId: session.user.id,
+          projectId: id,
+        });
 
         // 更新任务状态
         await prisma.generationTask.update({
@@ -266,16 +265,15 @@ async function processExportAsync(
       }
     );
 
-    let videoUrl: string | null = null;
-    if (isR2Configured()) {
-      videoUrl = await uploadToR2(videoBuffer, {
-        fileName: `${meta.projectTitle}_export_${Date.now()}.${meta.format}`,
-        contentType: meta.format === "mp4" ? "video/mp4" : "video/webm",
-        fileType: "video",
-        userId: meta.userId,
-        projectId: meta.projectId,
-      });
-    }
+    // R2 已配走云存储，未配自动降级本地盘（public/uploads），
+    // 与同步分支一致，确保导出始终产出可访问的 videoUrl。
+    const videoUrl = await uploadFile(videoBuffer, {
+      fileName: `${meta.projectTitle}_export_${Date.now()}.${meta.format}`,
+      contentType: meta.format === "mp4" ? "video/mp4" : "video/webm",
+      fileType: "video",
+      userId: meta.userId,
+      projectId: meta.projectId,
+    });
 
     // 更新任务状态
     await prisma.generationTask.update({
