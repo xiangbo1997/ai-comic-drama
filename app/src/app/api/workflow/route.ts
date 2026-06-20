@@ -14,9 +14,19 @@ import {
   getUserTTSConfig,
 } from "@/lib/ai-config";
 import { createLogger } from "@/lib/logger";
+import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import type { WorkflowConfig } from "@/services/agents/types";
 
 const log = createLogger("api:workflow");
+
+/**
+ * 启动 workflow 的最低余额门槛（积分）。
+ *
+ * workflow 会 fan-out 生成 N 图 + N 视频 + N TTS，启动时尚未解析脚本、
+ * 无法精确预扣，故先设准入门槛挡住「零余额白嫖全流程」（reliability P0-2）。
+ * 逐产出精确扣费为后续增量（需重构 fan-out 加事务）。
+ */
+const WORKFLOW_MIN_CREDITS = 10;
 
 const StartWorkflowSchema = z.object({
   projectId: z.string().min(1),
@@ -32,6 +42,15 @@ export async function POST(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // 限流：workflow 是重操作，防滥用（同步路由都有，此前缺失）
+    const rl = await rateLimiters.strict(request, session.user.id);
+    if (!rl.success) {
+      return NextResponse.json(
+        { error: "请求过于频繁，请稍后再试", retryAfter: rl.retryAfter },
+        { status: 429, headers: rateLimitHeaders(rl) }
+      );
     }
 
     const body = await request.json();
@@ -52,6 +71,23 @@ export async function POST(request: NextRequest) {
     });
     if (!project) {
       return NextResponse.json({ error: "项目不存在" }, { status: 404 });
+    }
+
+    // 余额门槛：挡住「零余额白嫖全流程生成」（reliability P0-2）。
+    // workflow 内部各产出当前未逐条扣费，门槛是最小止血的准入控制。
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { credits: true },
+    });
+    if (!user || user.credits < WORKFLOW_MIN_CREDITS) {
+      return NextResponse.json(
+        {
+          error: `积分不足，全自动生成至少需要 ${WORKFLOW_MIN_CREDITS} 积分`,
+          required: WORKFLOW_MIN_CREDITS,
+          current: user?.credits ?? 0,
+        },
+        { status: 400 }
+      );
     }
 
     // 获取用户 AI 配置

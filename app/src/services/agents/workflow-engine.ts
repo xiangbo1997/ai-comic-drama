@@ -141,28 +141,30 @@ async function executeWorkflow(
     emit: emitEvent,
   };
 
-  // 获取 run 信息
-  const run = await prisma.workflowRun.findUnique({
-    where: { id: workflowRunId },
-  });
-  if (!run) throw new Error(`WorkflowRun ${workflowRunId} not found`);
-  ctx.projectId = run.projectId;
-  ctx.userId = run.userId;
-
-  // 标记开始
-  await prisma.workflowRun.update({
-    where: { id: workflowRunId },
-    data: { status: "RUNNING", startedAt: new Date() },
-  });
-
-  emitEvent({
-    type: "workflow:started",
-    workflowRunId,
-    data: { projectId: ctx.projectId },
-    timestamp: new Date(),
-  });
-
+  // try 上移：把「获取 run + 标记 RUNNING」也包进来。否则前置 throw 会被
+  // startWorkflow 的 .catch 只打日志吞掉，status 永久卡 PENDING（reliability P0-3）。
   try {
+    // 获取 run 信息
+    const run = await prisma.workflowRun.findUnique({
+      where: { id: workflowRunId },
+    });
+    if (!run) throw new Error(`WorkflowRun ${workflowRunId} not found`);
+    ctx.projectId = run.projectId;
+    ctx.userId = run.userId;
+
+    // 标记开始
+    await prisma.workflowRun.update({
+      where: { id: workflowRunId },
+      data: { status: "RUNNING", startedAt: new Date() },
+    });
+
+    emitEvent({
+      type: "workflow:started",
+      workflowRunId,
+      data: { projectId: ctx.projectId },
+      timestamp: new Date(),
+    });
+
     // ===== Step 1: 剧本解析 =====
     const scriptResult = await executeAgentStep(
       "parse_script",
