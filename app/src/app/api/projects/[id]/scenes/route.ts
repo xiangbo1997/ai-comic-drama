@@ -138,6 +138,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         emotion: scene.emotion || "neutral",
         duration: scene.duration || 3,
         selectedCharacterId,
+        // 镜头语言：LLM 解析产出，此前落库被丢弃 → 出图缺电影感
+        cameraAngle: scene.cameraAngle || null,
+        lighting: scene.lighting || null,
+        composition: scene.composition || null,
+        colorPalette: scene.colorPalette || null,
+        cameraMovement: scene.cameraMovement || null,
       };
     });
 

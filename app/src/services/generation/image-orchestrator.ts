@@ -76,12 +76,19 @@ export async function orchestrateImageGeneration(
   // 角色一致性 seed：基于主角色 ID 哈希得到稳定值，跨镜头同角色复用。
   // 没有主角色（纯环境镜头）时不传 seed，让 provider 走默认随机。
   const primaryCharId = request.characters?.[0]?.id;
-  const seed =
+  const baseSeed =
     typeof primaryCharId === "string" && primaryCharId.length > 0
       ? hashStringToSeed(primaryCharId)
       : undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    // 失败换策略：首次用身份 seed（一致性最强）；重试时在身份 seed 上
+    // 加偏移换随机性——保持参考图（身份锚）不变但换种子，避免同 seed+同
+    // prompt 死磕重复失败（feat-creative P1）。
+    const seed =
+      baseSeed === undefined
+        ? undefined
+        : (baseSeed + (attempt - 1)) % 0x7fffffff;
     imageUrl = await generateImage({
       prompt: decision.enhancedPrompt,
       referenceImage: decision.referenceImageUrl,

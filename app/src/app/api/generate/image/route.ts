@@ -180,6 +180,13 @@ export async function POST(request: NextRequest) {
       let enhancedPrompt = safePrompt;
       let sceneCharacters: SceneCharacterInfo[] = [];
       let shotType: string | undefined;
+      // 镜头语言（块内从 scene 取，块外拼进出图 prompt）
+      let sceneCinematics: {
+        cameraAngle?: string | null;
+        lighting?: string | null;
+        composition?: string | null;
+        colorPalette?: string | null;
+      } | null = null;
 
       if (sceneId) {
         const scene = await prisma.scene.findUnique({
@@ -189,6 +196,10 @@ export async function POST(request: NextRequest) {
             dialogue: true,
             emotion: true,
             shotType: true,
+            cameraAngle: true,
+            lighting: true,
+            composition: true,
+            colorPalette: true,
             selectedCharacterIds: true,
             selectedCharacter: {
               select: {
@@ -206,6 +217,14 @@ export async function POST(request: NextRequest) {
         });
 
         shotType = scene?.shotType || undefined;
+        sceneCinematics = scene
+          ? {
+              cameraAngle: scene.cameraAngle,
+              lighting: scene.lighting,
+              composition: scene.composition,
+              colorPalette: scene.colorPalette,
+            }
+          : null;
 
         // 获取角色信息并构建 SceneCharacterInfo
         const buildSceneChar = (
@@ -314,11 +333,24 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // 镜头语言：把 LLM 解析的 cameraAngle/lighting/composition/colorPalette
+      // 拼进 prompt，给出图注入电影感（此前这四字段落库后从不参与出图）。
+      const cinematicParts = [
+        sceneCinematics?.cameraAngle,
+        sceneCinematics?.lighting,
+        sceneCinematics?.composition,
+        sceneCinematics?.colorPalette,
+      ].filter((v): v is string => !!v && v.trim().length > 0);
+      const finalPrompt =
+        cinematicParts.length > 0
+          ? `${enhancedPrompt}, ${cinematicParts.join(", ")}`
+          : enhancedPrompt;
+
       // 通过编排器生成图像（统一策略选择 + 验证 + 重试）
       // Stage 1.4：把客户端传入的 negativePrompt 与 referenceImage 透传给 orchestrator。
       // 客户端显式指定的 referenceImage 作为 referenceImages 列表第一项优先生效。
       const result = await orchestrateImageGeneration({
-        prompt: enhancedPrompt,
+        prompt: finalPrompt,
         sceneId,
         projectId,
         characters: sceneCharacters,

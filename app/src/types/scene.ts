@@ -31,6 +31,12 @@ export interface Scene {
   narration: string | null;
   emotion: string | null;
   duration: number;
+  /** 镜头语言（LLM 脚本解析产出，喂给出图/视频 prompt） */
+  cameraAngle?: string | null;
+  lighting?: string | null;
+  composition?: string | null;
+  colorPalette?: string | null;
+  cameraMovement?: string | null;
   imageUrl: string | null;
   videoUrl: string | null;
   audioUrl: string | null;
@@ -77,6 +83,8 @@ export interface SceneScript {
   lighting?: string;
   composition?: string;
   colorPalette?: string;
+  /** 运镜（喂给视频模型）: zoom_in/pan_left/tilt_up/static... */
+  cameraMovement?: string;
 }
 
 /** 剧本解析完整结果 */

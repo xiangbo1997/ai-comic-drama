@@ -578,16 +578,23 @@ async function executeMediaGeneration(
         characterBible
       );
 
-      // v2：拼"身份前缀 + 镜头描述"作为最终 prompt（Prompt Pinning）
-      const videoPrompt = charContext.identityPrompt
+      // v2：拼"身份前缀 + 镜头描述 + 运镜"作为最终 prompt（Prompt Pinning）。
+      // 运镜（cameraMovement）此前从不喂给视频模型 → 运镜全靠模型自由发挥。
+      const motionPhrase = describeCameraMovement(sceneArtifact.cameraMovement);
+      const baseVideoPrompt = charContext.identityPrompt
         ? `${charContext.identityPrompt}. ${sceneArtifact.description}`
         : sceneArtifact.description;
+      const videoPrompt = motionPhrase
+        ? `${baseVideoPrompt}. Camera: ${motionPhrase}`
+        : baseVideoPrompt;
 
       tasks.push(
         generateVideo({
           imageUrl: dbScene.imageUrl,
           prompt: videoPrompt,
-          duration: sceneArtifact.duration > 5 ? 10 : 5,
+          // duration 就近映射到 provider 合法档位 5/10/15（而非粗暴 >5?10:5
+          // 把 8s 和 15s 都压成 10s）。保留脚本节奏意图（feat-creative P1）。
+          duration: nearestVideoDuration(sceneArtifact.duration),
           aspectRatio: projectAspectRatio,
           // v2：透传角色参考图（激活 flow2api Veo R2V / 后续 Kling Elements / Runway Gen-4 Refs）
           referenceImages:
@@ -833,7 +840,42 @@ async function reviewVideoCoherence(
  * - 同一 order：update 文本字段（shotType/description/...）但**保留**已生成的 URL 与状态
  * - 新增 order：create（默认 PENDING）
  * - 被删除的 order（新 script 比老 script 少）：删除多余
- *
+/**
+ * 把运镜标识符（zoom_in/pan_left/...）转成视频模型可理解的自然语言短语。
+ * 未知值原样返回；空值返回空串（调用方据此决定是否拼接）。
+ */
+function describeCameraMovement(movement?: string | null): string {
+  if (!movement) return "";
+  const map: Record<string, string> = {
+    static: "static shot, no camera movement",
+    zoom_in: "slow zoom in",
+    zoom_out: "slow zoom out",
+    pan_left: "smooth pan to the left",
+    pan_right: "smooth pan to the right",
+    tilt_up: "tilt up",
+    tilt_down: "tilt down",
+    dolly_in: "dolly in toward the subject",
+    dolly_out: "dolly out from the subject",
+    orbit: "orbit around the subject",
+    handheld: "subtle handheld camera shake",
+    tracking: "tracking shot following the subject",
+  };
+  return map[movement] ?? movement.replace(/_/g, " ");
+}
+
+/**
+ * 把脚本的精确秒数就近映射到视频 provider 合法档位（5/10/15）。
+ * 例：7→5、9→10、13→15。缺省/异常回落 5s。
+ */
+function nearestVideoDuration(seconds?: number): 5 | 10 | 15 {
+  const d = typeof seconds === "number" && seconds > 0 ? seconds : 5;
+  const options: Array<5 | 10 | 15> = [5, 10, 15];
+  return options.reduce((best, opt) =>
+    Math.abs(opt - d) < Math.abs(best - d) ? opt : best
+  );
+}
+
+/**
  * 这样重跑 workflow 时，已完成图像/视频的分镜不需要重新生成。
  */
 async function saveScenesToProject(
@@ -853,6 +895,15 @@ async function saveScenesToProject(
     newOrders.add(order);
     const sceneId = existingByOrder.get(order);
 
+    // 镜头语言字段（LLM 解析产出，落库供出图/视频 prompt）
+    const cinematics = {
+      cameraAngle: s.cameraAngle ?? null,
+      lighting: s.lighting ?? null,
+      composition: s.composition ?? null,
+      colorPalette: s.colorPalette ?? null,
+      cameraMovement: s.cameraMovement ?? null,
+    };
+
     if (sceneId) {
       // 更新文本字段；不触碰 imageUrl/videoUrl/audioUrl 与三个 status
       await prisma.scene.update({
@@ -864,6 +915,7 @@ async function saveScenesToProject(
           narration: s.narration,
           emotion: s.emotion,
           duration: s.duration,
+          ...cinematics,
         },
       });
     } else {
@@ -877,6 +929,7 @@ async function saveScenesToProject(
           narration: s.narration,
           emotion: s.emotion,
           duration: s.duration,
+          ...cinematics,
           imageStatus: "PENDING",
           videoStatus: "PENDING",
           audioStatus: "PENDING",

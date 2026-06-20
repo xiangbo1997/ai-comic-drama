@@ -265,7 +265,12 @@ export interface SceneArtifact {
   narration: string | null;
   emotion: string;
   duration: number;
-  /** 运镜方向 */
+  /** 镜头语言（LLM 解析产出，落库供出图 prompt 增强电影感） */
+  cameraAngle?: string;
+  lighting?: string;
+  composition?: string;
+  colorPalette?: string;
+  /** 运镜方向（喂给视频模型） */
   cameraMovement?: string;
   /** 转场效果 */
   transition?: string;
