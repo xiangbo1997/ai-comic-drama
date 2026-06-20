@@ -129,6 +129,23 @@ export function useGenerationActions(
   const invalidateProject = () =>
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
 
+  // 精确更新缓存中单个 scene 的字段，不触发整 project 重拉/全量重渲染。
+  // 批量生成时用它替代逐张 invalidateProject()，避免 N 张 = ~2N 次全量刷新
+  // 导致的卡顿（perf-frontend P0）。
+  const patchSceneInCache = (sceneId: string, patch: Partial<Scene>) => {
+    const current = queryClient.getQueryData<ProjectDetail>([
+      "project",
+      projectId,
+    ]);
+    if (!current) return;
+    queryClient.setQueryData<ProjectDetail>(["project", projectId], {
+      ...current,
+      scenes: current.scenes.map((sc) =>
+        sc.id === sceneId ? { ...sc, ...patch } : sc
+      ),
+    });
+  };
+
   const generateImageMutation = useMutation({
     mutationFn: async ({
       sceneId,
@@ -279,32 +296,39 @@ export function useGenerationActions(
           await apiUpdateScene(projectId, scene.id, {
             imageStatus: "PROCESSING",
           });
-          invalidateProject();
+          // 精确更新该 scene 状态（实时显示"生成中"），不整 project 重拉
+          patchSceneInCache(scene.id, { imageStatus: "PROCESSING" });
 
           const { prompt, negativePrompt, referenceImage, referenceImages } =
             derivePromptInputs(scene, project);
 
-          await generateSceneImage(projectId, scene.id, prompt, {
+          const result = await generateSceneImage(projectId, scene.id, prompt, {
             style: project?.style,
             imageConfigId,
             negativePrompt,
             referenceImage,
             referenceImages,
           });
+          // 精确写回生成结果（实时显示新图），不触发全量重渲染
+          patchSceneInCache(scene.id, {
+            imageStatus: "COMPLETED",
+            ...(result?.imageUrl ? { imageUrl: result.imageUrl } : {}),
+          });
           results.push({ sceneId: scene.id, success: true });
         } catch (err) {
           await apiUpdateScene(projectId, scene.id, { imageStatus: "FAILED" });
+          patchSceneInCache(scene.id, { imageStatus: "FAILED" });
           results.push({
             sceneId: scene.id,
             success: false,
             error: err instanceof Error ? err.message : "Unknown",
           });
         }
-        invalidateProject();
       }
 
       return results;
     },
+    // 循环内已精确更新各 scene，结束时一次最终对账（拉权威数据）
     onSettled: invalidateProject,
   });
 

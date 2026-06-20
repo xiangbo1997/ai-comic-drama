@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, memo } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import {
   Image as ImageIcon,
   Video,
@@ -110,6 +110,16 @@ function SceneListImpl({
   const [viewMode, setViewMode] = useState<"list" | "grid2" | "grid3">("list");
   // 当前打开三点菜单的分镜 id
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  // 选中分镜自动滚动入视（ux-editor P0-2）：从时间轴播放/预览/搜索切换
+  // 分镜后，把对应卡片滚到可见区，避免分镜多时用户「丢失当前位置」。
+  const itemRefs = useRef<Map<string, HTMLElement>>(new Map());
+  useEffect(() => {
+    if (!selectedSceneId) return;
+    itemRefs.current
+      .get(selectedSceneId)
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selectedSceneId]);
 
   const refreshProject = () =>
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
@@ -322,6 +332,11 @@ function SceneListImpl({
                 <SortableItem key={scene.id} id={scene.id}>
                   {({ attributes, listeners, isDragging }) => (
                     <div
+                      ref={(el) => {
+                        // 业务 ref：登记卡片 DOM，供选中时 scrollIntoView
+                        if (el) itemRefs.current.set(scene.id, el);
+                        else itemRefs.current.delete(scene.id);
+                      }}
                       className={`bg-card relative cursor-pointer rounded-lg transition ${
                         isDragging ? "shadow-lg" : ""
                       } ${

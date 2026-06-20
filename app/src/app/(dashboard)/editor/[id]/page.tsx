@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import type { Scene } from "@/types";
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
@@ -255,6 +255,41 @@ export default function EditorPage() {
     [projectId, editor.invalidateProject]
   );
 
+  // 稳定化 mediaConfig 引用：原为内联对象字面量（含 6 个内联箭头），
+  // 每次渲染都是新引用 → 击穿 SceneList 的 React.memo，任一弹窗 state
+  // 变化都全量重渲染 20-40 张分镜卡片（perf-frontend P0）。useMemo +
+  // useCallback 后，仅当 selected*Config 真正变化时才重建。
+  const openMultiImage = useCallback(() => setShowMultiImageDialog(true), []);
+  const openMultiVideo = useCallback(() => setShowMultiVideoDialog(true), []);
+  const openMultiAudio = useCallback(() => setShowMultiAudioDialog(true), []);
+  const mediaConfig = useMemo(
+    () => ({
+      image: {
+        selected: selectedImageConfig,
+        onChange: setSelectedImageConfig,
+        onOpenMultiSelect: openMultiImage,
+      },
+      video: {
+        selected: selectedVideoConfig,
+        onChange: setSelectedVideoConfig,
+        onOpenMultiSelect: openMultiVideo,
+      },
+      audio: {
+        selected: selectedAudioConfig,
+        onChange: setSelectedAudioConfig,
+        onOpenMultiSelect: openMultiAudio,
+      },
+    }),
+    [
+      selectedImageConfig,
+      selectedVideoConfig,
+      selectedAudioConfig,
+      openMultiImage,
+      openMultiVideo,
+      openMultiAudio,
+    ]
+  );
+
   // Loading / Error states
   if (projectId === "new" || editor.isLoading) {
     return (
@@ -346,23 +381,7 @@ export default function EditorPage() {
           generateAudioMutation={generation.generateAudioMutation}
           batchGenerateImagesMutation={generation.batchGenerateImagesMutation}
           updateScene={handleUpdateSceneFromList}
-          mediaConfig={{
-            image: {
-              selected: selectedImageConfig,
-              onChange: setSelectedImageConfig,
-              onOpenMultiSelect: () => setShowMultiImageDialog(true),
-            },
-            video: {
-              selected: selectedVideoConfig,
-              onChange: setSelectedVideoConfig,
-              onOpenMultiSelect: () => setShowMultiVideoDialog(true),
-            },
-            audio: {
-              selected: selectedAudioConfig,
-              onChange: setSelectedAudioConfig,
-              onOpenMultiSelect: () => setShowMultiAudioDialog(true),
-            },
-          }}
+          mediaConfig={mediaConfig}
           queryClient={editor.queryClient}
           projectId={projectId}
         />

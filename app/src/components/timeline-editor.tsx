@@ -122,6 +122,19 @@ function TimelineEditorImpl({
 
   const currentScene = getCurrentScene();
 
+  // 播放时「选中分镜」跟随播放头：currentScene 跨镜变化时回传 onSceneSelect，
+  // 让中栏 SceneList 高亮、右栏 SceneEditor 内容三联动（ux-editor P0-1）。
+  // 用 ref 记录上次回传，避免每 100ms 帧重复触发。
+  const lastSyncedSceneId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isPlaying || !currentScene) return;
+    if (lastSyncedSceneId.current !== currentScene.id) {
+      lastSyncedSceneId.current = currentScene.id;
+      onSceneSelect(currentScene.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, currentScene?.id]);
+
   // 格式化时间
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
