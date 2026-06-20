@@ -44,7 +44,7 @@ export function ScriptPanel({
   dramaScriptSlot,
 }: ScriptPanelProps) {
   return (
-    <div className="border-border flex w-[22%] min-w-[256px] flex-col overflow-y-auto border-r">
+    <div className="border-border hidden w-full flex-col overflow-y-auto border-r lg:flex lg:w-[22%] lg:min-w-[256px]">
       {dramaScriptSlot && (
         <div className="border-border border-b">{dramaScriptSlot}</div>
       )}
