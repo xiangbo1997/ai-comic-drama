@@ -136,8 +136,11 @@ export type {
 /**
  * 把字符串稳定地映射到 [0, 2^31-1) 区间作为 seed。
  * 用 32 位 FNV-1a，无依赖、纯函数；同一 character.id 每次得到同一 seed。
+ *
+ * 导出供三视图定妆复用：定妆与分镜出图必须用同一 seed，才能让角色身份
+ * 锚定在同一种子上（角色一致性闭环）。两处务必调用此函数，不要各写一份。
  */
-function hashStringToSeed(input: string): number {
+export function hashStringToSeed(input: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i += 1) {
     hash ^= input.charCodeAt(i);

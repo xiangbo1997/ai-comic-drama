@@ -9,6 +9,7 @@ import {
   buildCharacterBasePrompt,
   POSE_CONSTRAINTS,
 } from "@/lib/prompts/character-reference";
+import { hashStringToSeed } from "@/services/generation";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
@@ -140,13 +141,22 @@ async function runThreeViewsTask(
   try {
     const basePrompt = buildCharacterBasePrompt(character);
 
+    // 角色一致性闭环：同一角色用同一 seed，且侧/背视图以「正面定妆图」作
+    // i2i 参考，确保三视图是同一个人（feat-creative P0-2）。POSES 顺序
+    // 保证 front 在首，先产出 canonical，后两视图锚定它。
+    const seed = hashStringToSeed(characterId);
+
     // 串行生成三视图（防限流）
     const results: { pose: string; url: string }[] = [];
+    let canonicalUrl: string | undefined;
     for (const pose of POSES) {
       const prompt = `${basePrompt}, ${POSE_CONSTRAINTS[pose]}`;
       let imageUrl = await generateImage({
         prompt,
         aspectRatio: "1:1",
+        seed,
+        // 正面无参考；侧/背用正面定妆图锚定身份
+        referenceImage: pose === "front" ? undefined : canonicalUrl,
         config: imageConfig || undefined,
       });
 
@@ -165,8 +175,12 @@ async function runThreeViewsTask(
           );
         }
       }
+      // 正面图落库后即作为后续视图的参考锚（用落库 URL，避免外链过期）
+      if (pose === "front") canonicalUrl = imageUrl;
       results.push({ pose, url: imageUrl });
     }
+
+    const frontUrl = results.find((r) => r.pose === "front")?.url;
 
     // 落库 + 扣费 + 完成任务（事务）。CharacterReferenceAsset 写入带 schema 容错。
     await prisma.$transaction(async (tx) => {
@@ -177,7 +191,8 @@ async function runThreeViewsTask(
               characterId,
               url,
               sourceType: "ai_generated",
-              isCanonical: false,
+              // 正面定妆图设为 canonical 锚点，供后续分镜出图/Face Validator 引用
+              isCanonical: pose === "front",
               pose,
             },
           });
@@ -203,6 +218,8 @@ async function runThreeViewsTask(
             ...(current?.referenceImages ?? []),
             ...results.map((r) => r.url),
           ],
+          // 写回身份锚：后续分镜出图以它作 i2i 参考、Face Validator 以它为基准
+          ...(frontUrl ? { canonicalImageUrl: frontUrl } : {}),
         },
       });
 

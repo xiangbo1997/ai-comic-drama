@@ -198,6 +198,7 @@ export async function POST(request: NextRequest) {
                 age: true,
                 description: true,
                 referenceImages: true,
+                canonicalImageUrl: true,
                 appearance: true,
               },
             },
@@ -215,6 +216,7 @@ export async function POST(request: NextRequest) {
             age: string | null;
             description: string | null;
             referenceImages: string[];
+            canonicalImageUrl?: string | null;
             appearance?: Record<string, unknown> | null;
           },
           index: number
@@ -226,7 +228,10 @@ export async function POST(request: NextRequest) {
           description: c.description,
           referenceImages: c.referenceImages as string[],
           role: (index === 0 ? "primary" : "secondary") as CharacterRole,
-          canonicalImageUrl: (c.referenceImages as string[])?.[0],
+          // 优先用三视图定妆的身份锚点（经 i2i 绑定，更可靠），
+          // 缺失时回落到旧 referenceImages[0]（角色一致性闭环）。
+          canonicalImageUrl:
+            c.canonicalImageUrl || (c.referenceImages as string[])?.[0],
           appearance: c.appearance as SceneCharacterInfo["appearance"],
         });
 
@@ -240,6 +245,7 @@ export async function POST(request: NextRequest) {
               age: true,
               description: true,
               referenceImages: true,
+              canonicalImageUrl: true,
               appearance: true,
             },
           });
