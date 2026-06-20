@@ -96,6 +96,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // IDOR 防护：校验 sceneId 归属当前用户（security-cost P0-1）
+    if (sceneId) {
+      const ownsScene = await prisma.scene.findFirst({
+        where: { id: sceneId, project: { userId } },
+        select: { id: true },
+      });
+      if (!ownsScene) {
+        return NextResponse.json({ error: "Scene not found" }, { status: 404 });
+      }
+    }
+
     // 如果有场景ID，先更新状态为处理中
     if (projectId && sceneId) {
       await prisma.scene.update({

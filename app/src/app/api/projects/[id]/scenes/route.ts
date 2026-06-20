@@ -10,48 +10,26 @@ interface RouteParams {
 }
 
 /**
- * 根据名称查找项目中的角色（支持模糊匹配）
+ * 在内存中按名称匹配角色（支持模糊匹配）。
+ *
+ * 改自原 findCharacterByName 的逐角色 DB 查询版本：批量保存分镜时，
+ * 每个分镜的每个角色名都查一次 DB（N+1，~150 次串行往返）。改为
+ * POST 入口一次性预加载项目全部角色到内存，逐分镜在内存里匹配。
  */
-async function findCharacterByName(
-  projectId: string,
+function matchCharacterByName(
+  characters: Array<{ id: string; name: string }>,
   characterName: string
-): Promise<{ id: string } | null> {
+): { id: string } | null {
+  const lower = characterName.toLowerCase();
   // 1. 精确匹配（忽略大小写）
-  let character = await prisma.character.findFirst({
-    where: {
-      projects: { some: { projectId } },
-      name: { mode: "insensitive", equals: characterName },
-    },
-    select: { id: true },
-  });
-
+  const exact = characters.find((c) => c.name.toLowerCase() === lower);
+  if (exact) return { id: exact.id };
   // 2. 模糊匹配（角色名称包含输入的名称）
-  if (!character) {
-    character = await prisma.character.findFirst({
-      where: {
-        projects: { some: { projectId } },
-        name: { mode: "insensitive", contains: characterName },
-      },
-      select: { id: true },
-    });
-  }
-
+  const contains = characters.find((c) => c.name.toLowerCase().includes(lower));
+  if (contains) return { id: contains.id };
   // 3. 反向模糊匹配（输入的名称包含角色名称）
-  if (!character) {
-    const allCharacters = await prisma.character.findMany({
-      where: { projects: { some: { projectId } } },
-      select: { id: true, name: true },
-    });
-
-    const matched = allCharacters.find((c) =>
-      characterName.toLowerCase().includes(c.name.toLowerCase())
-    );
-    if (matched) {
-      character = { id: matched.id };
-    }
-  }
-
-  return character;
+  const reverse = characters.find((c) => lower.includes(c.name.toLowerCase()));
+  return reverse ? { id: reverse.id } : null;
 }
 
 // 获取项目的所有分镜
@@ -131,49 +109,52 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 删除现有分镜
-    await prisma.scene.deleteMany({
-      where: { projectId: id },
+    // 一次性预加载项目全部角色到内存（消除原逐角色名查 DB 的 N+1）
+    const projectCharacters = await prisma.character.findMany({
+      where: { projects: { some: { projectId: id } } },
+      select: { id: true, name: true },
     });
 
-    // 创建新的分镜，同时处理角色匹配
-    const createdScenes = [];
-
-    for (let i = 0; i < scenes.length; i++) {
+    // 在内存里完成角色匹配，组装好待插入数据
+    const sceneData = scenes.map((raw, i) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const scene = scenes[i] as any;
-
-      // 查找场景中的角色（通过角色名称匹配）
-      const sceneCharacters = scene.characters || [];
+      const scene = raw as any;
+      const sceneCharacters: string[] = scene.characters || [];
       let selectedCharacterId: string | null = null;
-
-      // 为每个场景匹配角色并创建关联
       for (const characterName of sceneCharacters) {
-        const character = await findCharacterByName(id, characterName);
-        if (character) {
-          // 第一个匹配的角色设为选中的角色（用于图像生成）
-          if (!selectedCharacterId) {
-            selectedCharacterId = character.id;
-          }
+        const matched = matchCharacterByName(projectCharacters, characterName);
+        if (matched) {
+          selectedCharacterId = matched.id; // 第一个匹配的角色用于图像生成
+          break;
         }
       }
+      return {
+        projectId: id,
+        order: i,
+        shotType: scene.shotType || null,
+        description: scene.description || "",
+        dialogue: scene.dialogue || null,
+        narration: scene.narration || null,
+        emotion: scene.emotion || "neutral",
+        duration: scene.duration || 3,
+        selectedCharacterId,
+      };
+    });
 
-      const createdScene = await prisma.scene.create({
-        data: {
-          projectId: id,
-          order: i,
-          shotType: scene.shotType || null,
-          description: scene.description || "",
-          dialogue: scene.dialogue || null,
-          narration: scene.narration || null,
-          emotion: scene.emotion || "neutral",
-          duration: scene.duration || 3,
-          selectedCharacterId, // 自动选择第一个匹配的角色
-        },
-      });
+    // 事务化「删旧 + 建新」：中断则整体回滚，不会出现「删了旧的但新的
+    // 没建成」的半残状态导致分镜全丢（arch-data P0-1）。
+    await prisma.$transaction([
+      prisma.scene.deleteMany({ where: { projectId: id } }),
+      ...(sceneData.length > 0
+        ? [prisma.scene.createMany({ data: sceneData })]
+        : []),
+    ]);
 
-      createdScenes.push(createdScene);
-    }
+    // createMany 不返回记录，按 order 回读新建分镜返回前端
+    const createdScenes = await prisma.scene.findMany({
+      where: { projectId: id },
+      orderBy: { order: "asc" },
+    });
 
     return NextResponse.json(createdScenes, { status: 201 });
   } catch (error) {

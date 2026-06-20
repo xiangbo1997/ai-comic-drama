@@ -11,26 +11,59 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:upload");
 
-/** 合法的文件上传类型（含水印 logo） */
-const ALLOWED_FILE_TYPES: ReadonlySet<string> = new Set([
-  "image",
-  "video",
-  "audio",
-  "watermark",
-]);
+/**
+ * 各 fileType 的 content-type 白名单 + 大小上限。
+ *
+ * 安全：原版仅 watermark 做校验，image/video/audio 裸奔——可传 SVG/HTML
+ * 当图片造成存储型 XSS，或超大文件耗尽磁盘 DoS（security-cost P0-3）。
+ * 注意：image 白名单**刻意排除 svg**（SVG 可内嵌脚本，是存储型 XSS 载体）。
+ */
+const UPLOAD_RULES: Record<
+  string,
+  { types: ReadonlySet<string>; maxBytes: number; label: string }
+> = {
+  image: {
+    types: new Set([
+      "image/png",
+      "image/jpeg",
+      "image/jpg",
+      "image/webp",
+      "image/gif",
+    ]),
+    maxBytes: 15 * 1024 * 1024, // 15 MB
+    label: "图片（png/jpeg/webp/gif，不含 svg）",
+  },
+  watermark: {
+    types: new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]),
+    maxBytes: 2 * 1024 * 1024, // 2 MB
+    label: "水印图片（png/jpeg/webp）",
+  },
+  video: {
+    types: new Set([
+      "video/mp4",
+      "video/webm",
+      "video/quicktime",
+      "video/x-msvideo",
+    ]),
+    maxBytes: 200 * 1024 * 1024, // 200 MB
+    label: "视频（mp4/webm/mov/avi）",
+  },
+  audio: {
+    types: new Set([
+      "audio/mpeg",
+      "audio/mp3",
+      "audio/wav",
+      "audio/x-wav",
+      "audio/mp4",
+      "audio/aac",
+      "audio/ogg",
+    ]),
+    maxBytes: 30 * 1024 * 1024, // 30 MB（配乐/配音）
+    label: "音频（mp3/wav/m4a/aac/ogg）",
+  },
+};
 
-/** watermark 类型仅允许 png/jpg/jpeg/webp */
-const WATERMARK_ALLOWED_CONTENT_TYPES: ReadonlySet<string> = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-]);
-
-/** watermark 文件大小上限（2 MB，由前端在上传前校验；此处作二次限制说明） */
-const WATERMARK_MAX_SIZE_BYTES = 2 * 1024 * 1024;
-
-/** 校验 fileType / watermark 专属约束；不通过返回错误字符串，通过返回 null */
+/** 校验 fileType + content-type 白名单 + 大小上限；不通过返回错误，通过返回 null */
 function validateUpload(params: {
   fileType: string;
   contentType: string;
@@ -38,18 +71,20 @@ function validateUpload(params: {
 }): string | null {
   const { fileType, contentType, fileSize } = params;
 
-  if (!ALLOWED_FILE_TYPES.has(fileType)) {
-    return `Invalid fileType. Must be one of: ${[...ALLOWED_FILE_TYPES].join(", ")}`;
+  const rule = UPLOAD_RULES[fileType];
+  if (!rule) {
+    return `Invalid fileType. Must be one of: ${Object.keys(UPLOAD_RULES).join(", ")}`;
   }
 
-  // watermark 文件额外校验：类型必须是图片，文件大小不超过 2 MB
-  if (fileType === "watermark") {
-    if (!WATERMARK_ALLOWED_CONTENT_TYPES.has(contentType)) {
-      return "Watermark must be an image file (png, jpg, jpeg, webp)";
-    }
-    if (fileSize !== undefined && fileSize > WATERMARK_MAX_SIZE_BYTES) {
-      return "Watermark file must be smaller than 2 MB";
-    }
+  // content-type 必须命中白名单（防 SVG/HTML 伪装等存储型 XSS 载体）
+  if (!rule.types.has(contentType.toLowerCase())) {
+    return `不支持的文件类型，需为${rule.label}`;
+  }
+
+  // 大小上限（防磁盘 DoS）。fileSize 由前端/multipart 提供；
+  // multipart 直传时是服务端读到的真实大小，可靠。
+  if (fileSize !== undefined && fileSize > rule.maxBytes) {
+    return `文件过大，${rule.label}上限 ${Math.round(rule.maxBytes / 1024 / 1024)} MB`;
   }
 
   return null;
