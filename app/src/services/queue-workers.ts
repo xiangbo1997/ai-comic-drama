@@ -15,7 +15,7 @@ import {
   synthesizeVideo,
   type ExportOptions,
 } from "@/services/video-synthesis";
-import { uploadToR2, isR2Configured } from "@/services/storage";
+import { uploadFile } from "@/services/storage";
 import { checkImageContent } from "@/lib/content-safety";
 import {
   imageQueue,
@@ -364,17 +364,14 @@ async function handleAudioGeneration(job: JobInfo): Promise<JobResult> {
       speed,
     });
 
-    // 上传到存储
-    let audioUrl: string | null = null;
-    if (isR2Configured()) {
-      audioUrl = await uploadToR2(audioBuffer, {
-        fileName: `tts_${job.id}_${Date.now()}.mp3`,
-        contentType: "audio/mpeg",
-        fileType: "audio",
-        userId: job.data.userId,
-        projectId: job.data.projectId,
-      });
-    }
+    // 上传到存储（uploadFile 门面：R2 已配走云存储 / 未配降级本地盘）
+    const audioUrl = await uploadFile(audioBuffer, {
+      fileName: `tts_${job.id}_${Date.now()}.mp3`,
+      contentType: "audio/mpeg",
+      fileType: "audio",
+      userId: job.data.userId,
+      projectId: job.data.projectId,
+    });
 
     // 更新场景
     if (job.data.sceneId && audioUrl) {
@@ -473,17 +470,14 @@ async function handleVideoExport(job: JobInfo): Promise<JobResult> {
     // 合成视频
     const videoBuffer = await synthesizeVideo(sceneMediaList, exportOptions);
 
-    // 上传到存储
-    let videoUrl: string | null = null;
-    if (isR2Configured()) {
-      videoUrl = await uploadToR2(videoBuffer, {
-        fileName: `${project.title}_export_${Date.now()}.${format}`,
-        contentType: format === "mp4" ? "video/mp4" : "video/webm",
-        fileType: "video",
-        userId: job.data.userId,
-        projectId,
-      });
-    }
+    // 上传到存储（uploadFile 门面：R2 已配走云存储 / 未配降级本地盘）
+    const videoUrl = await uploadFile(videoBuffer, {
+      fileName: `${project.title}_export_${Date.now()}.${format}`,
+      contentType: format === "mp4" ? "video/mp4" : "video/webm",
+      fileType: "video",
+      userId: job.data.userId,
+      projectId,
+    });
 
     // 更新项目状态
     await prisma.project.update({

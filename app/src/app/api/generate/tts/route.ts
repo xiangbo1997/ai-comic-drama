@@ -2,7 +2,7 @@ import { auth } from "@/lib/auth";
 import { getUserTTSConfig } from "@/lib/ai-config";
 import { prisma } from "@/lib/prisma";
 import { synthesizeSpeech } from "@/services/ai";
-import { uploadToR2, isR2Configured } from "@/services/storage";
+import { uploadFile } from "@/services/storage";
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { chargeCredits } from "@/lib/credits";
@@ -133,9 +133,10 @@ export async function POST(request: NextRequest) {
 
       let audioUrl: string | null = null;
 
-      // 如果需要返回 URL 且 R2 已配置，上传到 R2
-      if (returnUrl && isR2Configured()) {
-        audioUrl = await uploadToR2(audioBuffer, {
+      // 需要返回 URL 时落盘：走 uploadFile 统一门面（R2 已配走云存储 /
+      // 未配降级本地盘 public/uploads），不再因缺 R2 而丢弃音频致哑片。
+      if (returnUrl) {
+        audioUrl = await uploadFile(audioBuffer, {
           fileName: `tts_${Date.now()}.mp3`,
           contentType: "audio/mpeg",
           fileType: "audio",

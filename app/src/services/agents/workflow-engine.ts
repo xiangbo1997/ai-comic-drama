@@ -22,6 +22,7 @@ import { reviewStoryboard, reviewVideoSequence } from "./narrative-observer";
 import { reviewCharacterBible } from "./character-bible-observer";
 import { resolvePolicy, runClosedLoop } from "./closed-loop";
 import { generateVideo, synthesizeSpeech } from "@/services/ai";
+import { uploadFile } from "@/services/storage";
 import { InMemoryArtifactStore } from "./artifact-store";
 import {
   subscribeWorkflowEvents as _subscribeWorkflowEvents,
@@ -621,10 +622,20 @@ async function executeMediaGeneration(
             text,
             config: ctx.config.tts,
           })
-            .then(async () => {
+            .then(async (audioBuffer) => {
+              // 修复哑片：synthesizeSpeech 返回音频 Buffer，必须落盘并写回
+              // scene.audioUrl，否则导出/预览取不到音轨 → 自动成片无配音。
+              // 走 uploadFile 统一门面（R2 已配走云存储 / 未配降级本地盘）。
+              const audioUrl = await uploadFile(audioBuffer, {
+                fileName: `scene_${dbScene.id}_audio_${Date.now()}.mp3`,
+                contentType: "audio/mpeg",
+                fileType: "audio",
+                userId: ctx.userId,
+                projectId: ctx.projectId,
+              });
               await prisma.scene.update({
                 where: { id: dbScene.id },
-                data: { audioStatus: "COMPLETED" },
+                data: { audioUrl, audioStatus: "COMPLETED" },
               });
             })
             .catch(async () => {
