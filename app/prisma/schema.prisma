@@ -197,6 +197,9 @@ model Scene {
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   sceneCharacters SceneCharacter[]
+
+  // 分镜恒按 project 查询并按 order 排序（列表/导出/批量保存回读）
+  @@index([projectId, order])
 }
 
 enum GenerationStatus {
@@ -366,6 +369,10 @@ model GenerationTask {
   completedAt DateTime?
 
   attempts    GenerationAttempt[]
+
+  // 按项目回查任务（导出状态/历史）；按 status+createdAt 扫僵尸任务
+  @@index([projectId])
+  @@index([status, createdAt])
 }
 
 // 生成尝试记录

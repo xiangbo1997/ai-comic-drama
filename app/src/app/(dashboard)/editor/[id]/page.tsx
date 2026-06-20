@@ -147,6 +147,10 @@ export default function EditorPage() {
   };
 
   const pollExportProgress = async (taskId: string) => {
+    // 轮询上限：2s/次 × 150 = 5 分钟。超时则停轮并提示，
+    // 避免后端任务卡死（如进程重启丢任务）导致前端无限转圈。
+    const MAX_POLL_ATTEMPTS = 150;
+    let attempts = 0;
     const poll = async () => {
       try {
         const res = await fetch(
@@ -174,7 +178,18 @@ export default function EditorPage() {
             error: data.error || "导出失败",
             videoUrl: null,
           });
+        } else if (attempts >= MAX_POLL_ATTEMPTS) {
+          // 超时：停止轮询并提示，避免无限转圈
+          stopExportPoll();
+          setExportStatus({
+            isExporting: false,
+            taskId: null,
+            progress: 0,
+            error: "导出超时，请重试（任务可能已中断）",
+            videoUrl: null,
+          });
         } else {
+          attempts++;
           setExportStatus((prev) => ({
             ...prev,
             progress: data.progress || 0,

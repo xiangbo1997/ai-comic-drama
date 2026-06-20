@@ -334,12 +334,43 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Task ID required" }, { status: 400 });
     }
 
-    const task = await prisma.generationTask.findUnique({
-      where: { id: taskId },
+    // 校验项目归属（GenerationTask 无 project 外键关系，故先验 project）
+    const ownsProject = await prisma.project.findFirst({
+      where: { id, userId: session.user.id },
+      select: { id: true },
+    });
+    if (!ownsProject) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    const task = await prisma.generationTask.findFirst({
+      where: { id: taskId, projectId: id },
     });
 
-    if (!task || task.projectId !== id) {
+    if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
+    }
+
+    // 僵尸任务惰性回收：PROCESSING 但超过 10 分钟未结束（多半是进程重启
+    // 丢了在途任务），就地标 FAILED，避免前端无限轮询永远转圈
+    // （reliability P0-1）。
+    const ZOMBIE_TIMEOUT_MS = 10 * 60 * 1000;
+    let effectiveStatus = task.status;
+    let effectiveError = task.error;
+    if (
+      task.status === "PROCESSING" &&
+      Date.now() - task.createdAt.getTime() > ZOMBIE_TIMEOUT_MS
+    ) {
+      await prisma.generationTask.update({
+        where: { id: task.id },
+        data: {
+          status: "FAILED",
+          error: "导出任务超时（可能因服务重启中断）",
+          completedAt: new Date(),
+        },
+      });
+      effectiveStatus = "FAILED";
+      effectiveError = "导出任务超时（可能因服务重启中断）";
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -347,11 +378,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({
       taskId: task.id,
-      status: task.status.toLowerCase(),
+      status: effectiveStatus.toLowerCase(),
       progress: output?.progress ?? 0,
       videoUrl: output?.videoUrl,
       size: output?.size,
-      error: task.error,
+      error: effectiveError,
       createdAt: task.createdAt,
       completedAt: task.completedAt,
     });
