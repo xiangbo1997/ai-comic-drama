@@ -98,7 +98,7 @@ export function ScriptPanel({
         )}
         {parseError && (
           <p className="mt-2 text-center text-sm text-red-400">
-            解析失败，请重试
+            {parseError.message || "解析失败，请重试"}
           </p>
         )}
       </div>

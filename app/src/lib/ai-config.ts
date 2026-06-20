@@ -10,6 +10,37 @@ import type { AIServiceConfig } from "@/types";
 export type { AIServiceConfig };
 
 /**
+ * 平台兜底配置账号 ID。
+ *
+ * 背景（转化漏斗修复）：新用户注册后未配置任何 AI provider key 时，
+ * 第一步「文本→分镜」直接 400 死路，注册赠送的积分根本花不出去。
+ * 解决：指定一个「平台兜底账号」（普通 User），平台管理员在
+ * /settings/ai-models 里像配自己的模型一样为它配好 key（完全复用现有
+ * UserAIConfig 体系，不写死任何供应商）。用户自己没配时，自动 fallback
+ * 到这个账号的配置。env 留空则禁用兜底（行为同旧版）。
+ *
+ * ⚠️ 成本护栏：用平台兜底 key 的调用会消耗平台真金白银，必须配合
+ * 消费上限 / 限流（见 lib/rate-limit + 后续护栏）。
+ */
+const PLATFORM_FALLBACK_USER_ID =
+  process.env.PLATFORM_FALLBACK_USER_ID?.trim() || null;
+
+/**
+ * 判断给定 userId 是否正在使用平台兜底配置（即用户自己没配、回落到了平台账号）。
+ * 供调用方做成本计量 / 限额。
+ */
+export function isUsingPlatformFallback(
+  userId: string,
+  resolvedFromUserId: string | null
+): boolean {
+  return (
+    !!PLATFORM_FALLBACK_USER_ID &&
+    resolvedFromUserId === PLATFORM_FALLBACK_USER_ID &&
+    userId !== PLATFORM_FALLBACK_USER_ID
+  );
+}
+
+/**
  * P5：从一条 UserAIConfig(含 provider)装配为 AIServiceConfig。
  *
  * 这是四个 getUserXConfig 函数末尾完全重复的"解密 + 组装"逻辑的抽取。
@@ -88,13 +119,28 @@ export async function getUserLLMConfig(
       },
     }));
 
-  if (!effectiveConfig) {
+  // 用户自己没配 LLM → 回落到平台兜底账号（若已配置）
+  const finalConfig =
+    effectiveConfig ||
+    (PLATFORM_FALLBACK_USER_ID && userId !== PLATFORM_FALLBACK_USER_ID
+      ? await prisma.userAIConfig.findFirst({
+          where: {
+            userId: PLATFORM_FALLBACK_USER_ID,
+            isEnabled: true,
+            provider: { category: "LLM", isActive: true },
+          },
+          include: { provider: true },
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+        })
+      : null);
+
+  if (!finalConfig) {
     return null;
   }
 
   return assembleServiceConfig(
-    effectiveConfig,
-    getDefaultModelForProvider(effectiveConfig.provider.slug),
+    finalConfig,
+    getDefaultModelForProvider(finalConfig.provider.slug),
     "openai"
   );
 }
@@ -156,11 +202,26 @@ export async function getUserImageConfig(
       },
     }));
 
-  if (!effectiveConfig) {
+  // 用户自己没配 IMAGE → 回落到平台兜底账号（若已配置）
+  const finalConfig =
+    effectiveConfig ||
+    (PLATFORM_FALLBACK_USER_ID && userId !== PLATFORM_FALLBACK_USER_ID
+      ? await prisma.userAIConfig.findFirst({
+          where: {
+            userId: PLATFORM_FALLBACK_USER_ID,
+            isEnabled: true,
+            provider: { category: "IMAGE", isActive: true },
+          },
+          include: { provider: true },
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+        })
+      : null);
+
+  if (!finalConfig) {
     return null;
   }
 
-  return assembleServiceConfig(effectiveConfig, "", "openai");
+  return assembleServiceConfig(finalConfig, "", "openai");
 }
 
 /**
@@ -216,11 +277,26 @@ export async function getUserVideoConfig(
       },
     }));
 
-  if (!effectiveConfig) {
+  // 用户自己没配 VIDEO → 回落到平台兜底账号（若已配置）
+  const finalConfig =
+    effectiveConfig ||
+    (PLATFORM_FALLBACK_USER_ID && userId !== PLATFORM_FALLBACK_USER_ID
+      ? await prisma.userAIConfig.findFirst({
+          where: {
+            userId: PLATFORM_FALLBACK_USER_ID,
+            isEnabled: true,
+            provider: { category: "VIDEO", isActive: true },
+          },
+          include: { provider: true },
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+        })
+      : null);
+
+  if (!finalConfig) {
     return null;
   }
 
-  return assembleServiceConfig(effectiveConfig);
+  return assembleServiceConfig(finalConfig);
 }
 
 /**
@@ -276,11 +352,26 @@ export async function getUserTTSConfig(
       },
     }));
 
-  if (!effectiveConfig) {
+  // 用户自己没配 TTS → 回落到平台兜底账号（若已配置）
+  const finalConfig =
+    effectiveConfig ||
+    (PLATFORM_FALLBACK_USER_ID && userId !== PLATFORM_FALLBACK_USER_ID
+      ? await prisma.userAIConfig.findFirst({
+          where: {
+            userId: PLATFORM_FALLBACK_USER_ID,
+            isEnabled: true,
+            provider: { category: "TTS", isActive: true },
+          },
+          include: { provider: true },
+          orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
+        })
+      : null);
+
+  if (!finalConfig) {
     return null;
   }
 
-  return assembleServiceConfig(effectiveConfig);
+  return assembleServiceConfig(finalConfig);
 }
 
 /**
