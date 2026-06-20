@@ -28,6 +28,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ExportDialog } from "./components/ExportDialog";
 import { CharacterManagerDialog } from "./components/CharacterManagerDialog";
 import { WorkflowPanel } from "./components/WorkflowPanel";
+import { BgmDialog } from "./components/BgmDialog";
 import { useWorkflow } from "./hooks/use-workflow";
 
 export default function EditorPage() {
@@ -47,6 +48,7 @@ export default function EditorPage() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showSubtitleStyleDialog, setShowSubtitleStyleDialog] = useState(false);
   const [showWatermarkDialog, setShowWatermarkDialog] = useState(false);
+  const [showBgmDialog, setShowBgmDialog] = useState(false);
   const [showStickerDialog, setShowStickerDialog] = useState(false);
   const [showTransitionDialog, setShowTransitionDialog] = useState(false);
   const [showEffectDialog, setShowEffectDialog] = useState(false);
@@ -275,6 +277,7 @@ export default function EditorPage() {
         onEditTitle={() => editor.setEditingTitle(true)}
         onToggleTimeline={() => setShowTimeline(!showTimeline)}
         onToggleSettings={() => setShowSettings(!showSettings)}
+        onMusic={() => setShowBgmDialog(true)}
         onPreview={() => setShowPreviewDialog(true)}
         onExport={() => setShowExportDialog(true)}
       />
@@ -438,6 +441,22 @@ export default function EditorPage() {
         />
       )}
 
+      {showBgmDialog && (
+        <BgmDialog
+          projectId={projectId}
+          initialValue={project.generationParams?.backgroundMusic}
+          onSave={(backgroundMusic) =>
+            editor.updateProject({
+              generationParams: {
+                ...project.generationParams,
+                backgroundMusic,
+              },
+            })
+          }
+          onClose={() => setShowBgmDialog(false)}
+        />
+      )}
+
       {/* 贴图管理弹窗（点击时间轴 + 贴图 入口触发） */}
       {showStickerDialog && (
         <StickerDialog
@@ -525,6 +544,7 @@ export default function EditorPage() {
                 stickers={project.generationParams?.stickers}
                 transitions={project.generationParams?.transitions}
                 sceneEffects={project.generationParams?.sceneEffects}
+                backgroundMusic={project.generationParams?.backgroundMusic}
               />
             </div>
           </div>

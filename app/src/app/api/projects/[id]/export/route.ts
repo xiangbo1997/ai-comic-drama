@@ -86,6 +86,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const resolvedSceneEffects = Array.isArray(genParams.sceneEffects)
       ? genParams.sceneEffects
       : undefined;
+    // 背景音乐（BGM）：从 generationParams 读取，缺省/未启用时合成端不混入。
+    const resolvedBackgroundMusic =
+      genParams.backgroundMusic && typeof genParams.backgroundMusic === "object"
+        ? genParams.backgroundMusic
+        : undefined;
 
     // 检查是否有足够的内容可以导出
     const scenesWithContent = project.scenes.filter(
@@ -149,6 +154,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       stickers: resolvedStickers,
       transitions: resolvedTransitions,
       sceneEffects: resolvedSceneEffects,
+      backgroundMusic: resolvedBackgroundMusic,
     };
 
     // 如果是同步模式，立即处理

@@ -18,9 +18,17 @@ import type {
   TransitionType,
   SceneEffect,
   SceneEffectId,
+  BackgroundMusic,
 } from "@/types/export-style";
 
-export type { SubtitleStyle, Watermark, Sticker, Transition, SceneEffect };
+export type {
+  SubtitleStyle,
+  Watermark,
+  Sticker,
+  Transition,
+  SceneEffect,
+  BackgroundMusic,
+};
 
 export interface SceneMedia {
   id: string;
@@ -55,6 +63,8 @@ export interface ExportOptions {
    * 缺省时片段不加滤镜、不变速。
    */
   sceneEffects?: SceneEffect[];
+  /** 背景音乐（BGM）配置；缺省或 enabled=false 时不混入。 */
+  backgroundMusic?: BackgroundMusic;
 }
 
 const QUALITY_SETTINGS = {
@@ -151,6 +161,81 @@ function resolveSceneEffect(
       ? Math.min(4, Math.max(0.25, Number(rawSpeed)))
       : 1;
   return { effect, speed };
+}
+
+/**
+ * 构建 BGM（背景音乐）混音滤镜片段。
+ *
+ * 两个合成分支（有水印 / 无水印）共用，避免重复。处理链：
+ *   [bgm]volume → (loop ? aloop+atrim) → afade in → afade out → [bgmout]
+ * 然后与对白配音轨混合：
+ *   - 有配音：所有 [aK] 与 [bgmout] 一起 amix（normalize=0 防对白变小声，
+ *     BGM 给低权重让对白突出）；ducking=true 时改走 sidechaincompress 闪避。
+ *   - 无配音：[bgmout] 直接作为唯一音轨输出。
+ *
+ * @param bgm BGM 配置（已确保 enabled && url）
+ * @param bgmInputIndex BGM 在 ffmpeg -i 列表中的输入索引
+ * @param totalDuration 成片总时长（秒），用于 atrim 截断和 afade out 起点
+ * @param voiceLabels 对白配音轨标签数组（如 ["[a0]","[a1]"]），可空
+ * @returns { filters: 滤镜片段[], outLabel: 最终音频输出标签 }
+ */
+function buildBgmFilter(
+  bgm: BackgroundMusic,
+  bgmInputIndex: number,
+  totalDuration: number,
+  voiceLabels: string[]
+): { filters: string[]; outLabel: string } {
+  const filters: string[] = [];
+  const vol = Math.min(1, Math.max(0, bgm.volume ?? 0.25));
+  const fadeOutStart = Math.max(0, totalDuration - (bgm.fadeOut ?? 2));
+
+  // ── BGM 处理链：volume → (aloop) → atrim → afade ──
+  const chain: string[] = [`volume=${vol.toFixed(3)}`];
+  if (bgm.loop !== false) {
+    // 无限循环；size 给足采样数上限（约 12h@44.1k），随后必须 atrim 截断
+    chain.push(`aloop=loop=-1:size=2000000000`);
+  }
+  // 截到成片时长并重置时间戳（loop 后必须；非 loop 时 BGM 超长也截断）
+  chain.push(`atrim=0:${totalDuration.toFixed(3)}`, `asetpts=N/SR/TB`);
+  if ((bgm.fadeIn ?? 0) > 0) {
+    chain.push(`afade=t=in:st=0:d=${(bgm.fadeIn ?? 1.5).toFixed(3)}`);
+  }
+  if ((bgm.fadeOut ?? 0) > 0) {
+    // afade 的 st 不支持表达式，必须是常量秒数（已在 TS 算好）
+    chain.push(
+      `afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${(bgm.fadeOut ?? 2).toFixed(3)}`
+    );
+  }
+  filters.push(`[${bgmInputIndex}:a]${chain.join(",")}[bgmout]`);
+
+  // ── 无对白配音：BGM 即唯一音轨 ──
+  if (voiceLabels.length === 0) {
+    return { filters, outLabel: "[bgmout]" };
+  }
+
+  // ── 有对白配音 ──
+  if (bgm.ducking) {
+    // ducking：对白响时自动压低 BGM（剪映"语音增强"同款 sidechaincompress）
+    // 1) 对白先 amix 成一条 sidechain key [voice]
+    filters.push(
+      `${voiceLabels.join("")}amix=inputs=${voiceLabels.length}:normalize=0[voice]`
+    );
+    // 2) 用 [voice] 侧链压 [bgmout]
+    filters.push(
+      `[bgmout][voice]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[bgmducked]`
+    );
+    // 3) 压好的 BGM 与对白再混合
+    filters.push(`[voice][bgmducked]amix=inputs=2:normalize=0[aout]`);
+    return { filters, outLabel: "[aout]" };
+  }
+
+  // 默认路线：weights 让对白突出 + normalize=0 防整体变小声
+  const allInputs = [...voiceLabels, "[bgmout]"];
+  const weights = [...voiceLabels.map(() => "1"), "0.6"].join(" ");
+  filters.push(
+    `${allInputs.join("")}amix=inputs=${allInputs.length}:normalize=0:weights='${weights}'[aout]`
+  );
+  return { filters, outLabel: "[aout]" };
 }
 
 /**
@@ -715,6 +800,27 @@ export async function synthesizeVideo(
       }
     }
 
+    // 4.5 准备背景音乐（BGM）：下载到本地并预备混音参数。
+    // 总时长 = 各分镜变速后有效时长之和（与上面 currentTime 累计同逻辑），
+    // 供 BGM 的 atrim 截断与 afade out 起点使用。
+    const bgm = options.backgroundMusic;
+    let bgmPath: string | null = null;
+    let bgmTotalDuration = 0;
+    if (bgm?.enabled && bgm.url) {
+      for (const scene of scenes) {
+        const { speed } = resolveSceneEffect(scene.id, options.sceneEffects);
+        bgmTotalDuration += scene.duration / speed;
+      }
+      try {
+        bgmPath = await downloadFile(absolutizeUrl(bgm.url), "bgm_track.mp3");
+      } catch (err) {
+        // BGM 下载失败不阻塞主流程，记录后跳过（成片仍有对白）
+        console.warn("[video-synthesis] BGM 下载失败，跳过背景音乐:", err);
+        bgmPath = null;
+      }
+    }
+    const hasBgm = bgmPath !== null;
+
     onProgress?.(70);
 
     // 5. 生成字幕（时轴随变速对齐）
@@ -770,10 +876,17 @@ export async function synthesizeVideo(
       // ─────────────────────────────────────────────────────────────────
       const ffmpegArgs: string[] = ["-i", mergedPath];
 
-      // 先添加音频输入；overlay 图片输入排在音频之后
+      // 先添加音频输入；BGM 与 overlay 图片输入排在音频之后
       ffmpegArgs.push(...audioInputs);
-      // audioInputs 每条音轨用 2 个元素("-i", path)；overlay 输入索引从此处开始
-      let nextInputIndex = 1 + audioInputs.length / 2;
+      const audioCount = audioInputs.length / 2;
+      // BGM 作为额外 -i，排在所有配音轨之后；记录其输入索引
+      let bgmInputIndex = -1;
+      if (hasBgm && bgmPath) {
+        ffmpegArgs.push("-i", bgmPath);
+        bgmInputIndex = 1 + audioCount;
+      }
+      // overlay 图片输入索引：在 merged([0]) + 配音轨 + BGM(占 1 位) 之后
+      let nextInputIndex = 1 + audioCount + (hasBgm ? 1 : 0);
 
       // ── 视频基链 ────────────────────────────────────────────────────
       // [0:v] → scale+pad → 可选字幕 → [base]
@@ -839,21 +952,40 @@ export async function synthesizeVideo(
       }
 
       // ── 音频链（与视频链用 ; 分隔，共同放入同一 filter_complex）──────
-      if (audioFilters.length > 0) {
-        // 音频 adelay 的索引需要从 1 开始（音频输入在 merged 之后），不受 logo 影响
+      // 音频 adelay 的索引从 1 开始（音频输入在 merged 之后），不受 logo 影响。
+      const voiceLabels = audioFilters.map((_, i) => `[a${i}]`);
+      let audioOutLabel: string | null = null;
+      if (hasBgm && bgmInputIndex >= 0) {
+        // 有 BGM：先放对白 adelay，再用 buildBgmFilter 处理 BGM + 混音
         filterParts.push(...audioFilters);
-        const mixInputs = audioFilters.map((_, i) => `[a${i}]`).join("");
+        const bgmBuilt = buildBgmFilter(
+          bgm!,
+          bgmInputIndex,
+          bgmTotalDuration,
+          voiceLabels
+        );
+        filterParts.push(...bgmBuilt.filters);
+        audioOutLabel = bgmBuilt.outLabel;
+      } else if (audioFilters.length > 0) {
+        // 无 BGM：仅对白配音 amix（原行为）
+        filterParts.push(...audioFilters);
+        const mixInputs = voiceLabels.join("");
         filterParts.push(
           `${mixInputs}amix=inputs=${audioFilters.length}[aout]`
         );
+        audioOutLabel = "[aout]";
       }
 
       ffmpegArgs.push("-filter_complex", filterParts.join(";"));
 
       // ── map 输出流 ──────────────────────────────────────────────────
       ffmpegArgs.push("-map", "[outv]");
-      if (audioFilters.length > 0) {
-        ffmpegArgs.push("-map", "[aout]");
+      if (audioOutLabel) {
+        ffmpegArgs.push("-map", audioOutLabel);
+      }
+      // BGM loop=longest 时用总时长兜底截断，防 amix duration 拖尾
+      if (hasBgm) {
+        ffmpegArgs.push("-t", bgmTotalDuration.toFixed(3));
       }
 
       // ── 编码参数 ────────────────────────────────────────────────────
@@ -884,6 +1016,13 @@ export async function synthesizeVideo(
 
       // 添加音频输入
       ffmpegArgs.push(...audioInputs);
+      const audioCountNoWm = audioInputs.length / 2;
+      // BGM 作为额外 -i，排在所有配音轨之后
+      let bgmIdxNoWm = -1;
+      if (hasBgm && bgmPath) {
+        ffmpegArgs.push("-i", bgmPath);
+        bgmIdxNoWm = 1 + audioCountNoWm;
+      }
 
       // 构建视频滤镜（-vf 路径）
       let videoFilter = `scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
@@ -896,8 +1035,33 @@ export async function synthesizeVideo(
       ffmpegArgs.push("-vf", videoFilter);
 
       // 音频混合（单独的 filter_complex，与 -vf 共存）
-      if (audioFilters.length > 0) {
-        const mixInputs = audioFilters.map((_, i) => `[a${i}]`).join("");
+      const voiceLabelsNoWm = audioFilters.map((_, i) => `[a${i}]`);
+      if (hasBgm && bgmIdxNoWm >= 0) {
+        // 有 BGM：对白 adelay + buildBgmFilter 处理 BGM + 混音
+        const bgmBuilt = buildBgmFilter(
+          bgm!,
+          bgmIdxNoWm,
+          bgmTotalDuration,
+          voiceLabelsNoWm
+        );
+        const audioParts =
+          audioFilters.length > 0
+            ? [...audioFilters, ...bgmBuilt.filters]
+            : bgmBuilt.filters;
+        ffmpegArgs.push(
+          "-filter_complex",
+          audioParts.join(";"),
+          "-map",
+          "0:v",
+          "-map",
+          bgmBuilt.outLabel,
+          // BGM loop=longest 时用总时长兜底截断，防拖尾
+          "-t",
+          bgmTotalDuration.toFixed(3)
+        );
+      } else if (audioFilters.length > 0) {
+        // 无 BGM：仅对白配音 amix（原行为）
+        const mixInputs = voiceLabelsNoWm.join("");
         ffmpegArgs.push(
           "-filter_complex",
           `${audioFilters.join(";")}; ${mixInputs}amix=inputs=${audioFilters.length}[aout]`,

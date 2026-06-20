@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Play, Download, Settings, Clock } from "lucide-react";
+import {
+  ArrowLeft,
+  Play,
+  Download,
+  Settings,
+  Clock,
+  Music,
+} from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { CreditsDisplay } from "@/components/credits-display";
 
@@ -16,6 +23,7 @@ interface EditorHeaderProps {
   onEditTitle: () => void;
   onToggleTimeline: () => void;
   onToggleSettings: () => void;
+  onMusic: () => void;
   onPreview: () => void;
   onExport: () => void;
 }
@@ -30,6 +38,7 @@ export function EditorHeader({
   onEditTitle,
   onToggleTimeline,
   onToggleSettings,
+  onMusic,
   onPreview,
   onExport,
 }: EditorHeaderProps) {
@@ -71,6 +80,13 @@ export function EditorHeader({
           title="时间轴"
         >
           <Clock size={20} />
+        </button>
+        <button
+          onClick={onMusic}
+          className="hover:bg-card rounded-lg p-2"
+          title="配乐 / 背景音乐"
+        >
+          <Music size={20} />
         </button>
         <button
           onClick={onToggleSettings}

@@ -8,6 +8,7 @@ import type {
   Sticker,
   Transition,
   SceneEffect,
+  BackgroundMusic,
 } from "./export-style";
 
 /** 项目状态 — 与 Prisma enum ProjectStatus 对齐 */
@@ -39,6 +40,8 @@ export interface GenerationParams {
   transitions?: Transition[];
   /** 分镜级滤镜 / 变速（按 sceneId 关联） */
   sceneEffects?: SceneEffect[];
+  /** 全片背景音乐（BGM）配置 */
+  backgroundMusic?: BackgroundMusic;
 }
 
 /** 项目基础信息 */

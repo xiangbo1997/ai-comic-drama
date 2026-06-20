@@ -172,3 +172,40 @@ export const DEFAULT_TRANSITION: Transition = {
   type: "fade",
   duration: 0.3,
 };
+
+/**
+ * 背景音乐（BGM）配置 —— 全片单条主音乐。
+ * 存于 Project.generationParams.backgroundMusic（与 watermark/stickers 同位，
+ * 无需改 schema）。导出时由 video-synthesis 用 ffmpeg 混入成片。
+ */
+export interface BackgroundMusic {
+  /** 是否启用，默认 false */
+  enabled: boolean;
+  /** 内置曲库 BgmTrack.id（用于回显选中态；用户上传时为空） */
+  trackId?: string;
+  /** 实际拉取地址（内置曲库 /bgm/… 或用户上传 fileUrl） */
+  url: string;
+  /** 音量 0-1，相对原始 BGM，默认 0.25（压到对白之下） */
+  volume: number;
+  /** 淡入秒数，默认 1.5 */
+  fadeIn: number;
+  /** 淡出秒数，默认 2.0 */
+  fadeOut: number;
+  /** BGM 比成片短时是否循环铺满，默认 true */
+  loop: boolean;
+  /** 对白时自动压低 BGM（sidechain ducking），默认 false */
+  ducking: boolean;
+}
+
+/**
+ * 背景音乐默认值（enabled=false → 不混入，与旧行为一致）
+ */
+export const DEFAULT_BACKGROUND_MUSIC: BackgroundMusic = {
+  enabled: false,
+  url: "",
+  volume: 0.25,
+  fadeIn: 1.5,
+  fadeOut: 2.0,
+  loop: true,
+  ducking: false,
+};

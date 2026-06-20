@@ -18,6 +18,7 @@ import type {
   TransitionType,
   SceneEffect,
   SceneEffectId,
+  BackgroundMusic,
 } from "@/types/export-style";
 import { SceneFilterDefs, sceneFilterCss } from "./scene-filters";
 
@@ -36,6 +37,8 @@ interface PreviewPlayerProps {
   transitions?: Transition[];
   /** 分镜滤镜 / 变速（按 sceneId），预览用 SVG filter 精确复现 */
   sceneEffects?: SceneEffect[];
+  /** 背景音乐（预览时循环播放，让用户听到导出后的 BGM 效果） */
+  backgroundMusic?: BackgroundMusic;
 }
 
 /** 解析某分镜的滤镜 id 与变速（与导出侧 resolveSceneEffect 等价） */
@@ -75,6 +78,7 @@ export function PreviewPlayer({
   stickers,
   transitions,
   sceneEffects,
+  backgroundMusic,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -86,6 +90,7 @@ export function PreviewPlayer({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const bgmRef = useRef<HTMLAudioElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentScene = scenes[currentIndex];
@@ -167,6 +172,12 @@ export function PreviewPlayer({
       if (audioRef.current && currentScene.audioUrl) {
         audioRef.current.play().catch(() => {});
       }
+
+      // 播放背景音乐（循环，让用户在预览里听到导出后的 BGM）
+      if (bgmRef.current && backgroundMusic?.enabled && backgroundMusic.url) {
+        bgmRef.current.volume = backgroundMusic.volume ?? 0.25;
+        bgmRef.current.play().catch(() => {});
+      }
     } else {
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -176,6 +187,9 @@ export function PreviewPlayer({
       }
       if (audioRef.current) {
         audioRef.current.pause();
+      }
+      if (bgmRef.current) {
+        bgmRef.current.pause();
       }
     }
 
@@ -199,6 +213,9 @@ export function PreviewPlayer({
     }
     if (audioRef.current) {
       audioRef.current.muted = isMuted;
+    }
+    if (bgmRef.current) {
+      bgmRef.current.muted = isMuted;
     }
   }, [isMuted]);
 
@@ -344,6 +361,11 @@ export function PreviewPlayer({
         {/* Audio */}
         {currentScene?.audioUrl && (
           <audio ref={audioRef} src={currentScene.audioUrl} />
+        )}
+
+        {/* 背景音乐（循环，预览反映导出后的 BGM） */}
+        {backgroundMusic?.enabled && backgroundMusic.url && (
+          <audio ref={bgmRef} src={backgroundMusic.url} loop />
         )}
 
         {/* Watermark — 全片商标水印预览（与导出 overlay 一致位置） */}

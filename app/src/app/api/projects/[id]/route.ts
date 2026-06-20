@@ -306,6 +306,26 @@ function normalizeGenerationParams(
       }))
       .filter((e) => e.sceneId);
   }
+  // 背景音乐（BGM）：校验后整体放行 —— 不加这段则前端怎么存都进不了 DB，
+  // 导出永远读不到 BGM（同 ffe4928/d128149 「白存」教训）。
+  if (src.backgroundMusic && typeof src.backgroundMusic === "object") {
+    const bm = src.backgroundMusic as Record<string, unknown>;
+    out.backgroundMusic = {
+      enabled: bm.enabled === true,
+      ...(typeof bm.trackId === "string" && bm.trackId.length <= 64
+        ? { trackId: bm.trackId }
+        : {}),
+      url: typeof bm.url === "string" && bm.url.length <= 2048 ? bm.url : "",
+      volume:
+        typeof bm.volume === "number" ? clampNumber(bm.volume, 0, 1) : 0.25,
+      fadeIn:
+        typeof bm.fadeIn === "number" ? clampNumber(bm.fadeIn, 0, 10) : 1.5,
+      fadeOut:
+        typeof bm.fadeOut === "number" ? clampNumber(bm.fadeOut, 0, 10) : 2.0,
+      loop: bm.loop !== false,
+      ducking: bm.ducking === true,
+    };
+  }
   return out;
 }
 
