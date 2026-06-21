@@ -90,6 +90,11 @@ tmp/
 uploads/
 public/uploads/
 
+# 内置 BGM 曲库 mp3（CC0 资产，避免 ~120MB 二进制污染 git 历史；
+# 用 app/scripts/fetch-bgm.mjs 在部署环境下载，清单见 src/lib/bgm-library.ts）
+app/public/bgm/**/*.mp3
+public/bgm/**/*.mp3
+
 # FFmpeg 临时文件
 *.mp4.tmp
 *.wav.tmp
