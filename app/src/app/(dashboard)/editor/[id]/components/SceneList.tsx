@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, memo, type ReactNode } from "react";
 import {
   Image as ImageIcon,
   Video,
@@ -352,6 +352,7 @@ function SceneListImpl({
                           type="button"
                           className="text-muted-foreground mt-1 shrink-0 cursor-grab touch-none active:cursor-grabbing"
                           title="拖拽调整顺序"
+                          aria-label="拖拽调整分镜顺序"
                           onClick={(e) => e.stopPropagation()}
                           {...attributes}
                           {...listeners}
@@ -364,6 +365,8 @@ function SceneListImpl({
                           <SceneStatusBadge
                             status={scene.imageStatus}
                             hasImage={!!scene.imageUrl}
+                            videoStatus={scene.videoStatus}
+                            audioStatus={scene.audioStatus}
                           />
                           {/* 左上角序号 */}
                           <span className="bg-background/70 absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium backdrop-blur-sm">
@@ -805,34 +808,86 @@ function SceneListImpl({
 function SceneStatusBadge({
   status,
   hasImage,
+  videoStatus,
+  audioStatus,
 }: {
   status?: string | null;
   hasImage: boolean;
+  videoStatus?: string | null;
+  audioStatus?: string | null;
 }) {
+  // 右上角主角标：图像状态。FAILED 优先于 hasImage 判断——否则"有旧图但本次
+  // 生成失败"会被错误显示为"就绪"，误导用户以为图是最新成功结果。
+  let mainBadge: ReactNode = null;
   if (status === "PROCESSING") {
-    return (
-      <span className="bg-primary/90 text-primary-foreground absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-none">
+    mainBadge = (
+      <span className="bg-primary/90 text-primary-foreground flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-none">
         <span className="bg-primary-foreground inline-block h-1.5 w-1.5 animate-pulse rounded-full" />
         生成中
       </span>
     );
-  }
-  if (status === "FAILED" && !hasImage) {
-    return (
-      <span className="bg-destructive/90 absolute top-1 right-1 z-10 rounded px-1 py-0.5 text-[10px] leading-none text-white">
+  } else if (status === "FAILED" && hasImage) {
+    // 有旧图但本次失败：橙色"重试"，与"无图失败"的红色区分
+    mainBadge = (
+      <span className="rounded bg-amber-500/90 px-1 py-0.5 text-[10px] leading-none text-white">
+        失败·可重试
+      </span>
+    );
+  } else if (status === "FAILED") {
+    mainBadge = (
+      <span className="bg-destructive/90 rounded px-1 py-0.5 text-[10px] leading-none text-white">
         失败
       </span>
     );
-  }
-  if (hasImage) {
-    return (
-      <span className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded bg-green-600/90 px-1 py-0.5 text-[10px] leading-none text-white">
+  } else if (hasImage) {
+    mainBadge = (
+      <span className="flex items-center gap-1 rounded bg-green-600/90 px-1 py-0.5 text-[10px] leading-none text-white">
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
         就绪
       </span>
     );
   }
-  return null;
+
+  // 右下角附属角标：视频/音频生成中（核心耗时操作，缩略图上给可见反馈，
+  // 避免用户分不清"在生成还是卡死"）。
+  const subBadges: ReactNode[] = [];
+  if (videoStatus === "PROCESSING") {
+    subBadges.push(
+      <span
+        key="v"
+        className="flex items-center gap-0.5 rounded bg-blue-600/90 px-1 py-0.5 text-[10px] leading-none text-white"
+      >
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+        视频中
+      </span>
+    );
+  }
+  if (audioStatus === "PROCESSING") {
+    subBadges.push(
+      <span
+        key="a"
+        className="flex items-center gap-0.5 rounded bg-purple-600/90 px-1 py-0.5 text-[10px] leading-none text-white"
+      >
+        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+        配音中
+      </span>
+    );
+  }
+
+  if (!mainBadge && subBadges.length === 0) return null;
+
+  return (
+    <>
+      {mainBadge && (
+        <span className="absolute top-1 right-1 z-10">{mainBadge}</span>
+      )}
+      {subBadges.length > 0 && (
+        <span className="absolute right-1 bottom-1 z-10 flex flex-col items-end gap-0.5">
+          {subBadges}
+        </span>
+      )}
+    </>
+  );
 }
 
 // memo：分镜列表含 20+ 卡片，避免编辑器顶层弹窗 state 变化时整列表重渲染。

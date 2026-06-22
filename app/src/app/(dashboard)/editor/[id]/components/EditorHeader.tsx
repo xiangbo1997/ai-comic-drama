@@ -78,6 +78,8 @@ export function EditorHeader({
           onClick={onToggleTimeline}
           className={`rounded-lg p-2 transition ${showTimeline ? "bg-primary hover:bg-primary/90" : "hover:bg-card"}`}
           title="时间轴"
+          aria-label="切换时间轴"
+          aria-pressed={showTimeline}
         >
           <Clock size={20} />
         </button>
@@ -85,12 +87,15 @@ export function EditorHeader({
           onClick={onMusic}
           className="hover:bg-card rounded-lg p-2"
           title="配乐 / 背景音乐"
+          aria-label="配乐 / 背景音乐"
         >
           <Music size={20} />
         </button>
         <button
           onClick={onToggleSettings}
           className="hover:bg-card rounded-lg p-2"
+          title="设置"
+          aria-label="设置"
         >
           <Settings size={20} />
         </button>

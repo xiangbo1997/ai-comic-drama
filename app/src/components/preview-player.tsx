@@ -718,6 +718,7 @@ export function PreviewPlayer({
             onClick={goToPrevious}
             disabled={currentIndex === 0}
             className="hover:bg-secondary rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="上一个分镜"
           >
             <SkipBack size={20} />
           </button>
@@ -725,6 +726,7 @@ export function PreviewPlayer({
           <button
             onClick={togglePlay}
             className="bg-primary hover:bg-primary/90 rounded-full p-3"
+            aria-label={isPlaying ? "暂停" : "播放"}
           >
             {isPlaying ? <Pause size={24} /> : <Play size={24} />}
           </button>
@@ -733,6 +735,7 @@ export function PreviewPlayer({
             onClick={goToNext}
             disabled={currentIndex === scenes.length - 1}
             className="hover:bg-secondary rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="下一个分镜"
           >
             <SkipForward size={20} />
           </button>
@@ -742,6 +745,8 @@ export function PreviewPlayer({
           <button
             onClick={() => setIsMuted(!isMuted)}
             className="hover:bg-secondary rounded-lg p-2"
+            aria-label={isMuted ? "取消静音" : "静音"}
+            aria-pressed={isMuted}
           >
             {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
           </button>
@@ -751,6 +756,8 @@ export function PreviewPlayer({
             className={`rounded px-2 py-1 text-xs ${
               showSubtitles ? "bg-primary" : "bg-secondary"
             }`}
+            aria-label="切换字幕显示"
+            aria-pressed={showSubtitles}
           >
             字幕
           </button>

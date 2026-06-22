@@ -97,7 +97,7 @@ export function SceneEditor({
 
   if (!scene) {
     return (
-      <div className="border-border hidden w-full flex-col border-l lg:flex lg:w-[30%] lg:min-w-[320px]">
+      <div className="border-border hidden w-full flex-col border-l md:flex md:w-[30%] md:min-w-[260px] lg:w-[30%] lg:min-w-[320px]">
         <div className="border-border border-b p-4">
           <h2 className="font-semibold">预览 / 编辑</h2>
         </div>
