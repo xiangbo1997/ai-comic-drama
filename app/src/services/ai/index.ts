@@ -200,15 +200,20 @@ function shouldFallbackToEnvReplicate(config?: AIServiceConfig): boolean {
     return false;
   }
 
+  // 无 config（如平台兜底未命中），用 env Replicate 兜底，避免整个生图接口 500。
   if (!config) {
     return true;
   }
 
-  // 当用户自定义图像通道不可用时，回退到环境变量中的 Replicate，避免整个生图接口直接 500。
-  return (
-    config.protocol !== "replicate" ||
-    config.apiKey !== process.env.REPLICATE_API_TOKEN
-  );
+  // 仅当 config 是"空壳"（无有效 apiKey）时才 fallback——这通常是平台兜底场景。
+  // 关键修正：若用户配了真实 apiKey 但调用失败，不再静默 fallback 到平台
+  // Replicate。否则用户永远感知不到自己的 key/通道配置错误，还可能让平台
+  // 账号代付费用。有真实 key 的失败应原样抛出，让用户在「测试连接」中发现。
+  if (!config.apiKey || !config.apiKey.trim()) {
+    return true;
+  }
+
+  return false;
 }
 
 export async function generateImage(
@@ -317,23 +322,35 @@ export async function generateVideo(
 
 // ============ TTS 服务 ============
 
+// TTS 超时上限：火山引擎/ElevenLabs 偶发卡住会让 workflow 永不结束（无超时则
+// generate_audios 阶段挂死）。90s 足够覆盖长文本合成。
+const DEFAULT_TTS_TIMEOUT_MS = 90_000;
+
 export async function synthesizeSpeech(options: TTSOptions): Promise<Buffer> {
   const { config } = options;
 
   if (config) {
     const protocol = config.protocol || "volcengine";
     const provider = getTTSProvider(protocol, config.baseUrl);
-    return provider.synthesizeSpeech(options, config);
+    return withTimeout(
+      provider.synthesizeSpeech(options, config),
+      DEFAULT_TTS_TIMEOUT_MS,
+      "语音合成超时"
+    );
   }
 
   // 回退到环境变量：火山引擎
   const provider = getTTSProvider("volcengine");
-  return provider.synthesizeSpeech(options, {
-    apiKey: "",
-    baseUrl: "",
-    model: "",
-    protocol: "volcengine",
-  });
+  return withTimeout(
+    provider.synthesizeSpeech(options, {
+      apiKey: "",
+      baseUrl: "",
+      model: "",
+      protocol: "volcengine",
+    }),
+    DEFAULT_TTS_TIMEOUT_MS,
+    "语音合成超时"
+  );
 }
 
 // ============ 成本计算 ============

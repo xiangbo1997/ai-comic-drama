@@ -61,7 +61,13 @@ async function falPollResult(
 
 export const falImage: ImageProvider = {
   async generateImage(options, config) {
-    const { prompt, referenceImage, aspectRatio = "9:16", seed } = options;
+    const {
+      prompt,
+      referenceImage,
+      aspectRatio = "9:16",
+      seed,
+      negativePrompt,
+    } = options;
     const effectiveModel = config.model || "fal-ai/flux/schnell";
 
     const response = await fetch(`${FAL_QUEUE_BASE}/${effectiveModel}`, {
@@ -81,6 +87,10 @@ export const falImage: ImageProvider = {
               : "square",
         num_images: 1,
         ...(typeof seed === "number" ? { seed } : {}),
+        // flux/SDXL 系列支持 negative_prompt；非空才传，避免对不支持的模型注入空字段
+        ...(negativePrompt && negativePrompt.trim()
+          ? { negative_prompt: negativePrompt.trim() }
+          : {}),
       }),
     });
 

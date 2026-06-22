@@ -117,9 +117,20 @@ interface SimilarityArgs {
  */
 async function llmSimilarityScore(args: SimilarityArgs): Promise<number> {
   const { referenceUrl, generatedUrl, characterName, llmConfig } = args;
+
+  // 协议守卫：人脸比对走 OpenAI 多模态格式；claude / gemini 端点格式不同，
+  // 入口诚实抛出，由调用方降级（避免发注定失败的请求 + 无意义错误日志）。
+  const protocol = llmConfig.protocol || "openai";
+  if (protocol === "claude" || protocol === "gemini") {
+    throw new Error(
+      `人脸一致性校验暂不支持 ${protocol} 协议（需 OpenAI 兼容的多模态端点）`
+    );
+  }
+
   const baseUrl = llmConfig.baseUrl.replace(/\/+$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
-  const model = llmConfig.model || "gpt-4o-mini";
+  // 人脸同一性判断对视觉能力要求高，默认升级到 gpt-4o（可由 config.model 覆盖）
+  const model = llmConfig.model || "gpt-4o";
 
   const body = {
     model,

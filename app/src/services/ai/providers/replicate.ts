@@ -12,7 +12,13 @@ export const replicateImage: ImageProvider = {
       );
     }
 
-    const { prompt, referenceImage, aspectRatio = "9:16", seed } = options;
+    const {
+      prompt,
+      referenceImage,
+      aspectRatio = "9:16",
+      seed,
+      negativePrompt,
+    } = options;
     const { default: Replicate } = await import("replicate");
     const replicate = new Replicate({ auth: config.apiKey });
 
@@ -44,6 +50,11 @@ export const replicateImage: ImageProvider = {
           aspect_ratio: aspectRatio,
           output_format: "webp",
           ...(typeof seed === "number" ? { seed } : {}),
+          // flux-dev / SDXL 等支持 negative_prompt（flux-schnell 蒸馏模型会忽略）；
+          // 非空才传，让支持的模型受益，不支持的容忍多余字段
+          ...(negativePrompt && negativePrompt.trim()
+            ? { negative_prompt: negativePrompt.trim() }
+            : {}),
         },
       }
     );

@@ -47,9 +47,22 @@ export async function reviewImageWithVision(
     llmConfig,
   } = args;
 
+  // 协议守卫：本评审走 OpenAI chat completions 多模态格式（content parts +
+  // image_url）。claude / gemini 协议的端点格式不同，拼 /chat/completions 会
+  // 失败。与其发一个注定 404 的请求再降级（日志只剩无意义的 HTTP 4xx），不如
+  // 在入口诚实抛出明确原因，由调用方（observer-agent）降级到纯文本预评审。
+  const protocol = llmConfig.protocol || "openai";
+  if (protocol === "claude" || protocol === "gemini") {
+    throw new Error(
+      `视觉评审暂不支持 ${protocol} 协议（需 OpenAI 兼容的多模态端点），降级纯文本评审`
+    );
+  }
+
   const baseUrl = llmConfig.baseUrl.replace(/\/+$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
-  const model = llmConfig.model || "gpt-4o-mini";
+  // 视觉一致性评审对模型视觉能力要求高，gpt-4o-mini 细节识别偏弱，
+  // 默认升级到 gpt-4o（用户可在 config.model 显式覆盖）。
+  const model = llmConfig.model || "gpt-4o";
 
   const body = {
     model,
