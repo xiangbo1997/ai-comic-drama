@@ -2,9 +2,29 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { deleteFile } from "@/services/storage";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]");
+
+/**
+ * 删除项目后清理其分镜媒体文件（R2 或本地盘，由 storage.deleteFile 门面分派）。
+ * 后台执行，失败仅记日志（孤儿文件可后续批量清理）。
+ */
+async function cleanupProjectMedia(
+  projectId: string,
+  urls: string[]
+): Promise<void> {
+  const results = await Promise.allSettled(urls.map((u) => deleteFile(u)));
+  const failed = results.filter((r) => r.status === "rejected").length;
+  if (failed > 0) {
+    log.warn(
+      `项目 ${projectId} 删除后清理存储：${urls.length} 个文件中 ${failed} 个失败（孤儿）`
+    );
+  } else {
+    log.info(`项目 ${projectId} 删除后清理 ${urls.length} 个媒体文件完成`);
+  }
+}
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -365,9 +385,26 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
+    // 删库前收集本项目所有分镜的媒体 URL，用于删库后清理存储。
+    // 只清分镜级产物（图/视/音）——角色参考资产是跨项目共享资源（N:N），
+    // 不在此删除，避免误删其它项目仍引用的角色定妆图。
+    const scenes = await prisma.scene.findMany({
+      where: { projectId: id },
+      select: { imageUrl: true, videoUrl: true, audioUrl: true },
+    });
+    const mediaUrls = scenes
+      .flatMap((s) => [s.imageUrl, s.videoUrl, s.audioUrl])
+      .filter((u): u is string => Boolean(u));
+
     await prisma.project.delete({
       where: { id },
     });
+
+    // 存储清理：fire-and-forget，不阻塞响应；失败仅记日志（成孤儿文件，
+    // 可后续批量清理），优于让用户等几十个文件逐个删完。
+    if (mediaUrls.length > 0) {
+      void cleanupProjectMedia(id, mediaUrls);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {
