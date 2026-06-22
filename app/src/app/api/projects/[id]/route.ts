@@ -65,14 +65,11 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         },
         characters: {
           include: {
-            character: {
-              include: {
-                // 三视图等参考资产，供生视频多参考锁形象
-                referenceAssets: {
-                  orderBy: { createdAt: "desc" },
-                },
-              },
-            },
+            // 编辑器仅消费 character.name / referenceImages（旧 String[] 字段，
+            // 在 Character 本体上）。原先 include referenceAssets 全量关系表是
+            // 纯浪费（编辑器零消费，视频生成走 buildSceneCharacterContext 独立
+            // 查询）——移除以减少 GET /api/projects/:id 的数据量与序列化开销。
+            character: true,
           },
         },
       },

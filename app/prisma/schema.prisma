@@ -128,6 +128,8 @@ model Project {
   characters   ProjectCharacter[]
   workflowRuns WorkflowRun[]
   shortDramaScripts ShortDramaScript[]
+
+  @@index([userId]) // 项目列表页按 userId 查询，无此索引则全表扫描
 }
 
 // 短剧创作脚本：承载「世界观→结构化脚本」+「九宫格分镜表」+「一键九宫格图」
@@ -246,6 +248,8 @@ model Character {
   appearance  CharacterAppearance?
   referenceAssets CharacterReferenceAsset[]
   faceEmbeddings  CharacterFaceEmbedding[]
+
+  @@index([userId]) // 角色库页按 userId 查询，无此索引则全表扫描
 }
 
 // 角色结构化外貌
@@ -345,6 +349,9 @@ model ProjectCharacter {
   character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
 
   @@unique([projectId, characterId])
+  // 反向查询"角色被哪些项目引用"（如删角色前的引用检查）；复合唯一索引的
+  // 最左前缀是 projectId，无法服务 WHERE characterId=? 的查询
+  @@index([characterId])
 }
 
 // 场景-角色关联
@@ -358,6 +365,8 @@ model SceneCharacter {
   character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
 
   @@unique([sceneId, characterId])
+  // 反向查询"角色出现在哪些场景"；同 ProjectCharacter，最左前缀是 sceneId
+  @@index([characterId])
 }
 
 // 生成任务队列
@@ -368,7 +377,7 @@ model GenerationTask {
   input       Json     // 输入参数
   output      Json?    // 输出结果
   error       String?  // 错误信息
-  cost        Float    @default(0) // 消耗积分
+  cost        Int      @default(0) // 消耗积分（整数；原 Float 易产生浮点脏数据）
 
   // 关联
   projectId   String?

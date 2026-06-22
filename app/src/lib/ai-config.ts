@@ -83,8 +83,11 @@ function assembleServiceConfig(
 export async function getUserLLMConfig(
   userId: string
 ): Promise<AIServiceConfig | null> {
-  // 查找用户在 LLM 分类下的默认配置
-  const config = await prisma.userAIConfig.findFirst({
+  // 单次查询拿到"默认优先、否则最早创建"的 LLM 配置：orderBy isDefault desc
+  // 让 isDefault=true 排最前，无默认时退到最早 enabled 配置。合并了原先
+  // "先查 isDefault 再查任意 enabled"的两次串行 findFirst（每个生成请求省一次
+  // DB 往返）。
+  const effectiveConfig = await prisma.userAIConfig.findFirst({
     where: {
       userId,
       isEnabled: true,
@@ -92,32 +95,12 @@ export async function getUserLLMConfig(
         category: "LLM",
         isActive: true,
       },
-      isDefault: true,
     },
     include: {
       provider: true,
     },
+    orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
-
-  // 如果没有默认配置，尝试获取任意一个已启用的 LLM 配置
-  const effectiveConfig =
-    config ||
-    (await prisma.userAIConfig.findFirst({
-      where: {
-        userId,
-        isEnabled: true,
-        provider: {
-          category: "LLM",
-          isActive: true,
-        },
-      },
-      include: {
-        provider: true,
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
-    }));
 
   // 用户自己没配 LLM → 回落到平台兜底账号（若已配置）
   const finalConfig =
@@ -169,7 +152,8 @@ export async function getUserImageConfig(
       })
     : null;
 
-  const config =
+  // 合并"默认优先、否则最早创建"为单次查询（orderBy isDefault desc）
+  const effectiveConfig =
     selectedConfig ||
     (await prisma.userAIConfig.findFirst({
       where: {
@@ -179,27 +163,11 @@ export async function getUserImageConfig(
           category: "IMAGE",
           isActive: true,
         },
-        isDefault: true,
       },
       include: {
         provider: true,
       },
-    }));
-
-  const effectiveConfig =
-    config ||
-    (await prisma.userAIConfig.findFirst({
-      where: {
-        userId,
-        isEnabled: true,
-        provider: {
-          category: "IMAGE",
-          isActive: true,
-        },
-      },
-      include: {
-        provider: true,
-      },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     }));
 
   // 用户自己没配 IMAGE → 回落到平台兜底账号（若已配置）
@@ -244,7 +212,8 @@ export async function getUserVideoConfig(
       })
     : null;
 
-  const config =
+  // 合并"默认优先、否则最早创建"为单次查询（orderBy isDefault desc）
+  const effectiveConfig =
     selectedConfig ||
     (await prisma.userAIConfig.findFirst({
       where: {
@@ -254,27 +223,11 @@ export async function getUserVideoConfig(
           category: "VIDEO",
           isActive: true,
         },
-        isDefault: true,
       },
       include: {
         provider: true,
       },
-    }));
-
-  const effectiveConfig =
-    config ||
-    (await prisma.userAIConfig.findFirst({
-      where: {
-        userId,
-        isEnabled: true,
-        provider: {
-          category: "VIDEO",
-          isActive: true,
-        },
-      },
-      include: {
-        provider: true,
-      },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     }));
 
   // 用户自己没配 VIDEO → 回落到平台兜底账号（若已配置）
@@ -319,7 +272,8 @@ export async function getUserTTSConfig(
       })
     : null;
 
-  const config =
+  // 合并"默认优先、否则最早创建"为单次查询（orderBy isDefault desc）
+  const effectiveConfig =
     selectedConfig ||
     (await prisma.userAIConfig.findFirst({
       where: {
@@ -329,27 +283,11 @@ export async function getUserTTSConfig(
           category: "TTS",
           isActive: true,
         },
-        isDefault: true,
       },
       include: {
         provider: true,
       },
-    }));
-
-  const effectiveConfig =
-    config ||
-    (await prisma.userAIConfig.findFirst({
-      where: {
-        userId,
-        isEnabled: true,
-        provider: {
-          category: "TTS",
-          isActive: true,
-        },
-      },
-      include: {
-        provider: true,
-      },
+      orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
     }));
 
   // 用户自己没配 TTS → 回落到平台兜底账号（若已配置）

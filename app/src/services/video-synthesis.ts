@@ -710,11 +710,24 @@ export async function synthesizeVideo(
 
   try {
     // 1. 生成每个分镜的视频片段（含滤镜/变速；返回变速后的有效时长）
-    const clips: SceneClip[] = [];
-    for (let i = 0; i < scenes.length; i++) {
-      const clip = await sceneToVideoClip(scenes[i], tmpDir, options);
-      clips.push(clip);
-      onProgress?.(Math.round(((i + 1) / scenes.length) * 50));
+    //
+    // 有限并发：每个 sceneToVideoClip = 下载(IO) + FFmpeg(CPU)。原先纯串行
+    // （20 镜 ≈ 100s+）。这里按 CLIP_CONCURRENCY 分批并发，让 IO 重叠、CPU 跑满
+    // 多核，同时避免全并发同时 spawn 几十个 ffmpeg 进程导致 OOM/CPU 过载。
+    // 关键：clips 必须按原 index 归位（成片分镜顺序），不能用完成顺序。
+    const CLIP_CONCURRENCY = 3;
+    const clips: SceneClip[] = new Array(scenes.length);
+    let doneCount = 0;
+    for (let i = 0; i < scenes.length; i += CLIP_CONCURRENCY) {
+      const batch = scenes.slice(i, i + CLIP_CONCURRENCY);
+      await Promise.all(
+        batch.map(async (scene, j) => {
+          const clip = await sceneToVideoClip(scene, tmpDir, options);
+          clips[i + j] = clip; // 按原始 index 归位，保持分镜顺序
+          doneCount += 1;
+          onProgress?.(Math.round((doneCount / scenes.length) * 50));
+        })
+      );
     }
     const videoClips = clips.map((c) => c.path);
     // 成片时间轴上各片段的有效时长（变速后），用于 xfade offset 与音频累计对齐
