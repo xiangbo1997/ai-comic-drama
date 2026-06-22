@@ -14,6 +14,7 @@ import fs from "fs/promises";
 import path from "path";
 
 import { createLogger } from "@/lib/logger";
+import { assertSafeUrl } from "@/lib/url-guard";
 const log = createLogger("services:storage");
 
 // R2 客户端配置
@@ -115,6 +116,8 @@ export async function uploadFromUrl(
     });
   }
 
+  // SSRF 防护：下载前校验目标地址，挡住内网/云元数据
+  await assertSafeUrl(url);
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch file from URL: ${url}`);
@@ -253,6 +256,8 @@ export async function uploadFromUrlToLocal(
     });
   }
 
+  // SSRF 防护：下载前校验目标地址，挡住内网/云元数据
+  await assertSafeUrl(url);
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch file from URL: ${url}`);
@@ -266,7 +271,15 @@ export async function uploadFromUrlToLocal(
 export async function deleteFromLocal(fileUrl: string): Promise<void> {
   // 从 URL 提取文件路径
   const relativePath = fileUrl.replace(LOCAL_STORAGE_URL_PREFIX, "");
-  const filePath = path.join(process.cwd(), LOCAL_STORAGE_DIR, relativePath);
+  const baseDir = path.resolve(process.cwd(), LOCAL_STORAGE_DIR);
+  const filePath = path.resolve(baseDir, `.${path.sep}${relativePath}`);
+
+  // 路径穿越防护：解析后的真实路径必须落在存储基目录内，
+  // 否则形如 "/uploads/../../../prisma/schema.prisma" 的 URL 会删到目录外。
+  if (filePath !== baseDir && !filePath.startsWith(baseDir + path.sep)) {
+    log.error(`Path traversal detected, refuse delete: ${fileUrl}`);
+    return;
+  }
 
   try {
     await fs.unlink(filePath);

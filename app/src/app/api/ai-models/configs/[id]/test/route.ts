@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
 import { isLLMModel } from "@/services/ai/providers/openai-compatible";
+import { assertSafeUrl } from "@/lib/url-guard";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs:[id]:test");
@@ -11,9 +12,20 @@ const log = createLogger("api:ai-models:configs:[id]:test");
 // 测试请求体校验：modelId/customBaseUrl 均可选；约束长度与格式，防注入/超长输入
 const TestConfigSchema = z.object({
   modelId: z.string().trim().max(255).optional(),
-  // customBaseUrl 允许空字符串（用户清空时回退默认配置），非空时必须是合法 URL
+  // customBaseUrl 允许空字符串（用户清空时回退默认配置），非空时必须是合法
+  // http(s) URL（拒绝 file:// / gopher:// 等非 HTTP 协议，运行时再做 SSRF 校验）
   customBaseUrl: z
-    .union([z.literal(""), z.string().trim().url().max(500)])
+    .union([
+      z.literal(""),
+      z
+        .string()
+        .trim()
+        .url()
+        .max(500)
+        .refine((u) => /^https?:\/\//i.test(u), {
+          message: "Base URL 必须以 http:// 或 https:// 开头",
+        }),
+    ])
     .optional(),
 });
 
@@ -102,6 +114,19 @@ export async function POST(
       bodyCustomBaseUrl !== undefined
         ? bodyCustomBaseUrl || config.provider.baseUrl
         : config.customBaseUrl || config.provider.baseUrl;
+
+    // SSRF 防护：customBaseUrl 由用户控制，直接 fetch 会被诱导访问
+    // 云元数据/内网。校验协议白名单 + DNS 解析后内网拦截。
+    if (effectiveBaseUrl) {
+      try {
+        await assertSafeUrl(effectiveBaseUrl);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "非法的 Base URL" },
+          { status: 400 }
+        );
+      }
+    }
 
     // 根据提供商类型测试连接
     const startTime = Date.now();

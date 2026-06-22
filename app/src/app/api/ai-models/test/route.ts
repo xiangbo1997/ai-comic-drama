@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isLLMModel } from "@/services/ai/providers/openai-compatible";
+import { assertSafeUrl } from "@/lib/url-guard";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:test");
@@ -64,6 +65,19 @@ export async function POST(request: Request) {
     }
 
     const effectiveBaseUrl = customBaseUrl || provider.baseUrl;
+
+    // SSRF 防护：customBaseUrl 由用户完全控制，直接 fetch 会被诱导访问
+    // 云元数据(169.254.169.254)/内网。校验协议白名单 + DNS 解析后内网拦截。
+    if (effectiveBaseUrl) {
+      try {
+        await assertSafeUrl(effectiveBaseUrl);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "非法的 Base URL" },
+          { status: 400 }
+        );
+      }
+    }
 
     // 测试连接
     const startTime = Date.now();

@@ -7,9 +7,27 @@ import {
   type FileType,
 } from "@/services/storage";
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:upload");
+
+/**
+ * 校验 projectId（若提供）归属当前用户，防 IDOR：
+ * 用户不能把文件挂到他人的 projectId 路径下污染存储组织结构。
+ * 返回 true 表示通过（未提供 projectId 视为通过）。
+ */
+async function assertProjectOwnership(
+  projectId: string | undefined,
+  userId: string
+): Promise<boolean> {
+  if (!projectId) return true;
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, userId },
+    select: { id: true },
+  });
+  return Boolean(project);
+}
 
 /**
  * 各 fileType 的 content-type 白名单 + 大小上限。
@@ -158,13 +176,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: validationError }, { status: 400 });
       }
 
+      const resolvedProjectId = projectId ? String(projectId) : undefined;
+      if (!(await assertProjectOwnership(resolvedProjectId, userId))) {
+        return NextResponse.json({ error: "无权访问该项目" }, { status: 403 });
+      }
+
       const buffer = Buffer.from(await file.arrayBuffer());
       const fileUrl = await uploadToLocal(buffer, {
         fileName: toResolvedFileName(fileType, file.name),
         contentType: file.type,
         fileType: toStorageFileType(fileType),
         userId,
-        projectId: projectId ? String(projectId) : undefined,
+        projectId: resolvedProjectId,
       });
 
       return NextResponse.json({ fileUrl });
@@ -184,6 +207,15 @@ export async function POST(request: NextRequest) {
     const validationError = validateUpload({ fileType, contentType, fileSize });
     if (validationError) {
       return NextResponse.json({ error: validationError }, { status: 400 });
+    }
+
+    if (
+      !(await assertProjectOwnership(
+        projectId ? String(projectId) : undefined,
+        userId
+      ))
+    ) {
+      return NextResponse.json({ error: "无权访问该项目" }, { status: 403 });
     }
 
     // R2 未配置 → 提示前端改用 multipart 直传（走本地存储）

@@ -8,8 +8,7 @@ import { writeFile, unlink, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import os from "os";
-import { lookup } from "dns/promises";
-import net from "net";
+import { assertSafeUrl } from "@/lib/url-guard";
 // 字幕样式 / 水印类型统一从 types/export-style 导入（单一权威来源），
 // 避免与前端、导出 API 各自重复定义导致字段漂移。
 import type {
@@ -266,69 +265,8 @@ function absolutizeUrl(url: string): string {
   return `${trimmedBase}${p}`;
 }
 
-/**
- * 判断一个 IP 是否落在内网/保留段（含云元数据 169.254.169.254）。
- */
-function isPrivateOrReservedIp(ip: string): boolean {
-  if (net.isIPv4(ip)) {
-    const [a, b] = ip.split(".").map(Number);
-    if (a === 10) return true; // 10.0.0.0/8
-    if (a === 127) return true; // 环回
-    if (a === 0) return true; // 0.0.0.0/8
-    if (a === 169 && b === 254) return true; // 链路本地 + 云元数据 169.254.169.254
-    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-    if (a === 192 && b === 168) return true; // 192.168.0.0/16
-    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
-    return false;
-  }
-  if (net.isIPv6(ip)) {
-    const lower = ip.toLowerCase();
-    if (lower === "::1" || lower === "::") return true; // 环回 / 未指定
-    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA
-    if (lower.startsWith("fe80")) return true; // 链路本地
-    if (lower.startsWith("::ffff:")) {
-      // IPv4-mapped，回退按 IPv4 判断
-      return isPrivateOrReservedIp(lower.replace("::ffff:", ""));
-    }
-    return false;
-  }
-  return true; // 非法 IP 按不安全处理
-}
-
-/**
- * SSRF 防护：在 fetch 远程素材前校验目标地址。
- *
- * 背景（security-cost P0-2）：downloadFile 下载任意 URL，而 scene.*Url 可经
- * PATCH /scenes 由用户写入 → 可诱导服务端访问云元数据(169.254.169.254)/内网。
- * 这里限定协议为 http(s)，并对解析出的所有 IP 做内网/保留段拦截（DNS 解析后
- * 检查真实 IP，挡住 DNS rebinding）。
- */
-async function assertSafeUrl(rawUrl: string): Promise<void> {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new Error(`非法素材 URL: ${rawUrl}`);
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error(`不允许的协议: ${parsed.protocol}`);
-  }
-  const host = parsed.hostname;
-  // hostname 本身就是 IP 时直接判
-  if (net.isIP(host)) {
-    if (isPrivateOrReservedIp(host)) {
-      throw new Error(`拒绝访问内网/保留地址: ${host}`);
-    }
-    return;
-  }
-  // 域名：解析全部 A/AAAA 记录，任一落内网即拒绝（防 DNS rebinding）
-  const results = await lookup(host, { all: true });
-  for (const { address } of results) {
-    if (isPrivateOrReservedIp(address)) {
-      throw new Error(`域名 ${host} 解析到内网/保留地址: ${address}`);
-    }
-  }
-}
+// SSRF 防护（assertSafeUrl / isPrivateOrReservedIp）已提取到 @/lib/url-guard，
+// 供 video-synthesis / storage / ai 测试端点等所有出站 fetch 复用。
 
 /**
  * 下载远程文件到本地临时目录

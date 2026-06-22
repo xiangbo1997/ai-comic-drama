@@ -580,7 +580,14 @@ export class StripeService {
         .update(signedPayload)
         .digest("hex");
 
-      if (sig !== expectedSig) {
+      // 常量时间比较，防时序攻击（timing oracle 逐字节爆破 HMAC）。
+      // timingSafeEqual 要求两 Buffer 等长，长度不一致直接判失败。
+      const sigBuf = Buffer.from(sig, "hex");
+      const expectedBuf = Buffer.from(expectedSig, "hex");
+      if (
+        sigBuf.length !== expectedBuf.length ||
+        !crypto.timingSafeEqual(sigBuf, expectedBuf)
+      ) {
         return { valid: false, error: "签名验证失败" };
       }
 
