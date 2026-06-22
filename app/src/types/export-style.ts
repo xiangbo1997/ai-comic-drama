@@ -22,12 +22,130 @@ export interface SubtitleStyle {
   outlineColor: string;
   /** 描边宽度（px），默认 2 */
   outlineWidth: number;
-  /** 字幕显示位置，默认 bottom */
+  /**
+   * 字幕全局默认位置，默认 bottom。
+   * 作为「未单独拖拽过的分镜」的回退位置；单分镜可经 SubtitlePosition 覆盖。
+   */
   position: "top" | "middle" | "bottom";
   /** 是否加粗，默认 false */
   bold: boolean;
   /** 是否显示背景色块（提升可读性），默认 false */
   backgroundBox: boolean;
+}
+
+/**
+ * 单分镜字幕位置覆盖（按 sceneId 关联）。
+ *
+ * 设计同 Sticker：用相对画面左上角的归一化坐标 0-1 存储，
+ * 让「预览（缩放窗口）」与「导出（1080p 画面）」用各自画布尺寸还原同一相对位置，
+ * 实现像素级一致。x/y 指字幕块的中心点（与拖拽手感一致）。
+ *
+ * 仅存「被用户单独拖动过的分镜」；未出现在数组中的分镜回退到
+ * SubtitleStyle.position 的全局默认位置。
+ */
+export interface SubtitlePosition {
+  /** 归属分镜 id */
+  sceneId: string;
+  /** 字幕中心点相对画面宽的横向比例 0-1（0=最左，0.5=水平居中，1=最右） */
+  x: number;
+  /** 字幕中心点相对画面高的纵向比例 0-1（0=最顶，0.5=垂直居中，1=最底） */
+  y: number;
+}
+
+/**
+ * 全局默认位置（top/middle/bottom）→ 归一化中心点坐标。
+ *
+ * 预览端与导出端共用此映射，保证「未拖拽的分镜」在两端落点一致。
+ * 横向恒为 0.5（水平居中）；纵向留 10% 安全边距，避免字幕贴边被裁。
+ */
+export function presetPositionToXY(position: SubtitleStyle["position"]): {
+  x: number;
+  y: number;
+} {
+  switch (position) {
+    case "top":
+      return { x: 0.5, y: 0.12 };
+    case "middle":
+      return { x: 0.5, y: 0.5 };
+    case "bottom":
+    default:
+      return { x: 0.5, y: 0.88 };
+  }
+}
+
+/**
+ * 解析某分镜「最终生效」的字幕位置：优先用单分镜覆盖，否则回退全局默认。
+ * 预览端与导出端共用，确保两端落点完全一致（预览=成片）。
+ */
+export function resolveSubtitleXY(
+  sceneId: string,
+  style: SubtitleStyle | undefined,
+  positions: SubtitlePosition[] | undefined
+): { x: number; y: number } {
+  const override = positions?.find((p) => p.sceneId === sceneId);
+  if (
+    override &&
+    typeof override.x === "number" &&
+    typeof override.y === "number"
+  ) {
+    return {
+      x: Math.min(1, Math.max(0, override.x)),
+      y: Math.min(1, Math.max(0, override.y)),
+    };
+  }
+  return presetPositionToXY(style?.position ?? "bottom");
+}
+
+/**
+ * 九宫格快捷位置预设：label → 归一化中心点坐标。
+ * 供预览端「快捷选择位置」浮层使用；横/纵各取 0.5/0.12/0.88 三档组合。
+ */
+export const SUBTITLE_QUICK_POSITIONS: Array<{
+  label: string;
+  x: number;
+  y: number;
+}> = [
+  { label: "左上", x: 0.18, y: 0.12 },
+  { label: "上", x: 0.5, y: 0.12 },
+  { label: "右上", x: 0.82, y: 0.12 },
+  { label: "左", x: 0.18, y: 0.5 },
+  { label: "中", x: 0.5, y: 0.5 },
+  { label: "右", x: 0.82, y: 0.5 },
+  { label: "左下", x: 0.18, y: 0.88 },
+  { label: "下", x: 0.5, y: 0.88 },
+  { label: "右下", x: 0.82, y: 0.88 },
+];
+
+/**
+ * 字幕字号的「设计基准高」。
+ *
+ * SubtitleStyle.fontSize 的语义被定义为：「画面高 = 1080px 时的字号像素数」。
+ * 任意实际画面高 H 下的真实字号 = fontSize × H / 1080（线性等比缩放）。
+ *
+ * 为什么需要基准高：字号必须相对画面高、而非绝对像素，才能在
+ * ① 不同导出分辨率（480p/720p/1080p 画面高各异）
+ * ② 预览小窗 vs 成片大画面
+ * 之间保持「视觉占比一致」。预览端与导出端共用此基准 + 同一 fontSize，
+ * 即可锁死字号视觉比例，实现「预览所见字号 = 成片字号」。
+ */
+export const SUBTITLE_FONT_BASE_HEIGHT = 1080;
+
+/**
+ * 把 SubtitleStyle.fontSize（基于 1080 基准高）换算为「实际画面高 frameHeight
+ * 下的真实字号像素」。预览端（frameHeight=画面框像素高）与导出端
+ * （frameHeight=成片分辨率高，写入 ASS Fontsize）共用，保证两端字号视觉一致。
+ *
+ * @param fontSize    用户配置的字号（基准高 1080 下的像素数），缺省 24
+ * @param frameHeight 实际画面高（预览框 px 高 / 导出成片高），<=0 时回退基准高
+ * @returns 取整后的真实字号像素（最小 1，避免 0 字号）
+ */
+export function resolveSubtitleFontPx(
+  fontSize: number | undefined,
+  frameHeight: number
+): number {
+  const base = typeof fontSize === "number" && fontSize > 0 ? fontSize : 24;
+  const h = frameHeight > 0 ? frameHeight : SUBTITLE_FONT_BASE_HEIGHT;
+  return Math.max(1, Math.round((base * h) / SUBTITLE_FONT_BASE_HEIGHT));
 }
 
 /**

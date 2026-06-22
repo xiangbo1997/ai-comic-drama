@@ -14,6 +14,7 @@ import net from "net";
 // 避免与前端、导出 API 各自重复定义导致字段漂移。
 import type {
   SubtitleStyle,
+  SubtitlePosition,
   Watermark,
   Sticker,
   Transition,
@@ -22,9 +23,11 @@ import type {
   SceneEffectId,
   BackgroundMusic,
 } from "@/types/export-style";
+import { resolveSubtitleXY, resolveSubtitleFontPx } from "@/types/export-style";
 
 export type {
   SubtitleStyle,
+  SubtitlePosition,
   Watermark,
   Sticker,
   Transition,
@@ -51,6 +54,12 @@ export interface ExportOptions {
   includeAudio: boolean;
   /** 字幕样式，仅在 includeSubtitles=true 时生效 */
   subtitleStyle?: SubtitleStyle;
+  /**
+   * 各分镜字幕位置覆盖（按 sceneId，归一化坐标 0-1）。
+   * 缺省或某分镜不在数组中时，回退 subtitleStyle.position 的全局默认位置。
+   * 与预览端用同一坐标系（resolveSubtitleXY），保证导出=预览。
+   */
+  subtitlePositions?: SubtitlePosition[];
   /** 商标水印配置 */
   watermark?: Watermark;
   /** 贴图列表（按分镜叠加，导出时 overlay + enable 时间窗） */
@@ -345,15 +354,25 @@ async function downloadFile(url: string, filename: string): Promise<string> {
 }
 
 /**
- * 生成 SRT 字幕文件
+ * 生成 ASS 字幕文件（取代旧 SRT）。
+ *
+ * 改用 ASS 是为支持「每条字幕独立精确定位」：ASS 事件可写内联标签
+ * {\pos(x,y)}（像素绝对定位），SRT 无此能力（位置只能靠九宫格对齐）。
+ *
+ * 坐标系：PlayResX/Y = 实际画面宽高（quality.width/height），事件用
+ * \pos(x*W, y*H) 把归一化坐标还原为像素——与预览端百分比定位同一坐标系，
+ * 配合 \an5（中心锚点）对应预览的 translate(-50%,-50%)，确保导出=预览。
  */
 async function generateSubtitleFile(
   scenes: SceneMedia[],
   outputPath: string,
-  sceneEffects?: SceneEffect[]
+  width: number,
+  height: number,
+  sceneEffects?: SceneEffect[],
+  subtitleStyle?: SubtitleStyle,
+  subtitlePositions?: SubtitlePosition[]
 ): Promise<string> {
-  let srtContent = "";
-  let index = 1;
+  const events: string[] = [];
   let currentTime = 0;
 
   for (const scene of scenes) {
@@ -362,32 +381,101 @@ async function generateSubtitleFile(
     const effDuration = scene.duration / speed;
     const text = scene.dialogue || scene.narration;
     if (text) {
-      const startTime = formatSrtTime(currentTime);
-      const endTime = formatSrtTime(currentTime + effDuration);
-
-      srtContent += `${index}\n`;
-      srtContent += `${startTime} --> ${endTime}\n`;
-      srtContent += `${text}\n\n`;
-      index++;
+      const start = formatAssTime(currentTime);
+      const end = formatAssTime(currentTime + effDuration);
+      // 该分镜生效坐标（覆盖优先，否则全局默认）→ 像素中心点
+      const { x, y } = resolveSubtitleXY(
+        scene.id,
+        subtitleStyle,
+        subtitlePositions
+      );
+      const px = Math.round(x * width);
+      const py = Math.round(y * height);
+      // \an5：以文本块中心为锚点（对应预览中心定位）；\pos：绝对像素位置
+      // ASS 换行用 \N；转义文本中的大括号避免被当作标签
+      const safeText = escapeAssText(text);
+      events.push(
+        `Dialogue: 0,${start},${end},Default,,0,0,0,,{\\an5\\pos(${px},${py})}${safeText}`
+      );
     }
     currentTime += effDuration;
   }
 
-  const srtPath = path.join(outputPath, "subtitles.srt");
-  await writeFile(srtPath, srtContent, "utf-8");
-  return srtPath;
+  const assContent =
+    buildAssHeader(width, height, subtitleStyle) + events.join("\n") + "\n";
+  const assPath = path.join(outputPath, "subtitles.ass");
+  await writeFile(assPath, assContent, "utf-8");
+  return assPath;
 }
 
 /**
- * 格式化 SRT 时间
+ * 构建 ASS 文件头（[Script Info] + [V4+ Styles] + [Events] 表头）。
+ * 样式从 SubtitleStyle 映射；位置不在此声明（逐事件用 \pos 控制）。
  */
-function formatSrtTime(seconds: number): string {
+function buildAssHeader(
+  width: number,
+  height: number,
+  style?: SubtitleStyle
+): string {
+  const s: SubtitleStyle = {
+    fontSize: style?.fontSize ?? 24,
+    fontColor: style?.fontColor ?? "#FFFFFF",
+    outlineColor: style?.outlineColor ?? "#000000",
+    outlineWidth: style?.outlineWidth ?? 2,
+    position: style?.position ?? "bottom",
+    bold: style?.bold ?? false,
+    backgroundBox: style?.backgroundBox ?? false,
+  };
+  // ASS Fontsize 基于 PlayResY(=height)。fontSize 以 1080 基准高定义，
+  // 这里按实际成片高线性缩放 → 跨分辨率(480p/720p/1080p)字号视觉占比一致，
+  // 且与预览端共用 resolveSubtitleFontPx，保证「预览字号 = 成片字号」。
+  const fontSize = resolveSubtitleFontPx(s.fontSize, height);
+  const primary = hexToAssColor(s.fontColor);
+  const outline = hexToAssColor(s.outlineColor);
+  const bold = s.bold ? -1 : 0; // ASS: -1=粗体 0=常规
+  // BorderStyle: 3=底框(OpaqueBox) 1=描边(Outline)
+  const borderStyle = s.backgroundBox ? 3 : 1;
+  // BackColour 用于 OpaqueBox 底框（半透明黑，alpha 80）
+  const backColour = "&H80000000";
+  // Alignment 用 5（中心）；逐事件 \an5\pos 会覆盖，这里仅作缺省
+  return [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    "WrapStyle: 0",
+    "ScaledBorderAndShadow: yes",
+    `PlayResX: ${width}`,
+    `PlayResY: ${height}`,
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    `Style: Default,Arial,${fontSize},${primary},&H000000FF,${outline},${backColour},${bold},0,0,0,100,100,0,0,${borderStyle},${s.outlineWidth},0,5,20,20,20,1`,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    "",
+  ].join("\n");
+}
+
+/**
+ * 转义 ASS 事件文本：大括号会被当标签起止符，需转义；换行转 \N。
+ */
+function escapeAssText(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\{/g, "\\{")
+    .replace(/\}/g, "\\}")
+    .replace(/\r?\n/g, "\\N");
+}
+
+/**
+ * 格式化 ASS 时间：H:MM:SS.cs（百分秒，2 位）。
+ */
+function formatAssTime(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
-  const ms = Math.floor((seconds % 1) * 1000);
-
-  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")},${ms.toString().padStart(3, "0")}`;
+  const cs = Math.floor((seconds % 1) * 100);
+  return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
 }
 
 /**
@@ -405,61 +493,18 @@ function hexToAssColor(hex: string): string {
 }
 
 /**
- * 将 position 转换为 ASS Alignment 数值
- * ASS Alignment：numpad 布局，8=上 5=中 2=下
+ * 构建字幕 filter 片段（ASS 文件，样式与定位已内嵌，无需 force_style）。
+ * 仅在 includeSubtitles && subtitlePath 不为 null 时调用。
  */
-function positionToAssAlignment(position: SubtitleStyle["position"]): number {
-  const map: Record<SubtitleStyle["position"], number> = {
-    top: 8,
-    middle: 5,
-    bottom: 2,
-  };
-  return map[position];
-}
-
-/**
- * 构建字幕 force_style 参数字符串
- * 将 SubtitleStyle 转换为 FFmpeg subtitles filter 的 force_style 格式
- */
-function buildSubtitleForceStyle(style: SubtitleStyle): string {
-  const alignment = positionToAssAlignment(style.position);
-  // BorderStyle: 4=底框(OpaqueBox) 1=描边(Outline)
-  const borderStyle = style.backgroundBox ? 4 : 1;
-  const bold = style.bold ? 1 : 0;
-  const primaryColour = hexToAssColor(style.fontColor);
-  const outlineColour = hexToAssColor(style.outlineColor);
-
-  return [
-    `FontSize=${style.fontSize}`,
-    `PrimaryColour=${primaryColour}`,
-    `OutlineColour=${outlineColour}`,
-    `Outline=${style.outlineWidth}`,
-    `Alignment=${alignment}`,
-    `Bold=${bold}`,
-    `BorderStyle=${borderStyle}`,
-  ].join(",");
-}
-
-/**
- * 构建字幕 filter 片段
- * 仅在 includeSubtitles && subtitlePath 不为 null 时调用
- */
-function buildSubtitleFilter(
-  subtitlePath: string,
-  subtitleStyle?: SubtitleStyle
-): string {
-  // 转义路径中的单引号（FFmpeg filter 语法要求）
+function buildSubtitleFilter(subtitlePath: string): string {
+  // 转义路径中的特殊字符（FFmpeg filter 语法要求）
   const escapedPath = subtitlePath
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'")
     .replace(/:/g, "\\:");
 
-  if (subtitleStyle) {
-    const forceStyle = buildSubtitleForceStyle(subtitleStyle);
-    return `subtitles='${escapedPath}':force_style='${forceStyle}'`;
-  }
-  // 无自定义样式时使用默认渲染
-  return `subtitles='${escapedPath}'`;
+  // ASS 文件用 ass filter（样式与逐条 \pos 定位全部内嵌在文件中，无需 force_style）
+  return `ass='${escapedPath}'`;
 }
 
 /**
@@ -891,13 +936,19 @@ export async function synthesizeVideo(
 
     onProgress?.(70);
 
-    // 5. 生成字幕（时轴随变速对齐）
+    // 5. 生成字幕（ASS：时轴随变速对齐 + 逐分镜 \pos 精确定位）
+    // quality 提前解析（纯查表无副作用）：ASS 的 PlayResX/Y 与 \pos 像素需画面宽高。
+    const quality = QUALITY_SETTINGS[options.quality];
     let subtitlePath: string | null = null;
     if (options.includeSubtitles) {
       subtitlePath = await generateSubtitleFile(
         scenes,
         tmpDir,
-        options.sceneEffects
+        quality.width,
+        quality.height,
+        options.sceneEffects,
+        options.subtitleStyle,
+        options.subtitlePositions
       );
     }
 
@@ -929,8 +980,7 @@ export async function synthesizeVideo(
           )
         : [];
 
-    // 7. 最终合成
-    const quality = QUALITY_SETTINGS[options.quality];
+    // 7. 最终合成（quality 已在第 5 步提前解析，供 ASS 与编码共用）
     const outputPath = path.join(tmpDir, `output.${options.format}`);
 
     // 判断是否需要 overlay 链（水印或贴图任一启用都走 filter_complex）
@@ -960,7 +1010,7 @@ export async function synthesizeVideo(
       // [0:v] → scale+pad → 可选字幕 → [base]
       let videoChain = `[0:v]scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
       if (subtitlePath) {
-        videoChain += `,${buildSubtitleFilter(subtitlePath, options.subtitleStyle)}`;
+        videoChain += `,${buildSubtitleFilter(subtitlePath)}`;
       }
       videoChain += "[base]";
 
@@ -1097,7 +1147,7 @@ export async function synthesizeVideo(
 
       // 添加字幕（带可选样式）
       if (subtitlePath) {
-        videoFilter += `,${buildSubtitleFilter(subtitlePath, options.subtitleStyle)}`;
+        videoFilter += `,${buildSubtitleFilter(subtitlePath)}`;
       }
 
       ffmpegArgs.push("-vf", videoFilter);

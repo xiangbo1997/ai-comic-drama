@@ -255,6 +255,28 @@ export default function EditorPage() {
     [projectId, editor.invalidateProject]
   );
 
+  // 字幕位置拖拽/快捷选择 → 按 sceneId upsert 到 generationParams.subtitlePositions。
+  // 沿用项目「分镜级数组配置」的标准落库写法（同 stickers/sceneEffects）。
+  const editorProject = editor.project;
+  const editorUpdateProject = editor.updateProject;
+  const handleSubtitlePositionChange = useCallback(
+    (sceneId: string, x: number, y: number) => {
+      if (!editorProject) return;
+      const prev = editorProject.generationParams?.subtitlePositions ?? [];
+      const next = [
+        ...prev.filter((p) => p.sceneId !== sceneId),
+        { sceneId, x, y },
+      ];
+      editorUpdateProject({
+        generationParams: {
+          ...editorProject.generationParams,
+          subtitlePositions: next,
+        },
+      });
+    },
+    [editorProject, editorUpdateProject]
+  );
+
   // 稳定化 mediaConfig 引用：原为内联对象字面量（含 6 个内联箭头），
   // 每次渲染都是新引用 → 击穿 SceneList 的 React.memo，任一弹窗 state
   // 变化都全量重渲染 20-40 张分镜卡片（perf-frontend P0）。useMemo +
@@ -574,6 +596,8 @@ export default function EditorPage() {
                 onSceneChange={editor.setSelectedSceneId}
                 currentSceneId={editor.selectedSceneId ?? undefined}
                 subtitleStyle={project.generationParams?.subtitleStyle}
+                subtitlePositions={project.generationParams?.subtitlePositions}
+                onSubtitlePositionChange={handleSubtitlePositionChange}
                 watermark={project.generationParams?.watermark}
                 stickers={project.generationParams?.stickers}
                 transitions={project.generationParams?.transitions}

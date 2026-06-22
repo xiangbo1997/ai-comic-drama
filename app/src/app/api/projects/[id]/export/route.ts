@@ -78,6 +78,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const resolvedStickers = Array.isArray(genParams.stickers)
       ? genParams.stickers
       : [];
+    // 字幕逐分镜位置覆盖（仅从 generationParams 读取）：缺省时合成端
+    // 按 subtitleStyle.position 全局默认定位，保持与旧项目一致。
+    const resolvedSubtitlePositions = Array.isArray(genParams.subtitlePositions)
+      ? genParams.subtitlePositions
+      : undefined;
     // 转场配置 / 分镜画面调节（滤镜+变速）：从 generationParams 读取，
     // 缺省时 video-synthesis 自动回退默认行为（fade 0.3s / 不加滤镜变速）。
     const resolvedTransitions = Array.isArray(genParams.transitions)
@@ -150,6 +155,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       includeSubtitles,
       includeAudio,
       subtitleStyle: resolvedSubtitleStyle,
+      subtitlePositions: resolvedSubtitlePositions,
       watermark: resolvedWatermark,
       stickers: resolvedStickers,
       transitions: resolvedTransitions,

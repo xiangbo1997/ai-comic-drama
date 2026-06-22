@@ -241,6 +241,18 @@ function normalizeGenerationParams(
       }))
       .filter((st) => st.imageUrl && st.sceneId);
   }
+  // 字幕逐分镜位置覆盖：校验 sceneId + 归一化坐标（最多 500 项，对应分镜数上限）
+  if (Array.isArray(src.subtitlePositions)) {
+    out.subtitlePositions = src.subtitlePositions
+      .slice(0, 500)
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
+      .map((p) => ({
+        sceneId: typeof p.sceneId === "string" ? p.sceneId.slice(0, 64) : "",
+        x: typeof p.x === "number" ? clampNumber(p.x, 0, 1) : 0.5,
+        y: typeof p.y === "number" ? clampNumber(p.y, 0, 1) : 0.88,
+      }))
+      .filter((p) => p.sceneId);
+  }
   // 转场列表：校验每项的类型白名单 + 时长范围（与 video-synthesis XFADE_TYPES 一致）
   if (Array.isArray(src.transitions)) {
     const transitionTypes = [

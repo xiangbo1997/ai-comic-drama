@@ -4,6 +4,7 @@
 
 import type {
   SubtitleStyle,
+  SubtitlePosition,
   Watermark,
   Sticker,
   Transition,
@@ -30,8 +31,10 @@ export interface GenerationParams {
   negativePreset?: string;
   /** 自定义 negative prompt（追加到预设之后） */
   customNegative?: string;
-  /** 全片统一字幕样式（导出时 FFmpeg force_style 生效） */
+  /** 全片统一字幕样式（导出时写入 ASS 头；位置作为未拖拽分镜的全局默认） */
   subtitleStyle?: SubtitleStyle;
+  /** 字幕逐分镜位置覆盖（按 sceneId，归一化坐标）；缺省回退 subtitleStyle.position */
+  subtitlePositions?: SubtitlePosition[];
   /** 全片商标水印配置 */
   watermark?: Watermark;
   /** 贴图列表（按分镜叠加） */

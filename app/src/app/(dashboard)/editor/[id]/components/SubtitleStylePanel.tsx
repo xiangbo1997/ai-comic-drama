@@ -97,6 +97,9 @@ export function SubtitleStylePanel({
           }
           className="accent-primary w-full"
         />
+        <p className="text-muted-foreground mt-1 text-[10px]">
+          * 基于 1080p 画面的字号；预览与成片按画面比例自动缩放，所见即所得
+        </p>
       </div>
 
       {/* 颜色设置 */}
@@ -163,10 +166,10 @@ export function SubtitleStylePanel({
         />
       </div>
 
-      {/* 字幕位置 — segmented control */}
+      {/* 字幕位置 — segmented control（全局默认；单分镜可在预览中拖拽覆盖） */}
       <div>
         <label className="text-muted-foreground mb-1 block text-sm">
-          显示位置
+          默认位置
         </label>
         <div className="bg-secondary flex rounded-lg p-1">
           {POSITION_OPTIONS.map((opt) => (
@@ -184,6 +187,9 @@ export function SubtitleStylePanel({
             </button>
           ))}
         </div>
+        <p className="text-muted-foreground mt-1 text-[10px]">
+          * 这是所有字幕的默认位置；在预览中可单独拖动某条字幕到任意位置
+        </p>
       </div>
 
       {/* 开关行：加粗 + 底框 */}
