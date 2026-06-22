@@ -260,6 +260,28 @@ export function PreviewPlayer({
     return () => ro.disconnect();
   }, []);
 
+  // 切换分镜时无条件清乐观值——dragXY 只属于上一个分镜，不能带到新分镜。
+  useEffect(() => {
+    setDragXY(null);
+  }, [currentScene?.id]);
+
+  // 拖拽乐观值收尾：松手后 dragXY 暂时“钉”住落点（避免落库往返期间字幕闪回）。
+  // 当 props.subtitlePositions 已回流确认该坐标（浮点容差比较）→ 清 dragXY，
+  // 把控制权交还 props，避免乐观值永久滞留。
+  useEffect(() => {
+    if (!dragXY || !currentScene) return;
+    const resolved = resolveSubtitleXY(
+      currentScene.id,
+      subtitleStyle,
+      subtitlePositions
+    );
+    const settled =
+      Math.abs(resolved.x - dragXY.x) < 0.001 &&
+      Math.abs(resolved.y - dragXY.y) < 0.001;
+    if (settled) setDragXY(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtitlePositions]);
+
   // 静音控制
   useEffect(() => {
     if (videoRef.current) {
@@ -397,7 +419,12 @@ export function PreviewPlayer({
     const onUp = (ev: MouseEvent | TouchEvent) => {
       const { cx, cy } = getPoint(ev);
       const final = clientToNormalized(cx, cy);
-      setDragXY(null);
+      // 关键：不在此清 dragXY。落库是「HTTP 往返 + refetch」的长异步，
+      // 若立即清空，这一帧 currentSubtitleXY 会回退到尚未更新的旧 props，
+      // 字幕瞬间跳回旧位置 → 等新数据回流再跳到新位 = 肉眼可见的闪烁。
+      // 改为：保留 dragXY 作为乐观值“钉”住松手落点，待下方 effect 检测到
+      // subtitlePositions 已确认该坐标后再清，全程零跳动。
+      setDragXY(final);
       onSubtitlePositionChange?.(currentScene.id, final.x, final.y);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
