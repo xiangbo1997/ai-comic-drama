@@ -9,7 +9,8 @@ import { cookies } from "next/headers";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("lib:auth");
 
-const INVITE_REWARD = 50;
+const INVITE_REWARD = 50; // 邀请人奖励
+const INVITEE_REWARD = 50; // 被邀请人额外奖励（双向激励，提升邀请接受率）
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
@@ -137,6 +138,16 @@ export async function registerUser(
               source: "invite",
               sourceId: user.id,
               note: "邀请新用户注册奖励",
+            });
+
+            // 双向激励：被邀请人也获得额外奖励（提升邀请链接接受率）
+            await grantCredits(tx, {
+              userId: user.id,
+              amount: INVITEE_REWARD,
+              type: "INVITE",
+              source: "invite",
+              sourceId: inviter.id,
+              note: "通过邀请码注册奖励",
             });
           });
         }

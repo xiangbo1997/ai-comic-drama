@@ -14,7 +14,7 @@ model User {
   name          String?
   image         String?
   emailVerified DateTime?
-  credits       Int       @default(100) // 初始积分
+  credits       Int       @default(300) // 初始积分（覆盖一次含一致性的完整 5 镜创作，保障首次成功体验）
   inviteCode    String    @unique @default(cuid()) // 用户专属邀请码
   invitedBy     String?   // 邀请人ID
   createdAt     DateTime  @default(now())
