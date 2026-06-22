@@ -20,10 +20,11 @@ pnpm format:check     # Prettier check
 pnpm type-check       # TypeScript type check (tsc --noEmit)
 pnpm db:generate      # Generate Prisma Client
 pnpm db:seed          # Seed database
-pnpm ci               # Full CI: type-check + lint + format:check + build
+pnpm test             # Vitest 单元测试
+pnpm ci               # Full CI: type-check + lint + format:check + test + build
 ```
 
-No test framework is configured yet.
+测试框架：Vitest（`tests/` 目录，node 环境，纯函数为主）。CI 已运行 `pnpm test`。
 
 ## Tech Stack
 
@@ -48,12 +49,13 @@ No test framework is configured yet.
 
 | Service | Role |
 |---------|------|
-| `ai.ts` | Unified AI facade: `chatCompletion()`, `generateImage()`, `generateVideo()`, `synthesizeSpeech()`. Handles multi-protocol dispatch (OpenAI-compat, Claude, Gemini, Fal.ai, Replicate, etc.) |
-| `script.ts` | LLM-based script parsing (text → storyboard JSON) and image prompt generation |
-| `queue.ts` | Dual-mode job queue with `generationQueue` and `exportQueue` |
-| `storage.ts` | Cloudflare R2 upload/download |
+| `ai/` (dir) | Unified AI facade (`ai/index.ts`): `chatCompletion()`, `generateImage()`, `generateVideo()`, `synthesizeSpeech()`. Multi-protocol dispatch via `ai/provider-factory.ts` + `ai/providers/*` (OpenAI-compat, Claude, Gemini, Fal.ai, Replicate, etc.). 注：原单文件 `ai.ts` 已重构为目录 |
+| `script.ts` / `drama-script.ts` | LLM-based script parsing (text → storyboard JSON) and image prompt generation |
+| `agents/` (dir) | Plan-and-Execute Workflow 引擎（`workflow-engine.ts` 等，7 步管线 + 一致性闭环） |
+| `queue.ts` / `queue-workers.ts` | Dual-mode job queue (InMemory/BullMQ) + 各类任务处理器 |
+| `storage.ts` | Cloudflare R2 / 本地盘降级 upload/download/delete |
 | `payment.ts` | WeChat Pay, Alipay, Stripe integration |
-| `video-synthesis.ts` | Final video assembly |
+| `video-synthesis.ts` | Final video assembly (FFmpeg) |
 
 ### Key Lib (`app/src/lib/`)
 
@@ -64,10 +66,11 @@ No test framework is configured yet.
 | `prisma.ts` | Prisma Client singleton |
 | `auth.ts` | NextAuth configuration |
 
-### State Management (`app/src/stores/`)
+### State Management
 
-- `project.ts` — `useProjectStore` (Zustand): holds project, scenes, characters, selectedSceneId. All updates are immutable.
-- `user.ts` — user-related state
+- 服务端状态：TanStack React Query（`use-editor-project.ts` / `use-generation-actions.ts` / `use-workflow.ts` 等 hooks，集中在 `editor/[id]/hooks/`）。
+- 客户端 UI 状态：组件内 `useState` + 自定义 hooks。
+- 注：早期文档曾提及 `src/stores/`（Zustand），该目录现已不存在；状态统一走 React Query + hooks。
 
 ### AI Model System
 
@@ -83,27 +86,48 @@ Schema at `app/prisma/schema.prisma`.
 
 ```
 Browser → Next.js App Router → API Routes
-  → Services (ai.ts, script.ts, queue.ts, storage.ts)
+  → Services (ai/, script.ts, queue.ts, storage.ts, agents/)
     → lib/ai-config.ts (decrypt user AI configs)
+    → lib/credits.ts (统一积分扣减/发放/退款入口)
     → Prisma ORM → PostgreSQL
     → Job Queue (InMemory | BullMQ/Redis)
     → External AI APIs
-    → Cloudflare R2
+    → Cloudflare R2 / 本地盘降级
 ```
 
 ## Key Patterns
 
 - **Dual queue mode**: `InMemoryQueue` for dev/serverless, `BullMQ` for production with Redis. Controlled by `REDIS_URL` env presence.
-- **Multi-protocol AI dispatch**: `ai.ts` routes calls based on provider protocol field (`openai`, `claude`, `gemini`, `grok`, `replicate`, `fal`, `siliconflow`, `proxy-unified`).
+- **Multi-protocol AI dispatch**: `ai/index.ts` + `ai/provider-factory.ts` route calls based on provider protocol field (`openai`, `claude`, `gemini`, `grok`, `replicate`, `fal`, `siliconflow`, `proxy-unified`).
+- **积分扣减收口**：所有扣费/发放/退款必须经 `lib/credits.ts`（`chargeCredits` / `grantCredits` / `refundCredits`），保证事务 + 流水 + 余额校验 + 幂等。禁止裸 `prisma.user.update({ credits })`。
+- **出站 fetch SSRF 防护**：服务端 fetch 用户可影响的 URL 前须 `lib/url-guard.ts` 的 `assertSafeUrl()`。
 - **shadcn/ui components**: located in `app/src/components/ui/`, added via shadcn CLI.
-- **Editor page** (`editor/[id]/page.tsx`): the largest and most complex page (~1500+ lines), orchestrates the full storyboard editing workflow.
+- **Editor page** (`editor/[id]/page.tsx`): the most complex page (~780 lines), orchestrates the full storyboard editing workflow; 逻辑下沉到 `components/` 与 `hooks/`。
 
 ## Environment Setup
 
-Copy `.env.example` to `.env.local`. Required minimum: `DATABASE_URL`, `NEXTAUTH_SECRET`, `ENCRYPTION_KEY` (64-char hex), and at least one AI provider key (e.g., `DEEPSEEK_API_KEY`).
+从 `app/` 目录执行（首次启动完整步骤）：
+
+```bash
+pnpm install                       # 安装依赖
+cp .env.example .env.local         # 配置环境变量（见下）
+npx prisma db push                 # 同步 schema 到数据库（否则报"表不存在"）
+pnpm db:generate                   # 生成 Prisma Client
+pnpm db:seed                       # 灌入种子数据（AIProvider 等）
+pnpm dev                           # 启动开发服务器
+```
+
+`.env.local` 必填最小集：`DATABASE_URL`、`NEXTAUTH_SECRET`、`ENCRYPTION_KEY`（64-char hex），以及至少一个 AI provider key（如 `DEEPSEEK_API_KEY`）。
+
+隐式降级行为（无需额外配置即可本地跑通）：
+- 不配 `REDIS_URL` → 队列走 InMemory（进程重启即丢）、限流走内存（多实例不同步）。
+- 不配 R2（`R2_ENDPOINT` 等）→ 文件落本地盘 `public/uploads`（见 `LOCAL_STORAGE_*`）。
+- 不配 Langfuse → 可观测性变 no-op，不影响功能。
+
+⚠️ 变量名须与代码一致（见 `.env.example` 注释）：Volcengine 用 `VOLC_*`、微信支付用 `WECHAT_APP_ID`/`WECHAT_MCH_ID` 等、R2 用 `R2_ENDPOINT`。名字不符会导致对应能力静默失效。
 
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`): two jobs on push/PR to `main`/`develop`:
-1. lint-and-type-check: `type-check` → `lint` → `format:check`
+1. lint-and-type-check: `type-check` → `lint` → `format:check` → `test`
 2. build (depends on 1): `db:generate` → `build`

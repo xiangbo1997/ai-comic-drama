@@ -4,7 +4,7 @@
 
 ## 技术栈
 
-- **框架**: Next.js 14 (App Router)
+- **框架**: Next.js 16 (App Router)
 - **语言**: TypeScript
 - **数据库**: PostgreSQL + Prisma ORM
 - **状态管理**: React Query (TanStack Query)

@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# 示例模板纳入版本控制（不含真实密钥），保证变量名权威来源进库，
+# 避免各环境凭记忆配置导致变量名漂移、能力静默失效
+!.env.example
 
 # vercel
 .vercel

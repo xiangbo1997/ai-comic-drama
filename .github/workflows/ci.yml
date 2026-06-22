@@ -47,6 +47,10 @@ jobs:
         working-directory: ./app
         run: pnpm format:check
 
+      - name: Test
+        working-directory: ./app
+        run: pnpm test
+
   build:
     name: Build
     runs-on: ubuntu-latest
