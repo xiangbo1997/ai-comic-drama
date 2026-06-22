@@ -4,9 +4,18 @@ import { checkTextSafety } from "@/lib/content-safety";
 import { getUserLLMConfig } from "@/lib/ai-config";
 import { parseScriptWithAgent } from "@/services/script";
 import { prisma } from "@/lib/prisma";
+import { chargeCredits, InsufficientCreditsError } from "@/lib/credits";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:script:parse");
+
+/**
+ * 脚本解析积分成本：多轮 LLM 调用按文本长度计费。
+ * 每 1000 字 1 积分，最低 2 积分（整数，避免浮点脏数据）。
+ */
+function scriptParseCost(text: string): number {
+  return Math.max(2, Math.ceil(text.length / 1000));
+}
 
 /**
  * Hotfix2 方案 B (2026-05-21)：剧本解析异步化
@@ -82,10 +91,12 @@ export async function POST(request: NextRequest) {
     });
 
     // Fire-and-forget：不 await，让请求立即返回
-    void runScriptParseTask(task.id, text, llmConfig).catch((err) => {
-      // 这里只 catch 防止 unhandled rejection；任务内部已经把错误写入 DB
-      log.error(`Background task ${task.id} unhandled rejection:`, err);
-    });
+    void runScriptParseTask(task.id, text, llmConfig, session.user.id).catch(
+      (err) => {
+        // 这里只 catch 防止 unhandled rejection；任务内部已经把错误写入 DB
+        log.error(`Background task ${task.id} unhandled rejection:`, err);
+      }
+    );
 
     return NextResponse.json({ taskId: task.id, status: "PROCESSING" });
   } catch (error) {
@@ -103,7 +114,8 @@ export async function POST(request: NextRequest) {
 async function runScriptParseTask(
   taskId: string,
   text: string,
-  llmConfig: Parameters<typeof parseScriptWithAgent>[1]
+  llmConfig: Parameters<typeof parseScriptWithAgent>[1],
+  userId: string
 ): Promise<void> {
   try {
     const result = await parseScriptWithAgent(text, llmConfig);
@@ -116,6 +128,39 @@ async function runScriptParseTask(
       },
     });
     log.info(`Script parse task ${taskId} completed`);
+
+    // 解析成功后扣费（收口到 chargeCredits：事务 + 流水 + 幂等）。
+    // 时机为成功后，失败路径不扣；以 taskId 作幂等锚点。
+    // 扣费失败不阻断已交付的解析结果（产物对用户有效）。
+    const cost = scriptParseCost(text);
+    try {
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.creditTransaction.findFirst({
+          where: { userId, sourceId: taskId, type: "GENERATE_SCRIPT" },
+          select: { id: true },
+        });
+        if (existing) return;
+        await chargeCredits(tx, {
+          userId,
+          amount: cost,
+          type: "GENERATE_SCRIPT",
+          source: "script:parse",
+          sourceId: taskId,
+          note: `剧本解析（${text.length}字）`,
+        });
+      });
+    } catch (chargeErr) {
+      if (chargeErr instanceof InsufficientCreditsError) {
+        log.warn(
+          `[script charge] task ${taskId} 余额不足（需 ${cost}，余 ${chargeErr.available}），解析已交付，本次让利`
+        );
+      } else {
+        log.error(
+          `[script charge] task ${taskId} 扣费异常（解析已交付）`,
+          chargeErr
+        );
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(`Script parse task ${taskId} failed:`, message);

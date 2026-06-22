@@ -8,6 +8,11 @@ import { getUserImageConfig } from "@/lib/ai-config";
 
 const log = createLogger("queue-workers");
 import { prisma } from "@/lib/prisma";
+import {
+  chargeCredits,
+  InsufficientCreditsError,
+  type ChargeType,
+} from "@/lib/credits";
 import { generateVideo, synthesizeSpeech } from "@/services/ai";
 import { orchestrateImageGeneration } from "@/services/generation";
 import type { SceneCharacterInfo, CharacterRole } from "@/services/generation";
@@ -26,6 +31,63 @@ import {
   type JobResult,
 } from "@/services/queue";
 import { handleWorkerError } from "@/services/queue-errors";
+
+/**
+ * 队列任务成功后的统一扣费
+ *
+ * 收口到 lib/credits.chargeCredits，替代此前各 worker 内的裸
+ * `prisma.user.update({ credits: { decrement } })`，解决三个问题：
+ * 1. 审计断档：裸扣费不写 CreditTransaction 流水
+ * 2. 余额穿透：裸扣费无下限校验，可扣成负数
+ * 3. 重试双扣：BullMQ 失败重试会重复扣费
+ *
+ * 幂等锚点用 job.id（同一 job 重试时 id 不变），相同 job 的二次扣费被
+ * sourceId 去重拦截。
+ *
+ * 扣费时机为「生成成功后」：此时产物已落库且对用户有效，若扣费失败
+ * （余额在生成期间被其它任务扣空）不应回滚已完成的生成结果，只记录
+ * 警告——这是平台对边界情况的让利，优于"白生成又把结果删掉"。
+ */
+async function chargeForJob(p: {
+  userId: string;
+  amount: number;
+  type: ChargeType;
+  jobId: string;
+  source: string;
+  note: string;
+}): Promise<void> {
+  if (p.amount <= 0) return;
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 幂等：相同 jobId 已扣过则跳过（防 BullMQ 重试双扣）
+      const existing = await tx.creditTransaction.findFirst({
+        where: { userId: p.userId, sourceId: p.jobId, type: p.type },
+        select: { id: true },
+      });
+      if (existing) {
+        log.info(`[charge] job ${p.jobId} 已扣费，跳过（幂等）`);
+        return;
+      }
+      await chargeCredits(tx, {
+        userId: p.userId,
+        amount: p.amount,
+        type: p.type,
+        source: p.source,
+        sourceId: p.jobId,
+        note: p.note,
+      });
+    });
+  } catch (error) {
+    // 扣费失败不阻断已完成的生成结果（见上方时机说明）
+    if (error instanceof InsufficientCreditsError) {
+      log.warn(
+        `[charge] job ${p.jobId} 扣费时余额不足（需 ${p.amount}，余 ${error.available}），产物已交付，本次让利`
+      );
+    } else {
+      log.error(`[charge] job ${p.jobId} 扣费异常（产物已交付）`, error);
+    }
+  }
+}
 
 /**
  * 初始化任务处理器（Stage 2.2：分桶后每个队列独立注册）
@@ -236,10 +298,16 @@ async function handleImageGeneration(job: JobInfo): Promise<JobResult> {
       },
     });
 
-    // 扣减积分
-    await prisma.user.update({
-      where: { id: job.data.userId },
-      data: { credits: { decrement: cost } },
+    // 扣减积分（收口到 chargeCredits：事务 + 流水 + 余额校验 + 幂等）
+    await chargeForJob({
+      userId: job.data.userId,
+      amount: cost,
+      type: "GENERATE_IMAGE",
+      jobId: job.id,
+      source: "queue:image",
+      note: job.data.sceneId
+        ? `场景 ${job.data.sceneId} 图像生成（策略 ${result.strategy}）`
+        : `图像生成（策略 ${result.strategy}）`,
     });
 
     return {
@@ -313,11 +381,17 @@ async function handleVideoGeneration(job: JobInfo): Promise<JobResult> {
       });
     }
 
-    // 扣减积分（10积分/5秒）
+    // 扣减积分（10积分/5秒，收口到 chargeCredits）
     const cost = Math.ceil(duration / 5) * 10;
-    await prisma.user.update({
-      where: { id: job.data.userId },
-      data: { credits: { decrement: cost } },
+    await chargeForJob({
+      userId: job.data.userId,
+      amount: cost,
+      type: "GENERATE_VIDEO",
+      jobId: job.id,
+      source: "queue:video",
+      note: job.data.sceneId
+        ? `场景 ${job.data.sceneId} 视频生成（${duration}s）`
+        : `视频生成（${duration}s）`,
     });
 
     return { success: true, data: { videoUrl, cost } };
@@ -381,11 +455,17 @@ async function handleAudioGeneration(job: JobInfo): Promise<JobResult> {
       });
     }
 
-    // 扣减积分（2积分/100字）
+    // 扣减积分（2积分/100字，收口到 chargeCredits）
     const cost = Math.ceil(text.length / 100) * 2;
-    await prisma.user.update({
-      where: { id: job.data.userId },
-      data: { credits: { decrement: cost } },
+    await chargeForJob({
+      userId: job.data.userId,
+      amount: cost,
+      type: "GENERATE_TTS",
+      jobId: job.id,
+      source: "queue:audio",
+      note: job.data.sceneId
+        ? `场景 ${job.data.sceneId} 语音合成（${text.length}字）`
+        : `语音合成（${text.length}字）`,
     });
 
     return { success: true, data: { audioUrl, cost } };

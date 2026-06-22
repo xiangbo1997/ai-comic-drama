@@ -17,7 +17,8 @@ export type ChargeType =
   | "GENERATE_IMAGE"
   | "GENERATE_VIDEO"
   | "GENERATE_TTS"
-  | "GENERATE_REFERENCE";
+  | "GENERATE_REFERENCE"
+  | "GENERATE_SCRIPT";
 
 /** 发放类型（充值/订阅/签到/邀请奖励） */
 export type GrantType = "PAYMENT" | "SUBSCRIPTION" | "CHECKIN" | "INVITE";

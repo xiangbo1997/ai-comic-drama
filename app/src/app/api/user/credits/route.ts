@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:user:credits");
@@ -29,53 +29,7 @@ export async function GET() {
   }
 }
 
-// 扣减积分
-export async function POST(request: NextRequest) {
-  try {
-    const session = await auth();
-
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const { amount, reason } = await request.json();
-
-    if (typeof amount !== "number" || amount <= 0) {
-      return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { credits: true },
-    });
-
-    if (!user || user.credits < amount) {
-      return NextResponse.json(
-        {
-          error: "Insufficient credits",
-          required: amount,
-          current: user?.credits ?? 0,
-        },
-        { status: 400 }
-      );
-    }
-
-    const updatedUser = await prisma.user.update({
-      where: { id: session.user.id },
-      data: { credits: { decrement: amount } },
-      select: { credits: true },
-    });
-
-    log.info(
-      `Credits deducted: user=${session.user.id}, amount=${amount}, reason=${reason}`
-    );
-
-    return NextResponse.json({ credits: updatedUser.credits });
-  } catch (error) {
-    log.error("Deduct credits error:", error);
-    return NextResponse.json(
-      { error: "Failed to deduct credits" },
-      { status: 500 }
-    );
-  }
-}
+// 注：原 POST 扣减积分端点已删除。
+// 它存在 TOCTOU 竞态（读余额→判断→扣减无事务，可并发扣成负数），且绕过
+// lib/credits.chargeCredits 的事务/流水/幂等保护。前端从未调用该 POST
+// （仅用 GET 读余额）。所有扣费必须经 chargeCredits 收口，故移除该旁路。

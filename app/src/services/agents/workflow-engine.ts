@@ -23,6 +23,11 @@ import { reviewCharacterBible } from "./character-bible-observer";
 import { resolvePolicy, runClosedLoop } from "./closed-loop";
 import { generateVideo, synthesizeSpeech } from "@/services/ai";
 import { uploadFile } from "@/services/storage";
+import {
+  chargeCredits,
+  InsufficientCreditsError,
+  type ChargeType,
+} from "@/lib/credits";
 import { InMemoryArtifactStore } from "./artifact-store";
 import {
   subscribeWorkflowEvents as _subscribeWorkflowEvents,
@@ -390,6 +395,62 @@ async function executeAgentStep<TInput, TOutput>(
 }
 
 /** 场景级并行图像生成 */
+/**
+ * Workflow 逐项扣费
+ *
+ * 此前 workflow（自动路径）全程不扣费，仅在入口有 10 积分门槛，导致
+ * 「一键自动生成」比手动逐步生成便宜 10-100×，构成白嫖漏洞。这里把每个
+ * 产出项的扣费收口到 lib/credits.chargeCredits，与手动路径
+ * （generate/image/route.ts）的扣费模型对齐。
+ *
+ * - 时机：产物成功落库后扣费（失败项不扣，无需退款）
+ * - 幂等：sourceId = `wf:{runId}:{sceneId}:{kind}`，防 workflow 重跑对同
+ *   场景重复扣费
+ * - 失败不阻断：余额在生成期间被扣空时只记录警告，不回滚已交付产物
+ */
+async function chargeWorkflowItem(
+  ctx: WorkflowContext,
+  p: {
+    sceneId: string;
+    kind: "image" | "video" | "tts";
+    amount: number;
+    note: string;
+  }
+): Promise<void> {
+  if (p.amount <= 0) return;
+  const typeMap: Record<typeof p.kind, ChargeType> = {
+    image: "GENERATE_IMAGE",
+    video: "GENERATE_VIDEO",
+    tts: "GENERATE_TTS",
+  };
+  const sourceId = `wf:${ctx.workflowRunId}:${p.sceneId}:${p.kind}`;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.creditTransaction.findFirst({
+        where: { userId: ctx.userId, sourceId, type: typeMap[p.kind] },
+        select: { id: true },
+      });
+      if (existing) return; // 幂等
+      await chargeCredits(tx, {
+        userId: ctx.userId,
+        amount: p.amount,
+        type: typeMap[p.kind],
+        source: "workflow:auto",
+        sourceId,
+        note: p.note,
+      });
+    });
+  } catch (error) {
+    if (error instanceof InsufficientCreditsError) {
+      log.warn(
+        `[workflow charge] ${sourceId} 余额不足（需 ${p.amount}，余 ${error.available}），产物已交付，本次让利`
+      );
+    } else {
+      log.error(`[workflow charge] ${sourceId} 扣费异常（产物已交付）`, error);
+    }
+  }
+}
+
 async function executeImageGeneration(
   scenes: SceneArtifact[],
   characterBible: CharacterBible,
@@ -426,7 +487,19 @@ async function executeImageGeneration(
       ) {
         results.push(result.value.data);
         // 更新场景图像到数据库
-        await updateSceneImage(ctx.projectId, result.value.data);
+        const sceneId = await updateSceneImage(
+          ctx.projectId,
+          result.value.data
+        );
+        // 扣费（与手动路径一致：带参考图 3，否则 1）
+        if (sceneId) {
+          await chargeWorkflowItem(ctx, {
+            sceneId,
+            kind: "image",
+            amount: result.value.data.strategy === "reference_edit" ? 3 : 1,
+            note: `场景 ${result.value.data.sceneId} 图像生成（策略 ${result.value.data.strategy}）`,
+          });
+        }
       }
     }
 
@@ -612,11 +685,36 @@ async function executeMediaGeneration(
               where: { id: dbScene.id },
               data: { videoUrl, videoStatus: "COMPLETED" },
             });
+            // 成功后扣费（10积分/5秒，与手动路径一致）
+            await chargeWorkflowItem(ctx, {
+              sceneId: dbScene.id,
+              kind: "video",
+              amount:
+                Math.ceil(nearestVideoDuration(sceneArtifact.duration) / 5) *
+                10,
+              note: `场景 ${dbScene.id} 视频生成`,
+            });
           })
-          .catch(async () => {
+          .catch(async (err) => {
+            // 不再静默吞错：记录失败原因，便于 workflow 终态判断与排查
+            log.error(
+              `[workflow] 场景 ${dbScene.id} 视频生成失败`,
+              err instanceof Error ? err.message : err
+            );
             await prisma.scene.update({
               where: { id: dbScene.id },
               data: { videoStatus: "FAILED" },
+            });
+            emitEvent({
+              type: "step:failed",
+              workflowRunId: ctx.workflowRunId,
+              step: "generate_videos",
+              data: {
+                sceneId: dbScene.id,
+                message: `场景 ${dbScene.id} 视频生成失败`,
+                error: err instanceof Error ? err.message : String(err),
+              },
+              timestamp: new Date(),
             });
           })
       );
@@ -646,11 +744,34 @@ async function executeMediaGeneration(
                 where: { id: dbScene.id },
                 data: { audioUrl, audioStatus: "COMPLETED" },
               });
+              // 成功后扣费（2积分/100字，与手动路径一致）
+              await chargeWorkflowItem(ctx, {
+                sceneId: dbScene.id,
+                kind: "tts",
+                amount: Math.ceil(text.length / 100) * 2,
+                note: `场景 ${dbScene.id} 语音合成（${text.length}字）`,
+              });
             })
-            .catch(async () => {
+            .catch(async (err) => {
+              // 不再静默吞错
+              log.error(
+                `[workflow] 场景 ${dbScene.id} 配音生成失败`,
+                err instanceof Error ? err.message : err
+              );
               await prisma.scene.update({
                 where: { id: dbScene.id },
                 data: { audioStatus: "FAILED" },
+              });
+              emitEvent({
+                type: "step:failed",
+                workflowRunId: ctx.workflowRunId,
+                step: "synthesize_voice",
+                data: {
+                  sceneId: dbScene.id,
+                  message: `场景 ${dbScene.id} 配音生成失败`,
+                  error: err instanceof Error ? err.message : String(err),
+                },
+                timestamp: new Date(),
               });
             })
         );
@@ -950,7 +1071,7 @@ async function saveScenesToProject(
 async function updateSceneImage(
   projectId: string,
   image: ImageArtifact
-): Promise<void> {
+): Promise<string | null> {
   const scene = await prisma.scene.findFirst({
     where: { projectId, order: image.sceneId },
   });
@@ -963,5 +1084,7 @@ async function updateSceneImage(
         imageStatus: "COMPLETED",
       },
     });
+    return scene.id;
   }
+  return null;
 }
