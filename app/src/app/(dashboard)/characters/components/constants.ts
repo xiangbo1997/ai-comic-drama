@@ -1,4 +1,5 @@
 import type { CharacterListItem, Tag } from "@/types";
+import { formatApiError } from "@/lib/error-copy";
 
 export const VOICE_PRESETS = [
   {
@@ -68,10 +69,13 @@ export async function fetchCharacters(): Promise<CharacterListItem[]> {
   const res = await fetch("/api/characters");
   if (!res.ok) {
     if (res.status === 401) return [];
-    throw new Error("Failed to fetch characters");
+    throw new Error("获取角色列表失败");
   }
   return res.json();
 }
+
+// 以下助手统一：读取服务端 { error }（经 formatApiError 转中文），
+// 不再抛硬编码英文串（此前 "Failed to create character" 直达 toast）
 
 export async function createCharacter(data: Record<string, unknown>) {
   const res = await fetch("/api/characters", {
@@ -79,7 +83,10 @@ export async function createCharacter(data: Record<string, unknown>) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to create character");
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "创建角色失败"));
+  }
   return res.json();
 }
 
@@ -92,13 +99,28 @@ export async function updateCharacter(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to update character");
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "保存角色失败"));
+  }
   return res.json();
 }
 
 export async function deleteCharacter(id: string) {
   const res = await fetch(`/api/characters/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete character");
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "删除角色失败"));
+  }
+  return res.json();
+}
+
+/** 角色被项目/分镜引用的数量——删除前告知级联后果用 */
+export async function fetchCharacterUsage(
+  id: string
+): Promise<{ projectCount: number; sceneCount: number }> {
+  const res = await fetch(`/api/characters/${id}/usage`);
+  if (!res.ok) throw new Error("获取角色使用情况失败");
   return res.json();
 }
 
@@ -118,8 +140,10 @@ export async function generateReference(
     body: JSON.stringify(options),
   });
   if (!res.ok) {
+    // formatApiError 保留 { required, current } 差额信息——此前只取 error 字段，
+    // 用户看到英文 "Insufficient credits" 且不知道差多少积分（ux-config P0-2）
     const error = await res.json().catch(() => null);
-    throw new Error(error?.error || "生成参考图失败");
+    throw new Error(formatApiError(error, "生成参考图失败"));
   }
   return res.json();
 }
@@ -140,7 +164,7 @@ export async function generateThreeViews(
   });
   if (!startRes.ok) {
     const error = await startRes.json().catch(() => null);
-    throw new Error(error?.error || "生成三视图失败");
+    throw new Error(formatApiError(error, "生成三视图失败"));
   }
   const { taskId } = (await startRes.json()) as { taskId: string };
 
@@ -170,7 +194,7 @@ export async function generateThreeViews(
 
 export async function fetchTags(): Promise<Tag[]> {
   const res = await fetch("/api/tags");
-  if (!res.ok) throw new Error("Failed to fetch tags");
+  if (!res.ok) throw new Error("获取标签列表失败");
   return res.json();
 }
 
@@ -185,8 +209,8 @@ export async function createTag(data: {
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || "Failed to create tag");
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "创建标签失败"));
   }
   return res.json();
 }
@@ -201,8 +225,8 @@ export async function updateTag(
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || "Failed to update tag");
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "更新标签失败"));
   }
   return res.json();
 }
@@ -210,8 +234,8 @@ export async function updateTag(
 export async function deleteTag(id: string) {
   const res = await fetch(`/api/tags/${id}`, { method: "DELETE" });
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || "Failed to delete tag");
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "删除标签失败"));
   }
   return res.json();
 }
@@ -227,8 +251,8 @@ export async function generateDescription(data: {
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const error = await res.json();
-    throw new Error(error.error || "生成描述失败");
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "生成描述失败"));
   }
   return res.json();
 }

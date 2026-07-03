@@ -7,6 +7,8 @@ import type {
   StoryboardCell,
   StoryboardTableArtifact,
 } from "@/types";
+import { useToast } from "@/components/ui/toast";
+import { toFriendlyError } from "@/lib/error-copy";
 
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLLS = 90; // 90 × 2s = 3 分钟上限
@@ -105,7 +107,15 @@ async function pollTask<T>(startUrl: string, body?: unknown): Promise<T> {
 /** 短剧脚本创作 hook：生成 + 列表查询 + 打磨更新 + 九宫格分镜表 + 九宫格图 */
 export function useDramaScript(projectId: string) {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const queryKey = ["drama-script", projectId];
+
+  // 统一失败反馈：此前 5 个 mutation 全部无 onError，生成/保存失败对
+  // 用户完全静默——干等或误以为成功（ux-crosscut P0-2）
+  const reportError = (error: unknown, fallback: string) => {
+    const fe = toFriendlyError(error, fallback);
+    toast.error(fe.message, fe.cta);
+  };
 
   const listQuery = useQuery<{ scripts: ShortDramaScriptRecord[] }>({
     queryKey,
@@ -122,6 +132,7 @@ export function useDramaScript(projectId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
     },
+    onError: (error) => reportError(error, "短剧脚本生成失败"),
   });
 
   const updateMutation = useMutation({
@@ -146,6 +157,7 @@ export function useDramaScript(projectId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
     },
+    onError: (error) => reportError(error, "脚本保存失败，请重试"),
   });
 
   // 阶段2：生成九宫格分镜表（消费已生成的脚本）
@@ -155,6 +167,7 @@ export function useDramaScript(projectId: string) {
         `/api/projects/${projectId}/drama-script/${scriptId}/storyboard`
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (error) => reportError(error, "九宫格分镜表生成失败"),
   });
 
   // 阶段2：逐格打磨分镜表（提交完整 9 格）
@@ -175,6 +188,7 @@ export function useDramaScript(projectId: string) {
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (error) => reportError(error, "分镜表保存失败，请重试"),
   });
 
   // 阶段3：一键生成九宫格合成图（扣积分，复用 generate 流程同步返回）
@@ -195,6 +209,7 @@ export function useDramaScript(projectId: string) {
       return res.json() as Promise<{ gridImageUrl: string; cost: number }>;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onError: (error) => reportError(error, "九宫格图生成失败"),
   });
 
   return {

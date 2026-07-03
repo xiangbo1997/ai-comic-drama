@@ -12,10 +12,12 @@ import {
   Copy,
   Share2,
   CreditCard,
+  History,
   X,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useToast } from "@/components/ui/toast";
+import { formatApiError, toFriendlyError } from "@/lib/error-copy";
 
 interface PaymentMethod {
   id: string;
@@ -108,9 +110,40 @@ async function fetchInviteInfo() {
 async function doCheckin() {
   const res = await fetch("/api/user/checkin", { method: "POST" });
   if (!res.ok) {
-    const data = await res.json();
-    throw new Error(data.error || "Failed to checkin");
+    const data = await res.json().catch(() => null);
+    throw new Error(formatApiError(data, "签到失败，请稍后重试"));
   }
+  return res.json();
+}
+
+interface CreditTransactionItem {
+  id: string;
+  delta: number;
+  balanceAfter: number;
+  type: string;
+  note: string | null;
+  createdAt: string;
+}
+
+/** 积分流水类型 → 中文标签（与 lib/credits.ts 的 ChargeType/GrantType 对齐） */
+const TX_TYPE_LABELS: Record<string, string> = {
+  GENERATE_IMAGE: "图片生成",
+  GENERATE_VIDEO: "视频生成",
+  GENERATE_TTS: "语音合成",
+  GENERATE_REFERENCE: "参考图生成",
+  GENERATE_SCRIPT: "脚本生成",
+  PAYMENT: "充值",
+  SUBSCRIPTION: "会员订阅",
+  REFUND: "失败退款",
+  CHECKIN: "每日签到",
+  INVITE: "邀请奖励",
+};
+
+async function fetchCreditTransactions(): Promise<{
+  transactions: CreditTransactionItem[];
+}> {
+  const res = await fetch("/api/user/credit-transactions");
+  if (!res.ok) throw new Error("获取积分明细失败");
   return res.json();
 }
 
@@ -131,8 +164,8 @@ async function createPayment(params: {
     body: JSON.stringify(params),
   });
   if (!res.ok) {
-    const data = await res.json();
-    throw new Error(data.error || "Failed to create payment");
+    const data = await res.json().catch(() => null);
+    throw new Error(formatApiError(data, "创建订单失败，请重试"));
   }
   return res.json();
 }
@@ -162,8 +195,16 @@ export default function CreditsPage() {
     paymentUrl?: string;
   } | null>(null);
   const [pollingOrder, setPollingOrder] = useState<string | null>(null);
+  // 支付终态提示（过期/取消/失败/确认超时）——此前轮询只判断成功，
+  // 其余状态永远停在「等待支付...」（ux-config P0-1）
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const pollCountRef = useRef(0);
 
-  const { data: creditsData, isLoading: creditsLoading } = useQuery({
+  const {
+    data: creditsData,
+    isLoading: creditsLoading,
+    isError: creditsError,
+  } = useQuery({
     queryKey: ["credits"],
     queryFn: fetchCredits,
   });
@@ -178,11 +219,24 @@ export default function CreditsPage() {
     queryFn: fetchInviteInfo,
   });
 
+  const {
+    data: txData,
+    isLoading: txLoading,
+    isError: txError,
+  } = useQuery({
+    queryKey: ["credit-transactions"],
+    queryFn: fetchCreditTransactions,
+  });
+
   const checkinMutation = useMutation({
     mutationFn: doCheckin,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["credits"] });
       queryClient.invalidateQueries({ queryKey: ["checkin"] });
+      queryClient.invalidateQueries({ queryKey: ["credit-transactions"] });
+    },
+    onError: (error) => {
+      toast.error(toFriendlyError(error, "签到失败，请稍后重试").message);
     },
   });
 
@@ -208,11 +262,21 @@ export default function CreditsPage() {
     },
   });
 
-  // 轮询订单状态
+  // 轮询订单状态：成功 / 终态（过期、取消、失败）/ 超时三路出口，
+  // 不再只判断 isPaid 导致其余情况永远转圈
   useEffect(() => {
     if (!pollingOrder) return;
+    pollCountRef.current = 0;
+    const MAX_POLLS = 100; // 3s × 100 = 5 分钟确认上限
+
+    const TERMINAL_MESSAGES: Record<string, string> = {
+      EXPIRED: "订单已过期，未扣款，请重新下单",
+      CANCELLED: "订单已取消，如需购买请重新下单",
+      FAILED: "支付失败，请重新下单；若已扣款请联系客服",
+    };
 
     const interval = setInterval(async () => {
+      pollCountRef.current += 1;
       try {
         const order = await checkOrderStatus(pollingOrder);
         if (order.isPaid) {
@@ -221,10 +285,28 @@ export default function CreditsPage() {
           setPaymentResult(null);
           setSelectedProduct(null);
           queryClient.invalidateQueries({ queryKey: ["credits"] });
+          queryClient.invalidateQueries({ queryKey: ["credit-transactions"] });
           toast.success(`支付成功！获得 ${order.credits} 积分`);
+          return;
+        }
+        const terminalMessage = TERMINAL_MESSAGES[order.status as string];
+        if (terminalMessage) {
+          // 回到支付方式选择视图并给出明确文案 + 重新下单出口
+          setPollingOrder(null);
+          setPaymentResult(null);
+          setPaymentError(terminalMessage);
+          return;
         }
       } catch (error) {
+        // 单次查询失败不终止轮询（网络抖动），只计入超时计数
         console.error("Check order error:", error);
+      }
+      if (pollCountRef.current >= MAX_POLLS) {
+        setPollingOrder(null);
+        setPaymentResult(null);
+        setPaymentError(
+          "支付确认超时：若已完成支付，请稍后刷新页面查看余额；未支付可重新下单"
+        );
       }
     }, 3000);
 
@@ -243,11 +325,13 @@ export default function CreditsPage() {
     setSelectedProduct({ type, ...product });
     setSelectedMethod(paymentInfo?.methods[0]?.id || "");
     setPaymentResult(null);
+    setPaymentError(null);
     setShowPaymentModal(true);
   };
 
   const handleConfirmPayment = () => {
     if (!selectedProduct || !selectedMethod) return;
+    setPaymentError(null);
     paymentMutation.mutate({
       type: selectedProduct.type,
       productId: selectedProduct.id,
@@ -260,6 +344,7 @@ export default function CreditsPage() {
     setPaymentResult(null);
     setSelectedProduct(null);
     setPollingOrder(null);
+    setPaymentError(null);
   };
 
   const handleCopyInviteLink = () => {
@@ -314,6 +399,11 @@ export default function CreditsPage() {
               <Coins size={32} className="text-yellow-400" />
               {creditsLoading ? (
                 <Loader2 size={32} className="animate-spin" />
+              ) : creditsError ? (
+                // 加载失败显示占位而非 0——「余额 0」会让用户误以为积分被清空
+                <span className="text-4xl font-bold" title="余额加载失败">
+                  —
+                </span>
               ) : (
                 <span className="text-4xl font-bold">
                   {creditsData?.credits ?? 0}
@@ -414,6 +504,67 @@ export default function CreditsPage() {
           <p className="mt-2 text-center text-sm text-green-400">
             签到成功！获得 {checkinMutation.data.creditsEarned} 积分
           </p>
+        )}
+      </div>
+
+      {/* 积分明细：消费 / 失败退款 / 充值 / 签到全量可见。此前只有余额数字，
+          用户遇到「生成失败但积分变少」时无法自证退款是否到账（ux-config P1-6） */}
+      <div className="bg-card mb-8 rounded-xl p-6">
+        <div className="mb-4 flex items-center gap-3">
+          <History size={24} className="text-primary" />
+          <h2 className="text-lg font-semibold">积分明细</h2>
+          <span className="text-muted-foreground text-xs">最近 50 条</span>
+        </div>
+        {txLoading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 size={24} className="text-muted-foreground animate-spin" />
+          </div>
+        ) : txError ? (
+          <p className="text-muted-foreground py-4 text-center text-sm">
+            明细加载失败，请刷新页面重试
+          </p>
+        ) : (txData?.transactions.length ?? 0) === 0 ? (
+          <p className="text-muted-foreground py-4 text-center text-sm">
+            暂无积分变动记录
+          </p>
+        ) : (
+          <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+            {txData?.transactions.map((tx) => (
+              <div
+                key={tx.id}
+                className="hover:bg-secondary/50 flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm"
+              >
+                <div className="min-w-0">
+                  <p className="text-foreground truncate">
+                    {TX_TYPE_LABELS[tx.type] ?? tx.type}
+                    {tx.note ? (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {tx.note}
+                      </span>
+                    ) : null}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {new Date(tx.createdAt).toLocaleString("zh-CN")}
+                  </p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <p
+                    className={
+                      tx.delta >= 0
+                        ? "font-medium text-green-400"
+                        : "text-foreground font-medium"
+                    }
+                  >
+                    {tx.delta >= 0 ? `+${tx.delta}` : tx.delta}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    余额 {tx.balanceAfter}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -659,6 +810,13 @@ export default function CreditsPage() {
                     <span className="text-sm">等待支付...</span>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* 支付终态提示（过期/取消/失败/超时）：回到方式选择即可重新下单 */}
+            {paymentError && !paymentResult && (
+              <div className="bg-destructive/10 text-destructive mb-4 rounded-lg p-3 text-center text-sm">
+                {paymentError}
               </div>
             )}
 

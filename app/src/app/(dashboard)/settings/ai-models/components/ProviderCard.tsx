@@ -60,11 +60,13 @@ export function ProviderCard({
   const setAsDefault = async () => {
     if (!config) return;
     try {
-      await fetch(`/api/ai-models/configs/${config.id}`, {
+      // 补 res.ok 检查：此前 4xx/5xx 也会弹「已设为默认」的假成功提示
+      const res = await fetch(`/api/ai-models/configs/${config.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isDefault: true }),
       });
+      if (!res.ok) throw new Error("设置失败");
       onRefresh();
       toast.success("已设为默认");
     } catch {
@@ -74,12 +76,18 @@ export function ProviderCard({
 
   const deleteConfig = async () => {
     if (!config) return;
-    const ok = await toast.confirm("确定要删除此配置吗？");
+    // 删默认配置单独告知后果：该分类将失去默认模型，后续生成可能失败
+    const ok = await toast.confirm(
+      config.isDefault
+        ? "此配置是当前分类的默认模型。\n删除后该分类将没有默认配置，相关生成可能失败，需重新指定默认或新建配置。确定删除？"
+        : "确定要删除此配置吗？"
+    );
     if (!ok) return;
     try {
-      await fetch(`/api/ai-models/configs/${config.id}`, {
+      const res = await fetch(`/api/ai-models/configs/${config.id}`, {
         method: "DELETE",
       });
+      if (!res.ok) throw new Error("删除失败");
       onRefresh();
       toast.success("配置已删除");
     } catch {

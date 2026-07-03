@@ -32,16 +32,22 @@ import { CharacterManagerDialog } from "./components/CharacterManagerDialog";
 import { WorkflowPanel } from "./components/WorkflowPanel";
 import { BgmDialog } from "./components/BgmDialog";
 import { useWorkflow } from "./hooks/use-workflow";
+import { useToast } from "@/components/ui/toast";
 
 export default function EditorPage() {
   const params = useParams();
   const projectId = params.id as string;
+  const toast = useToast();
 
   // 项目数据 & 操作
   const editor = useEditorProject(projectId);
   const generation = useGenerationActions(projectId, editor.project);
-  // Workflow 完成后刷新分镜数据（修复 Agent 全自动跑完列表不更新）
-  const workflow = useWorkflow(projectId, () => editor.invalidateProject());
+  // Workflow 完成后刷新分镜数据 + toast 通知——面板默认折叠在页面底部，
+  // 跑完若无提示用户可能一直干等（ux-editor P1-6）
+  const workflow = useWorkflow(projectId, () => {
+    editor.invalidateProject();
+    toast.success("Agent 全自动生成完成，请在分镜列表查看结果");
+  });
 
   // UI 状态
   const [showSettings, setShowSettings] = useState(false);
@@ -239,22 +245,32 @@ export default function EditorPage() {
   };
 
   // 重新解析剧本会 deleteMany + createMany 全量重建分镜，已生成的图/视/音
-  // URL 随之丢失（feature P0：作品瞬间蒸发且无撤销）。已有任一媒体产物时
-  // 二次确认，避免误触。
-  const handleParse = useCallback(() => {
+  // URL 随之丢失（feature P0：作品瞬间蒸发且无撤销）。已有任一媒体产物或
+  // 分镜级配置（按旧 sceneId 索引，重建后全部悬垂失效）时二次确认。
+  // 用 toast.confirm 替代原生 window.confirm，与删除项目等保持品牌一致。
+  const handleParse = useCallback(async () => {
+    const gp = editor.project?.generationParams;
     const hasMedia = editor.project?.scenes?.some(
       (s) => s.imageUrl || s.videoUrl || s.audioUrl
     );
-    if (
-      hasMedia &&
-      !window.confirm(
-        "重新解析会清空当前所有分镜及已生成的图片 / 视频 / 配音，且无法撤销。确定继续？"
-      )
-    ) {
-      return;
+    const hasSceneConfig = Boolean(
+      gp?.transitions?.length ||
+      gp?.stickers?.length ||
+      gp?.subtitlePositions?.length ||
+      gp?.sceneEffects?.length
+    );
+    if (hasMedia || hasSceneConfig) {
+      const ok = await toast.confirm(
+        `重新解析会清空当前所有分镜及已生成的图片 / 视频 / 配音${
+          hasSceneConfig
+            ? "，已配置的转场 / 贴图 / 字幕位置 / 滤镜也会随分镜重建而失效"
+            : ""
+        }，且无法撤销。确定继续？`
+      );
+      if (!ok) return;
     }
     editor.parseMutation.mutate();
-  }, [editor.project, editor.parseMutation]);
+  }, [editor.project, editor.parseMutation, toast]);
 
   const handleToggleCharacter = (id: string) => {
     const newSet = new Set(editor.selectedCharacterIds);

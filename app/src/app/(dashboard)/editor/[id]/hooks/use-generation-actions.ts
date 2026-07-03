@@ -6,6 +6,7 @@ import { buildFinalPrompt } from "@/lib/prompt-builder";
 import { getThreeViewUrls } from "@/lib/three-views";
 import { apiUpdateScene } from "./use-editor-project";
 import { useToast } from "@/components/ui/toast";
+import { formatApiError, toFriendlyError } from "@/lib/error-copy";
 
 export interface GenerateImageResult {
   imageUrl: string;
@@ -47,7 +48,7 @@ async function generateSceneImage(
   });
   if (!res.ok) {
     const error = await res.json().catch(() => null);
-    throw new Error(error?.error || "Failed to generate image");
+    throw new Error(formatApiError(error, "图片生成失败"));
   }
   const data = await res.json();
   await apiUpdateScene(projectId, sceneId, {
@@ -190,7 +191,10 @@ export function useGenerationActions(
     onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { imageStatus: "FAILED" });
       patchSceneInCache(sceneId, { imageStatus: "FAILED" });
-      toast.error(error instanceof Error ? error.message : "图片生成失败");
+      // 映射为可行动的中文文案；积分不足/未配模型附「去充值/去配置」出口，
+      // 避免用户对着前置条件类失败反复重试（ux-editor P2-12）
+      const fe = toFriendlyError(error, "图片生成失败");
+      toast.error(fe.message, fe.cta);
     },
   });
 
@@ -205,6 +209,13 @@ export function useGenerationActions(
       videoConfigId?: string;
     }) => {
       if (!scene.imageUrl) throw new Error("请先生成图片");
+
+      // 先落库 + 写缓存 PROCESSING 再发起同步生成（对齐图像端写法）：
+      // 此前 PROCESSING patch 写在 await fetch 之后，请求返回时立刻被
+      // onSuccess 覆写成 COMPLETED，「视频中」角标与条件轮询从未生效
+      // （ux-editor P0-1：用户在 30-120s 等待期看不到任何生成中迹象）
+      await apiUpdateScene(projectId, sceneId, { videoStatus: "PROCESSING" });
+      patchSceneInCache(sceneId, { videoStatus: "PROCESSING" });
 
       // 复用图像端的派生：拿到与图像生成相同的 referenceImages
       // 让 flow2api-video / Veo 能走 R2V / 首尾帧路由
@@ -233,11 +244,10 @@ export function useGenerationActions(
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "视频生成失败");
+        const data = await res.json().catch(() => null);
+        throw new Error(formatApiError(data, "视频生成失败"));
       }
-      // 同步路径：服务端已把 videoUrl 落库并返回，前端精确写回缓存
-      patchSceneInCache(sceneId, { videoStatus: "PROCESSING" });
+      // 同步路径：服务端已把 videoUrl 落库并返回，onSuccess 精确写回缓存
       return res.json() as Promise<{ videoUrl?: string }>;
     },
     onSuccess: (result, { sceneId }) =>
@@ -248,7 +258,8 @@ export function useGenerationActions(
     onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { videoStatus: "FAILED" });
       patchSceneInCache(sceneId, { videoStatus: "FAILED" });
-      toast.error(error instanceof Error ? error.message : "视频生成失败");
+      const fe = toFriendlyError(error, "视频生成失败");
+      toast.error(fe.message, fe.cta);
     },
   });
 
@@ -264,6 +275,11 @@ export function useGenerationActions(
     }) => {
       const text = scene.dialogue || scene.narration;
       if (!text) throw new Error("没有对话或旁白内容");
+
+      // 先落库 + 写缓存 PROCESSING 再发起同步生成（同视频端修复，
+      // 让「配音中」角标与条件轮询在等待期间可见）
+      await apiUpdateScene(projectId, sceneId, { audioStatus: "PROCESSING" });
+      patchSceneInCache(sceneId, { audioStatus: "PROCESSING" });
 
       // 优先用场景所选角色的 characterId，由服务端查 Character.voiceId 解析音色；
       // 找不到再走默认音色（保持原有行为）
@@ -284,11 +300,10 @@ export function useGenerationActions(
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "配音生成失败");
+        const data = await res.json().catch(() => null);
+        throw new Error(formatApiError(data, "配音生成失败"));
       }
-      // 同步路径：服务端已把 audioUrl 落库并返回，前端精确写回缓存
-      patchSceneInCache(sceneId, { audioStatus: "PROCESSING" });
+      // 同步路径：服务端已把 audioUrl 落库并返回，onSuccess 精确写回缓存
       return res.json() as Promise<{ audioUrl?: string }>;
     },
     onSuccess: (result, { sceneId }) =>
@@ -299,7 +314,8 @@ export function useGenerationActions(
     onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { audioStatus: "FAILED" });
       patchSceneInCache(sceneId, { audioStatus: "FAILED" });
-      toast.error(error instanceof Error ? error.message : "配音生成失败");
+      const fe = toFriendlyError(error, "配音生成失败");
+      toast.error(fe.message, fe.cta);
     },
   });
 
@@ -355,6 +371,22 @@ export function useGenerationActions(
       }
 
       return results;
+    },
+    // 批量结束给出成败汇总：此前 mutationFn 精心构造的 results 无人消费，
+    // 部分失败被完全吞掉，用户导出时才发现缺图（ux-editor P1-4）
+    onSuccess: (results) => {
+      if (results.length === 0) return;
+      const failed = results.filter((r) => !r.success);
+      if (failed.length === 0) {
+        toast.success(`批量生成完成：${results.length} 个分镜全部成功`);
+        return;
+      }
+      const fe = toFriendlyError(failed[0].error, "");
+      toast.error(
+        `批量生成完成：成功 ${results.length - failed.length} 个，失败 ${failed.length} 个` +
+          `${fe.message ? `（${fe.message}）` : ""}，失败分镜可在列表中单独重试`,
+        fe.cta
+      );
     },
     // 循环内已精确更新各 scene，结束时一次最终对账（拉权威数据）
     onSettled: invalidateProject,

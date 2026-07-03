@@ -76,13 +76,20 @@ export default function ProjectsPage() {
     },
   });
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
+  // 删除确认带上项目名 + 级联后果：项目下已生成的媒体资产会一并销毁，
+  // 此前「此操作不可恢复」未说清用户花积分生成的作品也会蒸发（ux P1）
+  const handleDelete = async (
+    e: React.MouseEvent,
+    project: ProjectListItem
+  ) => {
     e.preventDefault();
     e.stopPropagation();
-    const ok = await toast.confirm("确定要删除这个项目吗？此操作不可恢复。");
+    const ok = await toast.confirm(
+      `确定删除「${project.title}」吗？\n项目下的 ${project.scenesCount} 个分镜及已生成的全部图片、视频、配音将一并永久删除，无法恢复。`
+    );
     if (ok) {
-      setDeletingId(id);
-      deleteMutation.mutate(id);
+      setDeletingId(project.id);
+      deleteMutation.mutate(project.id);
     }
   };
 
@@ -145,6 +152,48 @@ export default function ProjectsPage() {
             <Plus size={20} />
             新建项目
           </button>
+
+          {/* 首跑三步指引：空态是首跑教育的黄金位置。生成依赖用户自配
+              API Key，把这一前提在撞墙前讲清（ux-onboarding P1-6） */}
+          <div className="mx-auto mt-10 max-w-md text-left">
+            <p className="text-foreground mb-4 text-center text-sm font-medium">
+              三步开始创作
+            </p>
+            <ol className="space-y-3">
+              <li className="flex items-start gap-3">
+                <span className="bg-primary/20 text-primary flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold">
+                  1
+                </span>
+                <span className="text-muted-foreground text-sm">
+                  在{" "}
+                  <Link
+                    href="/settings/ai-models"
+                    className="text-primary hover:underline"
+                  >
+                    设置 › AI 模型配置
+                  </Link>{" "}
+                  中填入你的 API Key（如
+                  DeepSeek），生成能力依赖你自己的模型账号
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="bg-primary/20 text-primary flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold">
+                  2
+                </span>
+                <span className="text-muted-foreground text-sm">
+                  新建项目，粘贴小说片段或故事大纲
+                </span>
+              </li>
+              <li className="flex items-start gap-3">
+                <span className="bg-primary/20 text-primary flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold">
+                  3
+                </span>
+                <span className="text-muted-foreground text-sm">
+                  一键拆解分镜，逐步生成图片、视频与配音，最后导出成片
+                </span>
+              </li>
+            </ol>
+          </div>
         </div>
       )}
 
@@ -171,8 +220,9 @@ export default function ProjectsPage() {
 
                 {/* Delete Button */}
                 <button
-                  onClick={(e) => handleDelete(e, project.id)}
+                  onClick={(e) => handleDelete(e, project)}
                   disabled={deletingId === project.id}
+                  aria-label={`删除项目 ${project.title}`}
                   className="hover:bg-destructive text-foreground absolute top-2 right-2 rounded-lg bg-black/50 p-2 opacity-0 transition group-hover:opacity-100"
                 >
                   {deletingId === project.id ? (

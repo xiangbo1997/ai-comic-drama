@@ -26,6 +26,15 @@ function LoginContent() {
 
   const inviteCode = searchParams.get("invite");
 
+  // 中间件把未登录用户踢来登录页时带上了 callbackUrl，此前登录成功
+  // 一律硬跳 /projects，深链（分享的编辑器链接等）与会话续期全部丢现场。
+  // 仅接受站内相对路径（排除 "//evil.com" 协议相对形式），防开放重定向。
+  const callbackUrl = searchParams.get("callbackUrl");
+  const redirectTarget =
+    callbackUrl && callbackUrl.startsWith("/") && !callbackUrl.startsWith("//")
+      ? callbackUrl
+      : "/projects";
+
   // 验证邀请码
   useEffect(() => {
     if (inviteCode) {
@@ -109,7 +118,7 @@ function LoginContent() {
           return;
         }
 
-        router.push("/projects");
+        router.push(redirectTarget);
       } else {
         // 登录
         const result = await signIn("credentials", {
@@ -124,7 +133,7 @@ function LoginContent() {
           return;
         }
 
-        router.push("/projects");
+        router.push(redirectTarget);
       }
     } catch (err) {
       console.error("Auth error:", err);
@@ -237,9 +246,10 @@ function LoginContent() {
             <div className="mb-1 flex items-center justify-between">
               <label className="text-muted-foreground text-sm">密码</label>
               {mode === "login" && (
-                <a href="#" className="text-primary text-xs hover:underline">
-                  忘记密码？
-                </a>
+                // 暂无自助找回功能：给出真实出路而非 href="#" 死链
+                <span className="text-muted-foreground text-xs">
+                  忘记密码？请联系客服 support@aicomic.com
+                </span>
               )}
             </div>
             <div className="relative">
@@ -310,16 +320,9 @@ function LoginContent() {
         )}
       </div>
 
-      {/* Footer */}
+      {/* Footer（条款/隐私页面尚未上线，先以纯文本呈现，避免 href="#" 死链） */}
       <p className="text-muted-foreground mt-6 text-center text-sm">
-        {mode === "login" ? "登录" : "注册"}即表示同意{" "}
-        <a href="#" className="text-primary hover:underline">
-          服务条款
-        </a>{" "}
-        和{" "}
-        <a href="#" className="text-primary hover:underline">
-          隐私政策
-        </a>
+        {mode === "login" ? "登录" : "注册"}即表示同意本平台的服务条款和隐私政策
       </p>
     </div>
   );

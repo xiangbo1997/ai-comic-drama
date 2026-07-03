@@ -73,9 +73,13 @@ export function SceneEditor({
     });
   }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 尚未落库的提交函数快照：卸载（如点返回项目列表）恰逢防抖窗口内时
+  // flush 立即提交，避免最后一次编辑静默丢失（ux-editor P0-2）
+  const pendingCommitRef = useRef<(() => void) | null>(null);
   useEffect(
     () => () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      pendingCommitRef.current?.();
     },
     []
   );
@@ -86,13 +90,16 @@ export function SceneEditor({
   ) => {
     setDraft((prev) => ({ ...prev, [field]: value }));
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
+    const fire = () => {
+      pendingCommitRef.current = null;
       const payload =
         field === "description"
           ? { description: value }
           : { [field]: value || null };
       onUpdateScene(sceneId, payload as Partial<Scene>);
-    }, 400);
+    };
+    pendingCommitRef.current = fire;
+    debounceRef.current = setTimeout(fire, 400);
   };
 
   if (!scene) {

@@ -20,7 +20,9 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { CheckCircle2, XCircle, Info, AlertTriangle, X } from "lucide-react";
+import type { ErrorCta } from "@/lib/error-copy";
 
 type ToastKind = "success" | "error" | "info" | "warning";
 
@@ -28,6 +30,8 @@ interface ToastItem {
   id: number;
   kind: ToastKind;
   message: string;
+  /** 建议动作（如「去充值」「去配置模型」），渲染为可点击跳转 */
+  cta?: ErrorCta;
 }
 
 interface ConfirmState {
@@ -38,10 +42,11 @@ interface ConfirmState {
 
 interface ToastApi {
   success: (message: string) => void;
-  error: (message: string) => void;
+  /** cta 可选：错误附带出口动作（去充值 / 去配置），带 CTA 的错误停留更久 */
+  error: (message: string, cta?: ErrorCta) => void;
   info: (message: string) => void;
   warning: (message: string) => void;
-  /** 替代 window.confirm，返回 Promise<boolean> */
+  /** 替代 window.confirm，返回 Promise<boolean>；message 支持 \n 换行 */
   confirm: (message: string) => Promise<boolean>;
 }
 
@@ -69,17 +74,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const push = useCallback(
-    (kind: ToastKind, message: string) => {
+    (kind: ToastKind, message: string, cta?: ErrorCta) => {
       const id = nextId();
-      setToasts((prev) => [...prev, { id, kind, message }]);
-      setTimeout(() => remove(id), 4000);
+      setToasts((prev) => [...prev, { id, kind, message, cta }]);
+      // 带 CTA 的错误需要用户读完并可能点击跳转，停留时间放宽
+      setTimeout(() => remove(id), cta ? 8000 : 4000);
     },
     [remove]
   );
 
   const api: ToastApi = {
     success: (m) => push("success", m),
-    error: (m) => push("error", m),
+    error: (m, cta) => push("error", m, cta),
     info: (m) => push("info", m),
     warning: (m) => push("warning", m),
     confirm: (message) =>
@@ -107,7 +113,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               className="pointer-events-auto flex w-80 items-start gap-3 rounded-lg border border-border bg-card p-3 shadow-lg"
             >
               <Icon size={18} className={`mt-0.5 shrink-0 ${cls}`} />
-              <p className="flex-1 text-sm text-foreground">{t.message}</p>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-foreground">{t.message}</p>
+                {t.cta && (
+                  <Link
+                    href={t.cta.href}
+                    onClick={() => remove(t.id)}
+                    className="text-primary mt-1 inline-block text-sm font-medium hover:underline"
+                  >
+                    {t.cta.label} →
+                  </Link>
+                )}
+              </div>
               <button
                 onClick={() => remove(t.id)}
                 className="shrink-0 text-muted-foreground transition hover:text-foreground"
@@ -126,7 +143,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xl">
             <div className="mb-4 flex items-start gap-3">
               <AlertTriangle size={20} className="mt-0.5 shrink-0 text-primary" />
-              <p className="text-sm text-foreground">{confirmState.message}</p>
+              <p className="text-sm whitespace-pre-line text-foreground">
+                {confirmState.message}
+              </p>
             </div>
             <div className="flex justify-end gap-2">
               <button

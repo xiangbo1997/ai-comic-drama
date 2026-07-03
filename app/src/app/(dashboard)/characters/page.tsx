@@ -12,6 +12,7 @@ import {
   createCharacter,
   updateCharacter,
   deleteCharacter,
+  fetchCharacterUsage,
   generateReference,
   generateThreeViews,
   fetchTags,
@@ -19,6 +20,7 @@ import {
   type CharacterFormData,
   type GenerateOptions,
 } from "./components/constants";
+import { toFriendlyError } from "@/lib/error-copy";
 import { SearchAndFilter } from "./components/SearchAndFilter";
 import { CharacterCard } from "./components/CharacterCard";
 import { CreateCharacterModal } from "./components/CreateCharacterModal";
@@ -205,12 +207,17 @@ export default function CharactersPage() {
     setShowAppearanceEditor(false);
   };
 
+  // CRUD 三 mutation 补 onError：此前失败完全静默，弹窗关闭 + loading 结束，
+  // 用户误以为成功——「欺骗性成功」比报错更糟（ux-config P1-4）
   const createMutation = useMutation({
     mutationFn: createCharacter,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
       setShowCreateModal(false);
       resetForm();
+    },
+    onError: (error) => {
+      toast.error(toFriendlyError(error, "创建角色失败").message);
     },
   });
 
@@ -221,12 +228,18 @@ export default function CharactersPage() {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
       setEditingId(null);
     },
+    onError: (error) => {
+      toast.error(toFriendlyError(error, "保存角色失败").message);
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteCharacter,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
+    },
+    onError: (error) => {
+      toast.error(toFriendlyError(error, "删除角色失败").message);
     },
   });
 
@@ -247,7 +260,9 @@ export default function CharactersPage() {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "生成参考图失败");
+      // 积分不足附「去充值」出口（消息已含差额），不足时不再是死胡同
+      const fe = toFriendlyError(error, "生成参考图失败");
+      toast.error(fe.message, fe.cta);
     },
     onSettled: () => {
       setUploadingBaseImageId(null);
@@ -268,7 +283,8 @@ export default function CharactersPage() {
       toast.success("三视图生成成功");
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "生成三视图失败");
+      const fe = toFriendlyError(error, "生成三视图失败");
+      toast.error(fe.message, fe.cta);
     },
   });
 
@@ -276,6 +292,10 @@ export default function CharactersPage() {
     mutationFn: generateDescription,
     onSuccess: (data) => {
       setFormData((prev) => ({ ...prev, description: data.description }));
+    },
+    onError: (error) => {
+      const fe = toFriendlyError(error, "生成描述失败");
+      toast.error(fe.message, fe.cta);
     },
   });
 
@@ -291,7 +311,19 @@ export default function CharactersPage() {
   };
 
   const handleDelete = async (id: string) => {
-    const ok = await toast.confirm("确定要删除这个角色吗？");
+    // 删除前查询引用情况，把「相关分镜将失去该角色」的级联后果讲清楚。
+    // API 删除时会 array_remove 清理各分镜引用，此前确认框对此只字未提
+    // （ux-config P0-3）。查询失败时降级为通用文案，不阻塞删除。
+    const usage = await fetchCharacterUsage(id).catch(() => null);
+    const parts: string[] = [];
+    if (usage && usage.projectCount > 0)
+      parts.push(`${usage.projectCount} 个项目`);
+    if (usage && usage.sceneCount > 0) parts.push(`${usage.sceneCount} 个分镜`);
+    const ok = await toast.confirm(
+      parts.length > 0
+        ? `该角色正被 ${parts.join("、")} 使用。\n删除后相关分镜将移除该角色（影响后续出图一致性），且无法恢复。确定删除？`
+        : "确定要删除这个角色吗？删除后无法恢复。"
+    );
     if (ok) {
       deleteMutation.mutate(id);
     }
