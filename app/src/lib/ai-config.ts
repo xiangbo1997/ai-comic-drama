@@ -5,6 +5,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/encryption";
+import { assertSafeUrl } from "@/lib/url-guard";
 import type { AIServiceConfig } from "@/types";
 
 export type { AIServiceConfig };
@@ -51,7 +52,7 @@ export function isUsingPlatformFallback(
  * @param fallbackModel 无 selectedModel 时的回退模型(LLM 用 provider 默认，其余用 "")
  * @param defaultProtocol 无任何 protocol 时的兜底(LLM 用 "openai"，其余用 "")
  */
-function assembleServiceConfig(
+async function assembleServiceConfig(
   config: {
     apiKey: string;
     apiKeyIv: string;
@@ -63,10 +64,23 @@ function assembleServiceConfig(
   },
   fallbackModel = "",
   defaultProtocol = ""
-): AIServiceConfig {
+): Promise<AIServiceConfig> {
+  const baseUrl = config.customBaseUrl || config.provider.baseUrl || "";
+
+  // SSRF 运行时守卫（唯一收口）：四类生成（LLM/图/视/音）的 baseUrl 全部经过
+  // 本函数装配。用户可在 /settings/ai-models 存任意 customBaseUrl，若不校验，
+  // 触发生成时服务端就会向内网 / 云元数据（169.254.169.254）发起请求，泄露
+  // IAM 凭证或探测内网。这里做 DNS 解析级校验（防 DNS rebinding），是保存时
+  // assertSafeUrlLiteral 之外、真正阻断利用链的一道闸。
+  // 仅对自定义 customBaseUrl 校验：内置 provider.baseUrl 是可信固定值，跳过
+  // 以省一次 DNS 往返。
+  if (config.customBaseUrl) {
+    await assertSafeUrl(config.customBaseUrl);
+  }
+
   return {
     apiKey: decrypt(config.apiKey, config.apiKeyIv),
-    baseUrl: config.customBaseUrl || config.provider.baseUrl || "",
+    baseUrl,
     model: config.selectedModel || fallbackModel,
     protocol:
       config.apiProtocol || config.provider.apiProtocol || defaultProtocol,
@@ -121,7 +135,7 @@ export async function getUserLLMConfig(
     return null;
   }
 
-  return assembleServiceConfig(
+  return await assembleServiceConfig(
     finalConfig,
     getDefaultModelForProvider(finalConfig.provider.slug),
     "openai"
@@ -189,7 +203,7 @@ export async function getUserImageConfig(
     return null;
   }
 
-  return assembleServiceConfig(finalConfig, "", "openai");
+  return await assembleServiceConfig(finalConfig, "", "openai");
 }
 
 /**
@@ -249,7 +263,7 @@ export async function getUserVideoConfig(
     return null;
   }
 
-  return assembleServiceConfig(finalConfig);
+  return await assembleServiceConfig(finalConfig);
 }
 
 /**
@@ -309,7 +323,7 @@ export async function getUserTTSConfig(
     return null;
   }
 
-  return assembleServiceConfig(finalConfig);
+  return await assembleServiceConfig(finalConfig);
 }
 
 /**

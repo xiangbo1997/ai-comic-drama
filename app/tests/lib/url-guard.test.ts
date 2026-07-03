@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { isPrivateOrReservedIp, assertSafeUrl } from "@/lib/url-guard";
+import {
+  isPrivateOrReservedIp,
+  assertSafeUrl,
+  assertSafeUrlLiteral,
+} from "@/lib/url-guard";
 
 describe("isPrivateOrReservedIp", () => {
   it("拦截 IPv4 内网/保留段", () => {
@@ -63,5 +67,35 @@ describe("assertSafeUrl", () => {
 
   it("放行 hostname 为公网 IP 的 URL", async () => {
     await expect(assertSafeUrl("https://8.8.8.8/")).resolves.toBeUndefined();
+  });
+});
+
+describe("assertSafeUrlLiteral（同步字面量校验，落库前第一道闸）", () => {
+  it("拒绝非 http(s) 协议", () => {
+    expect(() => assertSafeUrlLiteral("file:///etc/passwd")).toThrow(/协议/);
+    expect(() => assertSafeUrlLiteral("gopher://x")).toThrow(/协议/);
+  });
+
+  it("拒绝非法 URL", () => {
+    expect(() => assertSafeUrlLiteral("not a url")).toThrow(/非法/);
+  });
+
+  it("拒绝 IP 字面量为内网/云元数据的 URL", () => {
+    expect(() =>
+      assertSafeUrlLiteral("http://169.254.169.254/latest/meta-data/")
+    ).toThrow(/内网|保留/);
+    expect(() => assertSafeUrlLiteral("http://127.0.0.1:8080/x")).toThrow(
+      /内网|保留/
+    );
+    expect(() => assertSafeUrlLiteral("https://10.0.0.5/")).toThrow(
+      /内网|保留/
+    );
+  });
+
+  it("放行合法公网 http(s) URL（含域名，不做 DNS 解析）", () => {
+    expect(() =>
+      assertSafeUrlLiteral("https://api.openai.com/v1")
+    ).not.toThrow();
+    expect(() => assertSafeUrlLiteral("https://8.8.8.8/")).not.toThrow();
   });
 });

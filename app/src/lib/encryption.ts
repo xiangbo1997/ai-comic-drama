@@ -46,9 +46,22 @@ export function encrypt(text: string): { encrypted: string; iv: string } {
 export function decrypt(encrypted: string, iv: string): string {
   const key = getEncryptionKey();
 
+  // 输入合法性校验：密文至少要能容纳 authTag（32 hex）+ 至少 1 字节数据。
+  // 密文损坏 / 密钥轮换 / 空串时提前抛可识别错误，让调用方降级为「配置不可用」，
+  // 而非把 authTag 截成不足长度后由 decipher.final() 抛不透明的 crypto 错。
+  const AUTH_TAG_HEX_LEN = AUTH_TAG_LENGTH * 2;
+  if (
+    typeof encrypted !== "string" ||
+    encrypted.length <= AUTH_TAG_HEX_LEN ||
+    !/^[0-9a-fA-F]+$/.test(encrypted) ||
+    !/^[0-9a-fA-F]+$/.test(iv)
+  ) {
+    throw new Error("密文格式非法或已损坏（无法解密）");
+  }
+
   // 分离加密数据和认证标签
-  const authTagHex = encrypted.slice(-AUTH_TAG_LENGTH * 2);
-  const encryptedData = encrypted.slice(0, -AUTH_TAG_LENGTH * 2);
+  const authTagHex = encrypted.slice(-AUTH_TAG_HEX_LEN);
+  const encryptedData = encrypted.slice(0, -AUTH_TAG_HEX_LEN);
   const authTag = Buffer.from(authTagHex, "hex");
 
   const decipher = crypto.createDecipheriv(

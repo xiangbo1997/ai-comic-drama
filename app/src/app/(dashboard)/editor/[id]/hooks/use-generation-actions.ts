@@ -118,7 +118,16 @@ function derivePromptInputs(scene: Scene, project: ProjectDetail | undefined) {
   });
 }
 
-export { generateSceneImage };
+export { generateSceneImage, derivePromptInputs };
+
+/**
+ * 按场景时长就近映射到 provider 支持的 5/10/15 秒档。
+ * 单张、多版本、workflow 三条路径统一走此函数，避免各自不同的时长逻辑
+ * （此前多版本把 15s 档压成 10s）。
+ */
+export function nearestVideoDuration(duration: number): 5 | 10 | 15 {
+  return duration > 10 ? 15 : duration > 5 ? 10 : 5;
+}
 
 export function useGenerationActions(
   projectId: string,
@@ -157,7 +166,9 @@ export function useGenerationActions(
       imageConfigId?: string;
     }) => {
       await apiUpdateScene(projectId, sceneId, { imageStatus: "PROCESSING" });
-      invalidateProject();
+      // 精确置「生成中」，不整 project 重拉（此前 invalidateProject 会重新 GET
+      // 整个 project 大 payload 并全列表重渲，perf-frontend P0）
+      patchSceneInCache(sceneId, { imageStatus: "PROCESSING" });
 
       const { prompt, negativePrompt, referenceImage, referenceImages } =
         derivePromptInputs(scene, project);
@@ -170,10 +181,15 @@ export function useGenerationActions(
         referenceImages,
       });
     },
-    onSuccess: invalidateProject,
+    // 权威数据（imageUrl + COMPLETED）已在手，精确写回缓存即可，无需整页重拉
+    onSuccess: (result, { sceneId }) =>
+      patchSceneInCache(sceneId, {
+        imageStatus: "COMPLETED",
+        ...(result?.imageUrl ? { imageUrl: result.imageUrl } : {}),
+      }),
     onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { imageStatus: "FAILED" });
-      invalidateProject();
+      patchSceneInCache(sceneId, { imageStatus: "FAILED" });
       toast.error(error instanceof Error ? error.message : "图片生成失败");
     },
   });
@@ -206,8 +222,8 @@ export function useGenerationActions(
         body: JSON.stringify({
           imageUrl: scene.imageUrl,
           prompt: scene.description,
-          // 按场景时长分档映射到 provider 支持的 5/10/15s（15s 适配 Seedance 2.0 直出）
-          duration: scene.duration > 10 ? 15 : scene.duration > 5 ? 10 : 5,
+          // 按场景时长就近映射到 provider 支持的 5/10/15s（15s 适配 Seedance 2.0 直出）
+          duration: nearestVideoDuration(scene.duration),
           aspectRatio,
           referenceImages,
           projectId,
@@ -220,12 +236,18 @@ export function useGenerationActions(
         const data = await res.json();
         throw new Error(data.error || "视频生成失败");
       }
-      return res.json();
+      // 同步路径：服务端已把 videoUrl 落库并返回，前端精确写回缓存
+      patchSceneInCache(sceneId, { videoStatus: "PROCESSING" });
+      return res.json() as Promise<{ videoUrl?: string }>;
     },
-    onSuccess: invalidateProject,
+    onSuccess: (result, { sceneId }) =>
+      patchSceneInCache(sceneId, {
+        videoStatus: "COMPLETED",
+        ...(result?.videoUrl ? { videoUrl: result.videoUrl } : {}),
+      }),
     onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { videoStatus: "FAILED" });
-      invalidateProject();
+      patchSceneInCache(sceneId, { videoStatus: "FAILED" });
       toast.error(error instanceof Error ? error.message : "视频生成失败");
     },
   });
@@ -265,12 +287,18 @@ export function useGenerationActions(
         const data = await res.json();
         throw new Error(data.error || "配音生成失败");
       }
-      return res.json();
+      // 同步路径：服务端已把 audioUrl 落库并返回，前端精确写回缓存
+      patchSceneInCache(sceneId, { audioStatus: "PROCESSING" });
+      return res.json() as Promise<{ audioUrl?: string }>;
     },
-    onSuccess: invalidateProject,
+    onSuccess: (result, { sceneId }) =>
+      patchSceneInCache(sceneId, {
+        audioStatus: "COMPLETED",
+        ...(result?.audioUrl ? { audioUrl: result.audioUrl } : {}),
+      }),
     onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { audioStatus: "FAILED" });
-      invalidateProject();
+      patchSceneInCache(sceneId, { audioStatus: "FAILED" });
       toast.error(error instanceof Error ? error.message : "配音生成失败");
     },
   });

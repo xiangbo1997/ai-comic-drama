@@ -18,6 +18,10 @@ import type { SceneCharacterInfo, CharacterRole } from "@/services/generation";
 import { createLogger } from "@/lib/logger";
 import { chargeCredits } from "@/lib/credits";
 
+// 图像生成（含前置 LLM 场景分析 + orchestrator 重试）同步跑在请求处理器里，
+// 可耗时数十秒。声明 maxDuration 提高平台函数超时上限。
+export const maxDuration = 300;
+
 const log = createLogger("api:generate:image");
 
 // 图像生成成本（积分）

@@ -154,6 +154,19 @@ export function useEditorProject(projectId: string) {
     queryKey: ["project", projectId],
     queryFn: () => fetchProject(projectId),
     enabled: projectId !== "new",
+    // 有任一分镜处于 PROCESSING 时每 5s 轮询，全部结束自动停。
+    // 修复：视频/配音等异步任务此前无轮询 + staleTime 60s + 不 refetchOnFocus，
+    // 卡片一直停在「生成中」直到用户手动操作才刷新（perf-frontend P1）。
+    refetchInterval: (query) => {
+      const data = query.state.data as ProjectDetail | undefined;
+      const hasProcessing = data?.scenes?.some(
+        (s) =>
+          s.imageStatus === "PROCESSING" ||
+          s.videoStatus === "PROCESSING" ||
+          s.audioStatus === "PROCESSING"
+      );
+      return hasProcessing ? 5000 : false;
+    },
   });
 
   const { data: allCharacters = [] } = useQuery({

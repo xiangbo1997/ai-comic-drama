@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encrypt, decrypt, maskApiKey } from "@/lib/encryption";
+import { assertSafeUrlLiteral } from "@/lib/url-guard";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs:[id]");
@@ -140,6 +141,17 @@ export async function PUT(
     }
 
     if (customBaseUrl !== undefined) {
+      // SSRF 第一道闸：落库前拦非法协议 / 内网字面量（运行时再做 DNS 级校验）
+      if (customBaseUrl) {
+        try {
+          assertSafeUrlLiteral(customBaseUrl);
+        } catch (e) {
+          return NextResponse.json(
+            { error: e instanceof Error ? e.message : "Base URL 不合法" },
+            { status: 400 }
+          );
+        }
+      }
       updateData.customBaseUrl = customBaseUrl || null;
     }
 

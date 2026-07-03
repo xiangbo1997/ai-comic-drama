@@ -45,6 +45,32 @@ export function isPrivateOrReservedIp(ip: string): boolean {
 }
 
 /**
+ * 同步字面量校验：协议白名单 + hostname 若是 IP 字面量则拦内网/保留段。
+ *
+ * 用途：写入用户可控 URL（如 UserAIConfig.customBaseUrl）之前的第一道闸。
+ * 不做 DNS 解析（同步、无网络往返），因此无法挡"域名解析到内网"——那一步
+ * 留给运行时的 assertSafeUrl。二者配合：保存时挡明显的内网字面量与非法协议，
+ * 运行时再挡 DNS rebinding / 域名指向内网。
+ *
+ * 不安全时抛 Error，安全时返回。
+ */
+export function assertSafeUrlLiteral(rawUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(`非法 URL: ${rawUrl}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`不允许的协议: ${parsed.protocol}`);
+  }
+  const host = parsed.hostname;
+  if (net.isIP(host) && isPrivateOrReservedIp(host)) {
+    throw new Error(`拒绝访问内网/保留地址: ${host}`);
+  }
+}
+
+/**
  * 校验远程 URL 安全：协议白名单 + DNS 解析后内网拦截。
  * 不安全时抛 Error；调用方应在 fetch 之前 await 本函数。
  */

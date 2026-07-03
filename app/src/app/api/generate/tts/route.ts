@@ -10,6 +10,10 @@ import { chargeCredits } from "@/lib/credits";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:generate:tts");
 
+// TTS 合成同步跑在请求处理器里，长文本可耗时数十秒。声明 maxDuration 提高
+// 平台函数超时上限，避免被默认超时切断。
+export const maxDuration = 120;
+
 // TTS 成本：每100字 2积分
 const TTS_COST_PER_100_CHARS = 2;
 
@@ -76,6 +80,16 @@ export async function POST(request: NextRequest) {
 
     if (!text) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
+    }
+
+    // 文本长度上限：单次合成最多 5000 字。无上限时超大文本会送 provider 并
+    // 落盘，既放大成本又占资源（与 script/parse 的 10000 字拦截同类防护）。
+    const TTS_MAX_CHARS = 5000;
+    if (typeof text !== "string" || text.length > TTS_MAX_CHARS) {
+      return NextResponse.json(
+        { error: `配音文本过长（最多 ${TTS_MAX_CHARS} 字）` },
+        { status: 400 }
+      );
     }
 
     // 计算成本

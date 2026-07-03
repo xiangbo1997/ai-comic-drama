@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { isAdmin } from "@/lib/admin";
 import { NextRequest, NextResponse } from "next/server";
 
 import { createLogger } from "@/lib/logger";
@@ -20,6 +21,13 @@ export async function GET(request: NextRequest) {
 
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // 第二道闸（纵深防御）：仅 ADMIN_EMAILS 白名单可用。避免仅凭 NODE_ENV
+    // 单点判断——该服务器用 systemd 部署，env 一旦遗漏/误设即成任意登录用户
+    // 免费刷分后门。
+    if (!isAdmin(session)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // 从 URL 参数获取要添加的积分数量，默认 10000

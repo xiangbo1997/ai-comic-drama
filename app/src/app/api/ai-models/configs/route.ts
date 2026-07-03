@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encrypt, decrypt, maskApiKey } from "@/lib/encryption";
+import { assertSafeUrlLiteral } from "@/lib/url-guard";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs");
@@ -120,6 +121,19 @@ export async function POST(request: Request) {
 
     if (!provider) {
       return NextResponse.json({ error: "提供商不存在" }, { status: 400 });
+    }
+
+    // SSRF 第一道闸：customBaseUrl 落库前拦非法协议 / 内网字面量。
+    // 运行时 provider fetch 前仍会经 assertSafeUrl 做 DNS 解析级校验。
+    if (customBaseUrl) {
+      try {
+        assertSafeUrlLiteral(customBaseUrl);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Base URL 不合法" },
+          { status: 400 }
+        );
+      }
     }
 
     // 加密 API Key

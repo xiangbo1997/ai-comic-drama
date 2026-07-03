@@ -190,9 +190,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    await prisma.character.delete({
-      where: { id },
-    });
+    // 事务：删角色 + 清理各分镜 selectedCharacterIds 数组中的悬垂 ID。
+    // selectedCharacterId（单选）有 onDelete: SetNull 自动清；但
+    // selectedCharacterIds（String[]）是无外键的原生数组，需手动 array_remove，
+    // 否则删角色后分镜仍引用死 ID → 出图时静默少一角色 / 参考图缺失。
+    await prisma.$transaction([
+      prisma.$executeRaw`
+        UPDATE "Scene"
+        SET "selectedCharacterIds" = array_remove("selectedCharacterIds", ${id})
+        WHERE ${id} = ANY("selectedCharacterIds")
+      `,
+      prisma.character.delete({ where: { id } }),
+    ]);
 
     return NextResponse.json({ success: true });
   } catch (error) {

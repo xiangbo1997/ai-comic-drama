@@ -30,6 +30,48 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * 分镜僵尸状态惰性回收：把超时仍卡在 PROCESSING 的图/视/音状态标 FAILED。
+ *
+ * 背景：所有生成都同步跑在 web 请求进程里（无独立 worker），进程 rolling
+ * update / OOM / 崩溃时，在途分镜的 *Status 会永久停在 PROCESSING，编辑器
+ * 读到就无限转圈（reliability P0）。这里在读取项目时就地回收，复用 export
+ * 那套 10 分钟阈值。以 updatedAt 作为陈旧锚点（置 PROCESSING 即更新 updatedAt）。
+ *
+ * 返回是否发生回收，供调用方决定是否需要重读。
+ */
+async function reclaimZombieScenes(projectId: string): Promise<boolean> {
+  const ZOMBIE_TIMEOUT_MS = 10 * 60 * 1000;
+  const cutoff = new Date(Date.now() - ZOMBIE_TIMEOUT_MS);
+  const [img, vid, aud] = await prisma.$transaction([
+    prisma.scene.updateMany({
+      where: {
+        projectId,
+        imageStatus: "PROCESSING",
+        updatedAt: { lt: cutoff },
+      },
+      data: { imageStatus: "FAILED" },
+    }),
+    prisma.scene.updateMany({
+      where: {
+        projectId,
+        videoStatus: "PROCESSING",
+        updatedAt: { lt: cutoff },
+      },
+      data: { videoStatus: "FAILED" },
+    }),
+    prisma.scene.updateMany({
+      where: {
+        projectId,
+        audioStatus: "PROCESSING",
+        updatedAt: { lt: cutoff },
+      },
+      data: { audioStatus: "FAILED" },
+    }),
+  ]);
+  return img.count + vid.count + aud.count > 0;
+}
+
 // 获取单个项目详情
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
@@ -39,6 +81,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+
+    // 归属校验放在回收之前：先确认项目属于当前用户，避免对他人项目做写操作
+    const owned = await prisma.project.findFirst({
+      where: { id, userId: session.user.id },
+      select: { id: true },
+    });
+    if (!owned) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+    await reclaimZombieScenes(id);
 
     const project = await prisma.project.findFirst({
       where: {

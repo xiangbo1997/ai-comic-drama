@@ -10,6 +10,10 @@ import { chargeCredits } from "@/lib/credits";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:generate:video");
 
+// 视频生成同步跑在请求处理器里，可耗时数十秒到数分钟。声明 maxDuration
+// 提高平台函数超时上限，避免被默认超时（如 Vercel 10s / 边缘 100s）切断。
+export const maxDuration = 300;
+
 // 视频生成成本（积分）
 const VIDEO_COST = {
   5: 10, // 5秒视频 10积分
@@ -57,6 +61,16 @@ export async function POST(request: NextRequest) {
     if (!imageUrl) {
       return NextResponse.json(
         { error: "Image URL is required" },
+        { status: 400 }
+      );
+    }
+
+    // duration 白名单：只接受 provider 支持的 5/10/15 秒档。
+    // 计费按 VIDEO_COST[duration] 折算，若放任任意值（如 8），会命中 ||10 兜底
+    // 却按 8s 生成，导致「扣 10 分 / 实际时长不符」的计费错配。非枚举值直接 400。
+    if (![5, 10, 15].includes(duration)) {
+      return NextResponse.json(
+        { error: "duration 必须为 5 / 10 / 15 秒" },
         { status: 400 }
       );
     }

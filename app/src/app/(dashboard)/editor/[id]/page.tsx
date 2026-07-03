@@ -18,6 +18,8 @@ import { useEditorProject, apiUpdateScene } from "./hooks/use-editor-project";
 import {
   useGenerationActions,
   generateSceneImage,
+  derivePromptInputs,
+  nearestVideoDuration,
 } from "./hooks/use-generation-actions";
 import { EditorHeader } from "./components/EditorHeader";
 import { ScriptPanel } from "./components/ScriptPanel";
@@ -236,6 +238,24 @@ export default function EditorPage() {
     return `已识别并回填 ${entries.length} 个分镜的字幕`;
   };
 
+  // 重新解析剧本会 deleteMany + createMany 全量重建分镜，已生成的图/视/音
+  // URL 随之丢失（feature P0：作品瞬间蒸发且无撤销）。已有任一媒体产物时
+  // 二次确认，避免误触。
+  const handleParse = useCallback(() => {
+    const hasMedia = editor.project?.scenes?.some(
+      (s) => s.imageUrl || s.videoUrl || s.audioUrl
+    );
+    if (
+      hasMedia &&
+      !window.confirm(
+        "重新解析会清空当前所有分镜及已生成的图片 / 视频 / 配音，且无法撤销。确定继续？"
+      )
+    ) {
+      return;
+    }
+    editor.parseMutation.mutate();
+  }, [editor.project, editor.parseMutation]);
+
   const handleToggleCharacter = (id: string) => {
     const newSet = new Set(editor.selectedCharacterIds);
     if (newSet.has(id)) {
@@ -371,7 +391,7 @@ export default function EditorPage() {
         <ScriptPanel
           inputText={editor.inputText}
           onInputChange={editor.setInputText}
-          onParse={() => editor.parseMutation.mutate()}
+          onParse={handleParse}
           isParsing={editor.parseMutation.isPending}
           parseError={editor.parseMutation.error}
           project={project}
@@ -642,25 +662,19 @@ export default function EditorPage() {
           if (!editor.selectedScene) return;
           setShowMultiImageDialog(false);
 
-          const stylePrefix =
-            project.style === "anime"
-              ? "anime style, high quality anime illustration,"
-              : project.style === "realistic"
-                ? "photorealistic, cinematic lighting,"
-                : project.style === "comic"
-                  ? "comic book style, bold lines,"
-                  : "anime style,";
-          const prompt = [
-            stylePrefix,
-            editor.selectedScene.description,
-            `shot type: ${editor.selectedScene.shotType || "中景"}`,
-            `mood: ${editor.selectedScene.emotion || "neutral"}`,
-            "masterpiece, best quality",
-          ].join(", ");
+          // 走与单张生成完全一致的增强管线：拿到风格化 prompt + 负向词 +
+          // 角色三视图/定妆参考图。此前多版本手拼 prompt 绕过管线，产出脸崩、
+          // 与定妆不符的图（feature-consistency P0）。
+          const { prompt, negativePrompt, referenceImage, referenceImages } =
+            derivePromptInputs(editor.selectedScene, project);
 
           const generateOne = (configId?: string) =>
             generateSceneImage(projectId, editor.selectedScene!.id, prompt, {
+              style: project.style,
               imageConfigId: configId,
+              negativePrompt,
+              referenceImage,
+              referenceImages,
             });
 
           if (mode === "PARALLEL") {
@@ -683,6 +697,19 @@ export default function EditorPage() {
           if (!editor.selectedScene?.imageUrl) return;
           setShowMultiVideoDialog(false);
 
+          // 与单张视频一致：就近映射 5/10/15s 三档（不再把 15s 压成 10s），
+          // 并注入角色参考图让 provider 走 R2V / 首尾帧路由锁形象。
+          const { referenceImages } = derivePromptInputs(
+            editor.selectedScene,
+            project
+          );
+          const videoAspectRatio =
+            project.aspectRatio === "9:16" ||
+            project.aspectRatio === "16:9" ||
+            project.aspectRatio === "1:1"
+              ? project.aspectRatio
+              : undefined;
+
           const generateOne = async (configId?: string) => {
             const res = await fetch("/api/generate/video", {
               method: "POST",
@@ -690,7 +717,9 @@ export default function EditorPage() {
               body: JSON.stringify({
                 imageUrl: editor.selectedScene!.imageUrl,
                 prompt: editor.selectedScene!.description,
-                duration: editor.selectedScene!.duration > 5 ? 10 : 5,
+                duration: nearestVideoDuration(editor.selectedScene!.duration),
+                aspectRatio: videoAspectRatio,
+                referenceImages,
                 projectId,
                 sceneId: editor.selectedScene!.id,
                 videoConfigId: configId,

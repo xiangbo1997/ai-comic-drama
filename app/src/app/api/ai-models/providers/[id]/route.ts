@@ -11,13 +11,24 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // 鉴权 + 归属：内置提供商任意登录用户可读；自定义提供商仅归属者可读。
+    // 原实现无 auth、无 ownership，会把任意用户自建 provider 的 name/baseUrl/
+    // apiProtocol/models 泄露给他人（IDOR）。
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
 
     const provider = await prisma.aIProvider.findUnique({
       where: { id },
     });
 
-    if (!provider) {
+    if (
+      !provider ||
+      (provider.isCustom && provider.userId !== session.user.id)
+    ) {
       return NextResponse.json({ error: "提供商不存在" }, { status: 404 });
     }
 

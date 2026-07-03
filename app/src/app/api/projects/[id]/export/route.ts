@@ -17,6 +17,10 @@ import {
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:export");
 
+// 导出走 FFmpeg 合成，可耗时数分钟。声明 maxDuration 提高平台函数超时上限
+// （异步分支已有轮询兜底，此处覆盖 sync 分支与首个请求）。
+export const maxDuration = 300;
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
