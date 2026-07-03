@@ -18,6 +18,9 @@ interface EditorHeaderProps {
   showTimeline: boolean;
   showSettings: boolean;
   hasScenes: boolean;
+  /** 至少一个分镜有图才允许导出——此前分镜存在但全无图时导出仍可点，
+      用户点开才发现导不出东西（ux-editor P1-8） */
+  canExport: boolean;
   onTitleChange: (title: string) => void;
   onTitleSave: (title: string) => void;
   onEditTitle: () => void;
@@ -33,6 +36,7 @@ export function EditorHeader({
   editingTitle,
   showTimeline,
   hasScenes,
+  canExport,
   onTitleChange,
   onTitleSave,
   onEditTitle,
@@ -45,7 +49,11 @@ export function EditorHeader({
   return (
     <header className="border-border flex shrink-0 items-center justify-between border-b px-4 py-3">
       <div className="flex items-center gap-4">
-        <Link href="/projects" className="hover:bg-card rounded-lg p-2">
+        <Link
+          href="/projects"
+          className="hover:bg-card rounded-lg p-2"
+          aria-label="返回项目列表"
+        >
           <ArrowLeft size={20} />
         </Link>
         {editingTitle ? (
@@ -109,7 +117,14 @@ export function EditorHeader({
         </button>
         <button
           onClick={onExport}
-          disabled={!hasScenes}
+          disabled={!hasScenes || !canExport}
+          title={
+            !hasScenes
+              ? "请先拆解分镜"
+              : !canExport
+                ? "至少为一个分镜生成图片后才能导出"
+                : "导出成片"
+          }
           className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex items-center gap-2 rounded-lg px-4 py-2 disabled:cursor-not-allowed"
         >
           <Download size={18} />

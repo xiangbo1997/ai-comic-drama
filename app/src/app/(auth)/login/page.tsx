@@ -305,7 +305,7 @@ function LoginContent() {
               `100 积分免费体验${
                 inviteInfo?.valid ? ` + ${inviteInfo.reward} 邀请奖励` : ""
               }`,
-              "作品云端保存",
+              "项目云端保存",
               "角色卡永久保存",
             ].map((b) => (
               <div
@@ -320,9 +320,16 @@ function LoginContent() {
         )}
       </div>
 
-      {/* Footer（条款/隐私页面尚未上线，先以纯文本呈现，避免 href="#" 死链） */}
+      {/* Footer */}
       <p className="text-muted-foreground mt-6 text-center text-sm">
-        {mode === "login" ? "登录" : "注册"}即表示同意本平台的服务条款和隐私政策
+        {mode === "login" ? "登录" : "注册"}即表示同意{" "}
+        <Link href="/terms" className="text-primary hover:underline">
+          服务条款
+        </Link>{" "}
+        和{" "}
+        <Link href="/privacy" className="text-primary hover:underline">
+          隐私政策
+        </Link>
       </p>
     </div>
   );

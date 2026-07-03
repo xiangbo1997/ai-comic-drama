@@ -9,6 +9,7 @@ import { ProviderCard } from "./components/ProviderCard";
 import { ConfigDialog } from "./components/ConfigDialog";
 import { PreferenceSettings } from "./components/PreferenceSettings";
 import { CustomProviderDialog } from "./components/CustomProviderDialog";
+import { ErrorState } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
 
 export default function AIModelsPage() {
@@ -26,7 +27,11 @@ export default function AIModelsPage() {
     null
   );
 
-  const { data: providersData, isLoading: providersLoading } = useQuery({
+  const {
+    data: providersData,
+    isLoading: providersLoading,
+    isError: providersError,
+  } = useQuery({
     queryKey: ["ai-providers"],
     queryFn: async () => {
       const res = await fetch("/api/ai-models/providers");
@@ -35,7 +40,11 @@ export default function AIModelsPage() {
     },
   });
 
-  const { data: configsData, isLoading: configsLoading } = useQuery({
+  const {
+    data: configsData,
+    isLoading: configsLoading,
+    isError: configsError,
+  } = useQuery({
     queryKey: ["ai-configs"],
     queryFn: async () => {
       const res = await fetch("/api/ai-models/configs");
@@ -98,6 +107,21 @@ export default function AIModelsPage() {
       <div className="flex min-h-[400px] items-center justify-center">
         <Loader2 className="text-muted-foreground h-8 w-8 animate-spin" />
       </div>
+    );
+  }
+
+  // 补 error 分支：配置页是使用前提，加载失败时白屏会让用户以为"没有可配的
+  // 提供商"（ux-crosscut P1-5）
+  if (providersError || configsError) {
+    return (
+      <ErrorState
+        message="模型配置加载失败，请重试"
+        onRetry={() => {
+          queryClient.invalidateQueries({ queryKey: ["ai-providers"] });
+          queryClient.invalidateQueries({ queryKey: ["ai-configs"] });
+        }}
+        className="flex min-h-[400px] flex-col items-center justify-center"
+      />
     );
   }
 

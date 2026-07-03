@@ -96,6 +96,7 @@ export function CharacterCard({
               }
               className="rounded-lg bg-black/60 p-1.5 backdrop-blur-sm transition hover:bg-black/80"
               title="上一张"
+              aria-label="上一张图片"
             >
               <ChevronLeft size={16} />
             </button>
@@ -108,6 +109,7 @@ export function CharacterCard({
               }
               className="rounded-lg bg-black/60 p-1.5 backdrop-blur-sm transition hover:bg-black/80"
               title="下一张"
+              aria-label="下一张图片"
             >
               <ChevronRight size={16} />
             </button>
@@ -115,6 +117,7 @@ export function CharacterCard({
               onClick={() => onDeleteImage(character.id, currentImageIndex)}
               className="rounded-lg bg-red-600/80 p-1.5 backdrop-blur-sm transition hover:bg-red-700"
               title="删除当前图片"
+              aria-label="删除当前图片"
             >
               <Trash2 size={14} />
             </button>
@@ -127,6 +130,7 @@ export function CharacterCard({
             disabled={generateMutationPending}
             className="rounded-lg bg-black/50 p-2 transition hover:bg-purple-600"
             title="上传垫图生成（基于参考图生成）"
+            aria-label="上传垫图生成参考图"
           >
             {uploadingBaseImageId === character.id ? (
               <Loader2 size={18} className="animate-spin" />
@@ -139,6 +143,7 @@ export function CharacterCard({
             disabled={generateMutationPending}
             className="hover:bg-primary rounded-lg bg-black/50 p-2 transition"
             title="AI 生成参考图"
+            aria-label="AI 生成参考图"
           >
             {generateMutationPending &&
             uploadingBaseImageId !== character.id ? (
@@ -378,10 +383,15 @@ function CharacterViewInfo({
           <button
             onClick={onStartEdit}
             className="hover:bg-secondary rounded p-1.5"
+            aria-label="编辑角色"
           >
             <Edit2 size={16} />
           </button>
-          <button onClick={onDelete} className="rounded p-1.5 hover:bg-red-600">
+          <button
+            onClick={onDelete}
+            className="rounded p-1.5 hover:bg-red-600"
+            aria-label="删除角色"
+          >
             <Trash2 size={16} />
           </button>
         </div>

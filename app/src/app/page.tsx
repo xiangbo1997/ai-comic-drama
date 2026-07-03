@@ -47,7 +47,7 @@ export default function Home() {
             <div className="mb-4 text-3xl">🎬</div>
             <h3 className="mb-2 text-xl font-semibold">一键生成视频</h3>
             <p className="text-muted-foreground">
-              自动生成图像、视频、配音，合成完整漫剧作品
+              自动生成图像、视频、配音，合成完整漫剧视频
             </p>
           </div>
         </div>
@@ -63,7 +63,7 @@ export default function Home() {
               { step: "4", label: "生成图像" },
               { step: "5", label: "生成视频" },
               { step: "6", label: "配音合成" },
-              { step: "7", label: "导出作品" },
+              { step: "7", label: "导出成片" },
             ].map((item, i) => (
               <div key={item.step} className="flex items-center">
                 <div className="flex flex-col items-center">

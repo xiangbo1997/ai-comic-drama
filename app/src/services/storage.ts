@@ -14,7 +14,7 @@ import fs from "fs/promises";
 import path from "path";
 
 import { createLogger } from "@/lib/logger";
-import { assertSafeUrl } from "@/lib/url-guard";
+import { safeDownload } from "@/lib/url-guard";
 const log = createLogger("services:storage");
 
 // R2 客户端配置
@@ -116,14 +116,8 @@ export async function uploadFromUrl(
     });
   }
 
-  // SSRF 防护：下载前校验目标地址，挡住内网/云元数据
-  await assertSafeUrl(url);
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch file from URL: ${url}`);
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
+  // SSRF 防护：钉 IP 下载（校验与连接同一地址，防 TOCTOU / 重定向绕过）
+  const { buffer } = await safeDownload(url);
   return uploadToR2(buffer, options);
 }
 
@@ -256,14 +250,8 @@ export async function uploadFromUrlToLocal(
     });
   }
 
-  // SSRF 防护：下载前校验目标地址，挡住内网/云元数据
-  await assertSafeUrl(url);
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch file from URL: ${url}`);
-  }
-
-  const buffer = Buffer.from(await response.arrayBuffer());
+  // SSRF 防护：钉 IP 下载（校验与连接同一地址，防 TOCTOU / 重定向绕过）
+  const { buffer } = await safeDownload(url);
   return uploadToLocal(buffer, options);
 }
 

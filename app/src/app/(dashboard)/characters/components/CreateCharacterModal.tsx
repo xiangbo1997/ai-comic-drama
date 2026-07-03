@@ -41,7 +41,11 @@ export function CreateCharacterModal({
       <div className="bg-card w-full max-w-md rounded-xl">
         <div className="border-border flex items-center justify-between border-b p-4">
           <h2 className="text-lg font-semibold">创建角色</h2>
-          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
+          <button
+            onClick={onClose}
+            className="hover:bg-secondary rounded p-1"
+            aria-label="关闭"
+          >
             <X size={20} />
           </button>
         </div>

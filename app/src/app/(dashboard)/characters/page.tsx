@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Loader2, Settings } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import type { CharacterListItem, Tag } from "@/types";
 import {
   toAppearanceFormData,
@@ -21,6 +21,7 @@ import {
   type GenerateOptions,
 } from "./components/constants";
 import { toFriendlyError } from "@/lib/error-copy";
+import { ErrorState, LoadingState } from "@/components/ui/query-state";
 import { SearchAndFilter } from "./components/SearchAndFilter";
 import { CharacterCard } from "./components/CharacterCard";
 import { CreateCharacterModal } from "./components/CreateCharacterModal";
@@ -180,14 +181,18 @@ export default function CharactersPage() {
     return params.toString();
   };
 
-  const { data: characters, isLoading } = useQuery<CharacterListItem[]>({
+  const {
+    data: characters,
+    isLoading,
+    isError,
+  } = useQuery<CharacterListItem[]>({
     queryKey: ["characters", searchQuery, selectedTagIds],
     queryFn: async () => {
       const params = getQueryParams();
       const res = await fetch(`/api/characters${params ? `?${params}` : ""}`);
       if (!res.ok) {
         if (res.status === 401) return [];
-        throw new Error("Failed to fetch characters");
+        throw new Error("获取角色列表失败");
       }
       return res.json();
     },
@@ -391,13 +396,20 @@ export default function CharactersPage() {
         tagsByCategory={tagsByCategory}
       />
 
-      {isLoading && (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 size={32} className="text-muted-foreground animate-spin" />
-        </div>
+      {isLoading && <LoadingState />}
+
+      {/* 补 error 分支：此前加载失败页面直接空白，用户误判"没数据"且无重试
+          入口（ux-crosscut P1-5） */}
+      {!isLoading && isError && (
+        <ErrorState
+          message="角色列表加载失败，请重试"
+          onRetry={() =>
+            queryClient.invalidateQueries({ queryKey: ["characters"] })
+          }
+        />
       )}
 
-      {!isLoading && characters?.length === 0 && (
+      {!isLoading && !isError && characters?.length === 0 && (
         <div className="py-20 text-center">
           <div className="mb-4 text-6xl">👤</div>
           <h2 className="text-foreground mb-2 text-xl font-semibold">
@@ -416,7 +428,7 @@ export default function CharactersPage() {
         </div>
       )}
 
-      {!isLoading && characters && characters.length > 0 && (
+      {!isLoading && !isError && characters && characters.length > 0 && (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {characters.map((character) => (
             <CharacterCard

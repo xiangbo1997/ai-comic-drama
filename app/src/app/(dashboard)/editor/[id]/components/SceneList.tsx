@@ -1,30 +1,21 @@
 "use client";
 
-import { useState, useRef, useEffect, memo, type ReactNode } from "react";
+import { useState, useRef, useEffect, useCallback, memo } from "react";
 import {
   Image as ImageIcon,
   Video,
   Volume2,
   Loader2,
-  GripVertical,
-  ChevronDown,
-  ChevronUp,
-  User,
   Users,
   Wand2,
-  AlertCircle,
-  RotateCw,
   List,
   LayoutGrid,
   Grid3x3,
-  MoreVertical,
-  Copy,
-  Plus,
-  Trash2,
   Film,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
+import type { BatchProgress } from "../hooks/use-generation-actions";
 import type { Scene, ProjectDetail } from "@/types";
 import type { UseMutationResult } from "@tanstack/react-query";
 import {
@@ -39,7 +30,7 @@ import {
   SortableContext,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { SortableItem } from "./SortableItem";
+import { SceneCard } from "./SceneCard";
 
 /** 单个媒体类型（图/视/音）的配置控制三元组 */
 export interface MediaConfigControl {
@@ -83,6 +74,20 @@ interface SceneListProps {
     Error,
     { scenes: Scene[]; imageConfigId?: string }
   >;
+  batchGenerateVideosMutation?: UseMutationResult<
+    unknown,
+    Error,
+    { scenes: Scene[]; videoConfigId?: string }
+  >;
+  batchGenerateAudiosMutation?: UseMutationResult<
+    unknown,
+    Error,
+    { scenes: Scene[]; ttsConfigId?: string }
+  >;
+  /** 当前批量进度（无批量运行时为 null） */
+  batchProgress?: BatchProgress | null;
+  /** 停止批量的后续排队（已发出的请求会继续完成） */
+  onCancelBatch?: () => void;
   updateScene: (sceneId: string, data: Partial<Scene>) => void;
   /** 图/视/音三类媒体配置控制（收口原先 9 个分散 props） */
   mediaConfig: MediaConfigControls;
@@ -99,12 +104,22 @@ function SceneListImpl({
   generateVideoMutation,
   generateAudioMutation,
   batchGenerateImagesMutation,
+  batchGenerateVideosMutation,
+  batchGenerateAudiosMutation,
+  batchProgress,
+  onCancelBatch,
   updateScene,
   mediaConfig,
   queryClient,
   projectId,
 }: SceneListProps) {
   const toast = useToast();
+  // 任一批量在跑时禁用全部批量入口：串行批量互斥，避免图/视/音批量叠加
+  const anyBatchPending = Boolean(
+    batchGenerateImagesMutation?.isPending ||
+    batchGenerateVideosMutation?.isPending ||
+    batchGenerateAudiosMutation?.isPending
+  );
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
   // 视图密度：列表 / 2 列网格 / 3 列网格
   const [viewMode, setViewMode] = useState<"list" | "grid2" | "grid3">("list");
@@ -121,60 +136,72 @@ function SceneListImpl({
       ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [selectedSceneId]);
 
-  const refreshProject = () =>
-    queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+  const refreshProject = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+    [queryClient, projectId]
+  );
 
   // 复制分镜
-  const handleDuplicateScene = async (sceneId: string) => {
-    setOpenMenuId(null);
-    try {
-      const res = await fetch(
-        `/api/projects/${projectId}/scenes/${sceneId}/duplicate`,
-        { method: "POST" }
-      );
-      if (!res.ok) throw new Error();
-      refreshProject();
-      toast.success("已复制分镜");
-    } catch {
-      toast.error("复制分镜失败");
-    }
-  };
+  const handleDuplicateScene = useCallback(
+    async (sceneId: string) => {
+      setOpenMenuId(null);
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/scenes/${sceneId}/duplicate`,
+          { method: "POST" }
+        );
+        if (!res.ok) throw new Error();
+        refreshProject();
+        toast.success("已复制分镜");
+      } catch {
+        toast.error("复制分镜失败");
+      }
+    },
+    [projectId, refreshProject, toast]
+  );
 
   // 在指定分镜后插入空白分镜
-  const handleInsertScene = async (afterSceneId: string) => {
-    setOpenMenuId(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/scenes/insert`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ afterSceneId }),
-      });
-      if (!res.ok) throw new Error();
-      refreshProject();
-      toast.success("已插入新分镜");
-    } catch {
-      toast.error("插入分镜失败");
-    }
-  };
+  const handleInsertScene = useCallback(
+    async (afterSceneId: string) => {
+      setOpenMenuId(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/insert`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ afterSceneId }),
+        });
+        if (!res.ok) throw new Error();
+        refreshProject();
+        toast.success("已插入新分镜");
+      } catch {
+        toast.error("插入分镜失败");
+      }
+    },
+    [projectId, refreshProject, toast]
+  );
 
   // 删除分镜（需确认）
-  const handleDeleteScene = async (sceneId: string) => {
-    setOpenMenuId(null);
-    const ok = await toast.confirm("确定删除这个分镜？此操作不可撤销。");
-    if (!ok) return;
-    try {
-      const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error();
-      refreshProject();
-      toast.success("已删除分镜");
-    } catch {
-      toast.error("删除分镜失败");
-    }
-  };
+  const handleDeleteScene = useCallback(
+    async (sceneId: string) => {
+      setOpenMenuId(null);
+      const ok = await toast.confirm("确定删除这个分镜？此操作不可撤销。");
+      if (!ok) return;
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/scenes/${sceneId}`,
+          { method: "DELETE" }
+        );
+        if (!res.ok) throw new Error();
+        refreshProject();
+        toast.success("已删除分镜");
+      } catch {
+        toast.error("删除分镜失败");
+      }
+    },
+    [projectId, refreshProject, toast]
+  );
 
-  const toggleSceneExpand = (sceneId: string) => {
+  const toggleSceneExpand = useCallback((sceneId: string) => {
     setExpandedScenes((prev) => {
       const next = new Set(prev);
       if (next.has(sceneId)) {
@@ -184,7 +211,50 @@ function SceneListImpl({
       }
       return next;
     });
-  };
+  }, []);
+
+  // 供卡片登记 DOM 的稳定回调（内联闭包会每次新引用，击穿卡片 memo）
+  const registerItemRef = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) itemRefs.current.set(id, el);
+    else itemRefs.current.delete(id);
+  }, []);
+
+  // 三点菜单开合的稳定回调
+  const handleMenuToggle = useCallback((id: string | null) => {
+    setOpenMenuId(id);
+  }, []);
+
+  // 图/视/音单张生成：mutation.mutate 稳定，仅依赖对应 selected 配置 id
+  const handleGenerateImage = useCallback(
+    (scene: Scene) => {
+      generateImageMutation.mutate({
+        sceneId: scene.id,
+        scene,
+        imageConfigId: mediaConfig.image.selected,
+      });
+    },
+    [generateImageMutation, mediaConfig.image.selected]
+  );
+  const handleGenerateVideo = useCallback(
+    (scene: Scene) => {
+      generateVideoMutation.mutate({
+        sceneId: scene.id,
+        scene,
+        videoConfigId: mediaConfig.video.selected,
+      });
+    },
+    [generateVideoMutation, mediaConfig.video.selected]
+  );
+  const handleGenerateAudio = useCallback(
+    (scene: Scene) => {
+      generateAudioMutation.mutate({
+        sceneId: scene.id,
+        scene,
+        ttsConfigId: mediaConfig.audio.selected,
+      });
+    },
+    [generateAudioMutation, mediaConfig.audio.selected]
+  );
 
   // 拖拽传感器：8px 移动阈值，避免点击卡片被误判为拖拽
   const sensors = useSensors(
@@ -255,7 +325,7 @@ function SceneListImpl({
                   });
                 }
               }}
-              disabled={batchGenerateImagesMutation.isPending}
+              disabled={anyBatchPending}
               className="bg-primary hover:bg-primary/90 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
               title="批量生成所有缺失图片的分镜"
             >
@@ -329,366 +399,60 @@ function SceneListImpl({
               strategy={verticalListSortingStrategy}
             >
               {project.scenes.map((scene, index) => (
-                <SortableItem key={scene.id} id={scene.id}>
-                  {({ attributes, listeners, isDragging }) => (
-                    <div
-                      ref={(el) => {
-                        // 业务 ref：登记卡片 DOM，供选中时 scrollIntoView
-                        if (el) itemRefs.current.set(scene.id, el);
-                        else itemRefs.current.delete(scene.id);
-                      }}
-                      className={`bg-card relative cursor-pointer rounded-lg transition ${
-                        isDragging ? "shadow-lg" : ""
-                      } ${
-                        selectedSceneId === scene.id
-                          ? "ring-primary ring-2"
-                          : "hover:bg-secondary"
-                      }`}
-                      onClick={() => onSceneSelect(scene.id)}
-                    >
-                      {/* Scene Header — 大缩略图在左(16:9, 叠序号/景别/时长/三状态) + 描述在右 */}
-                      <div className="flex items-start gap-3 p-3">
-                        <button
-                          type="button"
-                          className="text-muted-foreground mt-1 shrink-0 cursor-grab touch-none active:cursor-grabbing"
-                          title="拖拽调整顺序"
-                          aria-label="拖拽调整分镜顺序"
-                          onClick={(e) => e.stopPropagation()}
-                          {...attributes}
-                          {...listeners}
-                        >
-                          <GripVertical size={16} />
-                        </button>
-                        {/* 大缩略图 16:9 */}
-                        <div className="bg-secondary relative aspect-video w-32 shrink-0 overflow-hidden rounded-md">
-                          {/* 三状态角标：生成中 / 完成 / 失败 */}
-                          <SceneStatusBadge
-                            status={scene.imageStatus}
-                            hasImage={!!scene.imageUrl}
-                            videoStatus={scene.videoStatus}
-                            audioStatus={scene.audioStatus}
-                          />
-                          {/* 左上角序号 */}
-                          <span className="bg-background/70 absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium backdrop-blur-sm">
-                            #{index + 1}
-                          </span>
-                          {/* 左下角景别 + 时长 */}
-                          <div className="absolute bottom-1 left-1 z-10 flex items-center gap-1">
-                            <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
-                              {scene.shotType || "中景"}
-                            </span>
-                            <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
-                              {scene.duration}s
-                            </span>
-                          </div>
-                          {/* 图像内容 */}
-                          <div className="flex h-full w-full items-center justify-center">
-                            {scene.imageStatus === "PROCESSING" ? (
-                              <div className="bg-secondary h-full w-full animate-pulse" />
-                            ) : scene.imageStatus === "FAILED" &&
-                              !scene.imageUrl ? (
-                              <AlertCircle
-                                size={22}
-                                className="text-destructive"
-                              />
-                            ) : scene.imageUrl ? (
-                              <img
-                                src={scene.imageUrl}
-                                alt=""
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <ImageIcon
-                                size={22}
-                                className="text-muted-foreground"
-                              />
-                            )}
-                          </div>
-                        </div>
-                        {/* 右侧描述 + 标签 chips */}
-                        <div className="min-w-0 flex-1">
-                          <p className="text-foreground line-clamp-3 text-sm">
-                            {scene.description}
-                          </p>
-                          {scene.emotion && (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              <span className="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-[10px] leading-none">
-                                #{scene.emotion}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Expanded Content */}
-                      {expandedScenes.has(scene.id) && (
-                        <div className="border-border space-y-2 border-t px-3 pt-3 pb-3">
-                          <div className="flex items-start gap-2 text-sm">
-                            <User
-                              size={14}
-                              className="text-muted-foreground mt-1"
-                            />
-                            <span className="text-muted-foreground mt-0.5">
-                              角色:
-                            </span>
-                            {project.characters.length > 0 ? (
-                              <div className="flex flex-wrap gap-1.5">
-                                {project.characters.map(({ character }) => {
-                                  const isSelected =
-                                    scene.selectedCharacterIds?.includes(
-                                      character.id
-                                    );
-                                  return (
-                                    <button
-                                      key={character.id}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const currentIds =
-                                          scene.selectedCharacterIds || [];
-                                        const newIds = isSelected
-                                          ? currentIds.filter(
-                                              (id: string) =>
-                                                id !== character.id
-                                            )
-                                          : [...currentIds, character.id];
-                                        updateScene(scene.id, {
-                                          selectedCharacterIds: newIds,
-                                        });
-                                      }}
-                                      className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition ${
-                                        isSelected
-                                          ? "bg-agent text-agent-foreground"
-                                          : "bg-secondary text-foreground hover:bg-secondary/80"
-                                      }`}
-                                    >
-                                      {character.referenceImages?.[0] && (
-                                        <img
-                                          src={character.referenceImages[0]}
-                                          alt=""
-                                          className="h-5 w-5 rounded-full object-cover"
-                                        />
-                                      )}
-                                      {character.name}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">
-                                请先
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onManageCharacters();
-                                  }}
-                                  className="text-primary mx-1 hover:underline"
-                                >
-                                  添加项目角色
-                                </button>
-                              </span>
-                            )}
-                          </div>
-                          {scene.dialogue && (
-                            <div className="text-sm">
-                              <span className="text-muted-foreground">
-                                对话:{" "}
-                              </span>
-                              <span className="text-foreground">
-                                {scene.dialogue}
-                              </span>
-                            </div>
-                          )}
-                          {scene.narration && (
-                            <div className="text-sm">
-                              <span className="text-muted-foreground">
-                                旁白:{" "}
-                              </span>
-                              <span className="text-foreground">
-                                {scene.narration}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-2 px-3 pb-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleSceneExpand(scene.id);
-                          }}
-                          className="hover:bg-secondary rounded p-1"
-                        >
-                          {expandedScenes.has(scene.id) ? (
-                            <ChevronUp size={14} />
-                          ) : (
-                            <ChevronDown size={14} />
-                          )}
-                        </button>
-                        {/* 三点菜单：复制 / 插入 / 删除 */}
-                        <div className="relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenMenuId(
-                                openMenuId === scene.id ? null : scene.id
-                              );
-                            }}
-                            className="hover:bg-secondary rounded p-1"
-                            title="更多操作"
-                          >
-                            <MoreVertical size={14} />
-                          </button>
-                          {openMenuId === scene.id && (
-                            <>
-                              {/* 点击外部关闭 */}
-                              <div
-                                className="fixed inset-0 z-10"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setOpenMenuId(null);
-                                }}
-                              />
-                              <div className="bg-card border-border absolute top-7 left-0 z-20 w-32 overflow-hidden rounded-lg border shadow-lg">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDuplicateScene(scene.id);
-                                  }}
-                                  className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
-                                >
-                                  <Copy size={13} />
-                                  复制分镜
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleInsertScene(scene.id);
-                                  }}
-                                  className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
-                                >
-                                  <Plus size={13} />
-                                  下方插入
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteScene(scene.id);
-                                  }}
-                                  className="text-destructive flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-red-500/10"
-                                >
-                                  <Trash2 size={13} />
-                                  删除分镜
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        <div className="flex-1" />
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            generateImageMutation.mutate({
-                              sceneId: scene.id,
-                              scene,
-                              imageConfigId: mediaConfig.image.selected,
-                            });
-                          }}
-                          disabled={
-                            scene.imageStatus === "PROCESSING" ||
-                            generateImageMutation.isPending
-                          }
-                          className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-                          title={
-                            scene.imageStatus === "FAILED"
-                              ? "图片生成失败，点击重试"
-                              : "生成图片"
-                          }
-                        >
-                          {scene.imageStatus === "PROCESSING" ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : scene.imageStatus === "FAILED" ? (
-                            <RotateCw size={14} className="text-destructive" />
-                          ) : (
-                            <ImageIcon size={14} />
-                          )}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            generateVideoMutation.mutate({
-                              sceneId: scene.id,
-                              scene,
-                              videoConfigId: mediaConfig.video.selected,
-                            });
-                          }}
-                          disabled={
-                            !scene.imageUrl ||
-                            scene.videoStatus === "PROCESSING" ||
-                            generateVideoMutation.isPending
-                          }
-                          className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-                          title={
-                            !scene.imageUrl
-                              ? "请先生成图片"
-                              : scene.videoStatus === "FAILED"
-                                ? "视频生成失败，点击重试"
-                                : "生成视频"
-                          }
-                        >
-                          {scene.videoStatus === "PROCESSING" ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : scene.videoStatus === "FAILED" ? (
-                            <RotateCw size={14} className="text-destructive" />
-                          ) : (
-                            <Video size={14} />
-                          )}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            generateAudioMutation.mutate({
-                              sceneId: scene.id,
-                              scene,
-                              ttsConfigId: mediaConfig.audio.selected,
-                            });
-                          }}
-                          disabled={
-                            (!scene.dialogue && !scene.narration) ||
-                            scene.audioStatus === "PROCESSING" ||
-                            generateAudioMutation.isPending
-                          }
-                          className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-                          title={
-                            !scene.dialogue && !scene.narration
-                              ? "没有对话或旁白"
-                              : scene.audioStatus === "FAILED"
-                                ? "配音生成失败，点击重试"
-                                : "生成配音"
-                          }
-                        >
-                          {scene.audioStatus === "PROCESSING" ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : scene.audioStatus === "FAILED" ? (
-                            <RotateCw size={14} className="text-destructive" />
-                          ) : (
-                            <Volume2 size={14} />
-                          )}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </SortableItem>
+                <SceneCard
+                  key={scene.id}
+                  scene={scene}
+                  index={index}
+                  isSelected={selectedSceneId === scene.id}
+                  isExpanded={expandedScenes.has(scene.id)}
+                  isMenuOpen={openMenuId === scene.id}
+                  viewMode={viewMode}
+                  characters={project.characters}
+                  onSelect={onSceneSelect}
+                  onToggleExpand={toggleSceneExpand}
+                  onMenuToggle={handleMenuToggle}
+                  onManageCharacters={onManageCharacters}
+                  onDuplicate={handleDuplicateScene}
+                  onInsert={handleInsertScene}
+                  onDelete={handleDeleteScene}
+                  onGenerateImage={handleGenerateImage}
+                  onGenerateVideo={handleGenerateVideo}
+                  onGenerateAudio={handleGenerateAudio}
+                  updateScene={updateScene}
+                  registerItemRef={registerItemRef}
+                />
               ))}
             </SortableContext>
           </DndContext>
         )}
       </div>
 
-      {/* Batch Actions */}
+      {/* Batch Actions — 三类批量统一走串行 batch mutation（逐张生成 + 成败
+          汇总 + 可停止）。此前底部是并行 forEach 瞬间打出 N 个同步请求：
+          易触发限流、无汇总，且与顶部串行「批量生成」语义割裂（ux-editor P1-5） */}
       {project.scenes.length > 0 && (
         <div className="border-border space-y-3 border-t p-4">
+          {batchProgress && (
+            <div className="bg-secondary/50 flex items-center justify-between rounded-lg px-3 py-2 text-xs">
+              <span className="text-muted-foreground flex items-center gap-2">
+                <Loader2 size={12} className="animate-spin" />
+                批量
+                {batchProgress.kind === "image"
+                  ? "图片"
+                  : batchProgress.kind === "video"
+                    ? "视频"
+                    : "配音"}
+                生成中 {batchProgress.done}/{batchProgress.total}
+              </span>
+              <button
+                onClick={onCancelBatch}
+                className="text-destructive hover:underline"
+                title="已发出的请求会继续完成，仅停止排队后续分镜"
+              >
+                停止后续
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <ModelSelector
               category="IMAGE"
@@ -700,17 +464,17 @@ function SceneListImpl({
             />
             <button
               onClick={() => {
-                project.scenes.forEach((scene) => {
-                  if (!scene.imageUrl && scene.imageStatus !== "PROCESSING") {
-                    generateImageMutation.mutate({
-                      sceneId: scene.id,
-                      scene,
-                      imageConfigId: mediaConfig.image.selected,
-                    });
-                  }
+                const targets = project.scenes.filter(
+                  (s) => !s.imageUrl && s.imageStatus !== "PROCESSING"
+                );
+                if (targets.length === 0 || !batchGenerateImagesMutation)
+                  return;
+                batchGenerateImagesMutation.mutate({
+                  scenes: targets,
+                  imageConfigId: mediaConfig.image.selected,
                 });
               }}
-              disabled={generateImageMutation.isPending}
+              disabled={anyBatchPending}
               className="bg-secondary hover:bg-secondary/80 flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
             >
               <ImageIcon size={16} />
@@ -733,21 +497,18 @@ function SceneListImpl({
             />
             <button
               onClick={() => {
-                project.scenes.forEach((scene) => {
-                  if (
-                    scene.imageUrl &&
-                    !scene.videoUrl &&
-                    scene.videoStatus !== "PROCESSING"
-                  ) {
-                    generateVideoMutation.mutate({
-                      sceneId: scene.id,
-                      scene,
-                      videoConfigId: mediaConfig.video.selected,
-                    });
-                  }
+                const targets = project.scenes.filter(
+                  (s) =>
+                    s.imageUrl && !s.videoUrl && s.videoStatus !== "PROCESSING"
+                );
+                if (targets.length === 0 || !batchGenerateVideosMutation)
+                  return;
+                batchGenerateVideosMutation.mutate({
+                  scenes: targets,
+                  videoConfigId: mediaConfig.video.selected,
                 });
               }}
-              disabled={generateVideoMutation.isPending}
+              disabled={anyBatchPending}
               className="bg-secondary hover:bg-secondary/80 flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
             >
               <Video size={16} />
@@ -770,21 +531,20 @@ function SceneListImpl({
             />
             <button
               onClick={() => {
-                project.scenes.forEach((scene) => {
-                  if (
-                    (scene.dialogue || scene.narration) &&
-                    !scene.audioUrl &&
-                    scene.audioStatus !== "PROCESSING"
-                  ) {
-                    generateAudioMutation.mutate({
-                      sceneId: scene.id,
-                      scene,
-                      ttsConfigId: mediaConfig.audio.selected,
-                    });
-                  }
+                const targets = project.scenes.filter(
+                  (s) =>
+                    (s.dialogue || s.narration) &&
+                    !s.audioUrl &&
+                    s.audioStatus !== "PROCESSING"
+                );
+                if (targets.length === 0 || !batchGenerateAudiosMutation)
+                  return;
+                batchGenerateAudiosMutation.mutate({
+                  scenes: targets,
+                  ttsConfigId: mediaConfig.audio.selected,
                 });
               }}
-              disabled={generateAudioMutation.isPending}
+              disabled={anyBatchPending}
               className="bg-secondary hover:bg-secondary/80 flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
             >
               <Volume2 size={16} />
@@ -798,95 +558,6 @@ function SceneListImpl({
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * 分镜缩略图三状态角标（对标 Boords/AI Storyboard pipeline 的 Queued/Generating/Ready）。
- * 叠在缩略图右上角，克制小巧，不喧宾夺主。
- */
-function SceneStatusBadge({
-  status,
-  hasImage,
-  videoStatus,
-  audioStatus,
-}: {
-  status?: string | null;
-  hasImage: boolean;
-  videoStatus?: string | null;
-  audioStatus?: string | null;
-}) {
-  // 右上角主角标：图像状态。FAILED 优先于 hasImage 判断——否则"有旧图但本次
-  // 生成失败"会被错误显示为"就绪"，误导用户以为图是最新成功结果。
-  let mainBadge: ReactNode = null;
-  if (status === "PROCESSING") {
-    mainBadge = (
-      <span className="bg-primary/90 text-primary-foreground flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-none">
-        <span className="bg-primary-foreground inline-block h-1.5 w-1.5 animate-pulse rounded-full" />
-        生成中
-      </span>
-    );
-  } else if (status === "FAILED" && hasImage) {
-    // 有旧图但本次失败：橙色"重试"，与"无图失败"的红色区分
-    mainBadge = (
-      <span className="rounded bg-amber-500/90 px-1 py-0.5 text-[10px] leading-none text-white">
-        失败·可重试
-      </span>
-    );
-  } else if (status === "FAILED") {
-    mainBadge = (
-      <span className="bg-destructive/90 rounded px-1 py-0.5 text-[10px] leading-none text-white">
-        失败
-      </span>
-    );
-  } else if (hasImage) {
-    mainBadge = (
-      <span className="flex items-center gap-1 rounded bg-green-600/90 px-1 py-0.5 text-[10px] leading-none text-white">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
-        就绪
-      </span>
-    );
-  }
-
-  // 右下角附属角标：视频/音频生成中（核心耗时操作，缩略图上给可见反馈，
-  // 避免用户分不清"在生成还是卡死"）。
-  const subBadges: ReactNode[] = [];
-  if (videoStatus === "PROCESSING") {
-    subBadges.push(
-      <span
-        key="v"
-        className="flex items-center gap-0.5 rounded bg-blue-600/90 px-1 py-0.5 text-[10px] leading-none text-white"
-      >
-        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-        视频中
-      </span>
-    );
-  }
-  if (audioStatus === "PROCESSING") {
-    subBadges.push(
-      <span
-        key="a"
-        className="flex items-center gap-0.5 rounded bg-purple-600/90 px-1 py-0.5 text-[10px] leading-none text-white"
-      >
-        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-        配音中
-      </span>
-    );
-  }
-
-  if (!mainBadge && subBadges.length === 0) return null;
-
-  return (
-    <>
-      {mainBadge && (
-        <span className="absolute top-1 right-1 z-10">{mainBadge}</span>
-      )}
-      {subBadges.length > 0 && (
-        <span className="absolute right-1 bottom-1 z-10 flex flex-col items-end gap-0.5">
-          {subBadges}
-        </span>
-      )}
-    </>
   );
 }
 

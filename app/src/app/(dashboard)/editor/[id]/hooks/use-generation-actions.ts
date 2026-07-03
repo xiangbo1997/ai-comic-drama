@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Scene, ProjectDetail } from "@/types";
 import { buildFinalPrompt } from "@/lib/prompt-builder";
@@ -121,6 +122,18 @@ function derivePromptInputs(scene: Scene, project: ProjectDetail | undefined) {
 
 export { generateSceneImage, derivePromptInputs };
 
+/** 批量生成进度（驱动底部按钮的 X/Y 显示与「停止后续」入口） */
+export interface BatchProgress {
+  kind: "image" | "video" | "audio";
+  done: number;
+  total: number;
+}
+
+interface BatchOutcome {
+  results: Array<{ sceneId: string; success: boolean; error?: string }>;
+  cancelled: boolean;
+}
+
 /**
  * 按场景时长就近映射到 provider 支持的 5/10/15 秒档。
  * 单张、多版本、workflow 三条路径统一走此函数，避免各自不同的时长逻辑
@@ -154,6 +167,173 @@ export function useGenerationActions(
         sc.id === sceneId ? { ...sc, ...patch } : sc
       ),
     });
+  };
+
+  // ============ 批量生成基础设施 ============
+  // 进度对外可见 + 可中途停止后续（当前已发出的同步请求无法中断，
+  // 服务端会继续完成该张；停止只保证不再排队后续分镜）。
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(
+    null
+  );
+  const batchCancelRef = useRef(false);
+  const cancelBatch = () => {
+    batchCancelRef.current = true;
+  };
+
+  // 批量运行期间拦截页面关闭/刷新：串行批量可能持续数分钟，
+  // 误触离开会让用户丢失进度感知（ux-editor P0-3）
+  const batchActive = batchProgress !== null;
+  useEffect(() => {
+    if (!batchActive) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [batchActive]);
+
+  /**
+   * 串行批量执行器（图/视/音共用）：逐张置 PROCESSING → 生成 → 写回结果，
+   * 收集成败列表供汇总 toast。底部按钮此前用并行 forEach 瞬间打出 N 个
+   * 同步请求（易限流且无汇总），与顶部串行 batch 语义割裂（ux-editor P1-5）。
+   */
+  const runBatch = async (
+    kind: BatchProgress["kind"],
+    scenes: Scene[],
+    opts: {
+      statusField: "imageStatus" | "videoStatus" | "audioStatus";
+      /** 执行单张生成，返回成功后要写回缓存的字段；失败抛错 */
+      run: (scene: Scene) => Promise<Partial<Scene>>;
+    }
+  ): Promise<BatchOutcome> => {
+    const results: BatchOutcome["results"] = [];
+    batchCancelRef.current = false;
+    setBatchProgress({ kind, done: 0, total: scenes.length });
+
+    for (const scene of scenes) {
+      if (batchCancelRef.current) break;
+      if (scene[opts.statusField] === "PROCESSING") {
+        setBatchProgress((prev) =>
+          prev ? { ...prev, done: prev.done + 1 } : prev
+        );
+        continue;
+      }
+      try {
+        await apiUpdateScene(projectId, scene.id, {
+          [opts.statusField]: "PROCESSING",
+        } as Partial<Scene>);
+        patchSceneInCache(scene.id, {
+          [opts.statusField]: "PROCESSING",
+        } as Partial<Scene>);
+
+        const patch = await opts.run(scene);
+        patchSceneInCache(scene.id, {
+          [opts.statusField]: "COMPLETED",
+          ...patch,
+        } as Partial<Scene>);
+        results.push({ sceneId: scene.id, success: true });
+      } catch (err) {
+        await apiUpdateScene(projectId, scene.id, {
+          [opts.statusField]: "FAILED",
+        } as Partial<Scene>);
+        patchSceneInCache(scene.id, {
+          [opts.statusField]: "FAILED",
+        } as Partial<Scene>);
+        results.push({
+          sceneId: scene.id,
+          success: false,
+          error: err instanceof Error ? err.message : "Unknown",
+        });
+      }
+      setBatchProgress((prev) =>
+        prev ? { ...prev, done: prev.done + 1 } : prev
+      );
+    }
+
+    return { results, cancelled: batchCancelRef.current };
+  };
+
+  // 批量结束的成败汇总：此前 results 无人消费，部分失败被完全吞掉，
+  // 用户导出时才发现缺图（ux-editor P1-4）
+  const summarizeBatch = (label: string, outcome: BatchOutcome) => {
+    const { results, cancelled } = outcome;
+    const ok = results.filter((r) => r.success).length;
+    const failed = results.length - ok;
+    if (cancelled) {
+      toast.info(`已停止批量${label}生成：完成 ${ok} 个，失败 ${failed} 个`);
+      return;
+    }
+    if (results.length === 0) return;
+    if (failed === 0) {
+      toast.success(`批量${label}生成完成：${results.length} 个分镜全部成功`);
+      return;
+    }
+    const fe = toFriendlyError(results.find((r) => !r.success)?.error, "");
+    toast.error(
+      `批量${label}生成完成：成功 ${ok} 个，失败 ${failed} 个` +
+        `${fe.message ? `（${fe.message}）` : ""}，失败分镜可在列表中单独重试`,
+      fe.cta
+    );
+  };
+
+  // 单次视频/配音生成请求（单张与批量共用，保证参数派生完全一致）
+  const requestVideo = async (scene: Scene, videoConfigId?: string) => {
+    // 复用图像端的派生：拿到与图像生成相同的 referenceImages
+    // 让 flow2api-video / Veo 能走 R2V / 首尾帧路由
+    const { referenceImages } = derivePromptInputs(scene, project);
+    const aspectRatio =
+      project?.aspectRatio === "9:16" ||
+      project?.aspectRatio === "16:9" ||
+      project?.aspectRatio === "1:1"
+        ? project.aspectRatio
+        : undefined;
+
+    const res = await fetch("/api/generate/video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        imageUrl: scene.imageUrl,
+        prompt: scene.description,
+        // 按场景时长就近映射到 provider 支持的 5/10/15s（15s 适配 Seedance 2.0 直出）
+        duration: nearestVideoDuration(scene.duration),
+        aspectRatio,
+        referenceImages,
+        projectId,
+        sceneId: scene.id,
+        videoConfigId,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(formatApiError(data, "视频生成失败"));
+    }
+    return res.json() as Promise<{ videoUrl?: string }>;
+  };
+
+  const requestAudio = async (scene: Scene, ttsConfigId?: string) => {
+    const text = scene.dialogue || scene.narration;
+    // 优先用场景所选角色的 characterId，由服务端查 Character.voiceId 解析音色；
+    // 找不到再走默认音色（保持原有行为）
+    const characterId =
+      scene.selectedCharacter?.id ?? scene.selectedCharacterId ?? undefined;
+
+    const res = await fetch("/api/generate/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        characterId,
+        speed: 1.0,
+        projectId,
+        sceneId: scene.id,
+        ttsConfigId,
+      }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(formatApiError(data, "配音生成失败"));
+    }
+    return res.json() as Promise<{ audioUrl?: string }>;
   };
 
   const generateImageMutation = useMutation({
@@ -217,38 +397,8 @@ export function useGenerationActions(
       await apiUpdateScene(projectId, sceneId, { videoStatus: "PROCESSING" });
       patchSceneInCache(sceneId, { videoStatus: "PROCESSING" });
 
-      // 复用图像端的派生：拿到与图像生成相同的 referenceImages
-      // 让 flow2api-video / Veo 能走 R2V / 首尾帧路由
-      const { referenceImages } = derivePromptInputs(scene, project);
-      const aspectRatio =
-        project?.aspectRatio === "9:16" ||
-        project?.aspectRatio === "16:9" ||
-        project?.aspectRatio === "1:1"
-          ? project.aspectRatio
-          : undefined;
-
-      const res = await fetch("/api/generate/video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageUrl: scene.imageUrl,
-          prompt: scene.description,
-          // 按场景时长就近映射到 provider 支持的 5/10/15s（15s 适配 Seedance 2.0 直出）
-          duration: nearestVideoDuration(scene.duration),
-          aspectRatio,
-          referenceImages,
-          projectId,
-          sceneId,
-          videoConfigId,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(formatApiError(data, "视频生成失败"));
-      }
       // 同步路径：服务端已把 videoUrl 落库并返回，onSuccess 精确写回缓存
-      return res.json() as Promise<{ videoUrl?: string }>;
+      return requestVideo(scene, videoConfigId);
     },
     onSuccess: (result, { sceneId }) =>
       patchSceneInCache(sceneId, {
@@ -281,30 +431,8 @@ export function useGenerationActions(
       await apiUpdateScene(projectId, sceneId, { audioStatus: "PROCESSING" });
       patchSceneInCache(sceneId, { audioStatus: "PROCESSING" });
 
-      // 优先用场景所选角色的 characterId，由服务端查 Character.voiceId 解析音色；
-      // 找不到再走默认音色（保持原有行为）
-      const characterId =
-        scene.selectedCharacter?.id ?? scene.selectedCharacterId ?? undefined;
-
-      const res = await fetch("/api/generate/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text,
-          characterId,
-          speed: 1.0,
-          projectId,
-          sceneId,
-          ttsConfigId,
-        }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(formatApiError(data, "配音生成失败"));
-      }
       // 同步路径：服务端已把 audioUrl 落库并返回，onSuccess 精确写回缓存
-      return res.json() as Promise<{ audioUrl?: string }>;
+      return requestAudio(scene, ttsConfigId);
     },
     onSuccess: (result, { sceneId }) =>
       patchSceneInCache(sceneId, {
@@ -320,32 +448,18 @@ export function useGenerationActions(
   });
 
   const batchGenerateImagesMutation = useMutation({
-    mutationFn: async ({
+    mutationFn: ({
       scenes,
       imageConfigId,
     }: {
       scenes: Scene[];
       imageConfigId?: string;
-    }) => {
-      const results: Array<{
-        sceneId: string;
-        success: boolean;
-        error?: string;
-      }> = [];
-
-      for (const scene of scenes) {
-        if (scene.imageStatus === "PROCESSING") continue;
-
-        try {
-          await apiUpdateScene(projectId, scene.id, {
-            imageStatus: "PROCESSING",
-          });
-          // 精确更新该 scene 状态（实时显示"生成中"），不整 project 重拉
-          patchSceneInCache(scene.id, { imageStatus: "PROCESSING" });
-
+    }) =>
+      runBatch("image", scenes, {
+        statusField: "imageStatus",
+        run: async (scene) => {
           const { prompt, negativePrompt, referenceImage, referenceImages } =
             derivePromptInputs(scene, project);
-
           const result = await generateSceneImage(projectId, scene.id, prompt, {
             style: project?.style,
             imageConfigId,
@@ -353,43 +467,68 @@ export function useGenerationActions(
             referenceImage,
             referenceImages,
           });
-          // 精确写回生成结果（实时显示新图），不触发全量重渲染
-          patchSceneInCache(scene.id, {
-            imageStatus: "COMPLETED",
-            ...(result?.imageUrl ? { imageUrl: result.imageUrl } : {}),
-          });
-          results.push({ sceneId: scene.id, success: true });
-        } catch (err) {
-          await apiUpdateScene(projectId, scene.id, { imageStatus: "FAILED" });
-          patchSceneInCache(scene.id, { imageStatus: "FAILED" });
-          results.push({
-            sceneId: scene.id,
-            success: false,
-            error: err instanceof Error ? err.message : "Unknown",
-          });
-        }
-      }
-
-      return results;
-    },
-    // 批量结束给出成败汇总：此前 mutationFn 精心构造的 results 无人消费，
-    // 部分失败被完全吞掉，用户导出时才发现缺图（ux-editor P1-4）
-    onSuccess: (results) => {
-      if (results.length === 0) return;
-      const failed = results.filter((r) => !r.success);
-      if (failed.length === 0) {
-        toast.success(`批量生成完成：${results.length} 个分镜全部成功`);
-        return;
-      }
-      const fe = toFriendlyError(failed[0].error, "");
-      toast.error(
-        `批量生成完成：成功 ${results.length - failed.length} 个，失败 ${failed.length} 个` +
-          `${fe.message ? `（${fe.message}）` : ""}，失败分镜可在列表中单独重试`,
-        fe.cta
-      );
-    },
+          return (
+            result?.imageUrl ? { imageUrl: result.imageUrl } : {}
+          ) as Partial<Scene>;
+        },
+      }),
+    onSuccess: (outcome) => summarizeBatch("图片", outcome),
     // 循环内已精确更新各 scene，结束时一次最终对账（拉权威数据）
-    onSettled: invalidateProject,
+    onSettled: () => {
+      setBatchProgress(null);
+      invalidateProject();
+    },
+  });
+
+  const batchGenerateVideosMutation = useMutation({
+    mutationFn: ({
+      scenes,
+      videoConfigId,
+    }: {
+      scenes: Scene[];
+      videoConfigId?: string;
+    }) =>
+      runBatch("video", scenes, {
+        statusField: "videoStatus",
+        run: async (scene) => {
+          if (!scene.imageUrl) throw new Error("请先生成图片");
+          const data = await requestVideo(scene, videoConfigId);
+          return (
+            data?.videoUrl ? { videoUrl: data.videoUrl } : {}
+          ) as Partial<Scene>;
+        },
+      }),
+    onSuccess: (outcome) => summarizeBatch("视频", outcome),
+    onSettled: () => {
+      setBatchProgress(null);
+      invalidateProject();
+    },
+  });
+
+  const batchGenerateAudiosMutation = useMutation({
+    mutationFn: ({
+      scenes,
+      ttsConfigId,
+    }: {
+      scenes: Scene[];
+      ttsConfigId?: string;
+    }) =>
+      runBatch("audio", scenes, {
+        statusField: "audioStatus",
+        run: async (scene) => {
+          if (!scene.dialogue && !scene.narration)
+            throw new Error("没有对话或旁白内容");
+          const data = await requestAudio(scene, ttsConfigId);
+          return (
+            data?.audioUrl ? { audioUrl: data.audioUrl } : {}
+          ) as Partial<Scene>;
+        },
+      }),
+    onSuccess: (outcome) => summarizeBatch("配音", outcome),
+    onSettled: () => {
+      setBatchProgress(null);
+      invalidateProject();
+    },
   });
 
   return {
@@ -397,6 +536,10 @@ export function useGenerationActions(
     generateVideoMutation,
     generateAudioMutation,
     batchGenerateImagesMutation,
+    batchGenerateVideosMutation,
+    batchGenerateAudiosMutation,
+    batchProgress,
+    cancelBatch,
     invalidateProject,
   };
 }

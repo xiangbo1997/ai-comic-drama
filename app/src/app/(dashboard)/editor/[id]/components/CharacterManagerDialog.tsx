@@ -30,7 +30,11 @@ export function CharacterManagerDialog({
       <div className="bg-card flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl">
         <div className="border-border flex items-center justify-between border-b p-4">
           <h3 className="text-lg font-semibold">管理项目角色</h3>
-          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
+          <button
+            onClick={onClose}
+            className="hover:bg-secondary rounded p-1"
+            aria-label="关闭"
+          >
             <X size={20} />
           </button>
         </div>

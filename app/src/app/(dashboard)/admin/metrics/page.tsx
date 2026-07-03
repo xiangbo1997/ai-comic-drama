@@ -14,15 +14,6 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-interface QueueStats {
-  name: string;
-  waiting: number;
-  active: number;
-  completed: number;
-  failed: number;
-  delayed: number;
-}
-
 interface RecentWorkflow {
   id: string;
   projectId: string;
@@ -42,7 +33,6 @@ interface TaskStat {
 }
 
 interface MetricsResponse {
-  queues: QueueStats[];
   recentWorkflows: RecentWorkflow[];
   taskStats: TaskStat[];
   generatedAt: string;
@@ -97,33 +87,8 @@ export default function AdminMetricsPage() {
         </div>
       </header>
 
-      <section>
-        <h2 className="mb-3 text-lg font-medium">任务队列</h2>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {data?.queues.map((q) => (
-            <div key={q.name} className="bg-card rounded-lg border p-4">
-              <div className="mb-2 text-sm font-medium capitalize">
-                {q.name} 队列
-              </div>
-              <dl className="grid grid-cols-2 gap-y-1 text-xs">
-                <dt className="text-muted-foreground">等待</dt>
-                <dd className="text-right tabular-nums">{q.waiting}</dd>
-                <dt className="text-muted-foreground">运行中</dt>
-                <dd className="text-right tabular-nums">{q.active}</dd>
-                <dt className="text-muted-foreground">完成</dt>
-                <dd className="text-right tabular-nums">{q.completed}</dd>
-                <dt className="text-muted-foreground text-destructive">失败</dt>
-                <dd className="text-destructive text-right tabular-nums">
-                  {q.failed}
-                </dd>
-                <dt className="text-muted-foreground">延迟</dt>
-                <dd className="text-right tabular-nums">{q.delayed}</dd>
-              </dl>
-            </div>
-          ))}
-        </div>
-      </section>
-
+      {/* 原「任务队列」区块已随 BullMQ 死代码移除：生产从未走队列，
+          计数恒为 0 只会让管理员误判系统空闲 */}
       <section>
         <h2 className="mb-3 text-lg font-medium">近 7 天生成统计</h2>
         <div className="overflow-hidden rounded-lg border">

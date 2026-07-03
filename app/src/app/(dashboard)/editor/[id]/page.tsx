@@ -10,7 +10,7 @@ import { StickerDialog } from "./components/StickerDialog";
 import { TransitionDialog } from "./components/TransitionDialog";
 import { SceneEffectDialog } from "./components/SceneEffectDialog";
 import Link from "next/link";
-import { Loader2, X } from "lucide-react";
+import { X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
 import { PreviewPlayer } from "@/components/preview-player";
 import { MultiGenerateDialog } from "@/components/ai-models";
@@ -22,6 +22,7 @@ import {
   nearestVideoDuration,
 } from "./hooks/use-generation-actions";
 import { EditorHeader } from "./components/EditorHeader";
+import { PipelineProgress } from "./components/PipelineProgress";
 import { ScriptPanel } from "./components/ScriptPanel";
 import { DramaScriptPanel } from "./components/DramaScriptPanel";
 import { SceneList } from "./components/SceneList";
@@ -32,6 +33,7 @@ import { CharacterManagerDialog } from "./components/CharacterManagerDialog";
 import { WorkflowPanel } from "./components/WorkflowPanel";
 import { BgmDialog } from "./components/BgmDialog";
 import { useWorkflow } from "./hooks/use-workflow";
+import { EditorSkeleton } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
 
 export default function EditorPage() {
@@ -130,6 +132,9 @@ export default function EditorPage() {
       const { taskId, status, videoUrl } = await res.json();
 
       if (status === "completed" && videoUrl) {
+        // 不再自动 window.open：调用点在 await 之后已脱离用户手势调用栈，
+        // 弹窗拦截器几乎必拦，用户只会看到地址栏拦截图标却以为"已打开"。
+        // 下载入口收敛到导出弹窗内的显式「下载视频」按钮。
         setExportStatus({
           isExporting: false,
           taskId: null,
@@ -137,8 +142,6 @@ export default function EditorPage() {
           error: null,
           videoUrl,
         });
-        // 尝试自动打开；若被浏览器拦截，弹窗内仍有下载链接兜底
-        window.open(videoUrl, "_blank");
       } else {
         setExportStatus((prev) => ({ ...prev, taskId }));
         pollExportProgress(taskId);
@@ -168,6 +171,7 @@ export default function EditorPage() {
 
         if (data.status === "completed") {
           stopExportPoll();
+          // 同上：异步轮询回调里的 window.open 必被拦截，靠弹窗下载按钮兜底
           setExportStatus({
             isExporting: false,
             taskId: null,
@@ -175,8 +179,6 @@ export default function EditorPage() {
             error: null,
             videoUrl: data.videoUrl || null,
           });
-          // 尝试自动打开；被拦截时弹窗内有下载链接兜底，不再静默关闭
-          if (data.videoUrl) window.open(data.videoUrl, "_blank");
         } else if (data.status === "failed") {
           stopExportPoll();
           setExportStatus({
@@ -348,13 +350,10 @@ export default function EditorPage() {
     ]
   );
 
-  // Loading / Error states
+  // Loading / Error states：三栏骨架替代整屏白转圈，
+  // 新建项目跳转后的冷加载可感知布局（ux-onboarding P1-5）
   if (projectId === "new" || editor.isLoading) {
-    return (
-      <div className="bg-background flex min-h-screen items-center justify-center">
-        <Loader2 size={32} className="text-muted-foreground animate-spin" />
-      </div>
-    );
+    return <EditorSkeleton />;
   }
 
   if (editor.error || !editor.project) {
@@ -380,6 +379,7 @@ export default function EditorPage() {
         showTimeline={showTimeline}
         showSettings={showSettings}
         hasScenes={project.scenes.length > 0}
+        canExport={project.scenes.some((s) => s.imageUrl)}
         onTitleChange={editor.setTitle}
         onTitleSave={(t) => editor.updateTitleMutation.mutate(t)}
         onEditTitle={() => editor.setEditingTitle(true)}
@@ -389,6 +389,15 @@ export default function EditorPage() {
         onPreview={() => setShowPreviewDialog(true)}
         onExport={() => setShowExportDialog(true)}
       />
+
+      {/* 移动端明确提示：输入/编辑栏在 md 以下隐藏，此前是静默缺失——
+          手机用户看得到分镜却找不到创作入口（ux-onboarding P2-9） */}
+      <div className="border-border bg-primary/10 text-muted-foreground border-b px-4 py-2 text-center text-xs md:hidden">
+        编辑功能需要更大屏幕，请在桌面端打开以获得完整创作体验
+      </div>
+
+      {/* 管线进度总览条 */}
+      <PipelineProgress project={project} />
 
       {/* Settings Panel — Stage 3.8 抽出到独立组件 */}
       {showSettings && (
@@ -438,6 +447,10 @@ export default function EditorPage() {
           generateVideoMutation={generation.generateVideoMutation}
           generateAudioMutation={generation.generateAudioMutation}
           batchGenerateImagesMutation={generation.batchGenerateImagesMutation}
+          batchGenerateVideosMutation={generation.batchGenerateVideosMutation}
+          batchGenerateAudiosMutation={generation.batchGenerateAudiosMutation}
+          batchProgress={generation.batchProgress}
+          onCancelBatch={generation.cancelBatch}
           updateScene={handleUpdateSceneFromList}
           mediaConfig={mediaConfig}
           queryClient={editor.queryClient}

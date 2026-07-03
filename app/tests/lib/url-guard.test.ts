@@ -3,6 +3,7 @@ import {
   isPrivateOrReservedIp,
   assertSafeUrl,
   assertSafeUrlLiteral,
+  safeDownload,
 } from "@/lib/url-guard";
 
 describe("isPrivateOrReservedIp", () => {
@@ -97,5 +98,29 @@ describe("assertSafeUrlLiteral（同步字面量校验，落库前第一道闸�
       assertSafeUrlLiteral("https://api.openai.com/v1")
     ).not.toThrow();
     expect(() => assertSafeUrlLiteral("https://8.8.8.8/")).not.toThrow();
+  });
+});
+
+describe("safeDownload（无网络的快速失败路径）", () => {
+  it("拒绝非法 URL 与非 http(s) 协议", async () => {
+    await expect(safeDownload("not a url")).rejects.toThrow(/非法 URL/);
+    await expect(safeDownload("file:///etc/passwd")).rejects.toThrow(
+      /不允许的协议/
+    );
+    await expect(safeDownload("gopher://example.com/")).rejects.toThrow(
+      /不允许的协议/
+    );
+  });
+
+  it("拒绝内网/云元数据 IP 字面量（不发起任何连接）", async () => {
+    await expect(safeDownload("http://127.0.0.1/x")).rejects.toThrow(
+      /内网|保留/
+    );
+    await expect(
+      safeDownload("http://169.254.169.254/latest/meta-data/")
+    ).rejects.toThrow(/内网|保留/);
+    await expect(safeDownload("https://192.168.1.10/a")).rejects.toThrow(
+      /内网|保留/
+    );
   });
 });

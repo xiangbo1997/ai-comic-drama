@@ -34,6 +34,26 @@ export async function GET(
       return NextResponse.json({ error: "Workflow 不存在" }, { status: 404 });
     }
 
+    // 惰性回收僵尸 run：workflow 是 fire-and-forget 挂在 web 进程上，
+    // 进程重启后 RUNNING/PENDING 无人改写，前端将永远显示"运行中"。
+    // 引擎每个步骤都会 update run 行（updatedAt 即活性锚），超过阈值
+    // 无任何步进即视为已死（与分镜/导出的僵尸回收同思路）。
+    const WORKFLOW_ZOMBIE_MS = 60 * 60 * 1000; // 1 小时
+    if (
+      (run.status === "RUNNING" || run.status === "PENDING") &&
+      Date.now() - run.updatedAt.getTime() > WORKFLOW_ZOMBIE_MS
+    ) {
+      await prisma.workflowRun.update({
+        where: { id },
+        data: {
+          status: "FAILED",
+          error: "任务已中断（服务重启或长时间无响应），请重新发起",
+          completedAt: new Date(),
+        },
+      });
+      log.warn(`Recycled zombie workflow run ${id}`);
+    }
+
     const status = await getWorkflowStatus(id);
     return NextResponse.json(status);
   } catch (error) {

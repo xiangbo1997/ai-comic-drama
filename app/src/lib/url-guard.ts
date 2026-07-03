@@ -16,6 +16,10 @@
 
 import { lookup } from "dns/promises";
 import net from "net";
+import { request as httpsRequest } from "https";
+import { request as httpRequest } from "http";
+import type { IncomingMessage } from "http";
+import type { LookupAddress } from "dns";
 
 /** 判断 IP 是否落在内网 / 保留段 / 云元数据地址。 */
 export function isPrivateOrReservedIp(ip: string): boolean {
@@ -99,4 +103,148 @@ export async function assertSafeUrl(rawUrl: string): Promise<void> {
       throw new Error(`域名 ${host} 解析到内网/保留地址: ${address}`);
     }
   }
+}
+
+/** 解析并校验 hostname 的全部地址；返回可用于钉连接的已校验地址列表 */
+async function resolveValidated(host: string): Promise<LookupAddress[]> {
+  const ipVersion = net.isIP(host);
+  if (ipVersion) {
+    if (isPrivateOrReservedIp(host)) {
+      throw new Error(`拒绝访问内网/保留地址: ${host}`);
+    }
+    return [{ address: host, family: ipVersion }];
+  }
+  const results = await lookup(host, { all: true });
+  if (results.length === 0) {
+    throw new Error(`域名无法解析: ${host}`);
+  }
+  for (const { address } of results) {
+    if (isPrivateOrReservedIp(address)) {
+      throw new Error(`域名 ${host} 解析到内网/保留地址: ${address}`);
+    }
+  }
+  return results;
+}
+
+const SAFE_DOWNLOAD_MAX_REDIRECTS = 5;
+const SAFE_DOWNLOAD_MAX_BYTES = 200 * 1024 * 1024; // 200MB（视频素材上限）
+const SAFE_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+export interface SafeDownloadResult {
+  status: number;
+  contentType?: string;
+  buffer: Buffer;
+}
+
+/**
+ * 钉 IP 安全下载（防 SSRF TOCTOU 与重定向绕过）。
+ *
+ * assertSafeUrl + fetch 的组合存在两个残余缺口：
+ * 1. TOCTOU：校验时解析一次 DNS、fetch 时又解析一次——攻击者可让域名在
+ *    两次解析之间翻转到内网地址（DNS rebinding 竞态）。
+ * 2. 重定向绕过：fetch 默认自动跟随 302，跳转目标不再经过任何校验，
+ *    外部服务器可 302 到 http://169.254.169.254。
+ *
+ * 本函数用 node:http(s) 自定义 `lookup`：连接期直接返回「校验通过的那次
+ * 解析结果」，检查与连接使用同一地址（消除窗口）；TLS 的 SNI/证书校验仍
+ * 按原 hostname 进行。重定向手动跟随，每一跳重新校验 + 重新钉 IP。
+ *
+ * 注：AI provider 调用链（SDK 内部 fetch）暂无法钉 IP，仍依赖
+ * assertSafeUrl 的解析时校验，属已知残余面（见 CLAUDE.md 记录）。
+ */
+export async function safeDownload(
+  rawUrl: string,
+  opts?: { maxBytes?: number; timeoutMs?: number }
+): Promise<SafeDownloadResult> {
+  const maxBytes = opts?.maxBytes ?? SAFE_DOWNLOAD_MAX_BYTES;
+  const timeoutMs = opts?.timeoutMs ?? SAFE_DOWNLOAD_TIMEOUT_MS;
+
+  let current = rawUrl;
+  for (let hop = 0; hop <= SAFE_DOWNLOAD_MAX_REDIRECTS; hop++) {
+    let parsed: URL;
+    try {
+      parsed = new URL(current);
+    } catch {
+      throw new Error(`非法 URL: ${current}`);
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error(`不允许的协议: ${parsed.protocol}`);
+    }
+    const pinnedAll = await resolveValidated(parsed.hostname);
+    const pinned = pinnedAll[0];
+
+    // Node 的 LookupFunction 回调签名随 options.all 变化（(err, addr, family)
+    // 或 (err, addresses[])），类型上是重载联合，此处用受控断言适配两种形态
+    const pinnedLookup = ((_hostname, options, callback) => {
+      if (typeof options === "object" && options.all) {
+        (
+          callback as unknown as (
+            err: NodeJS.ErrnoException | null,
+            addresses: LookupAddress[]
+          ) => void
+        )(null, [pinned]);
+      } else {
+        (
+          callback as unknown as (
+            err: NodeJS.ErrnoException | null,
+            address: string,
+            family: number
+          ) => void
+        )(null, pinned.address, pinned.family);
+      }
+    }) as net.LookupFunction;
+
+    const res = await new Promise<IncomingMessage>((resolve, reject) => {
+      const requester =
+        parsed.protocol === "https:" ? httpsRequest : httpRequest;
+      const req = requester(
+        {
+          hostname: parsed.hostname,
+          port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+          path: `${parsed.pathname}${parsed.search}`,
+          method: "GET",
+          lookup: pinnedLookup,
+          timeout: timeoutMs,
+        },
+        resolve
+      );
+      req.on("error", reject);
+      req.on("timeout", () => req.destroy(new Error(`下载超时: ${current}`)));
+      req.end();
+    });
+
+    const status = res.statusCode ?? 0;
+    if (status >= 300 && status < 400 && res.headers.location) {
+      res.resume(); // 丢弃当前 body，跟随重定向（下一轮重新校验+钉 IP）
+      current = new URL(res.headers.location, current).toString();
+      continue;
+    }
+    if (status < 200 || status >= 300) {
+      res.resume();
+      throw new Error(`下载失败 (HTTP ${status}): ${current}`);
+    }
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+    await new Promise<void>((resolve, reject) => {
+      res.on("data", (chunk: Buffer) => {
+        total += chunk.length;
+        if (total > maxBytes) {
+          res.destroy();
+          reject(new Error(`文件超过大小上限 ${maxBytes} 字节: ${current}`));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", resolve);
+      res.on("error", reject);
+    });
+
+    return {
+      status,
+      contentType: res.headers["content-type"],
+      buffer: Buffer.concat(chunks),
+    };
+  }
+  throw new Error(`重定向次数超限: ${rawUrl}`);
 }

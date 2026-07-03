@@ -48,7 +48,11 @@ export function ExportDialog({
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold">导出视频</h2>
-          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
+          <button
+            onClick={onClose}
+            className="hover:bg-secondary rounded p-1"
+            aria-label="关闭"
+          >
             <X size={20} />
           </button>
         </div>

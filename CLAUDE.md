@@ -33,7 +33,6 @@ pnpm ci               # Full CI: type-check + lint + format:check + test + build
 - **State**: TanStack React Query v5 (server) + Zustand v5 (client)
 - **Auth**: NextAuth.js v5 (beta)
 - **DB**: PostgreSQL via Prisma v7 (with `@prisma/adapter-pg`)
-- **Queue**: BullMQ (Redis, prod) / InMemoryQueue (dev/serverless)
 - **Storage**: Cloudflare R2 (S3-compatible)
 - **AI providers**: DeepSeek, OpenAI, Claude, Gemini, Grok (LLM); Replicate, Fal.ai, SiliconFlow (image); Runway (video); Volcengine, ElevenLabs (TTS)
 
@@ -52,7 +51,6 @@ pnpm ci               # Full CI: type-check + lint + format:check + test + build
 | `ai/` (dir) | Unified AI facade (`ai/index.ts`): `chatCompletion()`, `generateImage()`, `generateVideo()`, `synthesizeSpeech()`. Multi-protocol dispatch via `ai/provider-factory.ts` + `ai/providers/*` (OpenAI-compat, Claude, Gemini, Fal.ai, Replicate, etc.). 注：原单文件 `ai.ts` 已重构为目录 |
 | `script.ts` / `drama-script.ts` | LLM-based script parsing (text → storyboard JSON) and image prompt generation |
 | `agents/` (dir) | Plan-and-Execute Workflow 引擎（`workflow-engine.ts` 等，7 步管线 + 一致性闭环） |
-| `queue.ts` / `queue-workers.ts` | Dual-mode job queue (InMemory/BullMQ) + 各类任务处理器 |
 | `storage.ts` | Cloudflare R2 / 本地盘降级 upload/download/delete |
 | `payment.ts` | WeChat Pay, Alipay, Stripe integration |
 | `video-synthesis.ts` | Final video assembly (FFmpeg) |
@@ -86,18 +84,17 @@ Schema at `app/prisma/schema.prisma`.
 
 ```
 Browser → Next.js App Router → API Routes
-  → Services (ai/, script.ts, queue.ts, storage.ts, agents/)
+  → Services (ai/, script.ts, storage.ts, agents/)
     → lib/ai-config.ts (decrypt user AI configs)
     → lib/credits.ts (统一积分扣减/发放/退款入口)
     → Prisma ORM → PostgreSQL
-    → Job Queue (InMemory | BullMQ/Redis)
     → External AI APIs
     → Cloudflare R2 / 本地盘降级
 ```
 
 ## Key Patterns
 
-- **Dual queue mode**: `InMemoryQueue` for dev/serverless, `BullMQ` for production with Redis. Controlled by `REDIS_URL` env presence.
+- **同步生成 + 任务轮询**：所有 AI 生成是同步 await（声明 `maxDuration` 兜底）；长任务（剧本解析/三视图）走 `GenerationTask` 落库 + 客户端轮询。原 BullMQ/InMemory 双模队列从未在生产使用，已作为死代码删除（2026-07-04）——如需真正队列化，从 git 历史找回或直接按 task 模式扩展。
 - **Multi-protocol AI dispatch**: `ai/index.ts` + `ai/provider-factory.ts` route calls based on provider protocol field (`openai`, `claude`, `gemini`, `grok`, `replicate`, `fal`, `siliconflow`, `proxy-unified`).
 - **积分扣减收口**：所有扣费/发放/退款必须经 `lib/credits.ts`（`chargeCredits` / `grantCredits` / `refundCredits`），保证事务 + 流水 + 余额校验 + 幂等。禁止裸 `prisma.user.update({ credits })`。
 - **出站 fetch SSRF 防护**：服务端 fetch 用户可影响的 URL 前须 `lib/url-guard.ts` 的 `assertSafeUrl()`。
@@ -120,7 +117,7 @@ pnpm dev                           # 启动开发服务器
 `.env.local` 必填最小集：`DATABASE_URL`、`NEXTAUTH_SECRET`、`ENCRYPTION_KEY`（64-char hex），以及至少一个 AI provider key（如 `DEEPSEEK_API_KEY`）。
 
 隐式降级行为（无需额外配置即可本地跑通）：
-- 不配 `REDIS_URL` → 队列走 InMemory（进程重启即丢）、限流走内存（多实例不同步）。
+- 不配 `REDIS_URL` → 限流走内存（多实例不同步）。
 - 不配 R2（`R2_ENDPOINT` 等）→ 文件落本地盘 `public/uploads`（见 `LOCAL_STORAGE_*`）。
 - 不配 Langfuse → 可观测性变 no-op，不影响功能。
 

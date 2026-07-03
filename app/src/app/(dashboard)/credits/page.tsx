@@ -766,6 +766,7 @@ export default function CreditsPage() {
               <button
                 onClick={handleCloseModal}
                 className="text-muted-foreground hover:text-foreground"
+                aria-label="关闭"
               >
                 <X size={24} />
               </button>

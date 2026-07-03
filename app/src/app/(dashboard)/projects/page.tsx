@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { ProjectListItem } from "@/types";
+import { CardGridSkeleton, ErrorState } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
 
 const statusMap = {
@@ -53,6 +55,10 @@ export default function ProjectsPage() {
   } = useQuery({
     queryKey: ["projects"],
     queryFn: fetchProjects,
+    // 有项目在生成中时轻量轮询：此前列表页不自动刷新，"生成中"看起来
+    // 与已完成一样静止（ux-onboarding P2-10）
+    refetchInterval: (query) =>
+      query.state.data?.some((p) => p.status === "PROCESSING") ? 8000 : false,
   });
 
   const createMutation = useMutation({
@@ -114,26 +120,16 @@ export default function ProjectsPage() {
         </button>
       </div>
 
-      {/* Loading State */}
-      {isLoading && (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 size={32} className="text-muted-foreground animate-spin" />
-        </div>
-      )}
+      {/* Loading State：骨架卡片替代孤零转圈（ux-onboarding P1-5） */}
+      {isLoading && <CardGridSkeleton count={4} />}
 
       {/* Error State */}
       {error && (
-        <div className="py-20 text-center">
-          <p className="text-destructive mb-4">加载失败，请重试</p>
-          <button
-            onClick={() =>
-              queryClient.invalidateQueries({ queryKey: ["projects"] })
-            }
-            className="border-border text-foreground hover:bg-secondary rounded-lg border px-4 py-2 transition"
-          >
-            重新加载
-          </button>
-        </div>
+        <ErrorState
+          onRetry={() =>
+            queryClient.invalidateQueries({ queryKey: ["projects"] })
+          }
+        />
       )}
 
       {/* Empty State */}
@@ -206,14 +202,25 @@ export default function ProjectsPage() {
               href={`/editor/${project.id}`}
               className="group border-border bg-card hover:ring-primary relative overflow-hidden rounded-xl border transition hover:ring-2"
             >
-              {/* Thumbnail */}
+              {/* Thumbnail：同源 URL（本地盘 /uploads）走 next/image 自动压缩
+                  缩略图尺寸；外链（R2 等未配置 remotePatterns）回退原生 img */}
               <div className="bg-secondary relative flex aspect-video items-center justify-center">
                 {project.thumbnail ? (
-                  <img
-                    src={project.thumbnail}
-                    alt={project.title}
-                    className="h-full w-full object-cover"
-                  />
+                  project.thumbnail.startsWith("/") ? (
+                    <Image
+                      src={project.thumbnail}
+                      alt={project.title}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 25vw"
+                      className="object-cover"
+                    />
+                  ) : (
+                    <img
+                      src={project.thumbnail}
+                      alt={project.title}
+                      className="h-full w-full object-cover"
+                    />
+                  )
                 ) : (
                   <span className="text-4xl opacity-60">🎬</span>
                 )}
@@ -240,10 +247,15 @@ export default function ProjectsPage() {
                     {project.title}
                   </h3>
                   <span
-                    className={`shrink-0 rounded px-2 py-0.5 text-xs ${
+                    className={`flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-xs ${
                       statusMap[project.status].color
                     }`}
                   >
+                    {/* 生成中加旋转指示：静态色块看不出"后台在跑"，
+                        且纯色差对色觉障碍不友好（ux-onboarding P2-10） */}
+                    {project.status === "PROCESSING" && (
+                      <Loader2 size={10} className="animate-spin" />
+                    )}
                     {statusMap[project.status].label}
                   </span>
                 </div>

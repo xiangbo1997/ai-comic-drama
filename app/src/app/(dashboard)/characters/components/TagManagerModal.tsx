@@ -71,6 +71,7 @@ export function TagManagerModal({
           <button
             onClick={handleClose}
             className="hover:bg-secondary rounded p-1"
+            aria-label="关闭"
           >
             <X size={20} />
           </button>
@@ -203,6 +204,7 @@ export function TagManagerModal({
                             }
                             disabled={updateTagMutation.isPending}
                             className="rounded p-1 hover:bg-green-600"
+                            aria-label="保存标签"
                           >
                             {updateTagMutation.isPending ? (
                               <Loader2 size={14} className="animate-spin" />
@@ -220,6 +222,7 @@ export function TagManagerModal({
                               });
                             }}
                             className="hover:bg-secondary/80 rounded p-1"
+                            aria-label="取消编辑"
                           >
                             <X size={14} />
                           </button>
@@ -247,6 +250,7 @@ export function TagManagerModal({
                                   });
                                 }}
                                 className="hover:bg-secondary/80 rounded p-1 opacity-50 hover:opacity-100"
+                                aria-label="编辑标签"
                               >
                                 <Edit2 size={14} />
                               </button>
@@ -261,6 +265,7 @@ export function TagManagerModal({
                                 }}
                                 disabled={deleteTagMutation.isPending}
                                 className="rounded p-1 opacity-50 hover:bg-red-600 hover:opacity-100"
+                                aria-label="删除标签"
                               >
                                 {deleteTagMutation.isPending ? (
                                   <Loader2 size={14} className="animate-spin" />

@@ -40,6 +40,7 @@ export function UserMenu() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 transition hover:opacity-80"
+        aria-label="用户菜单"
       >
         {session.user.image ? (
           <img

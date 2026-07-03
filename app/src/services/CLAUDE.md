@@ -13,7 +13,6 @@
 | `ai/`                | 多协议 AI 门面（LLM / Image / Video / TTS）       | [ai/CLAUDE.md](./ai/CLAUDE.md)                 |
 | `agents/`            | Agent 管线引擎（Plan-and-Execute，7 步 Workflow） | [agents/CLAUDE.md](./agents/CLAUDE.md)         |
 | `generation/`        | 图像生成编排器（策略 + 人脸一致性 + 重试）        | [generation/CLAUDE.md](./generation/CLAUDE.md) |
-| `queue.ts`           | 双模任务队列：BullMQ（Redis）/ InMemoryQueue      | —                                              |
 | `script.ts`          | 剧本解析（直接走 LLM + 可选 ScriptParserAgent）   | —                                              |
 | `storage.ts`         | Cloudflare R2 / S3 文件上传、签名 URL             | —                                              |
 | `payment.ts`         | 微信支付 / 支付宝 / Stripe                        | —                                              |
@@ -33,7 +32,6 @@ graph LR
     API[API Routes] --> AI[services/ai]
     API --> AGENTS[services/agents]
     API --> GEN[services/generation]
-    API --> QUEUE[services/queue]
     API --> SCRIPT[services/script]
     API --> STORE[services/storage]
     API --> PAY[services/payment]
@@ -46,16 +44,7 @@ graph LR
     AI --> EXT[外部 AI Provider]
     STORE --> R2[(Cloudflare R2)]
     PAY --> PAYPROV[WeChat/Alipay/Stripe]
-    QUEUE --> REDIS[(Redis / 内存)]
 ```
-
-## queue.ts 关键速览
-
-- **双模**：`process.env.REDIS_URL` 存在则用 `BullMQQueue`，否则 `InMemoryQueue`
-- **预置队列**：`generationQueue`（并发 3，超时 10 分钟） + `exportQueue`（并发 1，超时 30 分钟）
-- **入队 API**：`addImageGenerationJob` / `addVideoGenerationJob` / `addAudioGenerationJob` / `addExportJob`
-- **任务类型**：`image:generate | video:generate | audio:generate | export:video | content:check`
-- **内存队列能力**：`concurrency / maxRetries / retryDelay / timeout`，重试失败进入 `failed` 状态
 
 ## script.ts 关键速览
 
@@ -85,7 +74,7 @@ graph LR
 
 ## 常见坑
 
-- **环境变量缺失**：`R2_*` 未配置时 `storage.ts` 上传会静默失败；`REDIS_URL` 未配置时自动降级内存队列（**Serverless 冷启动会丢失队列**）。
+- **环境变量缺失**：`R2_*` 未配置时 `storage.ts` 落本地盘 `public/uploads`。注：原 BullMQ/InMemory 双模队列已删除（2026-07-04，生产从未使用），生成均为同步路径 + GenerationTask 轮询。
 - **AI 配置降级**：图像生成在用户配置失败时，若 `REPLICATE_API_TOKEN` 存在会自动 fallback（见 `ai/index.ts#shouldFallbackToEnvReplicate`）。
 - **FFmpeg 未安装**：`video-synthesis.ts` 运行失败时要检查系统 FFmpeg 可用性。
 

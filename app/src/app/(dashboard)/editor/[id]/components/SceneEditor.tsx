@@ -22,6 +22,16 @@ const EMOTIONS: Emotion[] = [
   "surprised",
   "fear",
 ];
+// 展示用中文标签；value 保持英文枚举（落库/管线消费不变）。
+// 此前下拉直接渲染英文枚举，中文界面蹦 neutral/surprised（ux-editor P2-10）
+const EMOTION_LABELS: Record<Emotion, string> = {
+  neutral: "平静",
+  happy: "开心",
+  sad: "悲伤",
+  angry: "愤怒",
+  surprised: "惊讶",
+  fear: "恐惧",
+};
 
 interface SceneEditorProps {
   scene: Scene | undefined;
@@ -386,7 +396,7 @@ export function SceneEditor({
               >
                 {EMOTIONS.map((emotion) => (
                   <option key={emotion} value={emotion}>
-                    {emotion}
+                    {EMOTION_LABELS[emotion]}
                   </option>
                 ))}
               </select>
@@ -398,13 +408,14 @@ export function SceneEditor({
               <input
                 type="number"
                 min={1}
-                max={10}
+                max={15}
                 value={scene.duration}
                 onChange={(e) =>
                   onUpdateScene(scene.id, {
                     duration: parseInt(e.target.value) || 3,
                   })
                 }
+                title="生成视频时就近映射到 5 / 10 / 15 秒档"
                 className="bg-card w-full rounded-lg px-3 py-2 text-sm"
               />
             </div>

@@ -1,9 +1,22 @@
 "use client";
 
-import { Loader2, Wand2, Upload, X, Grid2x2 } from "lucide-react";
+import { useState } from "react";
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import { Coins, Loader2, Wand2, Upload, X, Grid2x2 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { CharacterListItem } from "@/types";
 import type { GenerateOptions } from "./constants";
+
+/** 上传参考图大小上限：过大 base64 会撑爆请求体导致模糊失败 */
+const MAX_UPLOAD_MB = 10;
+const THREE_VIEWS_COST = 9;
+
+async function fetchCredits(): Promise<{ credits: number }> {
+  const res = await fetch("/api/user/credits");
+  if (!res.ok) throw new Error("获取积分失败");
+  return res.json();
+}
 
 interface GenerateReferenceModalProps {
   characterId: string;
@@ -33,12 +46,39 @@ export function GenerateReferenceModal({
 }: GenerateReferenceModalProps) {
   const character = characters.find((c) => c.id === characterId);
   const hasImages = (character?.referenceImages?.length ?? 0) > 0;
+  const [readingImage, setReadingImage] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // 余额前置：此前只标单次消耗不显余额，用户连续生成到没钱才撞
+  // "积分不足"报错（ux-config P1-5）。与积分页共享 ["credits"] 缓存。
+  const { data: creditsData } = useQuery({
+    queryKey: ["credits"],
+    queryFn: fetchCredits,
+    staleTime: 30000,
+  });
+  const balance = creditsData?.credits;
+  const cost = generateOptions.source === "none" ? 3 : 5;
+  const insufficient = typeof balance === "number" && balance < cost;
+  const threeViewsInsufficient =
+    typeof balance === "number" && balance < THREE_VIEWS_COST;
 
   const handleImageUpload = (file: File) => {
+    setUploadError(null);
+    // 前置大小校验 + 读取 loading：大图读 base64 期间界面此前无任何反馈
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      setUploadError(`图片超过 ${MAX_UPLOAD_MB}MB，请压缩后再上传`);
+      return;
+    }
+    setReadingImage(true);
     const reader = new FileReader();
     reader.onload = (e) => {
       const base64 = e.target?.result as string;
       onOptionsChange({ ...generateOptions, uploadedImage: base64 });
+      setReadingImage(false);
+    };
+    reader.onerror = () => {
+      setReadingImage(false);
+      setUploadError("图片读取失败，请重试");
     };
     reader.readAsDataURL(file);
   };
@@ -48,12 +88,44 @@ export function GenerateReferenceModal({
       <div className="bg-card w-full max-w-md rounded-xl">
         <div className="border-border flex items-center justify-between border-b p-4">
           <h2 className="text-lg font-semibold">生成参考图</h2>
-          <button onClick={onClose} className="hover:bg-secondary rounded p-1">
+          <button
+            onClick={onClose}
+            className="hover:bg-secondary rounded p-1"
+            aria-label="关闭"
+          >
             <X size={20} />
           </button>
         </div>
 
         <div className="space-y-4 p-4">
+          {/* 余额前置显示：把"积分不足"拦在点击前 */}
+          <div className="bg-secondary/50 flex items-center justify-between rounded-lg px-3 py-2 text-sm">
+            <span className="text-muted-foreground flex items-center gap-1.5">
+              <Coins size={14} className="text-yellow-400" />
+              当前积分
+            </span>
+            <span
+              className={
+                insufficient
+                  ? "text-destructive font-medium"
+                  : "text-foreground font-medium"
+              }
+            >
+              {balance ?? "—"}
+              <span className="text-muted-foreground font-normal">
+                {" "}
+                / 本次消耗 {cost}
+              </span>
+            </span>
+          </div>
+          {insufficient && (
+            <p className="text-destructive -mt-2 text-xs">
+              积分不足以本次生成，
+              <Link href="/credits" className="text-primary hover:underline">
+                去充值 →
+              </Link>
+            </p>
+          )}
           <div className="space-y-2">
             <label className="text-muted-foreground text-sm">图片供应商</label>
             <div className="flex items-center gap-2">
@@ -168,20 +240,39 @@ export function GenerateReferenceModal({
                       })
                     }
                     className="absolute top-2 right-2 rounded bg-black/50 p-1 hover:bg-red-600"
+                    aria-label="移除已上传的参考图"
                   >
                     <X size={16} />
                   </button>
                 </div>
               ) : (
                 <label className="border-border hover:border-border flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed">
-                  <Upload size={24} className="text-muted-foreground mb-2" />
-                  <span className="text-muted-foreground text-sm">
-                    点击上传图片
-                  </span>
+                  {readingImage ? (
+                    <>
+                      <Loader2
+                        size={24}
+                        className="text-muted-foreground mb-2 animate-spin"
+                      />
+                      <span className="text-muted-foreground text-sm">
+                        读取图片中...
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload
+                        size={24}
+                        className="text-muted-foreground mb-2"
+                      />
+                      <span className="text-muted-foreground text-sm">
+                        点击上传图片（不超过 {MAX_UPLOAD_MB}MB）
+                      </span>
+                    </>
+                  )}
                   <input
                     type="file"
                     accept="image/*"
                     className="hidden"
+                    disabled={readingImage}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) handleImageUpload(file);
@@ -189,6 +280,9 @@ export function GenerateReferenceModal({
                     }}
                   />
                 </label>
+              )}
+              {uploadError && (
+                <p className="text-destructive text-xs">{uploadError}</p>
               )}
             </div>
           )}
@@ -236,7 +330,14 @@ export function GenerateReferenceModal({
           {onGenerateThreeViews && (
             <button
               onClick={onGenerateThreeViews}
-              disabled={threeViewsPending || generatePending}
+              disabled={
+                threeViewsPending || generatePending || threeViewsInsufficient
+              }
+              title={
+                threeViewsInsufficient
+                  ? `积分不足（需 ${THREE_VIEWS_COST}，当前 ${balance}），请先充值`
+                  : undefined
+              }
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-purple-500/40 bg-purple-500/10 py-2 text-sm text-purple-300 transition hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {threeViewsPending ? (
@@ -265,8 +366,14 @@ export function GenerateReferenceModal({
             onClick={onGenerate}
             disabled={
               generatePending ||
+              insufficient ||
               (generateOptions.source === "upload" &&
                 !generateOptions.uploadedImage)
+            }
+            title={
+              insufficient
+                ? `积分不足（需 ${cost}，当前 ${balance}），请先充值`
+                : undefined
             }
             className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex flex-1 items-center justify-center gap-2 rounded-lg py-2 transition disabled:cursor-not-allowed"
           >

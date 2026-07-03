@@ -8,7 +8,7 @@ import { writeFile, unlink, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import os from "os";
-import { assertSafeUrl } from "@/lib/url-guard";
+import { safeDownload } from "@/lib/url-guard";
 // 字幕样式 / 水印类型统一从 types/export-style 导入（单一权威来源），
 // 避免与前端、导出 API 各自重复定义导致字段漂移。
 import type {
@@ -279,14 +279,9 @@ async function downloadFile(url: string, filename: string): Promise<string> {
 
   const filePath = path.join(tmpDir, filename);
   const absoluteUrl = absolutizeUrl(url);
-  // SSRF 防护：下载前校验目标地址，挡住内网/云元数据
-  await assertSafeUrl(absoluteUrl);
-  const response = await fetch(absoluteUrl);
-  if (!response.ok) {
-    throw new Error(`下载失败 (HTTP ${response.status}): ${absoluteUrl}`);
-  }
-  const buffer = await response.arrayBuffer();
-  await writeFile(filePath, Buffer.from(buffer));
+  // SSRF 防护：钉 IP 下载（校验与连接同一地址，防 TOCTOU / 重定向绕过）
+  const { buffer } = await safeDownload(absoluteUrl);
+  await writeFile(filePath, buffer);
 
   return filePath;
 }

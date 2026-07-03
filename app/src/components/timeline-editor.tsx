@@ -225,24 +225,28 @@ function TimelineEditorImpl({
           <button
             onClick={() => setCurrentTime(0)}
             className="hover:bg-secondary rounded p-1.5"
+            aria-label="回到开头"
           >
             <SkipBack size={18} />
           </button>
           <button
             onClick={() => setIsPlaying(!isPlaying)}
             className="bg-primary hover:bg-primary/90 rounded-full p-2"
+            aria-label={isPlaying ? "暂停" : "播放"}
           >
             {isPlaying ? <Pause size={18} /> : <Play size={18} />}
           </button>
           <button
             onClick={() => setCurrentTime(totalDuration)}
             className="hover:bg-secondary rounded p-1.5"
+            aria-label="跳到结尾"
           >
             <SkipForward size={18} />
           </button>
           <button
             onClick={() => setIsMuted(!isMuted)}
             className="hover:bg-secondary rounded p-1.5"
+            aria-label={isMuted ? "取消静音" : "静音"}
           >
             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
