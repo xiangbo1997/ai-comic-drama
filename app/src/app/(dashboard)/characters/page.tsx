@@ -103,7 +103,6 @@ export default function CharactersPage() {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
       toast.success("图片已删除");
     } catch (error) {
-      console.error("Delete image error:", error);
       toast.error(error instanceof Error ? error.message : "删除失败");
     }
   };

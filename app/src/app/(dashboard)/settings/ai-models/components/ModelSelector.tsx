@@ -9,6 +9,7 @@ import type {
   ModelAvailability,
 } from "./types";
 import { ModelCapabilityIcons } from "./ModelCapabilityIcons";
+import { useToast } from "@/components/ui/toast";
 
 interface ModelSelectorProps {
   provider: AIProvider;
@@ -26,6 +27,7 @@ export function ModelSelector({
   apiKey,
   customBaseUrl,
 }: ModelSelectorProps) {
+  const toast = useToast();
   const [models, setModels] = useState<ModelWithAvailability[]>(
     provider.models.map((m) => ({
       ...m,
@@ -95,8 +97,9 @@ export function ModelSelector({
         setModelSource(data.source);
         setHasFetchedRemote(true);
       }
-    } catch (error) {
-      console.error("Failed to fetch models:", error);
+    } catch {
+      // 拉取失败给出可行动提示（面板支持手动输入模型名兜底）
+      toast.error("获取模型列表失败，可手动输入模型名");
     } finally {
       setLoading(false);
     }

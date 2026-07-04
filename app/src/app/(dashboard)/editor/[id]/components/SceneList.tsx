@@ -6,6 +6,7 @@ import {
   Video,
   Volume2,
   Loader2,
+  RotateCw,
   Users,
   Wand2,
   List,
@@ -337,6 +338,31 @@ function SceneListImpl({
               批量生成
             </button>
           )}
+          {/* 仅补失败镜：workflow 部分成功或批量后有失败时的一键重试入口，
+              避免逐张扫红角标手动点（历史遗留候选项） */}
+          {batchGenerateImagesMutation &&
+            (() => {
+              const failedScenes = project.scenes.filter(
+                (s) => s.imageStatus === "FAILED"
+              );
+              if (failedScenes.length === 0) return null;
+              return (
+                <button
+                  onClick={() =>
+                    batchGenerateImagesMutation.mutate({
+                      scenes: failedScenes,
+                      imageConfigId: mediaConfig.image.selected,
+                    })
+                  }
+                  disabled={anyBatchPending}
+                  className="bg-destructive/20 text-destructive hover:bg-destructive/30 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
+                  title="仅重新生成图片失败的分镜"
+                >
+                  <RotateCw size={12} />
+                  重试失败 {failedScenes.length}
+                </button>
+              );
+            })()}
           {/* 视图密度切换：列表 / 2 列 / 3 列 */}
           <div className="bg-secondary flex items-center gap-0.5 rounded p-0.5">
             {(

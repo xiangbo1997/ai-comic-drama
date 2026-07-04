@@ -102,3 +102,4 @@ public/bgm/**/*.mp3
 
 # codegraph 本地索引产物
 .codegraph/
+.claude/agent-memory/

@@ -1,6 +1,11 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   Coins,
   Check,
@@ -139,10 +144,13 @@ const TX_TYPE_LABELS: Record<string, string> = {
   INVITE: "邀请奖励",
 };
 
-async function fetchCreditTransactions(): Promise<{
+async function fetchCreditTransactions(cursor: string | null): Promise<{
   transactions: CreditTransactionItem[];
+  nextCursor: string | null;
 }> {
-  const res = await fetch("/api/user/credit-transactions");
+  const res = await fetch(
+    `/api/user/credit-transactions${cursor ? `?cursor=${cursor}` : ""}`
+  );
   if (!res.ok) throw new Error("获取积分明细失败");
   return res.json();
 }
@@ -223,10 +231,16 @@ export default function CreditsPage() {
     data: txData,
     isLoading: txLoading,
     isError: txError,
-  } = useQuery({
+    fetchNextPage: fetchMoreTx,
+    hasNextPage: hasMoreTx,
+    isFetchingNextPage: fetchingMoreTx,
+  } = useInfiniteQuery({
     queryKey: ["credit-transactions"],
-    queryFn: fetchCreditTransactions,
+    queryFn: ({ pageParam }) => fetchCreditTransactions(pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
   });
+  const transactions = txData?.pages.flatMap((page) => page.transactions) ?? [];
 
   const checkinMutation = useMutation({
     mutationFn: doCheckin,
@@ -297,9 +311,8 @@ export default function CreditsPage() {
           setPaymentError(terminalMessage);
           return;
         }
-      } catch (error) {
-        // 单次查询失败不终止轮询（网络抖动），只计入超时计数
-        console.error("Check order error:", error);
+      } catch {
+        // 单次查询失败不终止轮询（网络抖动容忍）；持续失败由超时计数兜底
       }
       if (pollCountRef.current >= MAX_POLLS) {
         setPollingOrder(null);
@@ -513,7 +526,6 @@ export default function CreditsPage() {
         <div className="mb-4 flex items-center gap-3">
           <History size={24} className="text-primary" />
           <h2 className="text-lg font-semibold">积分明细</h2>
-          <span className="text-muted-foreground text-xs">最近 50 条</span>
         </div>
         {txLoading ? (
           <div className="flex justify-center py-6">
@@ -523,13 +535,13 @@ export default function CreditsPage() {
           <p className="text-muted-foreground py-4 text-center text-sm">
             明细加载失败，请刷新页面重试
           </p>
-        ) : (txData?.transactions.length ?? 0) === 0 ? (
+        ) : transactions.length === 0 ? (
           <p className="text-muted-foreground py-4 text-center text-sm">
             暂无积分变动记录
           </p>
         ) : (
           <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-            {txData?.transactions.map((tx) => (
+            {transactions.map((tx) => (
               <div
                 key={tx.id}
                 className="hover:bg-secondary/50 flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm"
@@ -564,6 +576,15 @@ export default function CreditsPage() {
                 </div>
               </div>
             ))}
+            {hasMoreTx && (
+              <button
+                onClick={() => fetchMoreTx()}
+                disabled={fetchingMoreTx}
+                className="text-primary hover:bg-secondary/50 w-full rounded-lg py-2 text-center text-sm transition disabled:opacity-50"
+              >
+                {fetchingMoreTx ? "加载中..." : "加载更多"}
+              </button>
+            )}
           </div>
         )}
       </div>

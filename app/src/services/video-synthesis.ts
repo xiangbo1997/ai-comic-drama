@@ -9,6 +9,9 @@ import { existsSync } from "fs";
 import path from "path";
 import os from "os";
 import { safeDownload } from "@/lib/url-guard";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("services:video-synthesis");
 // 字幕样式 / 水印类型统一从 types/export-style 导入（单一权威来源），
 // 避免与前端、导出 API 各自重复定义导致字段漂移。
 import type {
@@ -874,7 +877,7 @@ export async function synthesizeVideo(
         bgmPath = await downloadFile(absolutizeUrl(bgm.url), "bgm_track.mp3");
       } catch (err) {
         // BGM 下载失败不阻塞主流程，记录后跳过（成片仍有对白）
-        console.warn("[video-synthesis] BGM 下载失败，跳过背景音乐:", err);
+        log.warn("BGM 下载失败，跳过背景音乐:", err);
         bgmPath = null;
       }
     }
@@ -910,7 +913,7 @@ export async function synthesizeVideo(
         );
       } catch (err) {
         // 水印下载失败不阻塞主流程，记录警告后继续
-        console.warn("[video-synthesis] 水印 logo 下载失败，跳过水印:", err);
+        log.warn("水印 logo 下载失败，跳过水印:", err);
         logoPath = null;
       }
     }

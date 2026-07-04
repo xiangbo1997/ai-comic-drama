@@ -11,7 +11,10 @@ function LoginContent() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"login" | "register">("login");
+  // 支持 /login?mode=register 直达注册 Tab（营销落地/邀请链接用）
+  const [mode, setMode] = useState<"login" | "register">(() =>
+    searchParams.get("mode") === "register" ? "register" : "login"
+  );
 
   // 表单数据
   const [email, setEmail] = useState("");
@@ -51,7 +54,9 @@ function LoginContent() {
             setInviteInfo(data);
           }
         })
-        .catch(console.error);
+        .catch(() => {
+          // 邀请码校验失败仅不展示奖励横幅，不阻塞注册流程
+        });
     }
   }, [inviteCode]);
 
@@ -135,8 +140,7 @@ function LoginContent() {
 
         router.push(redirectTarget);
       }
-    } catch (err) {
-      console.error("Auth error:", err);
+    } catch {
       setError("操作失败，请稍后重试");
       setIsLoading(false);
     }

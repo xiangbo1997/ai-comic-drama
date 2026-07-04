@@ -138,10 +138,21 @@ export default function AIModelsPage() {
         {(["LLM", "IMAGE", "VIDEO", "TTS"] as const).map((category) => {
           const Icon = categoryIcons[category];
           const isActive = activeCategory === category;
+          // 分类级配置状态点：一眼看出哪个分类还没配默认模型，
+          // 避免用户配好 LLM 就去创作、走到视频/TTS 步骤才发现没配
+          const hasDefault = configs.some(
+            (c: UserConfig) =>
+              c.provider.category === category && c.isDefault && c.isEnabled
+          );
           return (
             <button
               key={category}
               onClick={() => setActiveCategory(category)}
+              title={
+                hasDefault
+                  ? `${categoryLabels[category]}已配置默认模型`
+                  : `${categoryLabels[category]}尚未配置默认模型`
+              }
               className={`flex items-center gap-2 rounded-md px-4 py-2 transition ${
                 isActive
                   ? "bg-primary text-foreground"
@@ -152,6 +163,12 @@ export default function AIModelsPage() {
               <span className="hidden sm:inline">
                 {categoryLabels[category]}
               </span>
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  hasDefault ? "bg-green-400" : "bg-muted-foreground/40"
+                }`}
+                aria-hidden
+              />
             </button>
           );
         })}
