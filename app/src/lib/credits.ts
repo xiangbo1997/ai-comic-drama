@@ -127,42 +127,42 @@ export async function refundCredits(p: {
 }): Promise<void> {
   assertPositiveAmount(p.amount);
 
-  await prisma.$transaction(async (tx) => {
-    // 幂等校验：仅当提供 sourceId 时才能去重
-    if (p.sourceId) {
-      const existing = await tx.creditTransaction.findFirst({
-        where: {
-          userId: p.userId,
-          sourceId: p.sourceId,
-          type: "REFUND",
-        },
-        select: { id: true },
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 幂等靠 DB 唯一约束 @@unique([userId, type, sourceId])：并发两次退款
+      // 只有一条能 create 成功，另一条抛 P2002 被下方 catch 吞掉（真幂等）。
+      // 此前用 findFirst 预检——两并发 tx 都读不到对方未提交的 insert → 双花。
+      const updated = await tx.user.update({
+        where: { id: p.userId },
+        data: { credits: { increment: p.amount } },
+        select: { credits: true },
       });
 
-      if (existing) {
-        // 已退款，跳过，保证幂等
-        return;
-      }
+      await tx.creditTransaction.create({
+        data: {
+          userId: p.userId,
+          delta: p.amount,
+          balanceAfter: updated.credits,
+          type: "REFUND",
+          source: p.source,
+          sourceId: p.sourceId ?? null,
+          note: p.note ?? null,
+        },
+      });
+    });
+  } catch (error) {
+    // P2002 = 唯一约束冲突 = 已退过款，视为幂等成功（余额 increment 随
+    // 事务一并回滚，不会多退）。仅当带 sourceId 时约束才生效；无 sourceId
+    // 的退款无法去重（原行为一致），此时 P2002 不会触发。
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002" &&
+      p.sourceId
+    ) {
+      return;
     }
-
-    const updated = await tx.user.update({
-      where: { id: p.userId },
-      data: { credits: { increment: p.amount } },
-      select: { credits: true },
-    });
-
-    await tx.creditTransaction.create({
-      data: {
-        userId: p.userId,
-        delta: p.amount,
-        balanceAfter: updated.credits,
-        type: "REFUND",
-        source: p.source,
-        sourceId: p.sourceId ?? null,
-        note: p.note ?? null,
-      },
-    });
-  });
+    throw error;
+  }
 }
 
 /**

@@ -445,14 +445,35 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       .flatMap((s) => [s.imageUrl, s.videoUrl, s.audioUrl])
       .filter((u): u is string => Boolean(u));
 
-    await prisma.project.delete({
-      where: { id },
+    // GenerationTask.projectId 是无外键的 String?（不级联），删项目后 task
+    // 行会残留、且其 output 里的中间产物 URL（重试图、三视图等，不在 scene
+    // 三 URL 里）成永久存储孤儿（a1 P2-2）。这里一并收集并删除。
+    const tasks = await prisma.generationTask.findMany({
+      where: { projectId: id },
+      select: { output: true },
     });
+    for (const t of tasks) {
+      const out = t.output as {
+        imageUrl?: string;
+        videoUrl?: string;
+        audioUrl?: string;
+      } | null;
+      for (const u of [out?.imageUrl, out?.videoUrl, out?.audioUrl]) {
+        if (u && typeof u === "string") mediaUrls.push(u);
+      }
+    }
+
+    // 删项目 + 清项目名下 GenerationTask（无外键不会随 project.delete 级联）
+    await prisma.$transaction([
+      prisma.generationTask.deleteMany({ where: { projectId: id } }),
+      prisma.project.delete({ where: { id } }),
+    ]);
 
     // 存储清理：fire-and-forget，不阻塞响应；失败仅记日志（成孤儿文件，
-    // 可后续批量清理），优于让用户等几十个文件逐个删完。
-    if (mediaUrls.length > 0) {
-      void cleanupProjectMedia(id, mediaUrls);
+    // 可后续批量清理），优于让用户等几十个文件逐个删完。去重后清理。
+    const uniqueUrls = [...new Set(mediaUrls)];
+    if (uniqueUrls.length > 0) {
+      void cleanupProjectMedia(id, uniqueUrls);
     }
 
     return NextResponse.json({ success: true });

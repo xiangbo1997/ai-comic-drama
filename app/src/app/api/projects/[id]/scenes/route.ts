@@ -1,9 +1,67 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import type { GenerationParams } from "@/types";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:scenes");
+
+/**
+ * 重解析分镜后，把 generationParams 中按 sceneId 键控的分镜级配置
+ * （字幕位置 / 贴图 / 滤镜）从旧 sceneId 重写为新 sceneId。
+ *
+ * 背景：重解析走 deleteMany + createMany，新分镜拿到全新 cuid → 这些
+ * 配置的 sceneId 全部失联，导出时按新 sceneId 匹配 miss → 用户精调的贴图/
+ * 滤镜/逐镜字幕位置全部静默丢失，孤儿数据还永久滞留（a1 审计 P0-1，
+ * 正是「预览必须反映所有导出效果」的雷区）。
+ *
+ * 用「旧 order → 新 sceneId」桥接：旧配置的 sceneId 先映射回它当时的
+ * order，再映射到同 order 的新 sceneId。分镜数变少导致 order 越界、或
+ * 该 order 已无对应新分镜的条目一律丢弃。transitions 按相邻顺序关联
+ * （非 sceneId），分镜数变化时截断到 新分镜数-1。
+ */
+function remapGenerationParams(
+  params: GenerationParams | null | undefined,
+  oldSceneIdToOrder: Map<string, number>,
+  orderToNewSceneId: Map<number, string>
+): { next: GenerationParams; changed: boolean } {
+  const next: GenerationParams = { ...(params ?? {}) };
+  let changed = false;
+
+  const remapByScene = <T extends { sceneId: string }>(
+    list: T[] | undefined
+  ): T[] | undefined => {
+    if (!list || list.length === 0) return list;
+    const mapped = list
+      .map((item) => {
+        const order = oldSceneIdToOrder.get(item.sceneId);
+        if (order === undefined) return null;
+        const newId = orderToNewSceneId.get(order);
+        if (!newId) return null;
+        return { ...item, sceneId: newId };
+      })
+      .filter((x): x is T => x !== null);
+    if (mapped.length !== list.length) changed = true;
+    return mapped;
+  };
+
+  const sp = remapByScene(next.subtitlePositions);
+  if (sp !== next.subtitlePositions) next.subtitlePositions = sp;
+  const st = remapByScene(next.stickers);
+  if (st !== next.stickers) next.stickers = st;
+  const se = remapByScene(next.sceneEffects);
+  if (se !== next.sceneEffects) next.sceneEffects = se;
+
+  // transitions 按相邻分镜顺序（k 与 k+1 之间），最多 新分镜数-1 项
+  const maxTransitions = Math.max(0, orderToNewSceneId.size - 1);
+  if (next.transitions && next.transitions.length > maxTransitions) {
+    next.transitions = next.transitions.slice(0, maxTransitions);
+    changed = true;
+  }
+
+  return { next, changed };
+}
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -147,6 +205,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       };
     });
 
+    // 重建前抓「旧 sceneId → order」映射，用于事后把 generationParams 中
+    // 按 sceneId 键控的配置桥接到新分镜（a1 P0-1）。
+    const oldScenes = await prisma.scene.findMany({
+      where: { projectId: id },
+      select: { id: true, order: true },
+    });
+    const oldSceneIdToOrder = new Map(oldScenes.map((s) => [s.id, s.order]));
+
     // 事务化「删旧 + 建新」：中断则整体回滚，不会出现「删了旧的但新的
     // 没建成」的半残状态导致分镜全丢（arch-data P0-1）。
     await prisma.$transaction([
@@ -161,6 +227,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { projectId: id },
       orderBy: { order: "asc" },
     });
+
+    // 把分镜级配置（字幕位置/贴图/滤镜/转场）从旧 sceneId 重写到新 sceneId，
+    // 避免用户精调成果在重解析后静默丢失、孤儿数据滞留。
+    const orderToNewSceneId = new Map(
+      createdScenes.map((s) => [s.order, s.id])
+    );
+    const { next: remappedParams, changed } = remapGenerationParams(
+      project.generationParams as GenerationParams | null,
+      oldSceneIdToOrder,
+      orderToNewSceneId
+    );
+    if (changed) {
+      await prisma.project.update({
+        where: { id },
+        data: {
+          generationParams: remappedParams as unknown as Prisma.InputJsonValue,
+        },
+      });
+      log.info(`Remapped generationParams sceneId refs for project ${id}`);
+    }
 
     return NextResponse.json(createdScenes, { status: 201 });
   } catch (error) {

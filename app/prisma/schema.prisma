@@ -51,6 +51,11 @@ model CreditTransaction {
 
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // 幂等约束只作用于「需要幂等」的类型（REFUND/PAYMENT/SUBSCRIPTION/
+  // CHECKIN/INVITE）——这些同一 sourceId 只该有一条流水。GENERATE_* 扣费
+  // 每次都合法产生新流水（且历史上 sourceId 未必唯一），不能纳入约束。
+  // Prisma schema 无法声明带 WHERE 的部分唯一索引，故用 SQL 手建（见下方
+  // 迁移 SQL 注释 / prisma/sql/*）。此处仅保留普通索引。
   @@index([userId, createdAt])
   @@index([sourceId])
 }
