@@ -727,6 +727,8 @@ async function executeMediaGeneration(
         tasks.push(
           synthesizeSpeech({
             text,
+            // 分镜级语速（重跑 workflow 时尊重用户在编辑器调过的值）
+            speed: dbScene.ttsSpeed ?? 1.0,
             config: ctx.config.tts,
           })
             .then(async (audioBuffer) => {

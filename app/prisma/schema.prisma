@@ -176,6 +176,7 @@ model Scene {
   narration   String?  @db.Text // 旁白
   emotion     String?  // 情感
   duration    Int      @default(3) // 预估时长(秒)
+  ttsSpeed    Float    @default(1.0) // 配音语速（0.5–2.0，TTS provider 消费）
 
   // 镜头语言（LLM 脚本解析产出，喂给出图 prompt 增强电影感）
   cameraAngle    String?  // 镜头角度: eye-level/high-angle/low-angle/dutch-angle...

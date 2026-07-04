@@ -31,6 +31,8 @@ export interface Scene {
   narration: string | null;
   emotion: string | null;
   duration: number;
+  /** 配音语速（0.5–2.0，默认 1.0），生成 TTS 时透传 provider */
+  ttsSpeed?: number;
   /** 镜头语言（LLM 脚本解析产出，喂给出图/视频 prompt） */
   cameraAngle?: string | null;
   lighting?: string | null;

@@ -1,6 +1,13 @@
 import Link from "next/link";
+import { auth } from "@/lib/auth";
 
-export default function Home() {
+export default async function Home() {
+  // 未登录点「开始创作」此前要经 /projects → proxy 302 → 登录页绕一圈；
+  // 服务端判一次 session 直达正确入口（新访客直达注册 Tab）
+  const session = await auth();
+  const isLoggedIn = Boolean(session?.user?.id);
+  const startHref = isLoggedIn ? "/projects" : "/login?mode=register";
+
   return (
     <div className="bg-background text-foreground min-h-screen">
       {/* Hero */}
@@ -13,17 +20,26 @@ export default function Home() {
           </p>
           <div className="flex justify-center gap-4">
             <Link
-              href="/projects"
+              href={startHref}
               className="bg-primary hover:bg-primary/90 rounded-lg px-8 py-3 font-medium transition"
             >
               开始创作
             </Link>
-            <Link
-              href="/login"
-              className="bg-secondary hover:bg-secondary/80 rounded-lg px-8 py-3 font-medium transition"
-            >
-              登录
-            </Link>
+            {isLoggedIn ? (
+              <Link
+                href="/projects"
+                className="bg-secondary hover:bg-secondary/80 rounded-lg px-8 py-3 font-medium transition"
+              >
+                我的项目
+              </Link>
+            ) : (
+              <Link
+                href="/login"
+                className="bg-secondary hover:bg-secondary/80 rounded-lg px-8 py-3 font-medium transition"
+              >
+                登录
+              </Link>
+            )}
           </div>
         </div>
 

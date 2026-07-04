@@ -4,6 +4,7 @@
 
 import type { TTSProvider } from "../../types";
 import { trimUrl } from "../base";
+import { safeFetch } from "@/lib/url-guard";
 
 export const openaiCompatibleTTS: TTSProvider = {
   async synthesizeSpeech(options, config) {
@@ -17,7 +18,8 @@ export const openaiCompatibleTTS: TTSProvider = {
       voiceId !== "zh_female_shuangkuaisisi_moon_bigtts" ? voiceId : "alloy";
     const model = config.model || "tts-1";
 
-    const response = await fetch(`${baseUrl}/audio/speech`, {
+    // SSRF：baseUrl 用户可控，走 safeFetch（钉 IP + 禁跟随重定向）
+    const response = await safeFetch(`${baseUrl}/audio/speech`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

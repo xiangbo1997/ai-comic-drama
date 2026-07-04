@@ -419,6 +419,27 @@ export function SceneEditor({
                 className="bg-card w-full rounded-lg px-3 py-2 text-sm"
               />
             </div>
+            <div className="w-24">
+              <label className="text-muted-foreground mb-1 block text-sm">
+                语速
+              </label>
+              <select
+                value={String(scene.ttsSpeed ?? 1)}
+                onChange={(e) =>
+                  onUpdateScene(scene.id, {
+                    ttsSpeed: Number(e.target.value),
+                  })
+                }
+                title="配音语速，下次生成配音时生效"
+                className="bg-card w-full rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="0.75">0.75x</option>
+                <option value="1">1.0x</option>
+                <option value="1.25">1.25x</option>
+                <option value="1.5">1.5x</option>
+                <option value="2">2.0x</option>
+              </select>
+            </div>
           </div>
 
           {/* Generate Button */}

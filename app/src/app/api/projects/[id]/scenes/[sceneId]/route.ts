@@ -37,6 +37,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       narration,
       emotion,
       duration,
+      ttsSpeed,
       imageUrl,
       videoUrl,
       audioUrl,
@@ -57,6 +58,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(narration !== undefined && { narration }),
         ...(emotion !== undefined && { emotion }),
         ...(duration !== undefined && { duration }),
+        // 配音语速：夹取到 provider 支持的 0.5–2.0，防越界值直达适配器
+        ...(ttsSpeed !== undefined && {
+          ttsSpeed: Math.min(2, Math.max(0.5, Number(ttsSpeed) || 1)),
+        }),
         ...(imageUrl !== undefined && { imageUrl }),
         ...(videoUrl !== undefined && { videoUrl }),
         ...(audioUrl !== undefined && { audioUrl }),

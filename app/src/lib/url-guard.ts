@@ -248,3 +248,57 @@ export async function safeDownload(
   }
   throw new Error(`重定向次数超限: ${rawUrl}`);
 }
+
+/**
+ * SSRF 安全 fetch（钉 IP + 禁跟随重定向），用于 provider 层调用用户可控
+ * baseUrl 的外部 API（POST body / 流式响应友好，覆盖 safeDownload 不擅长的
+ * 交互式请求场景）。
+ *
+ * 缺口背景：用户 customBaseUrl 仅在配置组装时经 assertSafeUrl 校验一次，
+ * provider 真正 fetch 时又重新解析 DNS——存在 TOCTOU 窗口，且 fetch 默认
+ * 自动跟随 302 到内网。本函数用 undici Agent 的自定义 connect 钉住「校验
+ * 通过的那次解析结果」（消除窗口），并 redirect:"error" 堵重定向绕过；
+ * TLS SNI/证书仍按原 hostname 校验。
+ *
+ * 注：仅对 fetch-based provider 生效；SDK-based（openai/replicate/fal SDK）
+ * 内部 fetch 无法注入 dispatcher，仍依赖配置组装时的 assertSafeUrl。
+ */
+export async function safeFetch(
+  input: string,
+  init?: RequestInit
+): Promise<Response> {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error(`非法 URL: ${input}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`不允许的协议: ${parsed.protocol}`);
+  }
+  const pinned = (await resolveValidated(parsed.hostname))[0];
+
+  // 动态引入 undici：仅服务端可用，避免打进客户端 bundle
+  const { Agent, fetch: undiciFetch } = await import("undici");
+  const dispatcher = new Agent({
+    connect: {
+      // 钉住已校验 IP：undici 用此 lookup 结果建连，检查与连接同一地址
+      lookup: (_hostname, _opts, cb) => {
+        cb(null, [{ address: pinned.address, family: pinned.family }]);
+      },
+    },
+  });
+
+  try {
+    // redirect:"error" 堵住 302→内网绕过（上游若重定向直接抛错）
+    const res = await undiciFetch(input, {
+      ...(init as Parameters<typeof undiciFetch>[1]),
+      redirect: "error",
+      dispatcher,
+    });
+    return res as unknown as Response;
+  } finally {
+    // 请求生命周期结束后关闭连接池（不复用，逐次校验）
+    void dispatcher.close().catch(() => {});
+  }
+}

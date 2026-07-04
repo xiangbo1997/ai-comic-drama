@@ -321,7 +321,8 @@ export function useGenerationActions(
       {
         text,
         characterId,
-        speed: 1.0,
+        // 分镜级语速（SceneEditor 可调，0.5–2.0），未设置回落 1.0
+        speed: scene.ttsSpeed ?? 1.0,
         projectId,
         sceneId: scene.id,
         ttsConfigId,

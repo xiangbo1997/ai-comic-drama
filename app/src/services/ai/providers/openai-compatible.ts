@@ -5,6 +5,7 @@
 
 import type { LLMProvider, ImageProvider } from "../types";
 import { trimUrl, fetchWithError, ASPECT_RATIO_TO_SIZE } from "./base";
+import { safeFetch, safeDownload } from "@/lib/url-guard";
 
 // 支持的图像生成模型列表
 const SUPPORTED_IMAGE_MODELS = [
@@ -139,15 +140,12 @@ async function fetchImageBlob(
     absoluteUrl = `${trimmedBase}${path}`;
   }
 
-  const resp = await fetch(absoluteUrl);
-  if (!resp.ok) {
-    throw new Error(`参考图下载失败 (HTTP ${resp.status}): ${absoluteUrl}`);
-  }
-  const arrayBuffer = await resp.arrayBuffer();
-  const mimeType = resp.headers.get("content-type") || "image/png";
+  // SSRF：参考图 URL 可能来自用户可控源，钉 IP 下载
+  const { buffer, contentType } = await safeDownload(absoluteUrl);
+  const mimeType = contentType || "image/png";
   const ext = mimeType.split("/")[1]?.split(";")[0] || "png";
   return {
-    blob: new Blob([arrayBuffer], { type: mimeType }),
+    blob: new Blob([new Uint8Array(buffer)], { type: mimeType }),
     filename: `ref.${ext}`,
   };
 }
@@ -400,7 +398,8 @@ export const openaiCompatibleImage: ImageProvider = {
 
     const url = `${trimUrl(baseUrl)}/images/generations`;
 
-    const response = await fetch(url, {
+    // SSRF：baseUrl 用户可控，走 safeFetch（钉 IP + 禁跟随重定向）
+    const response = await safeFetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

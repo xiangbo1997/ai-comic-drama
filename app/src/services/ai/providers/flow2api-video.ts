@@ -27,6 +27,7 @@
 import type { VideoProvider } from "../types";
 import type { VideoGenerationOptions, AIServiceConfig } from "@/types";
 import { trimUrl } from "./base";
+import { safeFetch } from "@/lib/url-guard";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("services:ai:flow2api-video");
@@ -257,7 +258,9 @@ export const flow2apiVideo: VideoProvider = {
 
     let response: Response;
     try {
-      response = await fetch(url, {
+      // SSRF：baseUrl 用户可控，走 safeFetch（钉 IP + 禁跟随重定向）；
+      // safeFetch 透传 init（含 SSE 的 signal），流式响应正常工作
+      response = await safeFetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

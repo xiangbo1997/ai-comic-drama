@@ -1,26 +1,16 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import type { Scene } from "@/types";
-import type { SubtitleStyle, Watermark } from "@/types/export-style";
-import { SubtitleStyleDialog } from "./components/SubtitleStyleDialog";
-import { WatermarkDialog } from "./components/WatermarkDialog";
-import { StickerDialog } from "./components/StickerDialog";
-import { TransitionDialog } from "./components/TransitionDialog";
-import { SceneEffectDialog } from "./components/SceneEffectDialog";
+import { TimelineDialogs } from "./components/TimelineDialogs";
 import Link from "next/link";
 import { X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
 import { PreviewPlayer } from "@/components/preview-player";
 import { MultiGenerateDialog } from "@/components/ai-models";
 import { useEditorProject, apiUpdateScene } from "./hooks/use-editor-project";
-import {
-  useGenerationActions,
-  generateSceneImage,
-  derivePromptInputs,
-  nearestVideoDuration,
-} from "./hooks/use-generation-actions";
+import { useGenerationActions } from "./hooks/use-generation-actions";
 import { EditorHeader } from "./components/EditorHeader";
 import { PipelineProgress } from "./components/PipelineProgress";
 import { ScriptPanel } from "./components/ScriptPanel";
@@ -31,14 +21,11 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { ExportDialog } from "./components/ExportDialog";
 import { CharacterManagerDialog } from "./components/CharacterManagerDialog";
 import { WorkflowPanel } from "./components/WorkflowPanel";
-import { BgmDialog } from "./components/BgmDialog";
 import { useWorkflow } from "./hooks/use-workflow";
+import { useExport } from "./hooks/use-export";
+import { useMultiGenerate } from "./hooks/use-multi-generate";
 import { EditorSkeleton } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
-import {
-  runGenerationTask,
-  GENERATION_TIMEOUTS,
-} from "@/lib/generation-task-client";
 
 export default function EditorPage() {
   const params = useParams();
@@ -79,150 +66,10 @@ export default function EditorPage() {
     string | undefined
   >();
   const [showCharacterPanel, setShowCharacterPanel] = useState(true);
-  const [exportStatus, setExportStatus] = useState<{
-    isExporting: boolean;
-    taskId: string | null;
-    progress: number;
-    error: string | null;
-    videoUrl: string | null;
-  }>({
-    isExporting: false,
-    taskId: null,
-    progress: 0,
-    error: null,
-    videoUrl: null,
-  });
-  // 导出进度轮询定时器引用——用于卸载/关闭时清理，避免僵尸轮询
-  const exportPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stopExportPoll = () => {
-    if (exportPollRef.current) {
-      clearTimeout(exportPollRef.current);
-      exportPollRef.current = null;
-    }
-  };
-  // 组件卸载时停止轮询
-  useEffect(() => stopExportPoll, []);
 
-  // 导出视频
-  const handleExport = async (options: {
-    format: string;
-    quality: string;
-    includeSubtitles: boolean;
-    includeAudio: boolean;
-    subtitleStyle?: SubtitleStyle;
-    watermark?: Watermark;
-  }) => {
-    stopExportPoll();
-    setExportStatus({
-      isExporting: true,
-      taskId: null,
-      progress: 0,
-      error: null,
-      videoUrl: null,
-    });
-
-    try {
-      const res = await fetch(`/api/projects/${projectId}/export`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(options),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "导出失败");
-      }
-
-      const { taskId, status, videoUrl } = await res.json();
-
-      if (status === "completed" && videoUrl) {
-        // 不再自动 window.open：调用点在 await 之后已脱离用户手势调用栈，
-        // 弹窗拦截器几乎必拦，用户只会看到地址栏拦截图标却以为"已打开"。
-        // 下载入口收敛到导出弹窗内的显式「下载视频」按钮。
-        setExportStatus({
-          isExporting: false,
-          taskId: null,
-          progress: 100,
-          error: null,
-          videoUrl,
-        });
-      } else {
-        setExportStatus((prev) => ({ ...prev, taskId }));
-        pollExportProgress(taskId);
-      }
-    } catch (err) {
-      setExportStatus({
-        isExporting: false,
-        taskId: null,
-        progress: 0,
-        error: err instanceof Error ? err.message : "导出失败",
-        videoUrl: null,
-      });
-    }
-  };
-
-  const pollExportProgress = async (taskId: string) => {
-    // 轮询上限：2s/次 × 150 = 5 分钟。超时则停轮并提示，
-    // 避免后端任务卡死（如进程重启丢任务）导致前端无限转圈。
-    const MAX_POLL_ATTEMPTS = 150;
-    let attempts = 0;
-    const poll = async () => {
-      try {
-        const res = await fetch(
-          `/api/projects/${projectId}/export?taskId=${taskId}`
-        );
-        const data = await res.json();
-
-        if (data.status === "completed") {
-          stopExportPoll();
-          // 同上：异步轮询回调里的 window.open 必被拦截，靠弹窗下载按钮兜底
-          setExportStatus({
-            isExporting: false,
-            taskId: null,
-            progress: 100,
-            error: null,
-            videoUrl: data.videoUrl || null,
-          });
-        } else if (data.status === "failed") {
-          stopExportPoll();
-          setExportStatus({
-            isExporting: false,
-            taskId: null,
-            progress: 0,
-            error: data.error || "导出失败",
-            videoUrl: null,
-          });
-        } else if (attempts >= MAX_POLL_ATTEMPTS) {
-          // 超时：停止轮询并提示，避免无限转圈
-          stopExportPoll();
-          setExportStatus({
-            isExporting: false,
-            taskId: null,
-            progress: 0,
-            error: "导出超时，请重试（任务可能已中断）",
-            videoUrl: null,
-          });
-        } else {
-          attempts++;
-          setExportStatus((prev) => ({
-            ...prev,
-            progress: data.progress || 0,
-          }));
-          exportPollRef.current = setTimeout(poll, 2000);
-        }
-      } catch {
-        stopExportPoll();
-        setExportStatus({
-          isExporting: false,
-          taskId: null,
-          progress: 0,
-          error: "获取进度失败",
-          videoUrl: null,
-        });
-      }
-    };
-    poll();
-  };
+  // 导出状态机 + 进度轮询（下沉到 use-export.ts）
+  const { exportStatus, handleExport, resetExport, stopExportPoll } =
+    useExport(projectId);
 
   // 智能字幕：从各分镜配音识别字幕，回填 dialogue（识别文本即字幕来源）
   const handleTranscribe = async (): Promise<string> => {
@@ -288,13 +135,18 @@ export default function EditorPage() {
     editor.setSelectedCharacterIds(newSet);
   };
 
+  // 沿用下方 handleSubtitlePositionChange 的写法：把 editor.X 提为局部常量再入
+  // 依赖数组，让 React Compiler 能保留手动 memo（成员表达式依赖会被推断成整个
+  // editor 触发 preserve-manual-memoization 报错）。invalidateProject 本身是
+  // 稳定 useCallback，回调引用稳定性不变 —— 这是 SceneList memo 的契约。
+  const editorInvalidateProject = editor.invalidateProject;
   const handleUpdateSceneFromList = useCallback(
     (sceneId: string, data: Partial<Scene>) => {
       apiUpdateScene(projectId, sceneId, data).then(() =>
-        editor.invalidateProject()
+        editorInvalidateProject()
       );
     },
-    [projectId, editor.invalidateProject]
+    [projectId, editorInvalidateProject]
   );
 
   // 字幕位置拖拽/快捷选择 → 按 sceneId upsert 到 generationParams.subtitlePositions。
@@ -353,6 +205,20 @@ export default function EditorPage() {
       openMultiAudio,
     ]
   );
+
+  // 三个多版本生成弹窗的 onGenerate 处理器（下沉到 use-multi-generate.ts）
+  const closeMultiImage = useCallback(() => setShowMultiImageDialog(false), []);
+  const closeMultiVideo = useCallback(() => setShowMultiVideoDialog(false), []);
+  const closeMultiAudio = useCallback(() => setShowMultiAudioDialog(false), []);
+  const multiGenerate = useMultiGenerate({
+    projectId,
+    project: editor.project,
+    selectedScene: editor.selectedScene,
+    invalidateProject: generation.invalidateProject,
+    onCloseImage: closeMultiImage,
+    onCloseVideo: closeMultiVideo,
+    onCloseAudio: closeMultiAudio,
+  });
 
   // Loading / Error states：三栏骨架替代整屏白转圈，
   // 新建项目跳转后的冷加载可感知布局（ux-onboarding P1-5）
@@ -517,117 +383,25 @@ export default function EditorPage() {
         />
       )}
 
-      {/* 字幕样式弹窗（点击时间轴字幕轨触发，全片统一样式） */}
-      {showSubtitleStyleDialog && (
-        <SubtitleStyleDialog
-          initialValue={project.generationParams?.subtitleStyle}
-          onSave={(style) =>
-            editor.updateProject({
-              generationParams: {
-                ...project.generationParams,
-                subtitleStyle: style,
-              },
-            })
-          }
-          onTranscribe={handleTranscribe}
-          onClose={() => setShowSubtitleStyleDialog(false)}
-        />
-      )}
-
-      {/* 品牌水印弹窗（点击时间轴品牌水印入口触发，全片统一） */}
-      {showWatermarkDialog && (
-        <WatermarkDialog
-          initialValue={project.generationParams?.watermark}
-          onSave={(watermark) =>
-            editor.updateProject({
-              generationParams: {
-                ...project.generationParams,
-                watermark,
-              },
-            })
-          }
-          onClose={() => setShowWatermarkDialog(false)}
-        />
-      )}
-
-      {showBgmDialog && (
-        <BgmDialog
-          projectId={projectId}
-          initialValue={project.generationParams?.backgroundMusic}
-          onSave={(backgroundMusic) =>
-            editor.updateProject({
-              generationParams: {
-                ...project.generationParams,
-                backgroundMusic,
-              },
-            })
-          }
-          onClose={() => setShowBgmDialog(false)}
-        />
-      )}
-
-      {/* 贴图管理弹窗（点击时间轴 + 贴图 入口触发） */}
-      {showStickerDialog && (
-        <StickerDialog
-          initialStickers={project.generationParams?.stickers}
-          scenes={project.scenes.map((s) => ({
-            id: s.id,
-            order: s.order,
-            description: s.description,
-          }))}
-          onSave={(stickers) =>
-            editor.updateProject({
-              generationParams: {
-                ...project.generationParams,
-                stickers,
-              },
-            })
-          }
-          onClose={() => setShowStickerDialog(false)}
-        />
-      )}
-
-      {/* 转场设置弹窗（点击时间轴转场入口触发，分镜之间逐个配置） */}
-      {showTransitionDialog && (
-        <TransitionDialog
-          initialTransitions={project.generationParams?.transitions}
-          scenes={project.scenes.map((s) => ({
-            id: s.id,
-            order: s.order,
-            description: s.description,
-          }))}
-          onSave={(transitions) =>
-            editor.updateProject({
-              generationParams: {
-                ...project.generationParams,
-                transitions,
-              },
-            })
-          }
-          onClose={() => setShowTransitionDialog(false)}
-        />
-      )}
-
-      {/* 滤镜 / 变速弹窗（点击时间轴滤镜入口触发，按分镜配置） */}
-      {showEffectDialog && (
-        <SceneEffectDialog
-          initialEffects={project.generationParams?.sceneEffects}
-          scenes={project.scenes.map((s) => ({
-            id: s.id,
-            order: s.order,
-            description: s.description,
-          }))}
-          onSave={(sceneEffects) =>
-            editor.updateProject({
-              generationParams: {
-                ...project.generationParams,
-                sceneEffects,
-              },
-            })
-          }
-          onClose={() => setShowEffectDialog(false)}
-        />
-      )}
+      {/* 时间轴触发的六个配置弹窗（字幕/水印/配乐/贴图/转场/滤镜） */}
+      <TimelineDialogs
+        project={project}
+        projectId={projectId}
+        updateProject={editor.updateProject}
+        onTranscribe={handleTranscribe}
+        showSubtitleStyleDialog={showSubtitleStyleDialog}
+        showWatermarkDialog={showWatermarkDialog}
+        showBgmDialog={showBgmDialog}
+        showStickerDialog={showStickerDialog}
+        showTransitionDialog={showTransitionDialog}
+        showEffectDialog={showEffectDialog}
+        onCloseSubtitleStyle={() => setShowSubtitleStyleDialog(false)}
+        onCloseWatermark={() => setShowWatermarkDialog(false)}
+        onCloseBgm={() => setShowBgmDialog(false)}
+        onCloseSticker={() => setShowStickerDialog(false)}
+        onCloseTransition={() => setShowTransitionDialog(false)}
+        onCloseEffect={() => setShowEffectDialog(false)}
+      />
 
       {/* Preview Dialog */}
       {showPreviewDialog && (
@@ -674,16 +448,7 @@ export default function EditorPage() {
           stopExportPoll();
           setShowExportDialog(false);
         }}
-        onRetry={() => {
-          stopExportPoll();
-          setExportStatus({
-            isExporting: false,
-            taskId: null,
-            progress: 0,
-            error: null,
-            videoUrl: null,
-          });
-        }}
+        onRetry={resetExport}
       />
 
       {/* Multi-Generate Dialogs */}
@@ -691,135 +456,19 @@ export default function EditorPage() {
         category="IMAGE"
         isOpen={showMultiImageDialog}
         onClose={() => setShowMultiImageDialog(false)}
-        onGenerate={async (configs, mode) => {
-          if (!editor.selectedScene) return;
-          setShowMultiImageDialog(false);
-
-          // 走与单张生成完全一致的增强管线：拿到风格化 prompt + 负向词 +
-          // 角色三视图/定妆参考图。此前多版本手拼 prompt 绕过管线，产出脸崩、
-          // 与定妆不符的图（feature-consistency P0）。
-          const { prompt, negativePrompt, referenceImage, referenceImages } =
-            derivePromptInputs(editor.selectedScene, project);
-
-          const generateOne = (configId?: string) =>
-            generateSceneImage(projectId, editor.selectedScene!.id, prompt, {
-              style: project.style,
-              imageConfigId: configId,
-              negativePrompt,
-              referenceImage,
-              referenceImages,
-            });
-
-          if (mode === "PARALLEL") {
-            await Promise.allSettled(
-              configs.map((config) => generateOne(config.configId))
-            );
-          } else {
-            for (const config of configs) {
-              await generateOne(config.configId).catch(() => {});
-            }
-          }
-          generation.invalidateProject();
-        }}
+        onGenerate={multiGenerate.handleGenerateImages}
       />
       <MultiGenerateDialog
         category="VIDEO"
         isOpen={showMultiVideoDialog}
         onClose={() => setShowMultiVideoDialog(false)}
-        onGenerate={async (configs, mode) => {
-          if (!editor.selectedScene?.imageUrl) return;
-          setShowMultiVideoDialog(false);
-
-          // 与单张视频一致：就近映射 5/10/15s 三档（不再把 15s 压成 10s），
-          // 并注入角色参考图让 provider 走 R2V / 首尾帧路由锁形象。
-          const { referenceImages } = derivePromptInputs(
-            editor.selectedScene,
-            project
-          );
-          const videoAspectRatio =
-            project.aspectRatio === "9:16" ||
-            project.aspectRatio === "16:9" ||
-            project.aspectRatio === "1:1"
-              ? project.aspectRatio
-              : undefined;
-
-          // 异步化：走共享 start+poll 助手（与单张视频同一链路）
-          const generateOne = (configId?: string) =>
-            runGenerationTask(
-              "/api/generate/video",
-              {
-                imageUrl: editor.selectedScene!.imageUrl,
-                prompt: editor.selectedScene!.description,
-                duration: nearestVideoDuration(editor.selectedScene!.duration),
-                aspectRatio: videoAspectRatio,
-                referenceImages,
-                projectId,
-                sceneId: editor.selectedScene!.id,
-                videoConfigId: configId,
-              },
-              {
-                timeoutMs: GENERATION_TIMEOUTS.video,
-                fallbackError: "视频生成失败",
-              }
-            );
-
-          if (mode === "PARALLEL") {
-            await Promise.allSettled(
-              configs.map((config) => generateOne(config.configId))
-            );
-          } else {
-            for (const config of configs) {
-              await generateOne(config.configId).catch(() => {});
-            }
-          }
-          generation.invalidateProject();
-        }}
+        onGenerate={multiGenerate.handleGenerateVideos}
       />
       <MultiGenerateDialog
         category="TTS"
         isOpen={showMultiAudioDialog}
         onClose={() => setShowMultiAudioDialog(false)}
-        onGenerate={async (configs, mode) => {
-          const text =
-            editor.selectedScene?.dialogue || editor.selectedScene?.narration;
-          if (!text) return;
-          setShowMultiAudioDialog(false);
-
-          // 通过 characterId 让服务端从 Character.voiceId 解析音色
-          const characterId =
-            editor.selectedScene?.selectedCharacter?.id ??
-            editor.selectedScene?.selectedCharacterId ??
-            undefined;
-
-          // 异步化：走共享 start+poll 助手（与单张配音同一链路）
-          const generateOne = (configId?: string) =>
-            runGenerationTask(
-              "/api/generate/tts",
-              {
-                text,
-                characterId,
-                speed: 1.0,
-                projectId,
-                sceneId: editor.selectedScene!.id,
-                ttsConfigId: configId,
-              },
-              {
-                timeoutMs: GENERATION_TIMEOUTS.tts,
-                fallbackError: "配音生成失败",
-              }
-            );
-
-          if (mode === "PARALLEL") {
-            await Promise.allSettled(
-              configs.map((config) => generateOne(config.configId))
-            );
-          } else {
-            for (const config of configs) {
-              await generateOne(config.configId).catch(() => {});
-            }
-          }
-          generation.invalidateProject();
-        }}
+        onGenerate={multiGenerate.handleGenerateAudios}
       />
 
       {/* Character Manager Dialog */}
