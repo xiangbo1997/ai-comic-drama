@@ -4,6 +4,7 @@
  */
 
 import type { AIServiceConfig, ParsedScript, CharacterInfo } from "@/types";
+import type { SceneCharacterInfo } from "@/services/generation/types";
 
 // ============ Agent 基础接口 ============
 
@@ -286,6 +287,24 @@ export interface ImageGenerationInput {
   characterBible: CharacterBible;
   /** 已有的参考图（如有） */
   existingReferenceImages?: Record<string, string>;
+  /**
+   * 本场景角色的 DB 解析结果（含真实 character.id / canonicalImageUrl / referenceImages / appearance）。
+   * workflow-engine 在批次前一次性查库构建，避免 N+1；提供时优先于 characterBible 推断，
+   * 让自动 workflow 出图能走 orchestrateImageGeneration 并真正注入三视图/定妆参考图。
+   */
+  resolvedCharacters?: SceneCharacterInfo[];
+  /**
+   * 该分镜在 DB 中的 Scene.id（字符串）。scene.id 是分镜序号（number），
+   * 而 orchestrator 的 sceneId 用于缓存 key / 日志，需要真实 DB id。
+   */
+  sceneDbId?: string;
+  /**
+   * 项目级画幅（来自 Project.aspectRatio），透传给 orchestrator 保证横/竖屏一致。
+   * 缺省时 orchestrator 走默认（视 provider 而定）。
+   */
+  aspectRatio?: "1:1" | "9:16" | "16:9";
+  /** 负向提示词（来自项目生成参数），透传给 orchestrator。 */
+  negativePrompt?: string;
 }
 
 /** 图像生成结果 */

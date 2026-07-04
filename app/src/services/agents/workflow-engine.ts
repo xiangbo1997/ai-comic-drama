@@ -46,6 +46,10 @@ import type {
   SceneArtifact,
   ImageArtifact,
 } from "./types";
+import type {
+  SceneCharacterInfo,
+  CharacterRole,
+} from "@/services/generation/types";
 
 // Re-export 保持兼容
 export { subscribeWorkflowEvents } from "./event-bus";
@@ -451,6 +455,47 @@ async function chargeWorkflowItem(
   }
 }
 
+/**
+ * 一次性把项目内所有角色解析为 name → SceneCharacterInfo 的 Map，避免逐场景查库（N+1）。
+ * 与 buildSceneCharacterContext 用同一套 Character + referenceAssets 查询：
+ *   - canonicalImageUrl：优先 isCanonical 参考资产（经 i2i 定妆，最可靠）→ 回退 canonicalImageUrl
+ *     字段 → 回退旧 referenceImages[0]（与手动路径 api/generate/image 的回退链一致）。
+ * role 留空占位，由 ImageConsistencyAgent 按场景出场顺序重定（第一个 = primary）。
+ */
+async function resolveProjectCharacters(
+  projectId: string
+): Promise<Map<string, SceneCharacterInfo>> {
+  const characters = await prisma.character.findMany({
+    where: { projects: { some: { projectId } } },
+    include: {
+      appearance: true,
+      referenceAssets: {
+        where: { isCanonical: true },
+        orderBy: [{ qualityScore: "desc" }, { createdAt: "asc" }],
+      },
+    },
+  });
+
+  const map = new Map<string, SceneCharacterInfo>();
+  for (const c of characters) {
+    const canonicalFromAsset = c.referenceAssets[0]?.url;
+    const canonicalImageUrl =
+      canonicalFromAsset ?? c.canonicalImageUrl ?? c.referenceImages[0];
+    map.set(c.name, {
+      id: c.id,
+      name: c.name,
+      role: "primary" as CharacterRole, // 占位，Agent 按场景顺序重定
+      gender: c.gender,
+      age: c.age,
+      description: c.description,
+      referenceImages: c.referenceImages,
+      canonicalImageUrl: canonicalImageUrl ?? undefined,
+      appearance: c.appearance as SceneCharacterInfo["appearance"],
+    });
+  }
+  return map;
+}
+
 async function executeImageGeneration(
   scenes: SceneArtifact[],
   characterBible: CharacterBible,
@@ -469,6 +514,41 @@ async function executeImageGeneration(
     timestamp: new Date(),
   });
 
+  // 批次前一次性解析：项目角色（含 canonicalImageUrl）、分镜 order→DB id 映射、项目画幅。
+  // 三者都只查一次，杜绝逐场景查库（N+1）。
+  const characterMap = await resolveProjectCharacters(ctx.projectId);
+  const dbScenes = await prisma.scene.findMany({
+    where: { projectId: ctx.projectId },
+    select: { id: true, order: true },
+  });
+  const sceneIdByOrder = new Map(dbScenes.map((s) => [s.order, s.id]));
+  const project = await prisma.project.findUnique({
+    where: { id: ctx.projectId },
+    select: { aspectRatio: true },
+  });
+  const projectAspectRatio = (project?.aspectRatio ?? "9:16") as
+    | "1:1"
+    | "9:16"
+    | "16:9";
+  // 负向提示词：服务端只拿得到用户自定义部分（预设逻辑在客户端），
+  // 与手动路径「透传客户端 negativePrompt」语义一致。
+  const customNegative = ctx.config.generationParams?.customNegative;
+
+  // 为单个场景组装 Agent 输入：注入 DB 解析出的角色 + sceneDbId + 画幅 + 负向词
+  const buildInput = (scene: SceneArtifact) => {
+    const resolvedCharacters = (scene.characters ?? [])
+      .map((name) => characterMap.get(name))
+      .filter((c): c is SceneCharacterInfo => Boolean(c));
+    return {
+      scene,
+      characterBible,
+      resolvedCharacters,
+      sceneDbId: sceneIdByOrder.get(scene.order),
+      aspectRatio: projectAspectRatio,
+      negativePrompt: customNegative,
+    };
+  };
+
   // 并发控制：最多 3 个场景同时生成
   const concurrency = 3;
   const results: ImageArtifact[] = [];
@@ -476,7 +556,7 @@ async function executeImageGeneration(
   for (let i = 0; i < scenes.length; i += concurrency) {
     const batch = scenes.slice(i, i + concurrency);
     const batchResults = await Promise.allSettled(
-      batch.map((scene) => imageAgent.run({ scene, characterBible }, ctx))
+      batch.map((scene) => imageAgent.run(buildInput(scene), ctx))
     );
 
     for (const result of batchResults) {

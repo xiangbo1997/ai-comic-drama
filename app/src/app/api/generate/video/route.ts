@@ -8,6 +8,7 @@ import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { chargeCredits } from "@/lib/credits";
 
 import { createLogger } from "@/lib/logger";
+import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 const log = createLogger("api:generate:video");
 
 // 视频生成成本（积分）
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     // 如果有场景ID，先更新状态为处理中
     if (projectId && sceneId) {
-      await prisma.scene.update({
+      await prisma.scene.updateMany({
         where: { id: sceneId },
         data: { videoStatus: "PROCESSING" },
       });
@@ -171,7 +172,7 @@ export async function POST(request: NextRequest) {
 
           // 如果有场景ID，更新场景
           if (projectId && sceneId) {
-            await tx.scene.update({
+            await tx.scene.updateMany({
               where: { id: sceneId },
               data: { videoUrl, videoStatus: "COMPLETED" },
             });
@@ -202,7 +203,7 @@ export async function POST(request: NextRequest) {
 
         // 如果有场景ID，更新场景状态
         if (projectId && sceneId) {
-          await prisma.scene.update({
+          await prisma.scene.updateMany({
             where: { id: sceneId },
             data: { videoStatus: "FAILED" },
           });
@@ -212,7 +213,11 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    void run().catch((err) => log.error("Video task runner crashed:", err));
+    // 进并发闸执行：超出全局上限时排队，避免 N 用户齐发批量把单进程连接池
+    // 打爆（稳定性 P0）。POST 仍立即 202 返回，run 在后台排队/执行。
+    void runWithGenerationSlot(`video:${task.id}`, run).catch((err) =>
+      log.error("Video task runner crashed:", err)
+    );
 
     return NextResponse.json({ taskId: task.id, cost }, { status: 202 });
   } catch (error) {

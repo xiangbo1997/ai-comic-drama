@@ -8,6 +8,7 @@ import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { chargeCredits } from "@/lib/credits";
 
 import { createLogger } from "@/lib/logger";
+import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 const log = createLogger("api:generate:tts");
 
 // TTS 成本：每100字 2积分
@@ -116,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     // 如果有场景ID，先更新状态为处理中
     if (projectId && sceneId) {
-      await prisma.scene.update({
+      await prisma.scene.updateMany({
         where: { id: sceneId },
         data: { audioStatus: "PROCESSING" },
       });
@@ -178,7 +179,7 @@ export async function POST(request: NextRequest) {
 
           // 如果有场景ID，更新场景
           if (projectId && sceneId && audioUrl) {
-            await tx.scene.update({
+            await tx.scene.updateMany({
               where: { id: sceneId },
               data: { audioUrl, audioStatus: "COMPLETED" },
             });
@@ -209,7 +210,7 @@ export async function POST(request: NextRequest) {
 
         // 如果有场景ID，更新场景状态
         if (projectId && sceneId) {
-          await prisma.scene.update({
+          await prisma.scene.updateMany({
             where: { id: sceneId },
             data: { audioStatus: "FAILED" },
           });
@@ -219,7 +220,10 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    void run().catch((err) => log.error("TTS task runner crashed:", err));
+    // 进并发闸执行（同 video/image，防单进程连接池被打爆）
+    void runWithGenerationSlot(`tts:${task.id}`, run).catch((err) =>
+      log.error("TTS task runner crashed:", err)
+    );
 
     return NextResponse.json(
       { taskId: task.id, cost, charCount },

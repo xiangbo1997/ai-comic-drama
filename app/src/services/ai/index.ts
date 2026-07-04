@@ -63,6 +63,16 @@ const DEFAULT_LLM_TIMEOUT_MS = 120_000;
  */
 const DEFAULT_VIDEO_TIMEOUT_MS = 300_000;
 
+/**
+ * 图像生成默认超时（3 分钟）。
+ *
+ * 此前 generateImage 是四类生成里唯一没有 withTimeout 的：某图像上游 TCP
+ * 挂起不返回时，后台 run() 会一直 pending 占着 DB 连接 + 并发额度，直到
+ * 15min 僵尸回收（且回收仅在有人轮询时触发，关页面则永不触发→连接泄漏）。
+ * 与 chat/video/tts 对齐加超时上限；orchestrator 内含重试，单次 3 分钟足够。
+ */
+const DEFAULT_IMAGE_TIMEOUT_MS = 180_000;
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -238,7 +248,13 @@ export async function generateImage(
       },
       tags: ["image"],
     },
-    async () => _generateImageInner(options),
+    async () =>
+      // 加超时包裹：卡死的上游不再钉住后台任务直到僵尸回收
+      withTimeout(
+        _generateImageInner(options),
+        options.timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS,
+        "image generation timeout"
+      ),
     (url) => ({ output: url })
   );
 }

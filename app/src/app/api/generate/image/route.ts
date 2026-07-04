@@ -16,6 +16,7 @@ import {
 import { orchestrateImageGeneration } from "@/services/generation";
 import type { SceneCharacterInfo, CharacterRole } from "@/services/generation";
 import { createLogger } from "@/lib/logger";
+import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 import { chargeCredits } from "@/lib/credits";
 
 const log = createLogger("api:generate:image");
@@ -141,7 +142,7 @@ export async function POST(request: NextRequest) {
 
     // 如果有场景ID，先更新状态为处理中
     if (projectId && sceneId) {
-      await prisma.scene.update({
+      await prisma.scene.updateMany({
         where: { id: sceneId },
         data: { imageStatus: "PROCESSING" },
       });
@@ -431,7 +432,7 @@ export async function POST(request: NextRequest) {
 
           // 如果有场景ID，更新场景
           if (projectId && sceneId) {
-            await tx.scene.update({
+            await tx.scene.updateMany({
               where: { id: sceneId },
               data: { imageUrl, imageStatus: "COMPLETED" },
             });
@@ -462,7 +463,7 @@ export async function POST(request: NextRequest) {
 
         // 如果有场景ID，更新场景状态
         if (projectId && sceneId) {
-          await prisma.scene.update({
+          await prisma.scene.updateMany({
             where: { id: sceneId },
             data: { imageStatus: "FAILED" },
           });
@@ -472,9 +473,12 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // 兜底：run 内部 catch 自身抛错（如 FAILED 落库失败）时仅记日志，
-    // 残留的 PROCESSING 由轮询端点的僵尸回收清扫
-    void run().catch((err) => log.error("Image task runner crashed:", err));
+    // 进并发闸执行（超上限排队，防单进程连接池被打爆，稳定性 P0）。
+    // 兜底：run 内部 catch 自身抛错时仅记日志，残留 PROCESSING 由轮询端点
+    // 的僵尸回收清扫。
+    void runWithGenerationSlot(`image:${task.id}`, run).catch((err) =>
+      log.error("Image task runner crashed:", err)
+    );
 
     return NextResponse.json({ taskId: task.id, cost }, { status: 202 });
   } catch (error) {

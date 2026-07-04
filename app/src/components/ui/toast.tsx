@@ -103,13 +103,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
 
-      {/* Toast 堆叠（右上角） */}
-      <div className="pointer-events-none fixed top-4 right-4 z-[100] flex flex-col gap-2">
+      {/* Toast 堆叠（右上角）。容器 aria-live 让屏幕阅读器播报所有动态反馈
+          （成功/失败/生成状态等）——此前全站零 aria-live，SR 用户操作后不知
+          结果（a6 审计 P0-1）。错误类逐条用 role=alert（打断播报），其余 status。 */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="false"
+        className="pointer-events-none fixed top-4 right-4 z-[100] flex flex-col gap-2"
+      >
         {toasts.map((t) => {
           const { icon: Icon, cls } = KIND_STYLE[t.kind];
           return (
             <div
               key={t.id}
+              role={t.kind === "error" ? "alert" : "status"}
               className="pointer-events-auto flex w-80 items-start gap-3 rounded-lg border border-border bg-card p-3 shadow-lg"
             >
               <Icon size={18} className={`mt-0.5 shrink-0 ${cls}`} />
@@ -137,18 +145,32 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         })}
       </div>
 
-      {/* Confirm 对话框 */}
+      {/* Confirm 对话框：破坏性操作（删项目等）的确认。role=alertdialog +
+          Esc 取消 + 打开自动聚焦「取消」，让键盘/SR 用户可感知并可退出
+          （a6 审计 P2-7）。 */}
       {confirmState && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4">
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-describedby="confirm-message"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") resolveConfirm(false);
+          }}
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4"
+        >
           <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xl">
             <div className="mb-4 flex items-start gap-3">
               <AlertTriangle size={20} className="mt-0.5 shrink-0 text-primary" />
-              <p className="text-sm whitespace-pre-line text-foreground">
+              <p
+                id="confirm-message"
+                className="text-sm whitespace-pre-line text-foreground"
+              >
                 {confirmState.message}
               </p>
             </div>
             <div className="flex justify-end gap-2">
               <button
+                autoFocus
                 onClick={() => resolveConfirm(false)}
                 className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground transition hover:text-foreground"
               >

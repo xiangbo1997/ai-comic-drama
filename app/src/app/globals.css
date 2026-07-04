@@ -182,3 +182,17 @@
     background: transparent;
   }
 }
+
+/* 全局尊重「减少动态效果」系统偏好（WCAG 2.3.3）。
+   前庭功能障碍用户会被旋转/脉冲诱发眩晕；一处媒体查询覆盖全站 37 个
+   含动画文件（a6 审计 P1-5），把 animation/transition 压到近零。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

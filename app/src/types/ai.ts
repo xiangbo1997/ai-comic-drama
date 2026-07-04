@@ -52,6 +52,8 @@ export interface ImageGenerationOptions {
    */
   seed?: number;
   config?: AIServiceConfig;
+  /** 单次生成超时（毫秒）；缺省用 facade 层默认（3 分钟） */
+  timeoutMs?: number;
 }
 
 /** 视频生成选项 */

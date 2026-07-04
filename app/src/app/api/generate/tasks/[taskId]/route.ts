@@ -93,6 +93,9 @@ export async function GET(
     ) {
       const zombieError = "任务已中断（服务重启或长时间无响应），请重试";
       const sceneField = SCENE_STATUS_FIELD[task.type];
+      // scene 用 updateMany（不用 update）：分镜可能已被删/重解析，update 命中
+      // 不存在行会 P2025 让整个回收事务回滚 → task 无法置 FAILED → 永卡
+      // PROCESSING（a1 审计 P1-1）。updateMany 不存在则 count=0 静默通过。
       await prisma.$transaction([
         prisma.generationTask.update({
           where: { id: taskId },
@@ -104,7 +107,7 @@ export async function GET(
         }),
         ...(task.sceneId
           ? [
-              prisma.scene.update({
+              prisma.scene.updateMany({
                 where: { id: task.sceneId },
                 data: { [sceneField]: "FAILED" },
               }),

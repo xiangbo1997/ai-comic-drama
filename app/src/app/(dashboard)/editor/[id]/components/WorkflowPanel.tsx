@@ -101,9 +101,16 @@ export function WorkflowPanel({
       {/* 展开详情 */}
       {expanded && (
         <div className="space-y-2 px-4 pb-3">
-          {/* 进度条 */}
+          {/* 进度条：补 progressbar 语义，SR 用户可获知 AI 长任务进度（a6 P1-6） */}
           {status && (
-            <div className="bg-card h-1.5 w-full rounded-full">
+            <div
+              role="progressbar"
+              aria-valuenow={status.progress}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="Agent 生成进度"
+              className="bg-card h-1.5 w-full rounded-full"
+            >
               <div
                 className="bg-primary h-1.5 rounded-full transition-all duration-500"
                 style={{ width: `${status.progress}%` }}
