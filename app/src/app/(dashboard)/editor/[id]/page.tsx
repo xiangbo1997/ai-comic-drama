@@ -35,6 +35,10 @@ import { BgmDialog } from "./components/BgmDialog";
 import { useWorkflow } from "./hooks/use-workflow";
 import { EditorSkeleton } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
+import {
+  runGenerationTask,
+  GENERATION_TIMEOUTS,
+} from "@/lib/generation-task-client";
 
 export default function EditorPage() {
   const params = useParams();
@@ -739,11 +743,11 @@ export default function EditorPage() {
               ? project.aspectRatio
               : undefined;
 
-          const generateOne = async (configId?: string) => {
-            const res = await fetch("/api/generate/video", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
+          // 异步化：走共享 start+poll 助手（与单张视频同一链路）
+          const generateOne = (configId?: string) =>
+            runGenerationTask(
+              "/api/generate/video",
+              {
                 imageUrl: editor.selectedScene!.imageUrl,
                 prompt: editor.selectedScene!.description,
                 duration: nearestVideoDuration(editor.selectedScene!.duration),
@@ -752,11 +756,12 @@ export default function EditorPage() {
                 projectId,
                 sceneId: editor.selectedScene!.id,
                 videoConfigId: configId,
-              }),
-            });
-            if (!res.ok) throw new Error("视频生成失败");
-            return res.json();
-          };
+              },
+              {
+                timeoutMs: GENERATION_TIMEOUTS.video,
+                fallbackError: "视频生成失败",
+              }
+            );
 
           if (mode === "PARALLEL") {
             await Promise.allSettled(
@@ -786,22 +791,23 @@ export default function EditorPage() {
             editor.selectedScene?.selectedCharacterId ??
             undefined;
 
-          const generateOne = async (configId?: string) => {
-            const res = await fetch("/api/generate/tts", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
+          // 异步化：走共享 start+poll 助手（与单张配音同一链路）
+          const generateOne = (configId?: string) =>
+            runGenerationTask(
+              "/api/generate/tts",
+              {
                 text,
                 characterId,
                 speed: 1.0,
                 projectId,
                 sceneId: editor.selectedScene!.id,
                 ttsConfigId: configId,
-              }),
-            });
-            if (!res.ok) throw new Error("配音生成失败");
-            return res.json();
-          };
+              },
+              {
+                timeoutMs: GENERATION_TIMEOUTS.tts,
+                fallbackError: "配音生成失败",
+              }
+            );
 
           if (mode === "PARALLEL") {
             await Promise.allSettled(

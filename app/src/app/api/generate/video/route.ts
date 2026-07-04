@@ -10,10 +10,6 @@ import { chargeCredits } from "@/lib/credits";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:generate:video");
 
-// 视频生成同步跑在请求处理器里，可耗时数十秒到数分钟。声明 maxDuration
-// 提高平台函数超时上限，避免被默认超时（如 Vercel 10s / 边缘 100s）切断。
-export const maxDuration = 300;
-
 // 视频生成成本（积分）
 const VIDEO_COST = {
   5: 10, // 5秒视频 10积分
@@ -29,14 +25,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 在事务闭包内 TS 会丢失对 session.user.id 的收窄，提前固化为局部常量
+    // 在事务闭包内 TS 会丢失对 userId 的收窄，提前固化为局部常量
     const userId = session.user.id;
 
     // 应用限流
-    const rateLimitResult = await rateLimiters.videoGeneration(
-      request,
-      session.user.id
-    );
+    const rateLimitResult = await rateLimiters.videoGeneration(request, userId);
     if (!rateLimitResult.success) {
       return NextResponse.json(
         {
@@ -95,7 +88,7 @@ export async function POST(request: NextRequest) {
     // 检查积分
     const cost = VIDEO_COST[duration as keyof typeof VIDEO_COST] || 10;
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: userId },
       select: { credits: true },
     });
 
@@ -129,93 +122,99 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 创建生成任务记录
+    // 创建生成任务记录（input.userId 供轮询端点做归属校验，同 script/parse 模式）
     const task = await prisma.generationTask.create({
       data: {
         type: "VIDEO_GENERATE",
         status: "PROCESSING",
-        input: { imageUrl, prompt, duration },
+        input: { userId, imageUrl, prompt, duration },
         projectId,
         sceneId,
         cost,
       },
     });
 
-    try {
-      // 获取用户视频生成配置
-      const videoConfig = await getUserVideoConfig(
-        session.user.id,
-        videoConfigId
-      );
+    // 异步化（2026-07-04）：生成主体 fire-and-forget 后台执行，POST 立即
+    // 返回 taskId，客户端轮询 GET /api/generate/tasks/[taskId] 取结果。
+    // 视频是最长的同步等待（可达数分钟），异步化后不再受平台超时约束、
+    // 页面刷新也不丢任务。扣费语义不变：成功后事务内扣费。
+    const run = async () => {
+      try {
+        // 获取用户视频生成配置
+        const videoConfig = await getUserVideoConfig(userId, videoConfigId);
 
-      // 调用视频生成服务（使用净化后的提示词）
-      const videoUrl = await generateVideo({
-        imageUrl,
-        prompt: safePrompt,
-        duration,
-        aspectRatio,
-        referenceImages,
-        config: videoConfig ?? undefined,
-      });
+        // 调用视频生成服务（使用净化后的提示词）
+        const videoUrl = await generateVideo({
+          imageUrl,
+          prompt: safePrompt,
+          duration,
+          aspectRatio,
+          referenceImages,
+          config: videoConfig ?? undefined,
+        });
 
-      // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
-      // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
-      // 余额不足会抛错并自动回滚 task/scene 的本次写入。
-      // R2：扣费时机为「生成成功后」，失败路径（catch）下用户从未被扣，无需退款。
-      await prisma.$transaction(async (tx) => {
-        // 更新任务状态
-        await tx.generationTask.update({
+        // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
+        // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
+        // 余额不足会抛错并自动回滚 task/scene 的本次写入。
+        // R2：扣费时机为「生成成功后」，失败路径（catch）下用户从未被扣，无需退款。
+        await prisma.$transaction(async (tx) => {
+          // 更新任务状态
+          await tx.generationTask.update({
+            where: { id: task.id },
+            data: {
+              status: "COMPLETED",
+              // output 即轮询端点透传给客户端的 result，保持与原同步响应同形
+              output: { videoUrl, cost },
+              completedAt: new Date(),
+            },
+          });
+
+          // 如果有场景ID，更新场景
+          if (projectId && sceneId) {
+            await tx.scene.update({
+              where: { id: sceneId },
+              data: { videoUrl, videoStatus: "COMPLETED" },
+            });
+          }
+
+          // 扣减积分（事务内扣费+记流水+余额校验）
+          await chargeCredits(tx, {
+            userId,
+            amount: cost,
+            type: "GENERATE_VIDEO",
+            source: "generate:video",
+            sourceId: task.id,
+            note: sceneId
+              ? `场景 ${sceneId} 视频生成（时长 ${duration}s）`
+              : `视频生成（时长 ${duration}s）`,
+          });
+        });
+      } catch (error) {
+        // 更新任务状态为失败（后台任务不再向 HTTP 层抛错，落库供轮询读取）
+        await prisma.generationTask.update({
           where: { id: task.id },
           data: {
-            status: "COMPLETED",
-            output: { videoUrl },
+            status: "FAILED",
+            error: error instanceof Error ? error.message : "Unknown error",
             completedAt: new Date(),
           },
         });
 
-        // 如果有场景ID，更新场景
+        // 如果有场景ID，更新场景状态
         if (projectId && sceneId) {
-          await tx.scene.update({
+          await prisma.scene.update({
             where: { id: sceneId },
-            data: { videoUrl, videoStatus: "COMPLETED" },
+            data: { videoStatus: "FAILED" },
           });
         }
 
-        // 扣减积分（事务内扣费+记流水+余额校验）
-        await chargeCredits(tx, {
-          userId,
-          amount: cost,
-          type: "GENERATE_VIDEO",
-          source: "generate:video",
-          sourceId: task.id,
-          note: sceneId
-            ? `场景 ${sceneId} 视频生成（时长 ${duration}s）`
-            : `视频生成（时长 ${duration}s）`,
-        });
-      });
-
-      return NextResponse.json({ videoUrl, cost });
-    } catch (error) {
-      // 更新任务状态为失败
-      await prisma.generationTask.update({
-        where: { id: task.id },
-        data: {
-          status: "FAILED",
-          error: error instanceof Error ? error.message : "Unknown error",
-          completedAt: new Date(),
-        },
-      });
-
-      // 如果有场景ID，更新场景状态
-      if (projectId && sceneId) {
-        await prisma.scene.update({
-          where: { id: sceneId },
-          data: { videoStatus: "FAILED" },
-        });
+        log.error("Video generation task failed:", error);
       }
+    };
 
-      throw error;
-    }
+    void run().catch((err) => log.error("Video task runner crashed:", err));
+
+    return NextResponse.json({ taskId: task.id, cost }, { status: 202 });
   } catch (error) {
     log.error("Video generation error:", error);
     return NextResponse.json(

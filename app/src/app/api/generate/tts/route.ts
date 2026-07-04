@@ -10,10 +10,6 @@ import { chargeCredits } from "@/lib/credits";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:generate:tts");
 
-// TTS 合成同步跑在请求处理器里，长文本可耗时数十秒。声明 maxDuration 提高
-// 平台函数超时上限，避免被默认超时切断。
-export const maxDuration = 120;
-
 // TTS 成本：每100字 2积分
 const TTS_COST_PER_100_CHARS = 2;
 
@@ -25,14 +21,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 在事务闭包内 TS 会丢失对 session.user.id 的收窄，提前固化为局部常量
+    // 在事务闭包内 TS 会丢失对 userId 的收窄，提前固化为局部常量
     const userId = session.user.id;
 
     // 应用限流
-    const rateLimitResult = await rateLimiters.audioGeneration(
-      request,
-      session.user.id
-    );
+    const rateLimitResult = await rateLimiters.audioGeneration(request, userId);
     if (!rateLimitResult.success) {
       return NextResponse.json(
         {
@@ -43,6 +36,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 注：原 returnUrl=false（直接返回音频 buffer）分支随异步化移除——
+    // 全代码库无调用方使用；异步模式统一落盘后经轮询返回 audioUrl。
     const {
       text,
       voiceId: voiceIdFromBody,
@@ -50,7 +45,6 @@ export async function POST(request: NextRequest) {
       speed,
       projectId,
       sceneId,
-      returnUrl = true,
       ttsConfigId,
     } = await request.json();
 
@@ -66,11 +60,7 @@ export async function POST(request: NextRequest) {
         where: { id: characterId },
         select: { voiceId: true, userId: true },
       });
-      if (
-        character &&
-        character.userId === session.user.id &&
-        character.voiceId
-      ) {
+      if (character && character.userId === userId && character.voiceId) {
         voiceId = character.voiceId;
       }
     }
@@ -98,7 +88,7 @@ export async function POST(request: NextRequest) {
 
     // 检查积分
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: userId },
       select: { credits: true },
     });
 
@@ -132,113 +122,111 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 创建生成任务记录
+    // 创建生成任务记录（input.userId 供轮询端点做归属校验，同 script/parse 模式）
     const task = await prisma.generationTask.create({
       data: {
         type: "AUDIO_GENERATE",
         status: "PROCESSING",
-        input: { text, voiceId, speed },
+        input: { userId, text, voiceId, speed },
         projectId,
         sceneId,
         cost,
       },
     });
 
-    try {
-      // 获取用户 TTS 配置
-      const ttsConfig = await getUserTTSConfig(session.user.id, ttsConfigId);
+    // 异步化（2026-07-04）：合成主体 fire-and-forget 后台执行，POST 立即
+    // 返回 taskId，客户端轮询 GET /api/generate/tasks/[taskId] 取结果。
+    // 扣费语义不变：成功后事务内扣费。
+    const run = async () => {
+      try {
+        // 获取用户 TTS 配置
+        const ttsConfig = await getUserTTSConfig(userId, ttsConfigId);
 
-      // 调用 TTS 服务
-      const audioBuffer = await synthesizeSpeech({
-        text,
-        voiceId,
-        speed,
-        config: ttsConfig ?? undefined,
-      });
+        // 调用 TTS 服务
+        const audioBuffer = await synthesizeSpeech({
+          text,
+          voiceId,
+          speed,
+          config: ttsConfig ?? undefined,
+        });
 
-      let audioUrl: string | null = null;
-
-      // 需要返回 URL 时落盘：走 uploadFile 统一门面（R2 已配走云存储 /
-      // 未配降级本地盘 public/uploads），不再因缺 R2 而丢弃音频致哑片。
-      if (returnUrl) {
-        audioUrl = await uploadFile(audioBuffer, {
+        // 落盘：走 uploadFile 统一门面（R2 已配走云存储 / 未配降级本地盘
+        // public/uploads），不再因缺 R2 而丢弃音频致哑片。
+        const audioUrl = await uploadFile(audioBuffer, {
           fileName: `tts_${Date.now()}.mp3`,
           contentType: "audio/mpeg",
           fileType: "audio",
-          userId: session.user.id,
+          userId,
           projectId,
         });
-      }
 
-      // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
-      // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
-      // 余额不足会抛错并自动回滚 task/scene 的本次写入。
-      // R2：扣费时机为「生成成功后」，失败路径（catch）下用户从未被扣，无需退款。
-      await prisma.$transaction(async (tx) => {
-        // 更新任务状态
-        await tx.generationTask.update({
+        // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
+        // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
+        // 余额不足会抛错并自动回滚 task/scene 的本次写入。
+        // R2：扣费时机为「生成成功后」，失败路径（catch）下用户从未被扣，无需退款。
+        await prisma.$transaction(async (tx) => {
+          // 更新任务状态
+          await tx.generationTask.update({
+            where: { id: task.id },
+            data: {
+              status: "COMPLETED",
+              // output 即轮询端点透传给客户端的 result，保持与原同步响应同形
+              output: { audioUrl, cost, charCount },
+              completedAt: new Date(),
+            },
+          });
+
+          // 如果有场景ID，更新场景
+          if (projectId && sceneId && audioUrl) {
+            await tx.scene.update({
+              where: { id: sceneId },
+              data: { audioUrl, audioStatus: "COMPLETED" },
+            });
+          }
+
+          // 扣减积分（事务内扣费+记流水+余额校验）
+          await chargeCredits(tx, {
+            userId,
+            amount: cost,
+            type: "GENERATE_TTS",
+            source: "generate:tts",
+            sourceId: task.id,
+            note: sceneId
+              ? `场景 ${sceneId} 语音合成（${charCount} 字）`
+              : `语音合成（${charCount} 字）`,
+          });
+        });
+      } catch (error) {
+        // 更新任务状态为失败（后台任务不再向 HTTP 层抛错，落库供轮询读取）
+        await prisma.generationTask.update({
           where: { id: task.id },
           data: {
-            status: "COMPLETED",
-            output: { audioUrl },
+            status: "FAILED",
+            error: error instanceof Error ? error.message : "Unknown error",
             completedAt: new Date(),
           },
         });
 
-        // 如果有场景ID，更新场景
-        if (projectId && sceneId && audioUrl) {
-          await tx.scene.update({
+        // 如果有场景ID，更新场景状态
+        if (projectId && sceneId) {
+          await prisma.scene.update({
             where: { id: sceneId },
-            data: { audioUrl, audioStatus: "COMPLETED" },
+            data: { audioStatus: "FAILED" },
           });
         }
 
-        // 扣减积分（事务内扣费+记流水+余额校验）
-        await chargeCredits(tx, {
-          userId,
-          amount: cost,
-          type: "GENERATE_TTS",
-          source: "generate:tts",
-          sourceId: task.id,
-          note: sceneId
-            ? `场景 ${sceneId} 语音合成（${charCount} 字）`
-            : `语音合成（${charCount} 字）`,
-        });
-      });
-
-      // 如果需要返回 URL
-      if (returnUrl) {
-        return NextResponse.json({ audioUrl, cost, charCount });
+        log.error("TTS task failed:", error);
       }
+    };
 
-      // 否则直接返回音频数据
-      return new NextResponse(new Uint8Array(audioBuffer), {
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "Content-Length": audioBuffer.length.toString(),
-        },
-      });
-    } catch (error) {
-      // 更新任务状态为失败
-      await prisma.generationTask.update({
-        where: { id: task.id },
-        data: {
-          status: "FAILED",
-          error: error instanceof Error ? error.message : "Unknown error",
-          completedAt: new Date(),
-        },
-      });
+    void run().catch((err) => log.error("TTS task runner crashed:", err));
 
-      // 如果有场景ID，更新场景状态
-      if (projectId && sceneId) {
-        await prisma.scene.update({
-          where: { id: sceneId },
-          data: { audioStatus: "FAILED" },
-        });
+    return NextResponse.json(
+      { taskId: task.id, cost, charCount },
+      {
+        status: 202,
       }
-
-      throw error;
-    }
+    );
   } catch (error) {
     log.error("TTS error:", error);
     return NextResponse.json(

@@ -7,7 +7,11 @@ import { buildFinalPrompt } from "@/lib/prompt-builder";
 import { getThreeViewUrls } from "@/lib/three-views";
 import { apiUpdateScene } from "./use-editor-project";
 import { useToast } from "@/components/ui/toast";
-import { formatApiError, toFriendlyError } from "@/lib/error-copy";
+import { toFriendlyError } from "@/lib/error-copy";
+import {
+  runGenerationTask,
+  GENERATION_TIMEOUTS,
+} from "@/lib/generation-task-client";
 
 export interface GenerateImageResult {
   imageUrl: string;
@@ -33,10 +37,11 @@ async function generateSceneImage(
   prompt: string,
   options?: GenerateSceneImageOptions
 ): Promise<GenerateImageResult> {
-  const res = await fetch("/api/generate/image", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  // 异步化（2026-07-04）：POST 立即返回 taskId，此处轮询到终态后返回
+  // 与原同步响应同形的结果——上层（单张/批量/多版本）调用方式零改动。
+  const data = await runGenerationTask<GenerateImageResult>(
+    "/api/generate/image",
+    {
       prompt,
       projectId,
       sceneId,
@@ -45,13 +50,10 @@ async function generateSceneImage(
       referenceImage: options?.referenceImage,
       referenceImages: options?.referenceImages,
       negativePrompt: options?.negativePrompt,
-    }),
-  });
-  if (!res.ok) {
-    const error = await res.json().catch(() => null);
-    throw new Error(formatApiError(error, "图片生成失败"));
-  }
-  const data = await res.json();
+    },
+    { timeoutMs: GENERATION_TIMEOUTS.image, fallbackError: "图片生成失败" }
+  );
+  // 服务端已在任务事务里写库；此处幂等重写以兼容旧行为（多版本并行路径依赖）
   await apiUpdateScene(projectId, sceneId, {
     imageUrl: data.imageUrl,
     imageStatus: "COMPLETED",
@@ -288,10 +290,10 @@ export function useGenerationActions(
         ? project.aspectRatio
         : undefined;
 
-    const res = await fetch("/api/generate/video", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // 异步化：发起任务并轮询到终态（等待期刷新页面不丢任务）
+    return runGenerationTask<{ videoUrl?: string }>(
+      "/api/generate/video",
+      {
         imageUrl: scene.imageUrl,
         prompt: scene.description,
         // 按场景时长就近映射到 provider 支持的 5/10/15s（15s 适配 Seedance 2.0 直出）
@@ -301,13 +303,9 @@ export function useGenerationActions(
         projectId,
         sceneId: scene.id,
         videoConfigId,
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      throw new Error(formatApiError(data, "视频生成失败"));
-    }
-    return res.json() as Promise<{ videoUrl?: string }>;
+      },
+      { timeoutMs: GENERATION_TIMEOUTS.video, fallbackError: "视频生成失败" }
+    );
   };
 
   const requestAudio = async (scene: Scene, ttsConfigId?: string) => {
@@ -317,23 +315,19 @@ export function useGenerationActions(
     const characterId =
       scene.selectedCharacter?.id ?? scene.selectedCharacterId ?? undefined;
 
-    const res = await fetch("/api/generate/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // 异步化：发起任务并轮询到终态（等待期刷新页面不丢任务）
+    return runGenerationTask<{ audioUrl?: string }>(
+      "/api/generate/tts",
+      {
         text,
         characterId,
         speed: 1.0,
         projectId,
         sceneId: scene.id,
         ttsConfigId,
-      }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      throw new Error(formatApiError(data, "配音生成失败"));
-    }
-    return res.json() as Promise<{ audioUrl?: string }>;
+      },
+      { timeoutMs: GENERATION_TIMEOUTS.tts, fallbackError: "配音生成失败" }
+    );
   };
 
   const generateImageMutation = useMutation({
