@@ -26,5 +26,17 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/(dashboard)/:path*"],
+  // 注意：路由分组 (dashboard) 不出现在真实 URL 中，原 matcher
+  // "/(dashboard)/:path*" 在 path-to-regexp 里是正则分组、只匹配字面
+  // /dashboard/**——即本 middleware 此前从未执行过（E2E 冒烟发现），
+  // callbackUrl 一直没被设置，未登录重定向全靠 layout 兜底（不带回跳）。
+  // 改为显式列出受保护路径前缀（:path* 允许零段，/projects 本身也命中）。
+  matcher: [
+    "/projects/:path*",
+    "/characters/:path*",
+    "/editor/:path*",
+    "/credits/:path*",
+    "/settings/:path*",
+    "/admin/:path*",
+  ],
 };
