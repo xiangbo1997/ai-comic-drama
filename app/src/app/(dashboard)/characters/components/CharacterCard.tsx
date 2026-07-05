@@ -129,7 +129,7 @@ function CharacterCardImpl({
           <button
             onClick={() => onOpenGenerateModal(character.id, "upload")}
             disabled={generateMutationPending}
-            className="rounded-lg bg-black/50 p-2 transition hover:bg-purple-600"
+            className="hover:bg-accent rounded-lg bg-black/50 p-2 transition"
             title="上传垫图生成（基于参考图生成）"
             aria-label="上传垫图生成参考图"
           >
@@ -321,7 +321,7 @@ function CharacterEditForm({
             disabled={
               !formData.name.trim() || generateDescriptionMutation.isPending
             }
-            className="disabled:bg-secondary flex items-center gap-1 rounded bg-purple-600 px-1.5 py-0.5 text-xs transition hover:bg-purple-700 disabled:cursor-not-allowed"
+            className="disabled:bg-secondary bg-agent text-agent-foreground hover:bg-agent/90 flex items-center gap-1 rounded px-1.5 py-0.5 text-xs transition disabled:cursor-not-allowed"
             title="AI 生成外貌描述"
           >
             {generateDescriptionMutation.isPending ? (

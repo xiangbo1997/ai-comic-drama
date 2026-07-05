@@ -1,12 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { X, Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 import {
   DEFAULT_SUBTITLE_STYLE,
   type SubtitleStyle,
 } from "@/types/export-style";
 import { SubtitleStylePanel } from "./SubtitleStylePanel";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 /**
  * 字幕样式弹窗（全片统一）。
@@ -48,18 +56,21 @@ export function SubtitleStyleDialog({
     }
   };
 
+  // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-card flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl">
-        <div className="border-border flex shrink-0 items-center justify-between border-b px-5 py-4">
-          <h2 className="font-semibold">字幕样式（全片统一）</h2>
-          <button
-            onClick={onClose}
-            className="hover:bg-secondary rounded-lg p-1.5 transition"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[85vh] max-w-md flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b px-5 py-4 text-left">
+          <DialogTitle>字幕样式（全片统一）</DialogTitle>
+          <DialogDescription className="sr-only">
+            设置全片统一的字幕样式，可选从配音识别生成字幕
+          </DialogDescription>
+        </DialogHeader>
         <div className="overflow-y-auto p-5">
           {onTranscribe && (
             <div className="border-border mb-4 rounded-lg border p-3">
@@ -90,7 +101,7 @@ export function SubtitleStyleDialog({
           )}
           <SubtitleStylePanel value={draft} onChange={setDraft} />
         </div>
-        <div className="border-border flex shrink-0 justify-end gap-2 border-t px-5 py-3">
+        <DialogFooter className="border-border shrink-0 justify-end gap-2 border-t px-5 py-3">
           <button
             onClick={onClose}
             className="hover:bg-secondary rounded-lg px-4 py-2 text-sm"
@@ -106,8 +117,8 @@ export function SubtitleStyleDialog({
           >
             完成
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

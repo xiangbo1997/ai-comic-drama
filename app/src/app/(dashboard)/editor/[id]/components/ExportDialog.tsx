@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, X, Download, CheckCircle2, ChevronDown } from "lucide-react";
+import { Loader2, Download, CheckCircle2, ChevronDown } from "lucide-react";
 import {
   DEFAULT_SUBTITLE_STYLE,
   DEFAULT_WATERMARK,
@@ -10,6 +10,13 @@ import {
 } from "@/types/export-style";
 import { SubtitleStylePanel } from "./SubtitleStylePanel";
 import { WatermarkPanel } from "./WatermarkPanel";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 interface ExportStatus {
   isExporting: boolean;
@@ -47,23 +54,22 @@ export function ExportDialog({
   initialSubtitleStyle,
   initialWatermark,
 }: ExportDialogProps) {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       {/* 弹窗主体 — 限高可滚动 */}
-      <div className="bg-card flex max-h-[90vh] w-full max-w-lg flex-col rounded-xl">
+      <DialogContent className="flex max-h-[90vh] flex-col p-0">
         {/* 标题栏 */}
-        <div className="border-border flex shrink-0 items-center justify-between border-b p-6 pb-4">
-          <h2 className="text-xl font-semibold">导出视频</h2>
-          <button
-            onClick={onClose}
-            className="hover:bg-secondary rounded p-1"
-            aria-label="关闭"
-          >
-            <X size={20} />
-          </button>
-        </div>
+        <DialogHeader className="border-border shrink-0 border-b p-6 pb-4 text-left">
+          <DialogTitle className="text-xl">导出视频</DialogTitle>
+          <DialogDescription className="sr-only">
+            配置导出格式、分辨率与字幕水印，生成最终视频
+          </DialogDescription>
+        </DialogHeader>
 
         {/* 内容区 */}
         <div className="flex-1 overflow-y-auto p-6 pt-4">
@@ -124,8 +130,8 @@ export function ExportDialog({
             />
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

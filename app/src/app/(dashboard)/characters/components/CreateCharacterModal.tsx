@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Wand2, X } from "lucide-react";
+import { Loader2, Wand2 } from "lucide-react";
 import type { Tag } from "@/types";
 import {
   AppearanceEditor,
@@ -8,6 +8,14 @@ import {
 } from "@/components/appearance-editor";
 import { VOICE_PRESETS, type CharacterFormData } from "./constants";
 import type { UseMutationResult } from "@tanstack/react-query";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface CreateCharacterModalProps {
   formData: CharacterFormData;
@@ -36,20 +44,22 @@ export function CreateCharacterModal({
   createPending,
   generateDescriptionMutation,
 }: CreateCharacterModalProps) {
+  // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-card w-full max-w-md rounded-xl">
-        <div className="border-border flex items-center justify-between border-b p-4">
-          <h2 className="text-lg font-semibold">创建角色</h2>
-          <button
-            onClick={onClose}
-            className="hover:bg-secondary rounded p-1"
-            aria-label="关闭"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="space-y-4 p-4">
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[90vh] max-w-md flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b p-4 text-left">
+          <DialogTitle>创建角色</DialogTitle>
+          <DialogDescription className="sr-only">
+            填写角色的基本信息、外貌描述与声线，创建新角色
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <div>
             <label className="text-muted-foreground mb-1 block text-sm">
               角色名称 *
@@ -215,7 +225,7 @@ export function CreateCharacterModal({
             </div>
           )}
         </div>
-        <div className="border-border flex gap-3 border-t p-4">
+        <DialogFooter className="border-border shrink-0 flex-row gap-3 border-t p-4">
           <button
             onClick={onClose}
             className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg py-2"
@@ -230,8 +240,8 @@ export function CreateCharacterModal({
             {createPending && <Loader2 size={18} className="animate-spin" />}
             创建
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

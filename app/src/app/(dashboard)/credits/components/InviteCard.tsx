@@ -44,12 +44,12 @@ export function InviteCard({ inviteData }: InviteCardProps) {
   return (
     <div className="bg-card mb-8 rounded-xl p-6">
       <div className="mb-4 flex items-center gap-3">
-        <Users size={24} className="text-purple-400" />
+        <Users size={24} className="text-agent" />
         <h2 className="text-lg font-semibold">邀请好友</h2>
       </div>
 
       <div className="bg-primary/10 mb-4 rounded-lg p-4">
-        <p className="mb-2 text-purple-200">
+        <p className="text-foreground/90 mb-2">
           邀请好友注册，双方各得{" "}
           <span className="text-foreground font-bold">50 积分</span>
         </p>
@@ -75,7 +75,7 @@ export function InviteCard({ inviteData }: InviteCardProps) {
         </button>
         <button
           onClick={handleShare}
-          className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 transition hover:bg-purple-700"
+          className="bg-agent text-agent-foreground hover:bg-agent/90 flex items-center gap-2 rounded-lg px-4 py-2 transition"
         >
           <Share2 size={18} />
           分享

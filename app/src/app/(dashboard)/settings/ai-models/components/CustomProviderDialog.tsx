@@ -2,6 +2,13 @@
 
 import { useState } from "react";
 import { Loader2, Plus, X, AlertTriangle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import type { AICategory, AIProvider } from "./types";
 import {
   API_PROTOCOLS,
@@ -109,19 +116,28 @@ export function CustomProviderDialog({
     }
   };
 
+  // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-card max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl">
-        <div className="border-border border-b p-6">
-          <h2 className="text-foreground text-xl font-semibold">
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[90vh] max-w-lg flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b p-6 text-left">
+          <DialogTitle className="text-foreground text-xl">
             {existingProvider ? "编辑" : "添加"}自定义提供商
-          </h2>
-          <p className="text-muted-foreground mt-1 text-sm">
+          </DialogTitle>
+          <DialogDescription>
             添加到「{categoryLabels[category]}」分类
-          </p>
-        </div>
+          </DialogDescription>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 p-6">
+        <form
+          onSubmit={handleSubmit}
+          className="flex-1 space-y-4 overflow-y-auto p-6"
+        >
           <div>
             <label className="text-muted-foreground mb-1 block text-sm">
               提供商名称 <span className="text-red-400">*</span>
@@ -310,7 +326,7 @@ export function CustomProviderDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

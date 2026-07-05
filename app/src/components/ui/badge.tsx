@@ -18,6 +18,11 @@ const badgeVariants = cva(
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
+        // 语义状态变体（走 token，替代业务层裸 bg-green-500/20 等，a4 P1-4）
+        success: "bg-chart-2/15 text-chart-2",
+        warning: "bg-primary/15 text-primary",
+        info: "bg-agent/15 text-agent",
+        muted: "bg-muted text-muted-foreground",
       },
     },
     defaultVariants: {

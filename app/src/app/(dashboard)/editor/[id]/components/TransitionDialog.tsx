@@ -1,12 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
 import {
   DEFAULT_TRANSITION,
   type Transition,
   type TransitionType,
 } from "@/types/export-style";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface SceneOption {
   id: string;
@@ -77,18 +84,21 @@ export function TransitionDialog({
     setTransitions((prev) => prev.map(() => ({ ...tpl })));
   };
 
+  // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-card flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-xl">
-        <div className="border-border flex shrink-0 items-center justify-between border-b px-5 py-4">
-          <h2 className="font-semibold">转场设置（分镜之间）</h2>
-          <button
-            onClick={onClose}
-            className="hover:bg-secondary rounded-lg p-1.5 transition"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[88vh] max-w-lg flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b px-5 py-4 text-left">
+          <DialogTitle>转场设置（分镜之间）</DialogTitle>
+          <DialogDescription className="sr-only">
+            为相邻分镜之间设置转场类型与时长
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="flex-1 space-y-3 overflow-y-auto p-5">
           {gapCount === 0 ? (
@@ -167,7 +177,7 @@ export function TransitionDialog({
           )}
         </div>
 
-        <div className="border-border flex shrink-0 justify-end gap-2 border-t px-5 py-3">
+        <DialogFooter className="border-border shrink-0 justify-end gap-2 border-t px-5 py-3">
           <button
             onClick={onClose}
             className="hover:bg-secondary rounded-lg px-4 py-2 text-sm"
@@ -183,8 +193,8 @@ export function TransitionDialog({
           >
             完成
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

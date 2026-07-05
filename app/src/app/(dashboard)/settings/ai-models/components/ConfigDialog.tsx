@@ -12,6 +12,13 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import type { AIProvider, UserConfig, AuthType } from "./types";
 import {
   API_PROTOCOLS,
@@ -247,18 +254,27 @@ export function ConfigDialog({
     }
   };
 
+  // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-card w-full max-w-md rounded-xl">
-        <div className="border-border border-b p-6">
-          <h2 className="text-foreground text-xl font-semibold">
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[90vh] max-w-md flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b p-6 text-left">
+          <DialogTitle className="text-foreground text-xl">
             {existingConfig ? "修改" : "配置"} {provider.name}
-          </h2>
-        </div>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            配置该 AI 提供商的密钥、模型、协议与中转地址
+          </DialogDescription>
+        </DialogHeader>
 
         <form
           onSubmit={handleSubmit}
-          className="max-h-[70vh] space-y-4 overflow-y-auto p-6"
+          className="flex-1 space-y-4 overflow-y-auto p-6"
         >
           {/* 认证方式 Tabs */}
           {showAuthTabs && (
@@ -754,7 +770,7 @@ export function ConfigDialog({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

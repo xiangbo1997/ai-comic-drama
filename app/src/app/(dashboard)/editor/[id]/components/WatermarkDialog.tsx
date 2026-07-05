@@ -1,9 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
 import { DEFAULT_WATERMARK, type Watermark } from "@/types/export-style";
 import { WatermarkPanel } from "./WatermarkPanel";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 /**
  * 品牌水印弹窗（全片统一）。
@@ -23,22 +30,25 @@ export function WatermarkDialog({
     initialValue ?? DEFAULT_WATERMARK
   );
 
+  // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-card flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl">
-        <div className="border-border flex shrink-0 items-center justify-between border-b px-5 py-4">
-          <h2 className="font-semibold">品牌水印 / Logo（全片统一）</h2>
-          <button
-            onClick={onClose}
-            className="hover:bg-secondary rounded-lg p-1.5 transition"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[85vh] max-w-md flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b px-5 py-4 text-left">
+          <DialogTitle>品牌水印 / Logo（全片统一）</DialogTitle>
+          <DialogDescription className="sr-only">
+            设置全片统一的品牌水印或 Logo
+          </DialogDescription>
+        </DialogHeader>
         <div className="overflow-y-auto p-5">
           <WatermarkPanel value={draft} onChange={setDraft} />
         </div>
-        <div className="border-border flex shrink-0 justify-end gap-2 border-t px-5 py-3">
+        <DialogFooter className="border-border shrink-0 justify-end gap-2 border-t px-5 py-3">
           <button
             onClick={onClose}
             className="hover:bg-secondary rounded-lg px-4 py-2 text-sm"
@@ -54,8 +64,8 @@ export function WatermarkDialog({
           >
             完成
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

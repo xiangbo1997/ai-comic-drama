@@ -6,6 +6,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Tag } from "@/types";
 import { CATEGORY_LABELS, createTag, updateTag, deleteTag } from "./constants";
 import { useToast } from "@/components/ui/toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface TagManagerModalProps {
   tags: Tag[];
@@ -63,19 +71,21 @@ export function TagManagerModal({
     onClose();
   };
 
+  // 组件仅在父级为真时挂载，故恒为打开；关闭走 handleClose（重置草稿后 onClose）。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-card flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl">
-        <div className="border-border flex items-center justify-between border-b p-4">
-          <h2 className="text-lg font-semibold">管理标签</h2>
-          <button
-            onClick={handleClose}
-            className="hover:bg-secondary rounded p-1"
-            aria-label="关闭"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[80vh] max-w-lg flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b p-4 text-left">
+          <DialogTitle>管理标签</DialogTitle>
+          <DialogDescription className="sr-only">
+            创建、编辑或删除角色标签
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="flex-1 overflow-y-auto p-4">
           <div className="bg-secondary/50 mb-6 rounded-lg p-4">
@@ -285,15 +295,15 @@ export function TagManagerModal({
           </div>
         </div>
 
-        <div className="border-border border-t p-4">
+        <DialogFooter className="border-border shrink-0 border-t p-4">
           <button
             onClick={handleClose}
             className="bg-secondary hover:bg-secondary/80 w-full rounded-lg py-2"
           >
             关闭
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

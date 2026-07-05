@@ -416,9 +416,11 @@ function SceneStatusBadge({
       </span>
     );
   } else if (status === "FAILED" && hasImage) {
-    // 有旧图但本次失败：橙色"重试"，与"无图失败"的红色区分
+    // 有旧图但本次失败：琥珀（primary）"可重试"，与"无图失败"的红色区分。
+    // 缩略图上的实心角标形态保留，但色相收敛到设计系统 token（a4 P1-5：
+    // 移除色板外的 blue/purple/amber/green，统一 primary/agent/chart-2）。
     mainBadge = (
-      <span className="rounded bg-amber-500/90 px-1 py-0.5 text-[10px] leading-none text-white">
+      <span className="bg-primary/90 text-primary-foreground rounded px-1 py-0.5 text-[10px] leading-none">
         失败·可重试
       </span>
     );
@@ -430,7 +432,7 @@ function SceneStatusBadge({
     );
   } else if (hasImage) {
     mainBadge = (
-      <span className="flex items-center gap-1 rounded bg-green-600/90 px-1 py-0.5 text-[10px] leading-none text-white">
+      <span className="bg-chart-2/90 flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-none text-white">
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-white" />
         就绪
       </span>
@@ -438,15 +440,16 @@ function SceneStatusBadge({
   }
 
   // 右下角附属角标：视频/音频生成中（核心耗时操作，缩略图上给可见反馈，
-  // 避免用户分不清"在生成还是卡死"）。
+  // 避免用户分不清"在生成还是卡死"）。视频=agent(青)、配音=chart-2(绿)，
+  // 与设计系统生成态色映射一致（图=primary/视=agent/音=chart-2）。
   const subBadges: ReactNode[] = [];
   if (videoStatus === "PROCESSING") {
     subBadges.push(
       <span
         key="v"
-        className="flex items-center gap-0.5 rounded bg-blue-600/90 px-1 py-0.5 text-[10px] leading-none text-white"
+        className="bg-agent/90 text-agent-foreground flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] leading-none"
       >
-        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+        <span className="bg-agent-foreground inline-block h-1.5 w-1.5 animate-pulse rounded-full" />
         视频中
       </span>
     );
@@ -455,7 +458,7 @@ function SceneStatusBadge({
     subBadges.push(
       <span
         key="a"
-        className="flex items-center gap-0.5 rounded bg-purple-600/90 px-1 py-0.5 text-[10px] leading-none text-white"
+        className="bg-chart-2/90 flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] leading-none text-white"
       >
         <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
         配音中

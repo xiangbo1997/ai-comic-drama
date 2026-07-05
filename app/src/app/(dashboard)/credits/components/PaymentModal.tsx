@@ -1,5 +1,12 @@
-import { X, Loader2, CreditCard, Check } from "lucide-react";
+import { Loader2, CreditCard, Check } from "lucide-react";
 import type { PaymentInfo, SelectedProduct, PaymentResult } from "./constants";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 interface PaymentModalProps {
   selectedProduct: SelectedProduct;
@@ -30,22 +37,25 @@ export function PaymentModal({
   onConfirm,
   onClose,
 }: PaymentModalProps) {
+  // 组件仅在父级 `showPaymentModal && selectedProduct` 为真时挂载，
+  // 因此这里恒为打开；关闭（Esc / 遮罩 / 内置 X）统一走 onClose 回调。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-      <div className="bg-card mx-4 w-full max-w-md rounded-xl p-6">
-        <div className="mb-6 flex items-center justify-between">
-          <h3 className="text-xl font-semibold">确认支付</h3>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-            aria-label="关闭"
-          >
-            <X size={24} />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-xl">确认支付</DialogTitle>
+          <DialogDescription className="sr-only">
+            确认订单信息并选择支付方式完成充值
+          </DialogDescription>
+        </DialogHeader>
 
         {/* Product Info */}
-        <div className="bg-secondary/50 mb-6 rounded-lg p-4">
+        <div className="bg-secondary/50 rounded-lg p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-muted-foreground">商品</span>
             <span className="font-medium">{selectedProduct.name}</span>
@@ -66,7 +76,7 @@ export function PaymentModal({
 
         {/* Payment Result: QR Code */}
         {paymentResult?.qrCode && (
-          <div className="mb-6 text-center">
+          <div className="text-center">
             <div className="mb-2 inline-block rounded-lg bg-white p-4">
               <img
                 src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(paymentResult.qrCode)}`}
@@ -86,7 +96,7 @@ export function PaymentModal({
 
         {/* 支付终态提示（过期/取消/失败/超时）：回到方式选择即可重新下单 */}
         {paymentError && !paymentResult && (
-          <div className="bg-destructive/10 text-destructive mb-4 rounded-lg p-3 text-center text-sm">
+          <div className="bg-destructive/10 text-destructive rounded-lg p-3 text-center text-sm">
             {paymentError}
           </div>
         )}
@@ -94,7 +104,7 @@ export function PaymentModal({
         {/* Payment Methods */}
         {!paymentResult && (
           <>
-            <div className="mb-6">
+            <div>
               <p className="text-muted-foreground mb-3 text-sm">选择支付方式</p>
               <div className="space-y-2">
                 {paymentInfo?.methods && paymentInfo.methods.length > 0 ? (
@@ -159,7 +169,7 @@ export function PaymentModal({
             </button>
 
             {isError && (
-              <p className="mt-2 text-center text-sm text-red-400">
+              <p className="text-center text-sm text-red-400">
                 {errorMessage || "创建订单失败，请重试"}
               </p>
             )}
@@ -186,7 +196,7 @@ export function PaymentModal({
             </button>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -16,8 +16,8 @@ export function ModelCapabilityIcons({ modelId }: { modelId: string }) {
         )}
       {capabilities.includes("multimodal") && (
         <span className="flex items-center" title="多模态（文本+视觉理解）">
-          <Cpu size={12} className="text-purple-400" />
-          <span className="ml-0.5 text-[8px] text-purple-400">+👁</span>
+          <Cpu size={12} className="text-agent" />
+          <span className="text-agent ml-0.5 text-[8px]">+👁</span>
         </span>
       )}
       {capabilities.includes("image") && (

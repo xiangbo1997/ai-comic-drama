@@ -2,7 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { X, Loader2, Zap, Clock } from "lucide-react";
+import { Loader2, Zap, Clock } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 interface AIModel {
   id: string;
@@ -160,8 +167,6 @@ export function MultiGenerateDialog({
     onGenerate(selectedList, mode);
   };
 
-  if (!isOpen) return null;
-
   const categoryLabels = {
     IMAGE: "图像",
     VIDEO: "视频",
@@ -169,21 +174,25 @@ export function MultiGenerateDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-card w-full max-w-md rounded-xl">
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        // 生成进行中禁止关闭（保留原 disabled 语义），仅在非生成态响应关闭
+        if (!open && !isGenerating) onClose();
+      }}
+    >
+      <DialogContent
+        className="flex max-h-[90vh] max-w-md flex-col p-0"
+        // 生成中隐藏内置关闭按钮，避免绕过"生成时不可关闭"约束
+        showCloseButton={!isGenerating}
+      >
         {/* Header */}
-        <div className="border-border flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-semibold">
-            多版本{categoryLabels[category]}生成
-          </h2>
-          <button
-            onClick={onClose}
-            disabled={isGenerating}
-            className="hover:bg-secondary rounded-lg p-1 transition disabled:opacity-50"
-          >
-            <X size={20} />
-          </button>
-        </div>
+        <DialogHeader className="border-border border-b px-6 py-4 text-left">
+          <DialogTitle>多版本{categoryLabels[category]}生成</DialogTitle>
+          <DialogDescription className="sr-only">
+            选择一个或多个模型配置，按串行或并行策略批量生成
+          </DialogDescription>
+        </DialogHeader>
 
         {/* Content */}
         <div className="p-6">
@@ -338,7 +347,7 @@ export function MultiGenerateDialog({
             </>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,8 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
 import type { SceneEffect, SceneEffectId } from "@/types/export-style";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface SceneOption {
   id: string;
@@ -78,18 +85,21 @@ export function SceneEffectDialog({
     onClose();
   };
 
+  // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="bg-card flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-xl">
-        <div className="border-border flex shrink-0 items-center justify-between border-b px-5 py-4">
-          <h2 className="font-semibold">滤镜 / 变速（按分镜）</h2>
-          <button
-            onClick={onClose}
-            className="hover:bg-secondary rounded-lg p-1.5 transition"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[88vh] max-w-lg flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b px-5 py-4 text-left">
+          <DialogTitle>滤镜 / 变速（按分镜）</DialogTitle>
+          <DialogDescription className="sr-only">
+            为每个分镜选择滤镜预设并调整播放速度
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="flex-1 space-y-3 overflow-y-auto p-5">
           {scenes.length === 0 ? (
@@ -162,7 +172,7 @@ export function SceneEffectDialog({
           )}
         </div>
 
-        <div className="border-border flex shrink-0 justify-end gap-2 border-t px-5 py-3">
+        <DialogFooter className="border-border shrink-0 justify-end gap-2 border-t px-5 py-3">
           <button
             onClick={onClose}
             className="hover:bg-secondary rounded-lg px-4 py-2 text-sm"
@@ -175,8 +185,8 @@ export function SceneEffectDialog({
           >
             完成
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

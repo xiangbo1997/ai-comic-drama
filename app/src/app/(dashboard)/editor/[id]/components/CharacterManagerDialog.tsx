@@ -1,8 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { User, Users, Loader2, X, Check } from "lucide-react";
+import { User, Users, Loader2, Check } from "lucide-react";
 import type { Character } from "@/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface CharacterManagerDialogProps {
   isOpen: boolean;
@@ -23,21 +31,20 @@ export function CharacterManagerDialog({
   onSave,
   onClose,
 }: CharacterManagerDialogProps) {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl">
-        <div className="border-border flex items-center justify-between border-b p-4">
-          <h3 className="text-lg font-semibold">管理项目角色</h3>
-          <button
-            onClick={onClose}
-            className="hover:bg-secondary rounded p-1"
-            aria-label="关闭"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="flex max-h-[80vh] max-w-lg flex-col p-0">
+        <DialogHeader className="border-border shrink-0 border-b p-4 text-left">
+          <DialogTitle>管理项目角色</DialogTitle>
+          <DialogDescription className="sr-only">
+            选择要关联到当前项目的角色
+          </DialogDescription>
+        </DialogHeader>
         <div className="flex-1 overflow-y-auto p-4">
           {allCharacters.length === 0 ? (
             <div className="text-muted-foreground py-8 text-center">
@@ -100,7 +107,7 @@ export function CharacterManagerDialog({
             </div>
           )}
         </div>
-        <div className="border-border flex gap-2 border-t p-4">
+        <DialogFooter className="border-border shrink-0 flex-row gap-2 border-t p-4">
           <button
             onClick={onClose}
             className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg px-4 py-2 transition"
@@ -119,8 +126,8 @@ export function CharacterManagerDialog({
             )}
             保存
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

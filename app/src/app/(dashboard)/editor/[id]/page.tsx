@@ -5,9 +5,15 @@ import { useParams } from "next/navigation";
 import type { Scene } from "@/types";
 import { TimelineDialogs } from "./components/TimelineDialogs";
 import Link from "next/link";
-import { X } from "lucide-react";
 import { TimelineEditor } from "@/components/timeline-editor";
 import { PreviewPlayer } from "@/components/preview-player";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { MultiGenerateDialog } from "@/components/ai-models";
 import { useEditorProject, apiUpdateScene } from "./hooks/use-editor-project";
 import { useGenerationActions } from "./hooks/use-generation-actions";
@@ -404,37 +410,37 @@ export default function EditorPage() {
       />
 
       {/* Preview Dialog */}
-      {showPreviewDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <div className="bg-background flex h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl">
-            <div className="border-border flex shrink-0 items-center justify-between border-b px-6 py-4">
-              <h2 className="text-xl font-semibold">预览播放</h2>
-              <button
-                onClick={() => setShowPreviewDialog(false)}
-                className="hover:bg-card rounded-lg p-2 transition"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex min-h-0 flex-1 p-4">
-              <PreviewPlayer
-                scenes={project.scenes}
-                aspectRatio={project.aspectRatio}
-                onSceneChange={editor.setSelectedSceneId}
-                currentSceneId={editor.selectedSceneId ?? undefined}
-                subtitleStyle={project.generationParams?.subtitleStyle}
-                subtitlePositions={project.generationParams?.subtitlePositions}
-                onSubtitlePositionChange={handleSubtitlePositionChange}
-                watermark={project.generationParams?.watermark}
-                stickers={project.generationParams?.stickers}
-                transitions={project.generationParams?.transitions}
-                sceneEffects={project.generationParams?.sceneEffects}
-                backgroundMusic={project.generationParams?.backgroundMusic}
-              />
-            </div>
+      <Dialog
+        open={showPreviewDialog}
+        onOpenChange={(open) => {
+          if (!open) setShowPreviewDialog(false);
+        }}
+      >
+        <DialogContent className="bg-background flex h-[88vh] max-w-4xl flex-col p-0 sm:max-w-4xl">
+          <DialogHeader className="border-border shrink-0 border-b px-6 py-4 text-left">
+            <DialogTitle className="text-xl">预览播放</DialogTitle>
+            <DialogDescription className="sr-only">
+              按分镜顺序播放已生成的图像、视频与配音
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex min-h-0 flex-1 p-4">
+            <PreviewPlayer
+              scenes={project.scenes}
+              aspectRatio={project.aspectRatio}
+              onSceneChange={editor.setSelectedSceneId}
+              currentSceneId={editor.selectedSceneId ?? undefined}
+              subtitleStyle={project.generationParams?.subtitleStyle}
+              subtitlePositions={project.generationParams?.subtitlePositions}
+              onSubtitlePositionChange={handleSubtitlePositionChange}
+              watermark={project.generationParams?.watermark}
+              stickers={project.generationParams?.stickers}
+              transitions={project.generationParams?.transitions}
+              sceneEffects={project.generationParams?.sceneEffects}
+              backgroundMusic={project.generationParams?.backgroundMusic}
+            />
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Export Dialog */}
       <ExportDialog

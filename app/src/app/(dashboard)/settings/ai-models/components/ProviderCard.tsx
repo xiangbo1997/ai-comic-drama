@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { AIProvider, UserConfig } from "./types";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 
 interface ProviderCardProps {
@@ -104,32 +105,29 @@ export function ProviderCard({
               {provider.name}
             </h3>
             {provider.isCustom && (
-              <span className="rounded-full bg-purple-500/20 px-2 py-0.5 text-xs text-purple-400">
-                自定义
-              </span>
+              // 状态徽章统一走 Badge 语义变体（走 token，替代裸色阶，a4 P1-4）
+              <Badge variant="info">自定义</Badge>
             )}
             {config?.isDefault && (
-              <span className="flex items-center gap-1 rounded-full bg-yellow-500/20 px-2 py-0.5 text-xs text-yellow-400">
+              <Badge variant="warning">
                 <Star size={12} fill="currentColor" />
                 默认
-              </span>
+              </Badge>
             )}
             {config?.testStatus === "SUCCESS" && (
-              <span className="flex items-center gap-1 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-400">
+              <Badge variant="success">
                 <Check size={12} />
                 已连接
-              </span>
+              </Badge>
             )}
             {config?.testStatus === "FAILED" && (
-              <span className="flex items-center gap-1 rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">
+              <Badge variant="destructive">
                 <X size={12} />
                 连接失败
-              </span>
+              </Badge>
             )}
             {config?.authType === "CHATGPT_TOKEN" && (
-              <span className="rounded-full bg-orange-500/20 px-2 py-0.5 text-xs text-orange-400">
-                ChatGPT Token
-              </span>
+              <Badge variant="warning">ChatGPT Token</Badge>
             )}
           </div>
           {config?.authType === "CHATGPT_TOKEN" &&
