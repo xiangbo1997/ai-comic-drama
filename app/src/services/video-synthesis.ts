@@ -93,6 +93,60 @@ const ASPECT_RATIOS = {
 };
 
 /**
+ * 按输出容器格式返回正确的编解码器参数。
+ *
+ * 此前最终输出硬编码 libx264 + aac + -movflags +faststart，只适配 mp4。
+ * webm 容器只接受 VP8/VP9/AV1 视频 + Vorbis/Opus 音频，用 h264/aac 会被
+ * FFmpeg 拒绝（"Only VP8 or VP9 or AV1 video and Vorbis or Opus audio ...
+ * are supported for WebM"），导出直接失败——webm 格式从未跑通。
+ * 这里按 format 切换编码器，faststart 也仅对 mp4 追加。
+ */
+function buildOutputEncodingArgs(
+  format: "mp4" | "webm",
+  bitrate: string,
+  outputPath: string
+): string[] {
+  if (format === "webm") {
+    return [
+      "-c:v",
+      "libvpx-vp9",
+      "-b:v",
+      bitrate,
+      // VP9 需要 row-mt 提速；deadline good 平衡质量/速度
+      "-row-mt",
+      "1",
+      "-deadline",
+      "good",
+      "-cpu-used",
+      "2",
+      "-c:a",
+      "libopus",
+      "-b:a",
+      "128k",
+      "-y",
+      outputPath,
+    ];
+  }
+  // mp4：H.264 + AAC + faststart（网页边下边播）
+  return [
+    "-c:v",
+    "libx264",
+    "-preset",
+    "medium",
+    "-b:v",
+    bitrate,
+    "-c:a",
+    "aac",
+    "-b:a",
+    "128k",
+    "-movflags",
+    "+faststart",
+    "-y",
+    outputPath,
+  ];
+}
+
+/**
  * 片段滤镜预设：id → FFmpeg 滤镜表达式
  * 移植自 MagicalCanvas，覆盖常用调色/做旧效果。
  */
@@ -1094,22 +1148,9 @@ export async function synthesizeVideo(
         ffmpegArgs.push("-t", bgmTotalDuration.toFixed(3));
       }
 
-      // ── 编码参数 ────────────────────────────────────────────────────
+      // ── 编码参数（按 format 选编码器，webm≠mp4） ─────────────────────
       ffmpegArgs.push(
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-b:v",
-        quality.bitrate,
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-movflags",
-        "+faststart",
-        "-y",
-        outputPath
+        ...buildOutputEncodingArgs(options.format, quality.bitrate, outputPath)
       );
 
       await runFFmpeg(ffmpegArgs);
@@ -1178,22 +1219,9 @@ export async function synthesizeVideo(
         );
       }
 
-      // 输出设置
+      // 输出设置（按 format 选编码器，webm≠mp4）
       ffmpegArgs.push(
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-b:v",
-        quality.bitrate,
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-movflags",
-        "+faststart",
-        "-y",
-        outputPath
+        ...buildOutputEncodingArgs(options.format, quality.bitrate, outputPath)
       );
 
       await runFFmpeg(ffmpegArgs);
