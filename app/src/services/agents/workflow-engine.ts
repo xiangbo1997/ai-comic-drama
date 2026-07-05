@@ -620,26 +620,23 @@ function identitySeedFromCharacterId(characterId: string): number {
  * 输入：场景 artifact 中的 characters[] (名字数组) + 项目 ID
  * 输出：可直接喂给 generateVideo 的 { referenceImages, identityPrompt, seed }
  */
-async function buildSceneCharacterContext(
-  sceneArtifact: SceneArtifact,
-  projectId: string,
-  characterBible: CharacterBible | undefined
-): Promise<{
-  referenceImages: string[];
-  identityPrompt?: string;
-  seed?: number;
-}> {
-  const characterNames = sceneArtifact.characters ?? [];
-  if (characterNames.length === 0) {
-    return { referenceImages: [] };
-  }
+/** 项目角色（含 canonical 参考资产）查表：name → character，供视频阶段复用 */
+type ProjectCharacterMap = Map<
+  string,
+  Awaited<ReturnType<typeof loadProjectCharacters>>[number]
+>;
 
-  // 查项目角色（名字匹配）+ 关联参考资产
-  const characters = await prisma.character.findMany({
-    where: {
-      projects: { some: { projectId } },
-      name: { in: characterNames },
-    },
+/**
+ * 一次性查询项目全部角色 + canonical 参考资产，建 name→char 查表。
+ *
+ * 消除 N+1（a3 审计 P0-1）：原 buildSceneCharacterContext 在视频阶段
+ * `for (const dbScene of dbScenes)` 循环内每镜发一次 findMany（20 镜=20 次
+ * 串行往返，各带 referenceAssets 子查询），叠在本就慢的视频阶段墙钟上。
+ * 改为循环前查一次，函数内纯内存查表。
+ */
+async function loadProjectCharacters(projectId: string) {
+  return prisma.character.findMany({
+    where: { projects: { some: { projectId } } },
     include: {
       referenceAssets: {
         where: { isCanonical: true },
@@ -647,10 +644,25 @@ async function buildSceneCharacterContext(
       },
     },
   });
+}
 
-  // 按 sceneArtifact.characters 的顺序排序（第一个角色 = primary）
+function buildSceneCharacterContext(
+  sceneArtifact: SceneArtifact,
+  characterMap: ProjectCharacterMap,
+  characterBible: CharacterBible | undefined
+): {
+  referenceImages: string[];
+  identityPrompt?: string;
+  seed?: number;
+} {
+  const characterNames = sceneArtifact.characters ?? [];
+  if (characterNames.length === 0) {
+    return { referenceImages: [] };
+  }
+
+  // 按 sceneArtifact.characters 的顺序排序（第一个角色 = primary），纯内存查表
   const ordered = characterNames
-    .map((name) => characters.find((c) => c.name === name))
+    .map((name) => characterMap.get(name))
     .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
   // 收集参考图：优先 referenceAssets.url，回退 Character.referenceImages[0]
@@ -716,6 +728,14 @@ async function executeMediaGeneration(
     | "9:16"
     | "16:9";
 
+  // 循环前一次性查项目全部角色建查表（消除逐镜 N+1）
+  const characterList = ctx.config.video
+    ? await loadProjectCharacters(ctx.projectId)
+    : [];
+  const characterMap: ProjectCharacterMap = new Map(
+    characterList.map((c) => [c.name, c])
+  );
+
   for (const dbScene of dbScenes) {
     const sceneArtifact = scenes.find((s) => s.order === dbScene.order);
     if (!sceneArtifact || !dbScene.imageUrl) continue;
@@ -724,10 +744,11 @@ async function executeMediaGeneration(
 
     // 视频生成
     if (ctx.config.video) {
-      // v2：在生成前查询场景角色上下文（参考图 / identityPrompt / seed）
-      const charContext = await buildSceneCharacterContext(
+      // v2：从预查好的角色查表取场景角色上下文（参考图 / identityPrompt / seed），
+      // 纯内存查表，无 DB 往返
+      const charContext = buildSceneCharacterContext(
         sceneArtifact,
-        ctx.projectId,
+        characterMap,
         characterBible
       );
 

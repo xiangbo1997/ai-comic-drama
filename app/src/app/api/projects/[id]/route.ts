@@ -43,6 +43,23 @@ interface RouteParams {
 async function reclaimZombieScenes(projectId: string): Promise<boolean> {
   const ZOMBIE_TIMEOUT_MS = 10 * 60 * 1000;
   const cutoff = new Date(Date.now() - ZOMBIE_TIMEOUT_MS);
+
+  // 先廉价 count 判断有无超时 PROCESSING 分镜；绝大多数 GET（项目无在途
+  // 生成）到此即返回，不开写事务（a3 审计 P1-4：GET 是高频轮询端点，
+  // 原每次无条件跑 3 条 updateMany 写事务，与并发生成的行锁竞争）。
+  const zombieCount = await prisma.scene.count({
+    where: {
+      projectId,
+      updatedAt: { lt: cutoff },
+      OR: [
+        { imageStatus: "PROCESSING" },
+        { videoStatus: "PROCESSING" },
+        { audioStatus: "PROCESSING" },
+      ],
+    },
+  });
+  if (zombieCount === 0) return false;
+
   const [img, vid, aud] = await prisma.$transaction([
     prisma.scene.updateMany({
       where: {
@@ -101,9 +118,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         scenes: {
           orderBy: { order: "asc" },
           include: {
+            // 窄 select：editor 只读 character 的这几个字段，原 include 全量行
+            // 拉了 @db.Text description + appearance JSON + 时间戳等，payload
+            // 随台词长度线性膨胀（a3 审计 P1-3）。sceneCharacters.character
+            // 前端未直接消费展示，仅取轻量标识字段。
             sceneCharacters: {
               include: {
-                character: true,
+                character: {
+                  select: { id: true, name: true },
+                },
               },
             },
             selectedCharacter: {
@@ -115,13 +138,24 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             },
           },
         },
+        // characters.character：编辑器 derivePromptInputs 消费 id/name/
+        // description/referenceImages + referenceAssets(url/pose/createdAt，
+        // 供三视图锁形象)。只取这些，不拉 appearance/voiceProvider 等冗余。
         characters: {
           include: {
-            // 编辑器仅消费 character.name / referenceImages（旧 String[] 字段，
-            // 在 Character 本体上）。原先 include referenceAssets 全量关系表是
-            // 纯浪费（编辑器零消费，视频生成走 buildSceneCharacterContext 独立
-            // 查询）——移除以减少 GET /api/projects/:id 的数据量与序列化开销。
-            character: true,
+            character: {
+              select: {
+                id: true,
+                name: true,
+                description: true,
+                referenceImages: true,
+                canonicalImageUrl: true,
+                voiceId: true,
+                referenceAssets: {
+                  select: { url: true, pose: true, createdAt: true },
+                },
+              },
+            },
           },
         },
       },
