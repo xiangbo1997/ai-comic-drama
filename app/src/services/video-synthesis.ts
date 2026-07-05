@@ -327,9 +327,16 @@ async function generateSubtitleFile(
       );
       const px = Math.round(x * width);
       const py = Math.round(y * height);
-      // \an5：以文本块中心为锚点（对应预览中心定位）；\pos：绝对像素位置
-      // ASS 换行用 \N；转义文本中的大括号避免被当作标签
-      const safeText = escapeAssText(text);
+      // 手动折行到「与预览相同的宽度」——预览端字幕块 maxWidth:90% 画面宽，
+      // 用 \pos 后 ASS 的自动换行宽度不可控（从 pos 到边缘），两端换行宽度
+      // 不一致 → 行数不同 → 块高不同 → \an5 中心锚点下同一 y 坐标实际占位不同
+      // → 长字幕在靠底位置一端溢出画面另一端不溢出（预览≠导出）。这里按
+      // 字号估算每行最大字数，主动折行插 \N，与预览换行一致，块高一致。
+      const fontPx = resolveSubtitleFontPx(subtitleStyle?.fontSize, height);
+      // 中文近似全角等宽（≈fontPx），可用宽度取 90% 画面宽（对齐预览 maxWidth）
+      const maxCharsPerLine = Math.max(6, Math.floor((width * 0.9) / fontPx));
+      const wrapped = wrapSubtitleText(text, maxCharsPerLine);
+      const safeText = escapeAssText(wrapped);
       events.push(
         `Dialogue: 0,${start},${end},Default,,0,0,0,,{\\an5\\pos(${px},${py})}${safeText}`
       );
@@ -401,6 +408,38 @@ function escapeAssText(text: string): string {
     .replace(/\{/g, "\\{")
     .replace(/\}/g, "\\}")
     .replace(/\r?\n/g, "\\N");
+}
+
+/**
+ * 按每行最大字数手动折行（CJK 全角计 1 宽，ASCII 计 0.5 宽近似），
+ * 使导出字幕块的行数/块高与预览端 maxWidth:90% 的换行一致，保证
+ * \an5 中心锚点下同一 y 坐标的字幕占位相同（预览=导出）。
+ * 保留用户已有的显式换行（先按 \n 分段，再对每段折行）。
+ */
+export function wrapSubtitleText(
+  text: string,
+  maxCharsPerLine: number
+): string {
+  const charWidth = (ch: string) => (/[\x00-\xff]/.test(ch) ? 0.5 : 1);
+  const wrapParagraph = (para: string): string => {
+    const lines: string[] = [];
+    let line = "";
+    let w = 0;
+    for (const ch of para) {
+      const cw = charWidth(ch);
+      if (w + cw > maxCharsPerLine && line !== "") {
+        lines.push(line);
+        line = ch;
+        w = cw;
+      } else {
+        line += ch;
+        w += cw;
+      }
+    }
+    if (line) lines.push(line);
+    return lines.join("\n");
+  };
+  return text.split(/\r?\n/).map(wrapParagraph).join("\n");
 }
 
 /**
