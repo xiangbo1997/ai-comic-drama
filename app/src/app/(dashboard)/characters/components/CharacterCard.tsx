@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import {
   Trash2,
   Edit2,
@@ -49,7 +50,7 @@ interface CharacterCardProps {
   >;
 }
 
-export function CharacterCard({
+function CharacterCardImpl({
   character,
   isEditing,
   formData,
@@ -183,6 +184,70 @@ export function CharacterCard({
     </div>
   );
 }
+
+/**
+ * memo 契约（为什么这样能止血整列表在编辑单卡时的重渲染）：
+ *
+ * 根因：页面把「共享的」formData 传给网格里的每一张卡，而 formData 在编辑任一
+ * 卡片时每次按键都变。若不 memo，敲一张卡的输入框会重渲染全部 20-40 张卡
+ *（每张都含 <img> + AppearanceEditor）。
+ *
+ * 关键洞察：只有 isEditing 的那张卡才会渲染 CharacterEditForm，才真正消费
+ * formData / onFormDataChange / showAppearanceEditor / onToggleAppearanceEditor /
+ * tags / onUpdate / onCancelEdit / updateMutationPending / generateDescriptionMutation。
+ * 因此对「非编辑态」的卡（prev 与 next 都 isEditing === false），这些编辑专用
+ * 的 props 变化不影响其渲染输出，可以安全忽略。
+ *
+ * 对称地，onStartEdit 只在非编辑态的 CharacterViewInfo 里用到；编辑态可忽略。
+ *
+ * 始终参与比较（两种状态下都影响渲染）：character（按引用——React Query 缓存
+ * 只为变化的角色创建新对象，其余引用保持稳定）、currentImageIndex、isEditing、
+ * 以及图片浮层上一直渲染的按钮所依赖的 uploadingBaseImageId /
+ * generateMutationPending / onNextImage / onPrevImage / onDeleteImage /
+ * onOpenGenerateModal / onDelete（onDelete 在编辑态不渲染，但为简洁一律比较其
+ * 稳定引用，页面已 useCallback 固定，不会误触发）。
+ */
+function arePropsEqual(
+  prev: CharacterCardProps,
+  next: CharacterCardProps
+): boolean {
+  // 身份 + 始终影响渲染的 props：任一不等即需重渲染
+  if (
+    prev.character !== next.character ||
+    prev.currentImageIndex !== next.currentImageIndex ||
+    prev.isEditing !== next.isEditing ||
+    prev.uploadingBaseImageId !== next.uploadingBaseImageId ||
+    prev.generateMutationPending !== next.generateMutationPending ||
+    prev.onNextImage !== next.onNextImage ||
+    prev.onPrevImage !== next.onPrevImage ||
+    prev.onDeleteImage !== next.onDeleteImage ||
+    prev.onOpenGenerateModal !== next.onOpenGenerateModal ||
+    prev.onDelete !== next.onDelete ||
+    prev.onStartEdit !== next.onStartEdit
+  ) {
+    return false;
+  }
+
+  // 非编辑态的卡不消费任何编辑专用 props，可全部忽略 → 判等跳过重渲染
+  if (!prev.isEditing && !next.isEditing) {
+    return true;
+  }
+
+  // 编辑态（此处 prev.isEditing === next.isEditing === true）：编辑专用 props 需正常比较
+  return (
+    prev.formData === next.formData &&
+    prev.onFormDataChange === next.onFormDataChange &&
+    prev.showAppearanceEditor === next.showAppearanceEditor &&
+    prev.onToggleAppearanceEditor === next.onToggleAppearanceEditor &&
+    prev.tags === next.tags &&
+    prev.onUpdate === next.onUpdate &&
+    prev.onCancelEdit === next.onCancelEdit &&
+    prev.updateMutationPending === next.updateMutationPending &&
+    prev.generateDescriptionMutation === next.generateDescriptionMutation
+  );
+}
+
+export const CharacterCard = memo(CharacterCardImpl, arePropsEqual);
 
 function CharacterEditForm({
   formData,

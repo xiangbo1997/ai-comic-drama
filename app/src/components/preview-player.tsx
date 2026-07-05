@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   Play,
   Pause,
@@ -149,10 +149,35 @@ export function PreviewPlayer({
   // 当前镜右侧转场（与下一镜之间）
   const curTransition = resolveTransition(currentIndex, transitions);
 
-  // 有效时长 = 原始时长 / 变速（与导出侧成片时间轴一致）
-  const effDur = (s: ScenePreview) =>
-    s.duration / resolveEffect(s.id, sceneEffects).speed;
-  const totalDuration = scenes.reduce((sum, s) => sum + effDur(s), 0);
+  // 有效时长查表化（perf a2 P1-1）：播放时 setState(~30ms) 触发全量重渲，
+  // 原 effDur/totalDuration/calculateOverallProgress 每次各自 O(n×m) 遍历
+  // sceneEffects.find，33fps 下每秒上千次 find。改为 useMemo 一次性算好
+  // 每镜有效时长 + 前缀和，渲染期只做 O(1) 数组下标查。
+  const { effDurs, prefixDurations, totalDuration } = useMemo(() => {
+    // sceneId → speed 查表，消除逐镜 find
+    const speedById = new Map<string, number>();
+    for (const e of sceneEffects ?? []) {
+      const raw = Number(e.speed);
+      speedById.set(
+        e.sceneId,
+        raw && raw > 0 ? Math.min(4, Math.max(0.25, raw)) : 1
+      );
+    }
+    const durs = scenes.map((s) => s.duration / (speedById.get(s.id) ?? 1));
+    // 前缀和：prefix[i] = 前 i 个镜的有效时长之和（用于整体进度，去掉内层循环）
+    const prefix: number[] = [0];
+    for (let i = 0; i < durs.length; i++) prefix.push(prefix[i] + durs[i]);
+    return {
+      effDurs: durs,
+      prefixDurations: prefix,
+      totalDuration: prefix[prefix.length - 1] ?? 0,
+    };
+  }, [scenes, sceneEffects]);
+  // 单镜有效时长按索引 O(1) 查（保留旧 effDur 签名的调用点用）
+  const effDur = (s: ScenePreview) => {
+    const idx = scenes.indexOf(s);
+    return idx >= 0 ? effDurs[idx] : s.duration;
+  };
 
   // 同步外部选中的场景
   const sceneIndex = currentSceneId
@@ -316,11 +341,11 @@ export function PreviewPlayer({
   };
 
   const calculateOverallProgress = () => {
-    let elapsed = 0;
-    for (let i = 0; i < currentIndex; i++) {
-      elapsed += effDur(scenes[i]);
-    }
-    elapsed += currentScene ? effDur(currentScene) * progress : 0;
+    // 已完成镜的累计时长直接读前缀和（O(1)），不再内层循环累加
+    const elapsedBefore = prefixDurations[currentIndex] ?? 0;
+    const elapsed =
+      elapsedBefore +
+      (currentScene ? (effDurs[currentIndex] ?? 0) * progress : 0);
     return totalDuration > 0 ? elapsed / totalDuration : 0;
   };
 

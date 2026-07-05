@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Settings } from "lucide-react";
 import type { CharacterListItem, Tag } from "@/types";
+import { useDebounce } from "@/hooks/use-debounce";
 import {
   toAppearanceFormData,
   isAppearanceEmpty,
@@ -67,59 +68,72 @@ export default function CharactersPage() {
     appearance: toAppearanceFormData(null),
   });
 
-  const handleNextImage = (characterId: string, totalImages: number) => {
-    setCurrentImageIndices((prev) => ({
-      ...prev,
-      [characterId]: ((prev[characterId] || 0) + 1) % totalImages,
-    }));
-  };
+  const handleNextImage = useCallback(
+    (characterId: string, totalImages: number) => {
+      setCurrentImageIndices((prev) => ({
+        ...prev,
+        [characterId]: ((prev[characterId] || 0) + 1) % totalImages,
+      }));
+    },
+    []
+  );
 
-  const handlePrevImage = (characterId: string, totalImages: number) => {
-    setCurrentImageIndices((prev) => ({
-      ...prev,
-      [characterId]: ((prev[characterId] || 0) - 1 + totalImages) % totalImages,
-    }));
-  };
+  const handlePrevImage = useCallback(
+    (characterId: string, totalImages: number) => {
+      setCurrentImageIndices((prev) => ({
+        ...prev,
+        [characterId]:
+          ((prev[characterId] || 0) - 1 + totalImages) % totalImages,
+      }));
+    },
+    []
+  );
 
-  const handleDeleteImage = async (characterId: string, imageIndex: number) => {
-    const ok = await toast.confirm("确定要删除这张图片吗？");
-    if (!ok) return;
-    try {
-      const res = await fetch(
-        `/api/characters/${characterId}/images?index=${imageIndex}`,
-        {
-          method: "DELETE",
+  const handleDeleteImage = useCallback(
+    async (characterId: string, imageIndex: number) => {
+      const ok = await toast.confirm("确定要删除这张图片吗？");
+      if (!ok) return;
+      try {
+        const res = await fetch(
+          `/api/characters/${characterId}/images?index=${imageIndex}`,
+          {
+            method: "DELETE",
+          }
+        );
+        if (!res.ok) {
+          const error = await res.json();
+          throw new Error(error.error || "删除失败");
         }
-      );
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.error || "删除失败");
+        setCurrentImageIndices((prev) => {
+          const newIndices = { ...prev };
+          delete newIndices[characterId];
+          return newIndices;
+        });
+        queryClient.invalidateQueries({ queryKey: ["characters"] });
+        toast.success("图片已删除");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "删除失败");
       }
-      setCurrentImageIndices((prev) => {
-        const newIndices = { ...prev };
-        delete newIndices[characterId];
-        return newIndices;
-      });
-      queryClient.invalidateQueries({ queryKey: ["characters"] });
-      toast.success("图片已删除");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "删除失败");
-    }
-  };
+    },
+    [toast, queryClient]
+  );
 
-  const openGenerateModal = (
-    characterId: string,
-    defaultSource: "none" | "upload" | "existing" = "none"
-  ) => {
-    setGenerateModalCharacterId(characterId);
-    setGenerateOptions({
-      source: defaultSource,
-      customPrompt: "",
-      uploadedImage: null,
-      imageConfigId: undefined,
-    });
-    setShowGenerateModal(true);
-  };
+  const openGenerateModal = useCallback(
+    (
+      characterId: string,
+      defaultSource: "none" | "upload" | "existing" = "none"
+    ) => {
+      setGenerateModalCharacterId(characterId);
+      setGenerateOptions({
+        source: defaultSource,
+        customPrompt: "",
+        uploadedImage: null,
+        imageConfigId: undefined,
+      });
+      setShowGenerateModal(true);
+    },
+    []
+  );
 
   const closeGenerateModal = () => {
     setShowGenerateModal(false);
@@ -163,38 +177,45 @@ export default function CharactersPage() {
     queryFn: fetchTags,
   });
 
-  const tagsByCategory = tags.reduce(
-    (acc, tag) => {
-      const category = tag.category || "other";
-      if (!acc[category]) acc[category] = [];
-      acc[category].push(tag);
-      return acc;
-    },
-    {} as Record<string, Tag[]>
+  const tagsByCategory = useMemo(
+    () =>
+      tags.reduce(
+        (acc, tag) => {
+          const category = tag.category || "other";
+          if (!acc[category]) acc[category] = [];
+          acc[category].push(tag);
+          return acc;
+        },
+        {} as Record<string, Tag[]>
+      ),
+    [tags]
   );
 
-  const getQueryParams = () => {
-    const params = new URLSearchParams();
-    if (searchQuery.trim()) params.set("search", searchQuery.trim());
-    if (selectedTagIds.length > 0) params.set("tags", selectedTagIds.join(","));
-    return params.toString();
-  };
+  // 搜索框每次按键都会触发一次角色列表请求（queryKey 直接吃 searchQuery）。
+  // 用防抖值喂 queryKey，输入本身仍即时受控，只延后触发查询（ux P2-2）。
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const {
     data: characters,
     isLoading,
     isError,
   } = useQuery<CharacterListItem[]>({
-    queryKey: ["characters", searchQuery, selectedTagIds],
+    queryKey: ["characters", debouncedSearchQuery, selectedTagIds],
     queryFn: async () => {
-      const params = getQueryParams();
-      const res = await fetch(`/api/characters${params ? `?${params}` : ""}`);
+      const params = new URLSearchParams();
+      if (debouncedSearchQuery.trim())
+        params.set("search", debouncedSearchQuery.trim());
+      if (selectedTagIds.length > 0)
+        params.set("tags", selectedTagIds.join(","));
+      const query = params.toString();
+      const res = await fetch(`/api/characters${query ? `?${query}` : ""}`);
       if (!res.ok) {
         if (res.status === 401) return [];
         throw new Error("获取角色列表失败");
       }
       return res.json();
     },
+    staleTime: 30_000,
   });
 
   const resetForm = () => {
@@ -314,26 +335,30 @@ export default function CharactersPage() {
     createMutation.mutate(payload);
   };
 
-  const handleDelete = async (id: string) => {
-    // 删除前查询引用情况，把「相关分镜将失去该角色」的级联后果讲清楚。
-    // API 删除时会 array_remove 清理各分镜引用，此前确认框对此只字未提
-    // （ux-config P0-3）。查询失败时降级为通用文案，不阻塞删除。
-    const usage = await fetchCharacterUsage(id).catch(() => null);
-    const parts: string[] = [];
-    if (usage && usage.projectCount > 0)
-      parts.push(`${usage.projectCount} 个项目`);
-    if (usage && usage.sceneCount > 0) parts.push(`${usage.sceneCount} 个分镜`);
-    const ok = await toast.confirm(
-      parts.length > 0
-        ? `该角色正被 ${parts.join("、")} 使用。\n删除后相关分镜将移除该角色（影响后续出图一致性），且无法恢复。确定删除？`
-        : "确定要删除这个角色吗？删除后无法恢复。"
-    );
-    if (ok) {
-      deleteMutation.mutate(id);
-    }
-  };
+  const handleDelete = useCallback(
+    async (id: string) => {
+      // 删除前查询引用情况，把「相关分镜将失去该角色」的级联后果讲清楚。
+      // API 删除时会 array_remove 清理各分镜引用，此前确认框对此只字未提
+      // （ux-config P0-3）。查询失败时降级为通用文案，不阻塞删除。
+      const usage = await fetchCharacterUsage(id).catch(() => null);
+      const parts: string[] = [];
+      if (usage && usage.projectCount > 0)
+        parts.push(`${usage.projectCount} 个项目`);
+      if (usage && usage.sceneCount > 0)
+        parts.push(`${usage.sceneCount} 个分镜`);
+      const ok = await toast.confirm(
+        parts.length > 0
+          ? `该角色正被 ${parts.join("、")} 使用。\n删除后相关分镜将移除该角色（影响后续出图一致性），且无法恢复。确定删除？`
+          : "确定要删除这个角色吗？删除后无法恢复。"
+      );
+      if (ok) {
+        deleteMutation.mutate(id);
+      }
+    },
+    [toast, deleteMutation]
+  );
 
-  const startEdit = (character: CharacterListItem) => {
+  const startEdit = useCallback((character: CharacterListItem) => {
     setEditingId(character.id);
     const appearanceData = toAppearanceFormData(character.appearance);
     setFormData({
@@ -347,9 +372,9 @@ export default function CharactersPage() {
       appearance: appearanceData,
     });
     setShowAppearanceEditor(!isAppearanceEmpty(appearanceData));
-  };
+  }, []);
 
-  const handleUpdate = () => {
+  const handleUpdate = useCallback(() => {
     if (!editingId || !formData.name.trim()) return;
     const payload = {
       ...formData,
@@ -358,7 +383,14 @@ export default function CharactersPage() {
         : formData.appearance,
     };
     updateMutation.mutate({ id: editingId, data: payload });
-  };
+  }, [editingId, formData, updateMutation]);
+
+  // 稳定这两个 setter 回调，避免每次渲染生成新引用击穿 CharacterCard 的 memo
+  const toggleAppearanceEditor = useCallback(
+    () => setShowAppearanceEditor((v) => !v),
+    []
+  );
+  const cancelEdit = useCallback(() => setEditingId(null), []);
 
   return (
     <div className="container mx-auto px-6 py-8">
@@ -437,16 +469,14 @@ export default function CharactersPage() {
               formData={formData}
               onFormDataChange={setFormData}
               showAppearanceEditor={showAppearanceEditor}
-              onToggleAppearanceEditor={() =>
-                setShowAppearanceEditor((v) => !v)
-              }
+              onToggleAppearanceEditor={toggleAppearanceEditor}
               tags={tags}
               currentImageIndex={currentImageIndices[character.id] || 0}
               onNextImage={handleNextImage}
               onPrevImage={handlePrevImage}
               onDeleteImage={handleDeleteImage}
               onStartEdit={startEdit}
-              onCancelEdit={() => setEditingId(null)}
+              onCancelEdit={cancelEdit}
               onUpdate={handleUpdate}
               onDelete={handleDelete}
               onOpenGenerateModal={openGenerateModal}

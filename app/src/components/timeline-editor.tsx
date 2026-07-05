@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, memo } from "react";
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import {
   Play,
   Pause,
@@ -70,19 +70,43 @@ function TimelineEditorImpl({
   const timelineRef = useRef<HTMLDivElement>(null);
   const playIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const totalDuration = scenes.reduce((sum, s) => sum + s.duration, 0);
+  // 播放每 100ms setState 触发本组件（已 memo）重渲，以下派生值原在函数体内
+  // 每渲染各自遍历 scenes（totalDuration/起始时间/四次 filter 计数），
+  // 播放态白算。统一 useMemo 缓存（perf a2 P1-3）。
+  const totalDuration = useMemo(
+    () => scenes.reduce((sum, s) => sum + s.duration, 0),
+    [scenes]
+  );
   const pixelsPerSecond = PIXELS_PER_SECOND * zoom;
 
   // 计算每个场景的起始时间
-  const sceneStartTimes = scenes.reduce<Record<string, number>>(
-    (acc, scene, index) => {
-      const prevScene = scenes[index - 1];
-      acc[scene.id] =
-        index === 0 ? 0 : acc[prevScene?.id ?? ""] + (prevScene?.duration ?? 0);
-      return acc;
-    },
-    {}
+  const sceneStartTimes = useMemo(
+    () =>
+      scenes.reduce<Record<string, number>>((acc, scene, index) => {
+        const prevScene = scenes[index - 1];
+        acc[scene.id] =
+          index === 0
+            ? 0
+            : acc[prevScene?.id ?? ""] + (prevScene?.duration ?? 0);
+        return acc;
+      }, {}),
+    [scenes]
   );
+
+  // 四个媒体计数一次遍历算好（原为 4 次独立 scenes.filter）
+  const mediaCounts = useMemo(() => {
+    let video = 0,
+      image = 0,
+      audio = 0,
+      speakable = 0;
+    for (const s of scenes) {
+      if (s.videoUrl) video++;
+      if (s.imageUrl) image++;
+      if (s.audioUrl) audio++;
+      if (s.dialogue || s.narration) speakable++;
+    }
+    return { video, image, audio, speakable };
+  }, [scenes]);
 
   // 播放控制
   useEffect(() => {
@@ -197,8 +221,9 @@ function TimelineEditorImpl({
     onSceneDurationChange,
   ]);
 
-  // 生成时间刻度
-  const generateTimeMarkers = () => {
+  // 生成时间刻度（memo：仅 zoom/时长变化才重建刻度 DOM，播放头每 100ms
+  // 更新不再重算整个刻度数组）
+  const timeMarkers = useMemo(() => {
     const markers = [];
     const interval = zoom >= 1 ? 1 : zoom >= 0.5 ? 2 : 5;
     for (let i = 0; i <= Math.ceil(totalDuration); i += interval) {
@@ -215,7 +240,7 @@ function TimelineEditorImpl({
       );
     }
     return markers;
-  };
+  }, [zoom, totalDuration, pixelsPerSecond]);
 
   return (
     <div className="border-border bg-background border-t">
@@ -316,7 +341,7 @@ function TimelineEditorImpl({
             <Video size={14} className="text-muted-foreground" />
             <span className="text-xs">视频</span>
             <span className="text-muted-foreground text-[10px]">
-              ({scenes.filter((s) => s.videoUrl).length})
+              ({mediaCounts.video})
             </span>
           </div>
           <div
@@ -326,7 +351,7 @@ function TimelineEditorImpl({
             <ImageIcon size={14} className="text-primary" />
             <span className="text-xs">图片</span>
             <span className="text-muted-foreground text-[10px]">
-              ({scenes.filter((s) => s.imageUrl).length})
+              ({mediaCounts.image})
             </span>
           </div>
           <div
@@ -336,7 +361,7 @@ function TimelineEditorImpl({
             <Music size={14} className="text-muted-foreground" />
             <span className="text-xs">音频</span>
             <span className="text-muted-foreground text-[10px]">
-              ({scenes.filter((s) => s.audioUrl).length})
+              ({mediaCounts.audio})
             </span>
           </div>
           <button
@@ -349,7 +374,7 @@ function TimelineEditorImpl({
             <Type size={14} className="text-muted-foreground" />
             <span className="text-xs">字幕</span>
             <span className="text-muted-foreground text-[10px]">
-              ({scenes.filter((s) => s.dialogue || s.narration).length})
+              ({mediaCounts.speakable})
             </span>
             <Settings2
               size={12}
@@ -366,7 +391,7 @@ function TimelineEditorImpl({
         >
           {/* 时间标尺 */}
           <div className="border-border bg-card/50 relative h-6 border-b">
-            {generateTimeMarkers()}
+            {timeMarkers}
           </div>
 
           {/* 轨道内容 */}
