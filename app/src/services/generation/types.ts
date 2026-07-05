@@ -70,6 +70,13 @@ export interface ValidationResult {
   scores: Record<string, number>;
   shouldRetry: boolean;
   reason?: string;
+  /**
+   * 是否为「跳过评审的放行」而非「评审通过」。
+   * true = 校验未实际执行（协议不支持/无参考图/config 缺失/校验器异常），
+   * 为不阻断出图而 passed:true 放行——但一致性未经验证，下游据此区分展示，
+   * 不把「跳过」伪装成「合格」（a7 审计 P1-3/P1-5）。
+   */
+  skipped?: boolean;
 }
 
 /** 编排器生成结果 */

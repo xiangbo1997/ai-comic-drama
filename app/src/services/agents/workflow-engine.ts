@@ -553,6 +553,10 @@ async function executeImageGeneration(
   const concurrency = 3;
   const results: ImageArtifact[] = [];
 
+  // 累计图像失败数：此前 rejected / success===false 分支完全静默——不 log、
+  // 不 emit，用户看到 workflow「完成」但成片缺镜头且日志无痕（a7 P2-10）。
+  let imageFailures = 0;
+
   for (let i = 0; i < scenes.length; i += concurrency) {
     const batch = scenes.slice(i, i + concurrency);
     const batchResults = await Promise.allSettled(
@@ -580,6 +584,16 @@ async function executeImageGeneration(
             note: `场景 ${result.value.data.sceneId} 图像生成（策略 ${result.value.data.strategy}）`,
           });
         }
+      } else {
+        // 失败分支不再静默：记日志（含原因），让缺镜头可追溯
+        imageFailures++;
+        const reason =
+          result.status === "rejected"
+            ? result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason)
+            : (result.value.error ?? "生成失败");
+        log.warn(`Workflow 图像生成失败，该分镜将无图`, { reason });
       }
     }
 
@@ -589,6 +603,26 @@ async function executeImageGeneration(
       step: "generate_images",
       data: {
         completed: Math.min(i + concurrency, scenes.length),
+        total: scenes.length,
+      },
+      timestamp: new Date(),
+    });
+  }
+
+  // 阶段结束：有失败则 emit 一次汇总，让前端能提示「X/Y 成功，Z 张失败」，
+  // 不把部分失败伪装成全部完成。
+  if (imageFailures > 0) {
+    log.warn(
+      `Workflow 图像阶段完成：${results.length}/${scenes.length} 成功，${imageFailures} 张失败`
+    );
+    emitEvent({
+      type: "step:completed",
+      workflowRunId: ctx.workflowRunId,
+      step: "generate_images",
+      data: {
+        message: `图像生成完成：${results.length} 成功，${imageFailures} 失败（失败分镜将无图，可在编辑器单独重试）`,
+        succeeded: results.length,
+        failed: imageFailures,
         total: scenes.length,
       },
       timestamp: new Date(),

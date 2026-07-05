@@ -17,6 +17,7 @@ import { orchestrateImageGeneration } from "@/services/generation";
 import type { SceneCharacterInfo, CharacterRole } from "@/services/generation";
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
+import { getAnalysisCache, setAnalysisCache } from "@/lib/cache/analysis-cache";
 import { chargeCredits } from "@/lib/credits";
 
 const log = createLogger("api:generate:image");
@@ -293,25 +294,40 @@ export async function POST(request: NextRequest) {
 
           if (characters.length > 0 && scene?.description && llmConfig) {
             try {
-              const analysisPrompt = buildSceneAnalysisPrompt({
+              // 场景分析缓存（a7 P1-4）：同分镜重复生成时内容不变，跳过
+              // 这次 ~1024 tokens 的 LLM 往返。key 按场景内容+角色名哈希。
+              const analysisCacheKey = {
                 sceneDescription: scene.description,
                 dialogue: scene.dialogue || undefined,
-                characters,
                 emotion: scene.emotion || undefined,
                 shotType: scene.shotType || undefined,
-              });
+                characterNames: characters.map((c) => c.name),
+              };
+              let analysisResponse = await getAnalysisCache(analysisCacheKey);
 
-              const analysisResponse = await chatCompletion(
-                [
-                  {
-                    role: "system",
-                    content:
-                      "你是一个专业的分镜师和图像生成专家。你的任务是分析场景描述，提取用于图像生成的关键信息。请始终以 JSON 格式输出结果。",
-                  },
-                  { role: "user", content: analysisPrompt },
-                ],
-                { config: llmConfig, temperature: 0.3, maxTokens: 1024 }
-              );
+              if (!analysisResponse) {
+                const analysisPrompt = buildSceneAnalysisPrompt({
+                  sceneDescription: scene.description,
+                  dialogue: scene.dialogue || undefined,
+                  characters,
+                  emotion: scene.emotion || undefined,
+                  shotType: scene.shotType || undefined,
+                });
+
+                analysisResponse = await chatCompletion(
+                  [
+                    {
+                      role: "system",
+                      content:
+                        "你是一个专业的分镜师和图像生成专家。你的任务是分析场景描述，提取用于图像生成的关键信息。请始终以 JSON 格式输出结果。",
+                    },
+                    { role: "user", content: analysisPrompt },
+                  ],
+                  { config: llmConfig, temperature: 0.3, maxTokens: 1024 }
+                );
+                // 仅成功拿到响应后写缓存（下方 parse 失败会抛，进 catch 降级）
+                void setAnalysisCache(analysisCacheKey, analysisResponse);
+              }
 
               const analysis: SceneAnalysis =
                 parseSceneAnalysisResponse(analysisResponse);

@@ -36,7 +36,11 @@ const SHOT_TYPE_CONFIG: Record<
 
 const DEFAULT_CONFIG = { requireFace: false, threshold: 0 };
 
-/** 与 stub 行为一致的放行结果 */
+/**
+ * 与 stub 行为一致的放行结果。
+ * skipped:true 明确标记「未评审的放行」——保持不阻断出图的降级行为，但让
+ * 下游能区分「真通过」与「跳过」，不把跳过伪装成合格（a7 P1-3/P1-5）。
+ */
 function passthrough(reason: string): ValidationResult {
   return {
     passed: true,
@@ -44,6 +48,7 @@ function passthrough(reason: string): ValidationResult {
     scores: {},
     shouldRetry: false,
     reason,
+    skipped: true,
   };
 }
 
