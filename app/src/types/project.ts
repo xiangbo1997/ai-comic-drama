@@ -67,6 +67,12 @@ export interface ProjectDetail extends Project {
 /** 项目列表项（列表页使用） */
 export interface ProjectListItem extends Project {
   scenesCount: number;
+  /** 管线各步完成数（列表卡进度点用；缺省视为 0） */
+  imageCount?: number;
+  videoCount?: number;
+  audioCount?: number;
+  /** 有台词/旁白（需配音）的分镜数——配音进度分母 */
+  speakableCount?: number;
   thumbnail: string | null;
   createdAt: string;
   updatedAt: string;

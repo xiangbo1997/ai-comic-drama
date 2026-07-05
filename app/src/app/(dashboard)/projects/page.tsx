@@ -17,6 +17,33 @@ const statusMap = {
   FAILED: { label: "失败", color: "bg-destructive/20 text-destructive" },
 };
 
+/** 管线单步进度点：total=0（该步无需做，如无台词的配音）显示"—" */
+function ProgressDot({
+  label,
+  done,
+  total,
+}: {
+  label: string;
+  done: number;
+  total: number;
+}) {
+  const complete = total > 0 && done >= total;
+  const dotColor =
+    total === 0
+      ? "bg-muted-foreground/30"
+      : complete
+        ? "bg-chart-2"
+        : done > 0
+          ? "bg-primary"
+          : "bg-muted-foreground/30";
+  return (
+    <span className="flex items-center gap-1">
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dotColor}`} />
+      {label} {total === 0 ? "—" : `${done}/${total}`}
+    </span>
+  );
+}
+
 async function fetchProjects(): Promise<ProjectListItem[]> {
   const res = await fetch("/api/projects");
   if (!res.ok) {
@@ -263,6 +290,27 @@ export default function ProjectsPage() {
                   {project.scenesCount} 个分镜 ·{" "}
                   {new Date(project.updatedAt).toLocaleDateString("zh-CN")}
                 </div>
+                {/* 管线进度点：一眼看出项目卡在哪步（图→视→配音），
+                    不用逐个点进编辑器看（a5 P1-6）。绿=全完成，琥珀=部分。 */}
+                {project.scenesCount > 0 && (
+                  <div className="text-muted-foreground mt-2 flex items-center gap-3 text-xs">
+                    <ProgressDot
+                      label="图"
+                      done={project.imageCount ?? 0}
+                      total={project.scenesCount}
+                    />
+                    <ProgressDot
+                      label="视"
+                      done={project.videoCount ?? 0}
+                      total={project.scenesCount}
+                    />
+                    <ProgressDot
+                      label="配"
+                      done={project.audioCount ?? 0}
+                      total={project.speakableCount ?? 0}
+                    />
+                  </div>
+                )}
               </div>
             </Link>
           ))}

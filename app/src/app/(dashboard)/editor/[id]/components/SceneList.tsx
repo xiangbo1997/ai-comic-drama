@@ -30,6 +30,7 @@ import {
 import {
   SortableContext,
   verticalListSortingStrategy,
+  rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { SceneCard } from "./SceneCard";
 
@@ -422,7 +423,14 @@ function SceneListImpl({
           >
             <SortableContext
               items={project.scenes.map((s) => s.id)}
-              strategy={verticalListSortingStrategy}
+              // 网格视图用 rectSortingStrategy（二维落点计算），列表用 vertical。
+              // 此前写死 vertical，在 grid2/grid3 下拖拽落点按垂直距离算 → 拖到
+              // 右侧卡片却重排到别处，"拖了乱跳"的功能性失效（a5 P0-2）。
+              strategy={
+                viewMode === "list"
+                  ? verticalListSortingStrategy
+                  : rectSortingStrategy
+              }
             >
               {project.scenes.map((scene, index) => (
                 <SceneCard

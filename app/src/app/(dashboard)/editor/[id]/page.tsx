@@ -28,6 +28,7 @@ import { ExportDialog } from "./components/ExportDialog";
 import { CharacterManagerDialog } from "./components/CharacterManagerDialog";
 import { WorkflowPanel } from "./components/WorkflowPanel";
 import { useWorkflow } from "./hooks/use-workflow";
+import { useSceneKeyboard } from "./hooks/use-scene-keyboard";
 import { useExport } from "./hooks/use-export";
 import { useMultiGenerate } from "./hooks/use-multi-generate";
 import { EditorSkeleton } from "@/components/ui/query-state";
@@ -47,6 +48,14 @@ export default function EditorPage() {
     editor.invalidateProject();
     toast.success("Agent 全自动生成完成，请在分镜列表查看结果");
   });
+
+  // 键盘切换分镜（↑/↓ 或 J/K）；在早期 return 前调用以守 hooks 规则，
+  // 空 scenes 时 hook 内部自身短路
+  useSceneKeyboard(
+    editor.project?.scenes ?? [],
+    editor.selectedSceneId,
+    editor.setSelectedSceneId
+  );
 
   // UI 状态
   const [showSettings, setShowSettings] = useState(false);
