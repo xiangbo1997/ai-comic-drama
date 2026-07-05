@@ -8,9 +8,23 @@ import {
   Settings,
   Clock,
   Music,
+  Sparkles,
+  Type,
+  Stamp,
+  Sticker,
+  ArrowLeftRight,
+  SlidersHorizontal,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { CreditsDisplay } from "@/components/credits-display";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 
 interface EditorHeaderProps {
   title: string;
@@ -29,6 +43,13 @@ interface EditorHeaderProps {
   onMusic: () => void;
   onPreview: () => void;
   onExport: () => void;
+  // 成片装饰入口（此前唯一入口在时间轴，关掉时间轴即消失；聚合到 Header
+  // 下拉，与时间轴解耦，让能力可发现、可召回，a5 审计 P0-1）
+  onSubtitle: () => void;
+  onWatermark: () => void;
+  onSticker: () => void;
+  onTransition: () => void;
+  onEffect: () => void;
 }
 
 export function EditorHeader({
@@ -45,6 +66,11 @@ export function EditorHeader({
   onMusic,
   onPreview,
   onExport,
+  onSubtitle,
+  onWatermark,
+  onSticker,
+  onTransition,
+  onEffect,
 }: EditorHeaderProps) {
   return (
     <header className="border-border flex shrink-0 items-center justify-between border-b px-4 py-3">
@@ -91,14 +117,48 @@ export function EditorHeader({
         >
           <Clock size={20} />
         </button>
-        <button
-          onClick={onMusic}
-          className="hover:bg-card rounded-lg p-2"
-          title="配乐 / 背景音乐"
-          aria-label="配乐 / 背景音乐"
-        >
-          <Music size={20} />
-        </button>
+        {/* 成片装饰工具组：字幕/水印/贴图/转场/滤镜/配乐六项统一入口，
+            与时间轴解耦——关掉时间轴不再丢失这些功能（a5 P0-1）。时间轴内
+            原有入口保留作可视化上下文触发，但不再是唯一入口。 */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            disabled={!hasScenes}
+            className="hover:bg-card flex items-center gap-1.5 rounded-lg px-3 py-2 transition disabled:cursor-not-allowed disabled:opacity-50"
+            title="成片装饰（字幕/水印/贴图/转场/滤镜/配乐）"
+            aria-label="成片装饰"
+          >
+            <Sparkles size={18} />
+            <span className="hidden text-sm sm:inline">装饰</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuLabel>成片装饰</DropdownMenuLabel>
+            <DropdownMenuItem onClick={onSubtitle}>
+              <Type size={15} />
+              字幕样式
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onWatermark}>
+              <Stamp size={15} />
+              品牌水印
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onSticker}>
+              <Sticker size={15} />
+              贴图
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onTransition}>
+              <ArrowLeftRight size={15} />
+              转场
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onEffect}>
+              <SlidersHorizontal size={15} />
+              滤镜 / 变速
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onMusic}>
+              <Music size={15} />
+              配乐 / 背景音乐
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <button
           onClick={onToggleSettings}
           className="hover:bg-card rounded-lg p-2"

@@ -273,6 +273,11 @@ export default function EditorPage() {
         onMusic={() => setShowBgmDialog(true)}
         onPreview={() => setShowPreviewDialog(true)}
         onExport={() => setShowExportDialog(true)}
+        onSubtitle={() => setShowSubtitleStyleDialog(true)}
+        onWatermark={() => setShowWatermarkDialog(true)}
+        onSticker={() => setShowStickerDialog(true)}
+        onTransition={() => setShowTransitionDialog(true)}
+        onEffect={() => setShowEffectDialog(true)}
       />
 
       {/* 移动端明确提示：输入/编辑栏在 md 以下隐藏，此前是静默缺失——
