@@ -20,6 +20,8 @@ import { request as httpsRequest } from "https";
 import { request as httpRequest } from "http";
 import type { IncomingMessage } from "http";
 import type { LookupAddress } from "dns";
+// 仅类型导入（编译期擦除），不影响“运行时动态 import 避免打进客户端 bundle”的策略
+import type { RequestInit as UndiciRequestInit } from "undici";
 
 /** 判断 IP 是否落在内网 / 保留段 / 云元数据地址。 */
 export function isPrivateOrReservedIp(ip: string): boolean {
@@ -283,7 +285,12 @@ export async function safeFetch(
   const dispatcher = new Agent({
     connect: {
       // 钉住已校验 IP：undici 用此 lookup 结果建连，检查与连接同一地址
-      lookup: (_hostname, _opts, cb) => {
+      // （undici v7 的 connect 选项是联合类型，无法上下文推断，需显式标注）
+      lookup: (
+        _hostname: string,
+        _opts: unknown,
+        cb: (err: Error | null, addresses: LookupAddress[]) => void
+      ) => {
         cb(null, [{ address: pinned.address, family: pinned.family }]);
       },
     },
@@ -292,7 +299,7 @@ export async function safeFetch(
   try {
     // redirect:"error" 堵住 302→内网绕过（上游若重定向直接抛错）
     const res = await undiciFetch(input, {
-      ...(init as Parameters<typeof undiciFetch>[1]),
+      ...(init as UndiciRequestInit | undefined),
       redirect: "error",
       dispatcher,
     });
