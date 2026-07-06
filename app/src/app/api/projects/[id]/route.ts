@@ -115,6 +115,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         userId: session.user.id,
       },
       include: {
+        // 系列上下文：编辑器头部徽标 + 上下集导航 + 短剧脚本世界观预填。
+        // episodes 只取轻量标识字段，量级 = 系列集数（十几条），无膨胀风险
+        series: {
+          select: {
+            id: true,
+            title: true,
+            genre: true,
+            worldview: true,
+            protagonist: true,
+            projects: {
+              orderBy: { episodeNumber: "asc" },
+              select: { id: true, title: true, episodeNumber: true },
+            },
+          },
+        },
         scenes: {
           orderBy: { order: "asc" },
           include: {
@@ -165,7 +180,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    return NextResponse.json(project);
+    // series.projects → series.episodes：对齐前端 ProjectSeriesInfo 契约
+    const { series, ...rest } = project;
+    return NextResponse.json({
+      ...rest,
+      series: series
+        ? {
+            id: series.id,
+            title: series.title,
+            genre: series.genre,
+            worldview: series.worldview,
+            protagonist: series.protagonist,
+            episodes: series.projects,
+          }
+        : null,
+    });
   } catch (error) {
     log.error("Get project error:", error);
     return NextResponse.json(
@@ -194,6 +223,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       aspectRatio,
       inputText,
       generationParams,
+      seriesId,
+      episodeNumber,
     } = body;
 
     // 验证项目归属
@@ -204,6 +235,29 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (!existing) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+
+    // 系列归属变更：目标系列必须存在且属于当前用户；null = 移出系列
+    if (seriesId !== undefined && seriesId !== null) {
+      if (typeof seriesId !== "string") {
+        return NextResponse.json({ error: "seriesId 无效" }, { status: 400 });
+      }
+      const targetSeries = await prisma.series.findFirst({
+        where: { id: seriesId, userId: session.user.id },
+        select: { id: true },
+      });
+      if (!targetSeries) {
+        return NextResponse.json({ error: "系列不存在" }, { status: 404 });
+      }
+    }
+    const normalizedEpisodeNumber =
+      episodeNumber === null
+        ? null
+        : typeof episodeNumber === "number" &&
+            Number.isInteger(episodeNumber) &&
+            episodeNumber >= 1 &&
+            episodeNumber <= 9999
+          ? episodeNumber
+          : undefined;
 
     // 校验 generationParams：只接受已知字段 + 合理范围
     const normalizedGenParams =
@@ -223,6 +277,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(normalizedGenParams !== undefined && {
           generationParams: normalizedGenParams as Prisma.InputJsonValue,
         }),
+        // 移出系列时连带清空集数，避免"无系列却有第N集"的脏数据
+        ...(seriesId !== undefined && {
+          seriesId,
+          ...(seriesId === null && { episodeNumber: null }),
+        }),
+        ...(normalizedEpisodeNumber !== undefined &&
+          seriesId !== null && { episodeNumber: normalizedEpisodeNumber }),
       },
     });
 

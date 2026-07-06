@@ -11,6 +11,13 @@ export type {
   GenerationParams,
 } from "./project";
 
+// 系列（多集漫剧）
+export type {
+  SeriesSummary,
+  SeriesEpisodeRef,
+  ProjectSeriesInfo,
+} from "./series";
+
 // 场景
 export type {
   Scene,

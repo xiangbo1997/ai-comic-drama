@@ -37,8 +37,12 @@ export function DramaScriptPanel({
   const { scripts, generateMutation, updateMutation } =
     useDramaScript(projectId);
 
-  const [worldview, setWorldview] = useState("");
-  const [protagonist, setProtagonist] = useState("");
+  // 系列内的集：世界观/主角自动预填系列设定（挂载时一次性初始化，
+  // 用户可自由改写，不会被后续 refetch 覆盖）
+  const [worldview, setWorldview] = useState(project.series?.worldview ?? "");
+  const [protagonist, setProtagonist] = useState(
+    project.series?.protagonist ?? ""
+  );
   const [durationSec, setDurationSec] = useState(90);
 
   const latest: ShortDramaScriptRecord | undefined = scripts[0];

@@ -285,6 +285,9 @@ export default function EditorPage() {
         showSettings={showSettings}
         hasScenes={project.scenes.length > 0}
         canExport={project.scenes.some((s) => s.imageUrl)}
+        projectId={projectId}
+        episodeNumber={project.episodeNumber}
+        series={project.series}
         onTitleChange={editor.setTitle}
         onTitleSave={(t) => editor.updateTitleMutation.mutate(t)}
         onEditTitle={() => editor.setEditingTitle(true)}

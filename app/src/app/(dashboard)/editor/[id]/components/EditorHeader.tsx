@@ -14,9 +14,12 @@ import {
   Sticker,
   ArrowLeftRight,
   SlidersHorizontal,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { CreditsDisplay } from "@/components/credits-display";
+import type { ProjectSeriesInfo } from "@/types";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -35,6 +38,12 @@ interface EditorHeaderProps {
   /** 至少一个分镜有图才允许导出——此前分镜存在但全无图时导出仍可点，
       用户点开才发现导不出东西（ux-editor P1-8） */
   canExport: boolean;
+  /** 当前项目 ID（系列内定位当前集，算上/下一集） */
+  projectId: string;
+  /** 集数（系列内的集才有） */
+  episodeNumber?: number | null;
+  /** 系列上下文；独立项目为 null，不渲染系列导航 */
+  series?: ProjectSeriesInfo | null;
   onTitleChange: (title: string) => void;
   onTitleSave: (title: string) => void;
   onEditTitle: () => void;
@@ -58,6 +67,9 @@ export function EditorHeader({
   showTimeline,
   hasScenes,
   canExport,
+  projectId,
+  episodeNumber,
+  series,
   onTitleChange,
   onTitleSave,
   onEditTitle,
@@ -72,6 +84,19 @@ export function EditorHeader({
   onTransition,
   onEffect,
 }: EditorHeaderProps) {
+  // 系列内上/下一集：按集数升序排定位当前集（无编号老数据排最后）
+  const episodes = series
+    ? [...series.episodes].sort(
+        (a, b) => (a.episodeNumber ?? Infinity) - (b.episodeNumber ?? Infinity)
+      )
+    : [];
+  const currentIndex = episodes.findIndex((e) => e.id === projectId);
+  const prevEpisode = currentIndex > 0 ? episodes[currentIndex - 1] : null;
+  const nextEpisode =
+    currentIndex >= 0 && currentIndex < episodes.length - 1
+      ? episodes[currentIndex + 1]
+      : null;
+
   return (
     <header className="border-border flex shrink-0 items-center justify-between border-b px-4 py-3">
       <div className="flex items-center gap-4">
@@ -103,6 +128,44 @@ export function EditorHeader({
             <span className="bg-secondary text-muted-foreground rounded px-2 py-0.5 text-xs">
               编辑中
             </span>
+          </div>
+        )}
+
+        {/* 系列导航：徽标 + 上/下一集跳转（独立项目不渲染） */}
+        {series && (
+          <div className="border-border flex items-center gap-1 rounded-lg border px-2 py-1">
+            <span className="text-muted-foreground max-w-32 truncate text-xs">
+              {series.title}
+              {episodeNumber != null && ` · 第${episodeNumber}集`}
+            </span>
+            {prevEpisode ? (
+              <Link
+                href={`/editor/${prevEpisode.id}`}
+                className="hover:bg-card rounded p-1"
+                title={`上一集：${prevEpisode.title}`}
+                aria-label={`上一集：${prevEpisode.title}`}
+              >
+                <ChevronLeft size={14} />
+              </Link>
+            ) : (
+              <span className="text-muted-foreground/30 p-1">
+                <ChevronLeft size={14} />
+              </span>
+            )}
+            {nextEpisode ? (
+              <Link
+                href={`/editor/${nextEpisode.id}`}
+                className="hover:bg-card rounded p-1"
+                title={`下一集：${nextEpisode.title}`}
+                aria-label={`下一集：${nextEpisode.title}`}
+              >
+                <ChevronRight size={14} />
+              </Link>
+            ) : (
+              <span className="text-muted-foreground/30 p-1">
+                <ChevronRight size={14} />
+              </span>
+            )}
           </div>
         )}
       </div>

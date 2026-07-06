@@ -70,6 +70,8 @@ export async function GET() {
       status: p.status,
       style: p.style,
       aspectRatio: p.aspectRatio,
+      seriesId: p.seriesId,
+      episodeNumber: p.episodeNumber,
       scenesCount: p._count.scenes,
       // 管线各步完成数（列表卡进度点用）
       imageCount: imgMap.get(p.id) ?? 0,

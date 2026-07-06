@@ -55,6 +55,10 @@ export interface Project {
   style: string;
   aspectRatio: string;
   generationParams?: GenerationParams;
+  /** 所属系列 ID（null=独立项目） */
+  seriesId?: string | null;
+  /** 集数（1 起）；仅 seriesId 非空时有意义 */
+  episodeNumber?: number | null;
 }
 
 /** 项目详情（含关联数据，编辑器使用） */
@@ -62,6 +66,8 @@ export interface ProjectDetail extends Project {
   inputText: string | null;
   scenes: Scene[];
   characters: Array<{ character: Character }>;
+  /** 系列上下文（徽标/上下集导航/世界观预填）；独立项目为 null */
+  series?: ProjectSeriesInfo | null;
 }
 
 /** 项目列表项（列表页使用） */
@@ -81,3 +87,4 @@ export interface ProjectListItem extends Project {
 // 避免循环引用，这里仅声明依赖类型的 import
 import type { Scene } from "./scene";
 import type { Character } from "./character";
+import type { ProjectSeriesInfo } from "./series";
