@@ -89,6 +89,8 @@ tmp/
 # 用户上传文件（如果本地存储）
 uploads/
 public/uploads/
+# 例外：/uploads/* 的磁盘直读路由（Next16 生产 public 快照兜底），不是上传产物
+!app/src/app/uploads/
 
 # 内置 BGM 曲库 mp3（CC0 资产，避免 ~120MB 二进制污染 git 历史；
 # 用 app/scripts/fetch-bgm.mjs 在部署环境下载，清单见 src/lib/bgm-library.ts）
