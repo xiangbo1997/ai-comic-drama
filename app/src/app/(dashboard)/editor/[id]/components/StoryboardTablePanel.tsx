@@ -131,6 +131,9 @@ export function StoryboardTablePanel({
               ? "保存中..."
               : "保存分镜表打磨"}
           </button>
+          <p className="text-muted-foreground text-[10px] leading-relaxed">
+            保存后，打磨的镜头 / 特写会在上方「直接生成分镜列表」时合入对应分镜
+          </p>
 
           {/* 阶段3：一键九宫格图 */}
           <div className="border-border space-y-2 border-t pt-3">
@@ -165,6 +168,9 @@ export function StoryboardTablePanel({
                   "生成失败"}
               </p>
             )}
+            <p className="text-muted-foreground text-center text-[10px]">
+              九宫格图为整体氛围预览，不进入分镜与成片导出
+            </p>
             {script.gridImageUrl && (
               <img
                 src={script.gridImageUrl}

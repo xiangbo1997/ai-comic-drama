@@ -237,6 +237,23 @@ export function useEditorProject(projectId: string) {
     },
   });
 
+  // 短剧脚本「直接生成分镜列表」：结构化直转（零 LLM/零积分），
+  // 与 parse 共用 saveScenes 通道（事务重建 + sceneId 配置桥接），
+  // 同时把脚本原文回写 inputText，保持「原文 ↔ 分镜」同源
+  const applyScenesMutation = useMutation({
+    mutationFn: async ({
+      scenes,
+      sourceText,
+    }: {
+      scenes: Record<string, unknown>[];
+      sourceText: string;
+    }) => {
+      await saveScenes(projectId, scenes);
+      await apiUpdateProject(projectId, { inputText: sourceText });
+    },
+    onSuccess: () => invalidateProject(),
+  });
+
   const updateTitleMutation = useMutation({
     mutationFn: (newTitle: string) =>
       apiUpdateProject(projectId, { title: newTitle }),
@@ -339,6 +356,7 @@ export function useEditorProject(projectId: string) {
 
     // mutations
     parseMutation,
+    applyScenesMutation,
     updateTitleMutation,
     updateSceneMutation,
     updateCharactersMutation,

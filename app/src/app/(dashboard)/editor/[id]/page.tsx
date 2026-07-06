@@ -112,33 +112,53 @@ export default function EditorPage() {
     return `已识别并回填 ${entries.length} 个分镜的字幕`;
   };
 
-  // 重新解析剧本会 deleteMany + createMany 全量重建分镜，已生成的图/视/音
-  // URL 随之丢失（feature P0：作品瞬间蒸发且无撤销）。已有任一媒体产物或
-  // 分镜级配置（按旧 sceneId 索引，重建后全部悬垂失效）时二次确认。
-  // 用 toast.confirm 替代原生 window.confirm，与删除项目等保持品牌一致。
-  const handleParse = useCallback(async () => {
-    const gp = editor.project?.generationParams;
-    const hasMedia = editor.project?.scenes?.some(
-      (s) => s.imageUrl || s.videoUrl || s.audioUrl
-    );
-    const hasSceneConfig = Boolean(
-      gp?.transitions?.length ||
-      gp?.stickers?.length ||
-      gp?.subtitlePositions?.length ||
-      gp?.sceneEffects?.length
-    );
-    if (hasMedia || hasSceneConfig) {
-      const ok = await toast.confirm(
-        `重新解析会清空当前所有分镜及已生成的图片 / 视频 / 配音${
+  // 重建分镜（重新解析 / 脚本直转）都会 deleteMany + createMany 全量重建，
+  // 已生成的图/视/音 URL 随之丢失（feature P0：作品瞬间蒸发且无撤销）。
+  // 已有任一媒体产物或分镜级配置（按旧 sceneId 索引，重建后全部悬垂失效）时
+  // 二次确认。用 toast.confirm 替代原生 window.confirm，与删除项目保持品牌一致。
+  const confirmSceneRebuild = useCallback(
+    async (action: string) => {
+      const gp = editor.project?.generationParams;
+      const hasMedia = editor.project?.scenes?.some(
+        (s) => s.imageUrl || s.videoUrl || s.audioUrl
+      );
+      const hasSceneConfig = Boolean(
+        gp?.transitions?.length ||
+        gp?.stickers?.length ||
+        gp?.subtitlePositions?.length ||
+        gp?.sceneEffects?.length
+      );
+      if (!hasMedia && !hasSceneConfig) return true;
+      return toast.confirm(
+        `${action}会清空当前所有分镜及已生成的图片 / 视频 / 配音${
           hasSceneConfig
             ? "，已配置的转场 / 贴图 / 字幕位置 / 滤镜也会随分镜重建而失效"
             : ""
         }，且无法撤销。确定继续？`
       );
-      if (!ok) return;
-    }
+    },
+    [editor.project, toast]
+  );
+
+  const handleParse = useCallback(async () => {
+    if (!(await confirmSceneRebuild("重新解析"))) return;
     editor.parseMutation.mutate();
-  }, [editor.project, editor.parseMutation, toast]);
+  }, [confirmSceneRebuild, editor.parseMutation]);
+
+  // 短剧脚本「直接生成分镜列表」：结构化直转（含九宫格镜头语言），
+  // 零 LLM 调用零积分；与重新解析共用防丢确认。
+  // editor.X 先提为局部常量再入依赖数组（同 handleUpdateSceneFromList 的
+  // React Compiler preserve-manual-memoization 约定）
+  const editorSetInputText = editor.setInputText;
+  const editorApplyScenesMutation = editor.applyScenesMutation;
+  const handleApplyScriptToScenes = useCallback(
+    async (scenes: Record<string, unknown>[], sourceText: string) => {
+      if (!(await confirmSceneRebuild("直接生成分镜列表"))) return;
+      editorSetInputText(sourceText);
+      editorApplyScenesMutation.mutate({ scenes, sourceText });
+    },
+    [confirmSceneRebuild, editorSetInputText, editorApplyScenesMutation]
+  );
 
   const handleToggleCharacter = (id: string) => {
     const newSet = new Set(editor.selectedCharacterIds);
@@ -324,6 +344,8 @@ export default function EditorPage() {
               projectId={projectId}
               project={project}
               onApplyAsInput={editor.setInputText}
+              onApplyToScenes={handleApplyScriptToScenes}
+              isApplyingToScenes={editor.applyScenesMutation.isPending}
             />
           }
         />

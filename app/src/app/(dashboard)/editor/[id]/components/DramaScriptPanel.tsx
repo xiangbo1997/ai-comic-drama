@@ -1,8 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Loader2, FileText } from "lucide-react";
-import type { ProjectDetail, DramaScriptArtifact } from "@/types";
+import { Sparkles, Loader2, FileText, ListVideo } from "lucide-react";
+import type {
+  ProjectDetail,
+  DramaScriptArtifact,
+  StoryboardTableArtifact,
+} from "@/types";
+import { dramaScriptToScenes, scriptToInputText } from "@/lib/drama-to-scenes";
 import {
   useDramaScript,
   type ShortDramaScriptRecord,
@@ -14,26 +19,20 @@ interface DramaScriptPanelProps {
   project: ProjectDetail;
   /** 把生成的脚本「应用为分镜原文」回填到输入框，串到现有 parse 流程 */
   onApplyAsInput?: (text: string) => void;
-}
-
-/** 把结构化脚本拼成可读的分镜原文（供「应用为分镜原文」回填） */
-function scriptToInputText(doc: DramaScriptArtifact): string {
-  const header = `《${doc.filmTitle}》\n${doc.logline}\n`;
-  const body = doc.scenes
-    .map((s) => {
-      const lines = [`场景${s.index} ${s.title}`, s.description];
-      if (s.dialogue) lines.push(`对白：${s.dialogue}`);
-      if (s.narration) lines.push(`旁白：${s.narration}`);
-      return lines.join("\n");
-    })
-    .join("\n\n");
-  return `${header}\n${body}`;
+  /** 结构化直转分镜列表（零 LLM；九宫格镜头语言自动合入） */
+  onApplyToScenes?: (
+    scenes: Record<string, unknown>[],
+    sourceText: string
+  ) => void;
+  isApplyingToScenes?: boolean;
 }
 
 export function DramaScriptPanel({
   projectId,
   project,
   onApplyAsInput,
+  onApplyToScenes,
+  isApplyingToScenes,
 }: DramaScriptPanelProps) {
   const { scripts, generateMutation, updateMutation } =
     useDramaScript(projectId);
@@ -149,14 +148,45 @@ export function DramaScriptPanel({
               </div>
             ))}
           </div>
-          {onApplyAsInput && (
-            <button
-              onClick={() => onApplyAsInput(scriptToInputText(latestDoc))}
-              disabled={updateMutation.isPending}
-              className="bg-primary hover:bg-primary/90 w-full rounded-lg px-3 py-2 text-xs transition"
-            >
-              应用为分镜原文
-            </button>
+          <div className="flex gap-2">
+            {onApplyToScenes && (
+              <button
+                onClick={() =>
+                  onApplyToScenes(
+                    dramaScriptToScenes(
+                      latestDoc,
+                      latest?.storyboard as StoryboardTableArtifact | null,
+                      project.characters.map((c) => c.character.name)
+                    ),
+                    scriptToInputText(latestDoc)
+                  )
+                }
+                disabled={isApplyingToScenes || updateMutation.isPending}
+                className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs transition disabled:cursor-not-allowed"
+              >
+                {isApplyingToScenes ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <ListVideo size={13} />
+                )}
+                {isApplyingToScenes ? "生成中..." : "直接生成分镜列表"}
+              </button>
+            )}
+            {onApplyAsInput && (
+              <button
+                onClick={() => onApplyAsInput(scriptToInputText(latestDoc))}
+                disabled={updateMutation.isPending}
+                className="bg-secondary hover:bg-secondary/80 flex-1 rounded-lg px-3 py-2 text-xs transition"
+              >
+                应用为分镜原文
+              </button>
+            )}
+          </div>
+          {onApplyToScenes && (
+            <p className="text-muted-foreground text-[10px] leading-relaxed">
+              「直接生成」按脚本结构直转分镜（含九宫格镜头语言），不耗积分；
+              「应用为分镜原文」回填文本框，可手动编辑后再智能拆解
+            </p>
           )}
         </div>
       )}
