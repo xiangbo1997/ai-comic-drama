@@ -70,6 +70,14 @@ export function DramaScriptPanel({
         </span>
       </div>
 
+      {/* 系列续集提示：服务端会自动取上一集剧情做前情提要注入生成 */}
+      {project.series && (project.episodeNumber ?? 0) > 1 && (
+        <p className="bg-agent/10 text-agent rounded-lg px-3 py-2 text-xs">
+          本集是「{project.series.title}」第 {project.episodeNumber} 集：
+          生成脚本时将自动衔接上一集的剧情结尾，无需手动写前情提要
+        </p>
+      )}
+
       <textarea
         value={worldview}
         onChange={(e) => setWorldview(e.target.value)}

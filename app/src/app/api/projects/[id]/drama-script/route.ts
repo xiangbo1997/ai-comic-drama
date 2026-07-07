@@ -5,7 +5,8 @@ import { checkTextSafety } from "@/lib/content-safety";
 import { getUserLLMConfig } from "@/lib/ai-config";
 import { generateDramaScript } from "@/services/drama-script";
 import { prisma } from "@/lib/prisma";
-import type { DramaScriptArtifact } from "@/types/drama";
+import { buildPreviousEpisodeRecap } from "@/lib/series";
+import type { DramaScriptArtifact, DramaScriptInput } from "@/types/drama";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:drama-script");
@@ -42,10 +43,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
 
-    // 项目归属校验
+    // 项目归属校验（带系列字段：续集自动衔接前情用）
     const project = await prisma.project.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true },
+      select: { id: true, seriesId: true, episodeNumber: true },
     });
     if (!project) {
       return NextResponse.json({ error: "项目不存在" }, { status: 404 });
@@ -58,7 +59,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         { status: 400 }
       );
     }
-    const input = parsed.data;
+
+    // 系列第 N>1 集：服务端自动生成上一集前情提要，让本集剧情承接结尾钩子
+    const previousEpisodeRecap = await derivePreviousEpisodeRecap(project);
+    const input: DramaScriptInput = {
+      ...parsed.data,
+      ...(previousEpisodeRecap ? { previousEpisodeRecap } : {}),
+    };
 
     // 内容安全（对世界观文本审核）
     const safetyCheck = checkTextSafety(input.worldview);
@@ -107,11 +114,79 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+/**
+ * 系列第 N>1 集：把上一集剧情压缩成前情提要（供 prompt 注入）。
+ * 优先取上一集最新短剧脚本（logline + 结尾场景）；无脚本（直接文本
+ * 解析路径）则以其最后两个分镜兜底。独立项目/第 1 集返回 undefined。
+ */
+async function derivePreviousEpisodeRecap(project: {
+  seriesId: string | null;
+  episodeNumber: number | null;
+}): Promise<string | undefined> {
+  if (
+    !project.seriesId ||
+    project.episodeNumber == null ||
+    project.episodeNumber <= 1
+  ) {
+    return undefined;
+  }
+
+  const prev = await prisma.project.findFirst({
+    where: {
+      seriesId: project.seriesId,
+      episodeNumber: { lt: project.episodeNumber },
+    },
+    orderBy: { episodeNumber: "desc" },
+    select: { id: true, title: true, episodeNumber: true },
+  });
+  if (!prev) return undefined;
+
+  const script = await prisma.shortDramaScript.findFirst({
+    where: { projectId: prev.id },
+    orderBy: { updatedAt: "desc" },
+    select: { filmTitle: true, scriptDoc: true },
+  });
+  const doc = script?.scriptDoc as {
+    logline?: unknown;
+    scenes?: Array<{
+      description: string;
+      dialogue: string | null;
+      narration: string | null;
+    }>;
+  } | null;
+  if (doc?.scenes && doc.scenes.length > 0) {
+    return (
+      buildPreviousEpisodeRecap({
+        episodeNumber: prev.episodeNumber,
+        title: script?.filmTitle ?? prev.title,
+        logline: typeof doc.logline === "string" ? doc.logline : null,
+        endingScenes: doc.scenes.slice(-2),
+      }) ?? undefined
+    );
+  }
+
+  const lastScenes = await prisma.scene.findMany({
+    where: { projectId: prev.id },
+    orderBy: { order: "desc" },
+    take: 2,
+    select: { description: true, dialogue: true, narration: true },
+  });
+  if (lastScenes.length === 0) return undefined;
+  return (
+    buildPreviousEpisodeRecap({
+      episodeNumber: prev.episodeNumber,
+      title: prev.title,
+      logline: null,
+      endingScenes: [...lastScenes].reverse(),
+    }) ?? undefined
+  );
+}
+
 /** 后台生成短剧脚本，落 ShortDramaScript + 写回 GenerationTask。不抛错。 */
 async function runDramaScriptTask(
   taskId: string,
   projectId: string,
-  input: z.infer<typeof GenerateSchema>,
+  input: DramaScriptInput,
   llmConfig: Awaited<ReturnType<typeof getUserLLMConfig>>
 ): Promise<void> {
   try {

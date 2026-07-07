@@ -35,12 +35,23 @@ export function buildDramaScriptUserPrompt(input: DramaScriptInput): string {
       ? `已有角色（脚本应围绕这些角色展开）：${input.characterNames.join("、")}`
       : "";
 
+  // 系列续集：注入上一集前情提要，让本集剧情自然承接（由服务端生成，
+  // 见 lib/series.ts#buildPreviousEpisodeRecap）
+  const recapBlock = input.previousEpisodeRecap
+    ? `前情提要（上一集回顾，仅供承接，不要在本集复述这些情节）：
+${input.previousEpisodeRecap}
+`
+    : "";
+  const recapRequirement = input.previousEpisodeRecap
+    ? "\n5. 本集是系列续集：开场自然承接前情提要的结尾（呼应上一集留下的钩子），推进新的冲突与剧情，结尾再留下引向下一集的悬念钩子"
+    : "";
+
   return `请根据以下世界观，生成一版结构化 AI 短剧脚本：
 
 世界观：
 ${input.worldview}
 
-${input.protagonist ? `主角身份：${input.protagonist}` : ""}
+${recapBlock}${input.protagonist ? `主角身份：${input.protagonist}` : ""}
 ${charactersLine}
 ${input.filmTitle ? `指定片名：${input.filmTitle}` : "片名：由你拟定，要有记忆点"}
 ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血冒险、奇幻成长等）"}
@@ -52,7 +63,7 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
 1. 整体基调统一、节奏紧凑，适合短视频平台
 2. 切分为 ${sceneCount} 个左右场景，各场景 durationSec 之和接近 ${durationSec} 秒
 3. 每个场景 description 要视觉化（环境 + 光线 + 人物动作/表情），适合 AI 生成
-4. 保留必要对白与旁白，无则置 null
+4. 保留必要对白与旁白，无则置 null${recapRequirement}
 
 输出格式：
 {

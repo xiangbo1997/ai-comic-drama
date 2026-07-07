@@ -23,6 +23,11 @@ export interface DramaScriptInput {
   aspectRatio?: string;
   /** 风格，默认 anime */
   style?: string;
+  /**
+   * 前情提要（系列第 N>1 集时由服务端自动生成，见 lib/series.ts）。
+   * 注入 prompt 让本集剧情承接上一集结尾；客户端不传此字段。
+   */
+  previousEpisodeRecap?: string;
 }
 
 /** 结构化脚本中的单个场景 */

@@ -3,7 +3,9 @@ import {
   nextEpisodeNumber,
   buildEpisodeTitle,
   pickCarryOverGenerationParams,
+  buildPreviousEpisodeRecap,
 } from "@/lib/series";
+import { buildDramaScriptUserPrompt } from "@/lib/prompts/agent-prompts";
 import type { GenerationParams } from "@/types/project";
 
 describe("nextEpisodeNumber", () => {
@@ -115,5 +117,84 @@ describe("pickCarryOverGenerationParams", () => {
     const picked = pickCarryOverGenerationParams(params);
     expect(picked.watermark).not.toBe(params.watermark);
     expect(picked.watermark).toEqual(params.watermark);
+  });
+});
+
+describe("buildPreviousEpisodeRecap", () => {
+  it("完整上下文：片名 + 梗概 + 结尾场景（含对白/旁白）", () => {
+    const recap = buildPreviousEpisodeRecap({
+      episodeNumber: 1,
+      title: "苍潮界·启程",
+      logline: "少年发现失落航路的第一块碎片",
+      endingScenes: [
+        {
+          description: "船首破浪，远方风暴中隐约浮现遗迹轮廓",
+          dialogue: "那就是……古代航路的入口？",
+          narration: "命运的罗盘，从这一刻开始转动",
+        },
+      ],
+    });
+    expect(recap).toContain("第1集《苍潮界·启程》");
+    expect(recap).toContain("梗概：少年发现失落航路的第一块碎片");
+    expect(recap).toContain("结尾场景：");
+    expect(recap).toContain("对白「那就是……古代航路的入口？」");
+    expect(recap).toContain("旁白「命运的罗盘，从这一刻开始转动」");
+  });
+
+  it("只取最后两个结尾场景，且描述截断到 300 字", () => {
+    const longDesc = "很".repeat(500);
+    const recap = buildPreviousEpisodeRecap({
+      episodeNumber: 2,
+      title: "t",
+      logline: null,
+      endingScenes: [
+        { description: "场景A" },
+        { description: "场景B" },
+        { description: longDesc },
+      ],
+    });
+    expect(recap).not.toContain("场景A");
+    expect(recap).toContain("场景B");
+    expect(recap).not.toContain("很".repeat(301));
+  });
+
+  it("无实质剧情信息（只有标题）返回 null", () => {
+    expect(
+      buildPreviousEpisodeRecap({
+        episodeNumber: 1,
+        title: "只有标题",
+        logline: null,
+        endingScenes: [],
+      })
+    ).toBeNull();
+    expect(
+      buildPreviousEpisodeRecap({
+        episodeNumber: null,
+        title: null,
+        logline: null,
+        endingScenes: [{ description: "   " }],
+      })
+    ).toBeNull();
+  });
+});
+
+describe("buildDramaScriptUserPrompt 前情提要注入", () => {
+  const baseInput = { worldview: "苍潮界，群岛与古代遗迹的世界" };
+
+  it("有前情提要：注入回顾块 + 续集承接要求", () => {
+    const prompt = buildDramaScriptUserPrompt({
+      ...baseInput,
+      previousEpisodeRecap: "第1集《启程》\n梗概：发现碎片",
+    });
+    expect(prompt).toContain("前情提要");
+    expect(prompt).toContain("第1集《启程》");
+    expect(prompt).toContain("本集是系列续集");
+    expect(prompt).toContain("引向下一集的悬念钩子");
+  });
+
+  it("无前情提要（第一集/独立项目）：不出现续集相关内容", () => {
+    const prompt = buildDramaScriptUserPrompt(baseInput);
+    expect(prompt).not.toContain("前情提要");
+    expect(prompt).not.toContain("本集是系列续集");
   });
 });

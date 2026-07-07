@@ -58,3 +58,51 @@ export function pickCarryOverGenerationParams(
     out.backgroundMusic = { ...params.backgroundMusic };
   return out;
 }
+
+/** 上一集剧情上下文（route 从 ShortDramaScript 或 Scene 兜底组装） */
+export interface PreviousEpisodeContext {
+  episodeNumber: number | null;
+  /** 上一集片名/项目标题 */
+  title: string | null;
+  /** 一句话梗概（无短剧脚本时可为 null） */
+  logline: string | null;
+  /** 结尾场景（取最后 1-2 个，承接钩子的来源） */
+  endingScenes: Array<{
+    description: string;
+    dialogue?: string | null;
+    narration?: string | null;
+  }>;
+}
+
+/** 单场景描述截断上限：前情提要只需要钩子，不需要完整分镜 */
+const RECAP_SCENE_MAX_CHARS = 300;
+
+/**
+ * 把上一集剧情压缩成「前情提要」文本，注入下一集脚本生成 prompt
+ * （见 prompts/agent-prompts/drama-script.ts）。无可用内容返回 null。
+ */
+export function buildPreviousEpisodeRecap(
+  ctx: PreviousEpisodeContext
+): string | null {
+  const lines: string[] = [];
+  const epLabel =
+    ctx.episodeNumber != null ? `第${ctx.episodeNumber}集` : "上一集";
+  if (ctx.title) lines.push(`${epLabel}《${ctx.title}》`);
+  if (ctx.logline) lines.push(`梗概：${ctx.logline}`);
+
+  const endings = ctx.endingScenes
+    .filter((s) => s.description && s.description.trim().length > 0)
+    .slice(-2);
+  if (endings.length > 0) {
+    lines.push("结尾场景：");
+    for (const s of endings) {
+      const parts = [s.description.trim().slice(0, RECAP_SCENE_MAX_CHARS)];
+      if (s.dialogue?.trim()) parts.push(`对白「${s.dialogue.trim()}」`);
+      if (s.narration?.trim()) parts.push(`旁白「${s.narration.trim()}」`);
+      lines.push(`- ${parts.join("；")}`);
+    }
+  }
+
+  // 只有集数标签没有实质剧情信息时视为不可用
+  return lines.length > (ctx.title ? 1 : 0) ? lines.join("\n") : null;
+}
