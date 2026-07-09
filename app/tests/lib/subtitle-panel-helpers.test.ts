@@ -1,8 +1,6 @@
 import { describe, it, expect } from "vitest";
-import {
-  nearestBand,
-  resizeFontFromDistance,
-} from "@/app/(dashboard)/editor/[id]/components/SubtitleStylePanel";
+import { nearestBand } from "@/app/(dashboard)/editor/[id]/components/SubtitleStylePanel";
+import { resizeFontFromDistance } from "@/lib/subtitle-resize";
 
 describe("nearestBand（归一化 y → 三档纵向）", () => {
   it("上三分之一 → top", () => {

@@ -41,6 +41,8 @@ import {
   SUBTITLE_KEYFRAMES_CSS,
   getSubtitleAnimationCss,
 } from "@/lib/subtitle-css";
+// 剪映式拖角改字号的纯函数（与时间轴字幕样式面板共用同一实现，保证两处手感一致）
+import { resizeFontFromDistance } from "@/lib/subtitle-resize";
 import { SceneFilterDefs, sceneFilterCss } from "./scene-filters";
 
 interface PreviewPlayerProps {
@@ -61,6 +63,12 @@ interface PreviewPlayerProps {
    * 缺省时字幕不可拖拽（纯预览只读，如导出弹窗内的预览）。
    */
   onSubtitlePositionChange?: (sceneId: string, x: number, y: number) => void;
+  /**
+   * 用户在预览里拖字幕四角改字号时回调（全片统一样式）。
+   * 上层负责落库到 generationParams.subtitleStyle。与时间轴字幕样式弹窗同一数据源，
+   * 保证两处一致。缺省时不显示角控点（纯预览只读）。
+   */
+  onSubtitleStyleChange?: (style: SubtitleStyle) => void;
   /** 全片商标水印（预览叠加 logo） */
   watermark?: Watermark;
   /** 贴图列表（预览时按当前分镜叠加） */
@@ -120,6 +128,7 @@ export function PreviewPlayer({
   subtitleStyle,
   subtitlePositions,
   onSubtitlePositionChange,
+  onSubtitleStyleChange,
   watermark,
   stickers,
   transitions,
@@ -143,6 +152,12 @@ export function PreviewPlayer({
   // 画面框实际像素宽：用于把字幕换行宽度锚定为「画面宽的固定比例」，
   // 使字幕折行与成片一致，且不被字幕块靠边位置压缩成窄窄一列。
   const [stageWidth, setStageWidth] = useState(0);
+  // 字幕拖角改字号：字幕块 ref（算中心像素）+ 交互态（按下时到中心的距离与起始字号）。
+  // 与时间轴字幕样式面板同一套逻辑，字号写回全片 subtitleStyle（两处一致）。
+  const subtitleBoxRef = useRef<HTMLParagraphElement>(null);
+  const resizeRef = useRef<{ startDist: number; startFont: number } | null>(
+    null
+  );
   // 各视频分镜的「真实时长」（sceneId → 秒），由 <video> 的 onLoadedMetadata 填充。
   // provider 常忽略请求时长返回 ~8s 片段，DB 的 scene.duration（LLM 估算，默认 3s）
   // 与真实长度不符——用真实值驱动计时器，避免播放到一半跳镜/循环。
@@ -492,6 +507,55 @@ export function PreviewPlayer({
   // ── 字幕位置：拖拽与快捷选择 ──────────────────────────────────────────
   // 是否允许编辑字幕位置（提供回调才开放；只读预览不可拖）
   const subtitleEditable = !!onSubtitlePositionChange;
+  // 是否允许拖角改字号（提供回调才开放；与时间轴字幕样式弹窗同一数据源）
+  const subtitleResizable = !!onSubtitleStyleChange;
+  // 字号 UI 范围（与字幕样式面板的滑块/拖角一致；服务端另有 8-96 安全外壳）
+  const SUBTITLE_FONT_MIN = 12;
+  const SUBTITLE_FONT_MAX = 48;
+
+  // 拖角改字号：按下记「指针到字幕中心的像素距离 + 起始字号」，
+  // move 里按距离比例缩放，写回全片 subtitleStyle（剪映式，与面板同一实现）。
+  const subtitleCenterPx = (): { cx: number; cy: number } => {
+    const rect = subtitleBoxRef.current?.getBoundingClientRect();
+    if (!rect) return { cx: 0, cy: 0 };
+    return { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 };
+  };
+
+  const handleSubtitleResizeStart = (e: React.PointerEvent) => {
+    if (!subtitleResizable || !subtitleStyle) return;
+    e.preventDefault();
+    e.stopPropagation(); // 阻止冒泡到 <p> 的位置拖拽
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const { cx, cy } = subtitleCenterPx();
+    resizeRef.current = {
+      startDist: Math.hypot(e.clientX - cx, e.clientY - cy),
+      startFont: subtitleStyle.fontSize,
+    };
+  };
+
+  const handleSubtitleResizeMove = (e: React.PointerEvent) => {
+    const it = resizeRef.current;
+    if (!it || !subtitleStyle) return;
+    e.preventDefault();
+    const { cx, cy } = subtitleCenterPx();
+    const curDist = Math.hypot(e.clientX - cx, e.clientY - cy);
+    const fontSize = resizeFontFromDistance(
+      it.startFont,
+      it.startDist,
+      curDist,
+      SUBTITLE_FONT_MIN,
+      SUBTITLE_FONT_MAX
+    );
+    if (fontSize !== subtitleStyle.fontSize) {
+      onSubtitleStyleChange?.({ ...subtitleStyle, fontSize });
+    }
+  };
+
+  const handleSubtitleResizeEnd = (e: React.PointerEvent) => {
+    if (!resizeRef.current) return;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+    resizeRef.current = null;
+  };
 
   // 当前分镜字幕的「生效坐标」：拖拽中用实时 dragXY，否则解析覆盖/全局默认
   const currentSubtitleXY = currentScene
@@ -902,6 +966,7 @@ export function PreviewPlayer({
                     translate(-50%,-50%)，若在其上叠加 transform 会互相冲突。 */}
                 <p
                   key={`${currentScene.id}-${activeSubtitleIndex}`}
+                  ref={subtitleBoxRef}
                   onMouseDown={
                     subtitleEditable ? handleSubtitleDragStart : undefined
                   }
@@ -964,6 +1029,30 @@ export function PreviewPlayer({
                       )
                     : activeSubtitleText}
                 </p>
+
+                {/* 四角控点：拖角改字号（剪映式，仅提供 onSubtitleStyleChange 时显示）。
+                    绝对定位到 wrapper 四角（wrapper 尺寸=字幕块），pointer 事件
+                    move/up 就近绑在控点上（setPointerCapture 保证拖出控点也跟手）。 */}
+                {subtitleResizable && (
+                  <>
+                    {[
+                      { pos: "-top-1 -left-1", cur: "nwse-resize" },
+                      { pos: "-top-1 -right-1", cur: "nesw-resize" },
+                      { pos: "-bottom-1 -left-1", cur: "nesw-resize" },
+                      { pos: "-right-1 -bottom-1", cur: "nwse-resize" },
+                    ].map((h) => (
+                      <span
+                        key={h.pos}
+                        className={`border-primary absolute z-20 h-2.5 w-2.5 rounded-sm border bg-white ${h.pos}`}
+                        style={{ cursor: h.cur }}
+                        onPointerDown={handleSubtitleResizeStart}
+                        onPointerMove={handleSubtitleResizeMove}
+                        onPointerUp={handleSubtitleResizeEnd}
+                        onPointerCancel={handleSubtitleResizeEnd}
+                      />
+                    ))}
+                  </>
+                )}
               </div>
             )}
 

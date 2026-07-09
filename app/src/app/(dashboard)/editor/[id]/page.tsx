@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
 import type { Scene } from "@/types";
+import type { SubtitleStyle } from "@/types/export-style";
 import { TimelineDialogs } from "./components/TimelineDialogs";
 import Link from "next/link";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -200,6 +201,21 @@ export default function EditorPage() {
         generationParams: {
           ...editorProject.generationParams,
           subtitlePositions: next,
+        },
+      });
+    },
+    [editorProject, editorUpdateProject]
+  );
+
+  // 预览里拖字幕四角改字号 → 写回全片统一 subtitleStyle（与时间轴字幕样式弹窗
+  // 同一数据源，两处一致）。落库写法同其他 generationParams 配置。
+  const handleSubtitleStyleChange = useCallback(
+    (style: SubtitleStyle) => {
+      if (!editorProject) return;
+      editorUpdateProject({
+        generationParams: {
+          ...editorProject.generationParams,
+          subtitleStyle: style,
         },
       });
     },
@@ -482,6 +498,7 @@ export default function EditorPage() {
               subtitleStyle={project.generationParams?.subtitleStyle}
               subtitlePositions={project.generationParams?.subtitlePositions}
               onSubtitlePositionChange={handleSubtitlePositionChange}
+              onSubtitleStyleChange={handleSubtitleStyleChange}
               watermark={project.generationParams?.watermark}
               stickers={project.generationParams?.stickers}
               transitions={project.generationParams?.transitions}

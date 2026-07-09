@@ -13,6 +13,7 @@ import {
   getSubtitleAnimationCss,
 } from "@/lib/subtitle-css";
 import { typewriterDelays } from "@/lib/subtitle-segments";
+import { resizeFontFromDistance } from "@/lib/subtitle-resize";
 
 interface SubtitleStylePanelProps {
   /** 当前字幕样式值 */
@@ -67,27 +68,6 @@ export function nearestBand(y: number): SubtitleStyle["position"] {
   if (y < 0.33) return "top";
   if (y < 0.66) return "middle";
   return "bottom";
-}
-
-/**
- * 剪映式拖角改字号：按「指针到字幕中心的像素距离」等比缩放字号。
- * 距中心越远字号越大（拖角外扩=放大）。结果 clamp 到面板 UI 范围。纯函数，便于单测。
- *
- * @param startFont 按下时的字号
- * @param startDist 按下时指针到中心的像素距离
- * @param curDist   当前指针到中心的像素距离
- * @param min/max   字号钳制范围
- */
-export function resizeFontFromDistance(
-  startFont: number,
-  startDist: number,
-  curDist: number,
-  min: number,
-  max: number
-): number {
-  const ratio = curDist / Math.max(startDist, 1);
-  const next = Math.round(startFont * ratio);
-  return Math.min(max, Math.max(min, next));
 }
 
 /**
