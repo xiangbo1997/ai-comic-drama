@@ -149,9 +149,6 @@ export function PreviewPlayer({
   // 画面框实际像素高：用于把字号从 1080 基准缩放到当前预览尺寸，
   // 使「预览字号 ≈ 成片字号」。由 ResizeObserver 实时跟踪（响应式/拖窗）。
   const [stageHeight, setStageHeight] = useState(0);
-  // 画面框实际像素宽：用于把字幕换行宽度锚定为「画面宽的固定比例」，
-  // 使字幕折行与成片一致，且不被字幕块靠边位置压缩成窄窄一列。
-  const [stageWidth, setStageWidth] = useState(0);
   // 字幕拖角改字号：字幕块 ref（算中心像素）+ 交互态（按下时到中心的距离与起始字号）。
   // 与时间轴字幕样式面板同一套逻辑，字号写回全片 subtitleStyle（两处一致）。
   const subtitleBoxRef = useRef<HTMLParagraphElement>(null);
@@ -389,11 +386,7 @@ export function PreviewPlayer({
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setStageHeight(rect.height);
-      setStageWidth(rect.width);
-    };
+    const update = () => setStageHeight(el.getBoundingClientRect().height);
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -672,6 +665,25 @@ export function PreviewPlayer({
     };
   };
 
+  // 把字幕中心归一化坐标夹进「整块不出画面」的安全范围（与时间轴字幕样式面板
+  // 的 clampCenterInBounds 同款）：按字幕块半宽/半高相对 stage 的比例内缩。
+  // 字幕块比画面还大时退化居中，避免上下界翻转。
+  const clampSubtitleCenter = (
+    x: number,
+    y: number
+  ): { x: number; y: number } => {
+    const stage = stageRef.current?.getBoundingClientRect();
+    const box = subtitleBoxRef.current?.getBoundingClientRect();
+    if (!stage || stage.width === 0 || stage.height === 0) {
+      return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+    }
+    const halfW = box ? box.width / 2 / stage.width : 0;
+    const halfH = box ? box.height / 2 / stage.height : 0;
+    const clampAxis = (v: number, half: number) =>
+      half >= 0.5 ? 0.5 : Math.min(1 - half, Math.max(half, v));
+    return { x: clampAxis(x, halfW), y: clampAxis(y, halfH) };
+  };
+
   // 开始拖拽字幕：注册全局 move/up 监听，松手时回调落库
   const handleSubtitleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
     if (!subtitleEditable || !currentScene) return;
@@ -687,14 +699,28 @@ export function PreviewPlayer({
       return { cx: me.clientX, cy: me.clientY };
     };
 
+    // 抓取偏移 = 按下点 - 当前字幕中心（拖动时新中心 = 指针 - 偏移）——
+    // 与时间轴面板一致：按在字幕任意位置都跟手，不会把中心瞬移到指针下。
+    const startPointer = clientToNormalized(
+      getPoint(e.nativeEvent as MouseEvent | TouchEvent).cx,
+      getPoint(e.nativeEvent as MouseEvent | TouchEvent).cy
+    );
+    const grabOffset = {
+      x: startPointer.x - currentSubtitleXY.x,
+      y: startPointer.y - currentSubtitleXY.y,
+    };
+
     const onMove = (ev: MouseEvent | TouchEvent) => {
       const { cx, cy } = getPoint(ev);
-      setDragXY(clientToNormalized(cx, cy));
+      const p = clientToNormalized(cx, cy);
+      // 新中心 = 指针 - 抓取偏移，再按字幕块尺寸夹进边界（整块不出画面）
+      setDragXY(clampSubtitleCenter(p.x - grabOffset.x, p.y - grabOffset.y));
     };
 
     const onUp = (ev: MouseEvent | TouchEvent) => {
       const { cx, cy } = getPoint(ev);
-      const final = clientToNormalized(cx, cy);
+      const p = clientToNormalized(cx, cy);
+      const final = clampSubtitleCenter(p.x - grabOffset.x, p.y - grabOffset.y);
       // 关键：不在此清 dragXY。落库是「HTTP 往返 + refetch」的长异步，
       // 若立即清空，这一帧 currentSubtitleXY 会回退到尚未更新的旧 props，
       // 字幕瞬间跳回旧位置 → 等新数据回流再跳到新位 = 肉眼可见的闪烁。
@@ -707,10 +733,6 @@ export function PreviewPlayer({
       window.removeEventListener("touchmove", onMove);
       window.removeEventListener("touchend", onUp);
     };
-
-    // 立即把字幕中心移到按下点（点哪去哪，手感直接）
-    const start = getPoint(e.nativeEvent as MouseEvent | TouchEvent);
-    setDragXY(clientToNormalized(start.cx, start.cy));
 
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -968,12 +990,8 @@ export function PreviewPlayer({
                   top: `${currentSubtitleXY.y * 100}%`,
                   // 以中心点定位：自身偏移 -50% 让坐标对准字幕块中心
                   transform: "translate(-50%, -50%)",
-                  // 换行宽度锚定为「画面宽的 80%」的绝对像素值（非相对包含块的 90%）——
-                  // 字幕定位靠边时，可用宽度不再被「到边缘的距离」压缩成窄窄一列，
-                  // 折行行为与成片一致（成片按 width*0.9 折行）。取画面宽的 90% 绝对像素，
-                  // 与成片同宽 → 单句尽量一行；字号放大后每行容纳更多字。stageWidth 未测得
-                  // (初始 0) 时回退 90% 相对宽，避免首帧异常。
-                  maxWidth: stageWidth > 0 ? `${stageWidth * 0.9}px` : "90%",
+                  // 字幕块用 nowrap 单行不换行（见下方 <p>），故不限 maxWidth——
+                  // 与时间轴字幕样式面板一致。不越界由拖拽落点的 clamp 保证。
                 }}
               >
                 {/* 逐句入场动效：key=分镜id+句索引，切句时 <p> 重挂载触发所选动效
@@ -1018,6 +1036,9 @@ export function PreviewPlayer({
                     // 入场动效（时序读共享常量，与导出端标签对齐）；typewriter 时为
                     // undefined，动画落到逐字符 span 上。
                     animation: subtitleAnimationCss,
+                    // 单句不换行（与时间轴字幕样式面板一致）——逐句字幕本就是短句，
+                    // nowrap 保证一句一行，不再被宽度挤成竖排一列。
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {typewriterChars && typewriterCharDelays
