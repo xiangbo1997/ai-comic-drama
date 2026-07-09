@@ -106,10 +106,15 @@ export function SubtitleStylePanel({
   // 画面框（舞台）ref + 实际像素高：字号从 1080 基准等比缩放到预览尺寸，
   // 与导出端 resolveSubtitleFontPx 共用，预览字号≈成片字号。
   const stageRef = useRef<HTMLDivElement>(null);
+  // 字幕块外层 ref：拖拽 clamp 边界时读其实际宽高，保证整块不出画面。
+  const subtitleBoxRef = useRef<HTMLDivElement>(null);
   const [stageHeight, setStageHeight] = useState(0);
-  // 交互态：null=无，move=拖拽移动，resize=拖角改字号（记按下时的距离与字号）。
+  // 交互态：null=无，move=拖拽移动，resize=拖角改字号。
+  // move 记「按下点相对字幕中心的归一化偏移」——move 时保持该偏移，
+  // 字幕从当前位置跟手平移（剪映式），避免按下瞬间中心跳到指针下。
+  // resize 记按下时到中心的像素距离 + 起始字号。
   const interactionRef = useRef<
-    | { mode: "move" }
+    | { mode: "move"; offsetX: number; offsetY: number }
     | { mode: "resize"; startDist: number; startFont: number }
     | null
   >(null);
@@ -171,15 +176,39 @@ export function SubtitleStylePanel({
     };
   };
 
-  // 拖拽移动：pointermove 里实时回写 defaultX/defaultY（受控，dialog 内同步 setDraft）。
+  // 把字幕中心的归一化坐标夹进「不超出画面」的安全范围：
+  // 按字幕块的半宽/半高（相对舞台的归一化比例）内缩，保证整块留在框内不出边。
+  // 字幕块比画面还大时（极端字号）退化为居中，避免上下界翻转。
+  const clampCenterInBounds = (
+    x: number,
+    y: number
+  ): { x: number; y: number } => {
+    const stage = stageRef.current?.getBoundingClientRect();
+    const box = subtitleBoxRef.current?.getBoundingClientRect();
+    if (!stage || stage.width === 0 || stage.height === 0) {
+      return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+    }
+    const halfW = box ? box.width / 2 / stage.width : 0;
+    const halfH = box ? box.height / 2 / stage.height : 0;
+    const clampAxis = (v: number, half: number) =>
+      half >= 0.5 ? 0.5 : Math.min(1 - half, Math.max(half, v));
+    return { x: clampAxis(x, halfW), y: clampAxis(y, halfH) };
+  };
+
+  // 拖拽移动：按下时记「指针相对字幕中心的偏移」，move 时保持该偏移 → 跟手不跳；
+  // 落点按字幕块尺寸 clamp，整块不出画面边界。
   const handleMovePointerDown = (e: React.PointerEvent) => {
     if (!interactive) return;
     e.preventDefault();
     e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    interactionRef.current = { mode: "move" };
-    const { x, y } = clientToNormalized(e.clientX, e.clientY);
-    onChange({ ...value, defaultX: x, defaultY: y, position: nearestBand(y) });
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const pointer = clientToNormalized(e.clientX, e.clientY);
+    // 偏移 = 指针 - 当前字幕中心（拖动时新中心 = 指针 - 偏移）
+    interactionRef.current = {
+      mode: "move",
+      offsetX: pointer.x - draftXY.x,
+      offsetY: pointer.y - draftXY.y,
+    };
   };
 
   // 拖角改字号：记按下时到中心的距离 + 起始字号；move 里按距离比例缩放。
@@ -187,7 +216,7 @@ export function SubtitleStylePanel({
     if (!interactive) return;
     e.preventDefault();
     e.stopPropagation(); // 阻止冒泡到 body 的拖拽移动
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     const { cx, cy } = subtitleCenterPx();
     const startDist = Math.hypot(e.clientX - cx, e.clientY - cy);
     interactionRef.current = {
@@ -202,7 +231,12 @@ export function SubtitleStylePanel({
     if (!it) return;
     e.preventDefault();
     if (it.mode === "move") {
-      const { x, y } = clientToNormalized(e.clientX, e.clientY);
+      const pointer = clientToNormalized(e.clientX, e.clientY);
+      // 新中心 = 指针 - 按下时的抓取偏移，再按字幕块尺寸夹进边界
+      const { x, y } = clampCenterInBounds(
+        pointer.x - it.offsetX,
+        pointer.y - it.offsetY
+      );
       onChange({
         ...value,
         defaultX: x,
@@ -225,7 +259,7 @@ export function SubtitleStylePanel({
 
   const handlePointerUp = (e: React.PointerEvent) => {
     if (!interactionRef.current) return;
-    (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
     interactionRef.current = null;
   };
 
@@ -304,6 +338,7 @@ export function SubtitleStylePanel({
               }}
             >
               <div
+                ref={subtitleBoxRef}
                 className={`relative inline-block ${
                   interactive
                     ? "ring-primary/80 cursor-move rounded ring-1"
