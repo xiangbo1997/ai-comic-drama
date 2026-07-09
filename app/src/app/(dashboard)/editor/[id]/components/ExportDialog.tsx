@@ -274,6 +274,9 @@ function ExportForm({
           <SubtitleStylePanel
             value={subtitleStyle}
             onChange={setSubtitleStyle}
+            // 导出表单里保持只读预览（无底板图 + 不可拖拽），字幕位置/字号在
+            // 时间轴字幕样式弹窗里可视化编辑，此处仅确认样式。
+            interactive={false}
           />
         ) : (
           <p className="text-muted-foreground text-sm">

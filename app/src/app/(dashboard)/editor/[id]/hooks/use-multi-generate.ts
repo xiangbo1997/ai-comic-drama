@@ -5,7 +5,10 @@ import type { Scene, ProjectDetail } from "@/types";
 import {
   generateSceneImage,
   derivePromptInputs,
+  deriveIdentityPrompt,
+  deriveTailFrame,
   nearestVideoDuration,
+  projectAspectRatio,
 } from "./use-generation-actions";
 import {
   runGenerationTask,
@@ -61,6 +64,7 @@ export function useMultiGenerate({
           negativePrompt,
           referenceImage,
           referenceImages,
+          aspectRatio: projectAspectRatio(project),
         });
 
       if (mode === "PARALLEL") {
@@ -83,14 +87,11 @@ export function useMultiGenerate({
       onCloseVideo();
 
       // 与单张视频一致：就近映射 5/10/15s 三档（不再把 15s 压成 10s），
-      // 并注入角色参考图让 provider 走 R2V / 首尾帧路由锁形象。
+      // 注入角色参考图（R2V 路由）+ 身份前缀（人物一致性）+ 尾帧衔接。
       const { referenceImages } = derivePromptInputs(selectedScene, project);
-      const videoAspectRatio =
-        project.aspectRatio === "9:16" ||
-        project.aspectRatio === "16:9" ||
-        project.aspectRatio === "1:1"
-          ? project.aspectRatio
-          : undefined;
+      const videoAspectRatio = projectAspectRatio(project);
+      const identityPrompt = deriveIdentityPrompt(selectedScene, project);
+      const lastFrameImage = deriveTailFrame(selectedScene, project);
 
       // 异步化：走共享 start+poll 助手（与单张视频同一链路）
       const generateOne = (configId?: string) =>
@@ -102,6 +103,8 @@ export function useMultiGenerate({
             duration: nearestVideoDuration(selectedScene!.duration),
             aspectRatio: videoAspectRatio,
             referenceImages,
+            identityPrompt,
+            lastFrameImage,
             projectId,
             sceneId: selectedScene!.id,
             videoConfigId: configId,

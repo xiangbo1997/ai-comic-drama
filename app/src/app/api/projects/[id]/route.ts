@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { deleteFile } from "@/services/storage";
 
 import { createLogger } from "@/lib/logger";
+import { normalizeSubtitleStyle } from "@/lib/subtitle-style-normalize";
 const log = createLogger("api:projects:[id]");
 
 /**
@@ -329,34 +330,11 @@ function normalizeGenerationParams(
   ) {
     out.customNegative = src.customNegative;
   }
-  // 字幕样式（全片统一）：校验后整体放行
-  if (src.subtitleStyle && typeof src.subtitleStyle === "object") {
-    const ss = src.subtitleStyle as Record<string, unknown>;
-    const positions = ["top", "middle", "bottom"];
-    out.subtitleStyle = {
-      fontSize:
-        typeof ss.fontSize === "number" ? clampNumber(ss.fontSize, 8, 96) : 24,
-      fontColor:
-        typeof ss.fontColor === "string" &&
-        /^#[0-9a-fA-F]{6}$/.test(ss.fontColor)
-          ? ss.fontColor
-          : "#FFFFFF",
-      outlineColor:
-        typeof ss.outlineColor === "string" &&
-        /^#[0-9a-fA-F]{6}$/.test(ss.outlineColor)
-          ? ss.outlineColor
-          : "#000000",
-      outlineWidth:
-        typeof ss.outlineWidth === "number"
-          ? clampNumber(ss.outlineWidth, 0, 10)
-          : 2,
-      position:
-        typeof ss.position === "string" && positions.includes(ss.position)
-          ? ss.position
-          : "bottom",
-      bold: ss.bold === true,
-      backgroundBox: ss.backgroundBox === true,
-    };
+  // 字幕样式（全片统一）：校验后整体放行。白名单逻辑抽到 lib/subtitle-style-normalize
+  // 便于单测（含此前漏掉的 animation 字段 + 自由默认位置 defaultX/defaultY）。
+  const normalizedSubtitleStyle = normalizeSubtitleStyle(src.subtitleStyle);
+  if (normalizedSubtitleStyle) {
+    out.subtitleStyle = normalizedSubtitleStyle;
   }
   // 商标水印：校验后整体放行
   if (src.watermark && typeof src.watermark === "object") {

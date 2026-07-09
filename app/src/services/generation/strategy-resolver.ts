@@ -28,7 +28,10 @@ export function resolveStrategy(
   const primaryCharacter = characters.find((c) => c.role === "primary");
   const canonicalImage = primaryCharacter?.canonicalImageUrl;
 
-  // 多图合并：显式 override 优先；否则收集所有角色的 canonicalImageUrl（按 role 顺序：primary first）
+  // 多图合并：显式 override 优先；否则按 role 顺序（primary first）逐角色收集——
+  // 每角色优先取多角度参考 referenceImageUrls（三视图+定妆，与手动路径同规则），
+  // 缺失时回退单张 canonicalImageUrl。此前只收 canonical 一张，workflow 自动
+  // 路径的三视图全部没用上，与手动路径出图质量不对等。
   const collectedUrls: string[] = [];
   if (
     options?.referenceImagesOverride &&
@@ -40,7 +43,14 @@ export function resolveStrategy(
       (a, b) => roleWeight(a.role) - roleWeight(b.role)
     );
     for (const c of ordered) {
-      if (c.canonicalImageUrl) collectedUrls.push(c.canonicalImageUrl);
+      const urls = c.referenceImageUrls?.length
+        ? c.referenceImageUrls
+        : c.canonicalImageUrl
+          ? [c.canonicalImageUrl]
+          : [];
+      for (const url of urls) {
+        if (!collectedUrls.includes(url)) collectedUrls.push(url);
+      }
     }
   }
 

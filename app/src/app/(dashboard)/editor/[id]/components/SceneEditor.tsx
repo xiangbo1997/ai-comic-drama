@@ -35,6 +35,8 @@ const EMOTION_LABELS: Record<Emotion, string> = {
 
 interface SceneEditorProps {
   scene: Scene | undefined;
+  /** 下一分镜（按 order 排序的后继）；null/undefined = 当前已是最后一镜 */
+  nextScene?: Pick<Scene, "imageUrl"> | null;
   aspectRatio: string;
   selectedImageConfig?: string;
   onImageConfigChange: (id: string | undefined) => void;
@@ -50,6 +52,7 @@ interface SceneEditorProps {
 
 export function SceneEditor({
   scene,
+  nextScene,
   aspectRatio,
   selectedImageConfig,
   onImageConfigChange,
@@ -155,8 +158,10 @@ export function SceneEditor({
         {/* Preview */}
         <div
           className={`bg-card mb-4 flex items-center justify-center overflow-hidden rounded-xl ${
+            // 9:16 用固定高度 + 按比例收窄居中；此前 max-h-80 截断高度但宽度仍占满，
+            // 盒子实际变成 ~9:10，object-cover 会把竖图上下裁掉
             aspectRatio === "9:16"
-              ? "aspect-[9/16] max-h-80"
+              ? "mx-auto aspect-[9/16] h-80"
               : aspectRatio === "16:9"
                 ? "aspect-video"
                 : "aspect-square"
@@ -182,7 +187,8 @@ export function SceneEditor({
             <img
               src={scene.imageUrl}
               alt=""
-              className="h-full w-full object-cover"
+              // object-contain 与导出端 scale+pad 语义一致：图片比例≠画幅时不裁切
+              className="h-full w-full object-contain"
             />
           ) : (
             <div className="text-center">
@@ -441,6 +447,33 @@ export function SceneEditor({
               </select>
             </div>
           </div>
+
+          {/* 尾帧衔接下一镜：视频生成用下一镜图片做尾帧（Veo FL 首尾帧插值）。
+              仅适合空间连续的相邻镜头（如进门/伸手等连续动作），跳切镜头
+              强上会出现变形 morph 感 */}
+          <label
+            className="text-muted-foreground flex cursor-pointer items-center gap-2 text-sm"
+            title="生成本分镜视频时，把下一分镜的图片作为结尾画面（首尾帧插值），实现相邻镜头无缝衔接。适合空间连续的动作衔接，场景跳切不建议开启"
+          >
+            <input
+              type="checkbox"
+              checked={!!scene.videoLinkNext}
+              disabled={!nextScene}
+              onChange={(e) =>
+                onUpdateScene(scene.id, { videoLinkNext: e.target.checked })
+              }
+              className="accent-primary h-4 w-4"
+            />
+            尾帧衔接下一镜
+            {!nextScene && (
+              <span className="text-xs opacity-60">（已是最后一镜）</span>
+            )}
+            {nextScene && scene.videoLinkNext && !nextScene.imageUrl && (
+              <span className="text-xs text-amber-500">
+                下一镜未出图，生成时将回落普通图生视频
+              </span>
+            )}
+          </label>
 
           {/* Generate Button */}
           <div className="space-y-3 pt-4">

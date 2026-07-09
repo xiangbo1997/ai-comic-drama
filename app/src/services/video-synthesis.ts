@@ -26,6 +26,16 @@ import type {
   BackgroundMusic,
 } from "@/types/export-style";
 import { resolveSubtitleXY, resolveSubtitleFontPx } from "@/types/export-style";
+// 逐句字幕切分 + 时间窗分配（与预览端 preview-player 共用同一权威实现，
+// 保证「逐句显示 + 淡入淡出」在预览与成片两端时轴一致）。
+import {
+  splitSubtitleSegments,
+  allocateSubtitleWindows,
+  charWidth,
+  typewriterDelays,
+  SUBTITLE_ANIM,
+} from "@/lib/subtitle-segments";
+import type { SubtitleAnimation } from "@/types/export-style";
 
 export type {
   SubtitleStyle,
@@ -352,28 +362,32 @@ async function downloadFile(url: string, filename: string): Promise<string> {
  * 坐标系：PlayResX/Y = 实际画面宽高（quality.width/height），事件用
  * \pos(x*W, y*H) 把归一化坐标还原为像素——与预览端百分比定位同一坐标系，
  * 配合 \an5（中心锚点）对应预览的 translate(-50%,-50%)，确保导出=预览。
+ *
+ * 时轴对齐关键：字幕起止时间必须用「实测片段有效时长」（effDurations，
+ * 按 scenes 顺序 index 对齐），而非从 scene.duration/speed 重算——因为
+ * flow2api/Veo 返回的视频真实时长常与 DB 声明的 scene.duration 不符，
+ * 若用声明值算时轴，字幕会与画面/配音逐镜累积错位。
  */
 async function generateSubtitleFile(
   scenes: SceneMedia[],
+  effDurations: number[],
   outputPath: string,
   width: number,
   height: number,
-  sceneEffects?: SceneEffect[],
   subtitleStyle?: SubtitleStyle,
   subtitlePositions?: SubtitlePosition[]
 ): Promise<string> {
   const events: string[] = [];
   let currentTime = 0;
 
-  for (const scene of scenes) {
-    // 字幕时轴用「有效时长」（变速后），与画面/配音对齐
-    const { speed } = resolveSceneEffect(scene.id, sceneEffects);
-    const effDuration = scene.duration / speed;
+  for (let i = 0; i < scenes.length; i += 1) {
+    const scene = scenes[i];
+    // 字幕时轴用「实测有效时长」（变速+真实视频长度后），与画面/配音对齐
+    const effDuration = effDurations[i];
     const text = scene.dialogue || scene.narration;
     if (text) {
-      const start = formatAssTime(currentTime);
-      const end = formatAssTime(currentTime + effDuration);
-      // 该分镜生效坐标（覆盖优先，否则全局默认）→ 像素中心点
+      // 该分镜生效坐标（覆盖优先，否则全局默认）→ 像素中心点。
+      // 逐句字幕共享同一坐标（位置是分镜级设置，不随句子变化），与预览一致。
       const { x, y } = resolveSubtitleXY(
         scene.id,
         subtitleStyle,
@@ -389,11 +403,26 @@ async function generateSubtitleFile(
       const fontPx = resolveSubtitleFontPx(subtitleStyle?.fontSize, height);
       // 中文近似全角等宽（≈fontPx），可用宽度取 90% 画面宽（对齐预览 maxWidth）
       const maxCharsPerLine = Math.max(6, Math.floor((width * 0.9) / fontPx));
-      const wrapped = wrapSubtitleText(text, maxCharsPerLine);
-      const safeText = escapeAssText(wrapped);
-      events.push(
-        `Dialogue: 0,${start},${end},Default,,0,0,0,,{\\an5\\pos(${px},${py})}${safeText}`
-      );
+      // 入场动效：缺省 fade（与旧行为一致）。slideup 需要画面高换算像素位移。
+      const animation: SubtitleAnimation = subtitleStyle?.animation ?? "fade";
+      // 逐句化：把整段切成短句 + 按视觉宽度比例分配时间窗（与预览端同源），
+      // 每句一条 Dialogue 事件，按所选动效构造 libass 覆盖标签让字幕「活起来」。
+      const segments = splitSubtitleSegments(text);
+      const windows = allocateSubtitleWindows(segments, effDuration);
+      for (const win of windows) {
+        const start = formatAssTime(currentTime + win.start);
+        const end = formatAssTime(currentTime + win.end);
+        const wrapped = wrapSubtitleText(win.text, maxCharsPerLine);
+        const eventText = buildAssEventText(
+          wrapped,
+          animation,
+          px,
+          py,
+          height,
+          win.end - win.start
+        );
+        events.push(`Dialogue: 0,${start},${end},Default,,0,0,0,,${eventText}`);
+      }
     }
     currentTime += effDuration;
   }
@@ -465,6 +494,112 @@ function escapeAssText(text: string): string {
 }
 
 /**
+ * 构造单条 Dialogue 事件的「入场动效」libass 覆盖标签前缀（不含正文文本）。
+ *
+ * 与预览端 preview-player 的 CSS keyframes 时序一一对齐（读同一份 SUBTITLE_ANIM），
+ * 保证「预览=成片」。各动效标签语义：
+ *   - none       {\an5\pos(x,y)}                          仅居中定位，无动效
+ *   - fade       {\an5\pos(x,y)\fad(f,f)}                 淡入淡出（旧默认，f=fadeMs）
+ *   - slideup    {\an5\move(x,y+dy,x,y,0,ms)\fad(fi,fi)}  从下方 dy 处上滑到位 + 轻淡入
+ *                 \move 取代 \pos；dy=round(height*slideUpOffsetRatio)
+ *   - pop        {\an5\pos(x,y)\fscx60\fscy60\t(0,ms,\fscx100\fscy100)\fad(fi,fi)}
+ *                 从 popStartScale 缩放弹入到 100% + 轻淡入
+ * typewriter 不走此函数（逐字符 alpha 揭示在 buildAssEventText 内单独处理）。
+ *
+ * @param animation 动效类型（typewriter 传入会回退为 none 前缀，正文由调用方逐字构造）
+ * @param px,py     字幕中心点像素坐标
+ * @param height    成片画面高（slideup 位移换算用）
+ * @returns 形如 "{\an5...}" 的覆盖标签前缀
+ */
+export function buildAssAnimTags(
+  animation: SubtitleAnimation,
+  px: number,
+  py: number,
+  height: number
+): string {
+  const anchor = `\\an5`;
+  switch (animation) {
+    case "none":
+      return `{${anchor}\\pos(${px},${py})}`;
+    case "slideup": {
+      // 起始点在目标下方 dy 像素处，slideUpMs 内滑到目标点
+      const dy = Math.round(height * SUBTITLE_ANIM.slideUpOffsetRatio);
+      const fadeIn = Math.round(SUBTITLE_ANIM.slideUpMs * 0.82);
+      return `{${anchor}\\move(${px},${py + dy},${px},${py},0,${SUBTITLE_ANIM.slideUpMs})\\fad(${fadeIn},${fadeIn})}`;
+    }
+    case "pop": {
+      const start = Math.round(SUBTITLE_ANIM.popStartScale * 100);
+      const fadeIn = Math.round(SUBTITLE_ANIM.popMs * 0.67);
+      return `{${anchor}\\pos(${px},${py})\\fscx${start}\\fscy${start}\\t(0,${SUBTITLE_ANIM.popMs},\\fscx100\\fscy100)\\fad(${fadeIn},${fadeIn})}`;
+    }
+    case "typewriter":
+      // 打字机的定位标签同 none，逐字符 alpha 在 buildAssEventText 内拼装
+      return `{${anchor}\\pos(${px},${py})}`;
+    case "fade":
+    default:
+      return `{${anchor}\\pos(${px},${py})\\fad(${SUBTITLE_ANIM.fadeMs},${SUBTITLE_ANIM.fadeMs})}`;
+  }
+}
+
+/**
+ * 构造单条 Dialogue 事件的完整正文（覆盖标签 + 转义后的文本）。
+ *
+ * 非 typewriter：定位/动效标签前缀 + 整段一次性转义文本（保留 wrapSubtitleText
+ * 插入的 \n 折行，escapeAssText 会转成 \N）。
+ *
+ * typewriter：逐字符 alpha 揭示。关键实现约束：
+ *   1) 转义顺序——每个字符先各自 escapeAssText 转义，再前置其 {\alpha...} 标签块，
+ *      使用户文本里的 `{` `}` 不会破坏标签结构（对齐任务约束「先转义再前置标签」）。
+ *   2) 换行处理——wrapSubtitleText 用 \n 折行，先按 \n 切段；段间输出字面 \N 分隔符，
+ *      绝不把 \N 这两个字符塞进某个 per-char alpha 块内。
+ *   3) 延迟对齐——延迟由 typewriterDelays 基于「含换行槽位」的整段文本计算，
+ *      与逐字符索引一一对应（换行也占一个槽），与 lib 侧共享规则完全一致。
+ *   4) 不叠加 \fad——打字机靠 alpha 揭示，末尾随窗口结束硬切（避免 libass 下
+ *      \fad 与逐字 \alpha 相互作用的边界问题）。
+ *
+ * @param wrapped        已折行（可能含 \n）但「未转义」的句子文本
+ * @param animation      动效类型
+ * @param px,py          字幕中心点像素坐标
+ * @param height         成片画面高
+ * @param windowDurSec   该句时间窗时长（秒），供 typewriter 压缩延迟
+ * @returns 完整的 Dialogue 正文字符串（含前缀标签）
+ */
+export function buildAssEventText(
+  wrapped: string,
+  animation: SubtitleAnimation,
+  px: number,
+  py: number,
+  height: number,
+  windowDurSec: number
+): string {
+  const tags = buildAssAnimTags(animation, px, py, height);
+  if (animation !== "typewriter") {
+    return `${tags}${escapeAssText(wrapped)}`;
+  }
+
+  // ── 打字机：逐字符 alpha 揭示 ──
+  // 延迟按「含换行槽位」的整段折行文本计算，索引与 Array.from(wrapped) 对齐。
+  const chars = Array.from(wrapped);
+  const delays = typewriterDelays(wrapped, windowDurSec);
+  // 单字揭示的 alpha 过渡时长（毫秒）：短促硬揭示，节奏由 delays 主导
+  const revealMs = 80;
+  let body = "";
+  for (let i = 0; i < chars.length; i += 1) {
+    const ch = chars[i];
+    // 换行符：输出字面 \N 分隔，不包裹 alpha 块（槽位仍占用 → delays 索引已含它）
+    if (ch === "\n" || ch === "\r") {
+      body += "\\N";
+      continue;
+    }
+    const startMs = Math.round(delays[i] * 1000);
+    // 先转义单字符内容，再前置 alpha 标签块（用户文本含 {、} 不会破坏标签）
+    const safeChar = escapeAssText(ch);
+    body += `{\\alpha&HFF&\\t(${startMs},${startMs + revealMs},\\alpha&H00&)}${safeChar}`;
+  }
+  return `${tags}${body}`;
+}
+
+/**
  * 按每行最大字数手动折行（CJK 全角计 1 宽，ASCII 计 0.5 宽近似），
  * 使导出字幕块的行数/块高与预览端 maxWidth:90% 的换行一致，保证
  * \an5 中心锚点下同一 y 坐标的字幕占位相同（预览=导出）。
@@ -474,7 +609,8 @@ export function wrapSubtitleText(
   text: string,
   maxCharsPerLine: number
 ): string {
-  const charWidth = (ch: string) => (/[\x00-\xff]/.test(ch) ? 0.5 : 1);
+  // charWidth 复用 lib/subtitle-segments 的同源实现（CJK=1、ASCII=0.5），
+  // 与逐句时间窗分配用同一视觉宽度基准，避免两处启发式漂移。
   const wrapParagraph = (para: string): string => {
     const lines: string[] = [];
     let line = "";
@@ -571,19 +707,17 @@ interface PreparedSticker {
 async function prepareStickers(
   stickers: Sticker[],
   scenes: SceneMedia[],
-  _tmpDir: string,
-  sceneEffects?: SceneEffect[]
+  effDurations: number[],
+  _tmpDir: string
 ): Promise<PreparedSticker[]> {
-  // 计算每个分镜的全片起始时间与有效时长（随变速对齐）
+  // 每个分镜的全片起始时间与有效时长——用「实测有效时长」（effDurations，
+  // 按 scenes 顺序 index 对齐），与画面/字幕/配音同源，不再从 scene.duration 重算。
+  const starts = buildSceneStarts(effDurations);
   const sceneStart: Record<string, number> = {};
   const sceneEffDur: Record<string, number> = {};
-  let cursor = 0;
-  for (const sc of scenes) {
-    const { speed } = resolveSceneEffect(sc.id, sceneEffects);
-    const effDuration = sc.duration / speed;
-    sceneStart[sc.id] = cursor;
-    sceneEffDur[sc.id] = effDuration;
-    cursor += effDuration;
+  for (let i = 0; i < scenes.length; i += 1) {
+    sceneStart[scenes[i].id] = starts[i];
+    sceneEffDur[scenes[i].id] = effDurations[i];
   }
 
   const prepared: PreparedSticker[] = [];
@@ -644,11 +778,36 @@ function runFFmpeg(args: string[]): Promise<void> {
   });
 }
 
-/** 单分镜片段产物：本地路径 + 变速后的有效时长（供 xfade/音频累计对齐） */
+/** 单分镜片段产物：本地路径 + 实测有效时长（供 xfade/音频累计对齐） */
 interface SceneClip {
   path: string;
-  /** 片段在成片时间轴上的有效时长（秒）= scene.duration / speed */
+  /**
+   * 片段在成片时间轴上的实测有效时长（秒）。
+   * 优先取 ffprobe 到的产物真实时长；探测失败时回退声明值 scene.duration/speed。
+   * 视频分镜的真实长度常与 DB 声明的 scene.duration 不符（provider 忽略请求时长），
+   * 用实测值可让 xfade / 字幕 / 配音 / BGM / 贴图时轴全部自愈对齐。
+   */
   effectiveDuration: number;
+}
+
+/**
+ * 按「实测有效时长数组」计算每镜在成片时间轴上的起始秒（前缀和）。
+ * 与 scenes 顺序 index 对齐：start[i] = 前 i 段有效时长之和。
+ * 供字幕 / 配音 adelay / 贴图时间窗共用，保证三者与画面同源对齐。
+ */
+export function buildSceneStarts(effDurations: number[]): number[] {
+  const starts: number[] = [];
+  let cursor = 0;
+  for (const d of effDurations) {
+    starts.push(cursor);
+    cursor += d;
+  }
+  return starts;
+}
+
+/** 成片总时长 = 各镜实测有效时长之和（BGM atrim/afade out 起点用）。 */
+export function sumDurations(effDurations: number[]): number {
+  return effDurations.reduce((acc, d) => acc + d, 0);
 }
 
 /**
@@ -671,9 +830,29 @@ function buildClipVideoFilter(
 }
 
 /**
+ * ffprobe 产物片段真实时长，失败时回退声明值。
+ * 三个分支（视频/图片/黑场）统一收口：黑场/图片是自造时长（应与声明一致，
+ * 探测只是确认）；视频分支尤为关键——真实视频长度常≠声明 scene.duration，
+ * 用实测值让后续 xfade/字幕/配音/BGM/贴图时轴自愈对齐。
+ */
+async function probeClipDuration(
+  clipPath: string,
+  fallback: number
+): Promise<number> {
+  try {
+    const probed = await getMediaDuration(clipPath);
+    return probed > 0 ? probed : fallback;
+  } catch {
+    // 探测失败（ffprobe 缺失/损坏产物）不阻塞导出，回退声明时长
+    return fallback;
+  }
+}
+
+/**
  * 将单个分镜转换为视频片段。
- * 支持滤镜（FX）与变速（speed）：变速同时作用于画面（setpts）与音轨（atempo），
- * 并返回变速后的有效时长，供后续 xfade offset 与音频 adelay 累计对齐。
+ * 支持滤镜（FX）与变速（speed）：变速同时作用于画面（setpts）与音轨（atempo）。
+ * 片段产出后 ffprobe 其真实时长作为 effectiveDuration 返回，供后续 xfade offset、
+ * 字幕、音频 adelay、BGM、贴图时间窗累计对齐（不再盲信 DB 声明的 scene.duration）。
  */
 async function sceneToVideoClip(
   scene: SceneMedia,
@@ -684,9 +863,8 @@ async function sceneToVideoClip(
   const outputPath = path.join(outputDir, `scene_${scene.order}.mp4`);
 
   const { effect, speed } = resolveSceneEffect(scene.id, options.sceneEffects);
-  // 截断时长用原始 duration（截在变速前的源时间轴上）；
-  // 有效时长 = 原始时长 / 倍速（成片时间轴上的占位）。
-  const effectiveDuration = scene.duration / speed;
+  // 声明有效时长 = 原始时长 / 倍速；仅作图片/黑场的生成参数与探测失败兜底。
+  const declaredDuration = scene.duration / speed;
   const vf = buildClipVideoFilter(width, height, effect, speed);
 
   // 如果有视频，直接使用
@@ -696,7 +874,9 @@ async function sceneToVideoClip(
       `video_${scene.order}.mp4`
     );
 
-    // 视频带音轨：用 filter_complex 同时处理画面与音频变速
+    // 视频带音轨：用 filter_complex 同时处理画面与音频变速。
+    // 不再用 -t scene.duration 截断——DB 声明时长常短于真实视频长度，硬截会
+    // 砍掉真实内容并让时轴错乱；真实视频长度即分镜时长，变速后由 ffprobe 实测。
     const filterComplex =
       speed !== 1
         ? `[0:v]${vf}[v];[0:a]${buildAtempoChain(speed).join(",")}[a]`
@@ -704,8 +884,6 @@ async function sceneToVideoClip(
     const args = [
       "-i",
       videoPath,
-      "-t",
-      scene.duration.toString(),
       "-filter_complex",
       filterComplex,
       "-map",
@@ -723,6 +901,11 @@ async function sceneToVideoClip(
     await runFFmpeg(args);
 
     await unlink(videoPath);
+    // 声明值除以倍速作兜底：变速后真实长度理论上 = 源真实长度 / speed
+    const effectiveDuration = await probeClipDuration(
+      outputPath,
+      declaredDuration
+    );
     return { path: outputPath, effectiveDuration };
   }
 
@@ -742,7 +925,7 @@ async function sceneToVideoClip(
       "-i",
       imagePath,
       "-t",
-      effectiveDuration.toString(),
+      declaredDuration.toString(),
       "-vf",
       imgVf,
       "-c:v",
@@ -756,6 +939,11 @@ async function sceneToVideoClip(
     ]);
 
     await unlink(imagePath);
+    // 图片是自造时长，探测只是确认（应≈declaredDuration）
+    const effectiveDuration = await probeClipDuration(
+      outputPath,
+      declaredDuration
+    );
     return { path: outputPath, effectiveDuration };
   }
 
@@ -764,7 +952,7 @@ async function sceneToVideoClip(
     "-f",
     "lavfi",
     "-i",
-    `color=c=black:s=${width}x${height}:d=${effectiveDuration}`,
+    `color=c=black:s=${width}x${height}:d=${declaredDuration}`,
     "-c:v",
     "libx264",
     "-preset",
@@ -775,6 +963,11 @@ async function sceneToVideoClip(
     outputPath,
   ]);
 
+  // 黑场是自造时长，探测只是确认（应≈declaredDuration）
+  const effectiveDuration = await probeClipDuration(
+    outputPath,
+    declaredDuration
+  );
   return { path: outputPath, effectiveDuration };
 }
 
@@ -935,10 +1128,12 @@ export async function synthesizeVideo(
     let audioIndex = 0;
 
     if (options.includeAudio) {
-      // 累计用「有效时长」（变速后），与视频片段在成片时间轴上对齐，
-      // 避免分镜变速后配音延迟错位。
+      // 配音 adelay 累计用「实测有效时长」（effDurations，按 scenes index 对齐），
+      // 与视频片段在成片时间轴上同源对齐——不再从 scene.duration/speed 重算，
+      // 避免真实视频比声明长/短时配音逐镜累积错位。
       let currentTime = 0;
-      for (const scene of scenes) {
+      for (let i = 0; i < scenes.length; i += 1) {
+        const scene = scenes[i];
         if (scene.audioUrl) {
           const audioPath = await downloadFile(
             scene.audioUrl,
@@ -950,22 +1145,18 @@ export async function synthesizeVideo(
           );
           audioIndex++;
         }
-        const { speed } = resolveSceneEffect(scene.id, options.sceneEffects);
-        currentTime += scene.duration / speed;
+        currentTime += effDurations[i];
       }
     }
 
     // 4.5 准备背景音乐（BGM）：下载到本地并预备混音参数。
-    // 总时长 = 各分镜变速后有效时长之和（与上面 currentTime 累计同逻辑），
+    // 总时长 = 各分镜实测有效时长之和（与配音/字幕/画面同源），
     // 供 BGM 的 atrim 截断与 afade out 起点使用。
     const bgm = options.backgroundMusic;
     let bgmPath: string | null = null;
     let bgmTotalDuration = 0;
     if (bgm?.enabled && bgm.url) {
-      for (const scene of scenes) {
-        const { speed } = resolveSceneEffect(scene.id, options.sceneEffects);
-        bgmTotalDuration += scene.duration / speed;
-      }
+      bgmTotalDuration = sumDurations(effDurations);
       try {
         bgmPath = await downloadFile(absolutizeUrl(bgm.url), "bgm_track.mp3");
       } catch (err) {
@@ -985,10 +1176,10 @@ export async function synthesizeVideo(
     if (options.includeSubtitles) {
       subtitlePath = await generateSubtitleFile(
         scenes,
+        effDurations,
         tmpDir,
         quality.width,
         quality.height,
-        options.sceneEffects,
         options.subtitleStyle,
         options.subtitlePositions
       );
@@ -1011,15 +1202,10 @@ export async function synthesizeVideo(
       }
     }
 
-    // 6.5 准备贴图（按分镜时间窗 overlay，时间窗随变速对齐）
+    // 6.5 准备贴图（按分镜时间窗 overlay，时间窗用实测有效时长对齐）
     const preparedStickers =
       options.stickers && options.stickers.length > 0
-        ? await prepareStickers(
-            options.stickers,
-            scenes,
-            tmpDir,
-            options.sceneEffects
-          )
+        ? await prepareStickers(options.stickers, scenes, effDurations, tmpDir)
         : [];
 
     // 7. 最终合成（quality 已在第 5 步提前解析，供 ASS 与编码共用）
@@ -1248,22 +1434,10 @@ export async function synthesizeVideo(
 }
 
 /**
- * 计算音画自动对齐后的时长
- * 根据配音时长自动调整视频片段长度
+ * 获取媒体（音频/视频）时长（需要 ffprobe）。
+ * ffprobe 的 format=duration 对任意媒体容器通用，故命名为 getMediaDuration。
  */
-export function calculateAlignedDuration(
-  audioDuration: number | null,
-  minDuration: number = 2
-): number {
-  if (!audioDuration) return minDuration;
-  // 视频时长 = 配音时长 + 0.5s 缓冲
-  return Math.max(audioDuration + 0.5, minDuration);
-}
-
-/**
- * 获取音频时长（需要 ffprobe）
- */
-export async function getAudioDuration(audioPath: string): Promise<number> {
+export async function getMediaDuration(mediaPath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const ffprobe = spawn("ffprobe", [
       "-v",
@@ -1272,7 +1446,7 @@ export async function getAudioDuration(audioPath: string): Promise<number> {
       "format=duration",
       "-of",
       "default=noprint_wrappers=1:nokey=1",
-      audioPath,
+      mediaPath,
     ]);
 
     let stdout = "";
@@ -1284,10 +1458,57 @@ export async function getAudioDuration(audioPath: string): Promise<number> {
       if (code === 0) {
         resolve(parseFloat(stdout.trim()) || 0);
       } else {
-        reject(new Error("Failed to get audio duration"));
+        reject(new Error("Failed to get media duration"));
       }
     });
 
     ffprobe.on("error", reject);
   });
+}
+
+/**
+ * 探测「一个 URL 指向的媒体」的真实时长（秒），供视频生成成功后回写 Scene.duration。
+ *
+ * 语义：一旦分镜有了视频，视频的真实长度就是分镜时长（provider 常忽略请求时长，
+ * 返回 ~8s 片段与 DB 声明的 scene.duration 不符）。
+ *
+ * 取值策略：
+ *   - 本地盘路径（以 / 开头，如 /uploads/...）：项目未配 R2 时文件落 public/ 磁盘，
+ *     直接 ffprobe public 下的文件（存在即用），零下载。
+ *   - 远程 URL：absolutize 后走 safeDownload（钉 IP 防 SSRF/TOCTOU）落临时文件，
+ *     ffprobe 后清理。
+ *
+ * 探测失败一律抛错，由调用方决定兜底（如回退请求时长）。
+ */
+export async function probeMediaDurationFromUrl(url: string): Promise<number> {
+  // 本地盘路径：直接 ffprobe public 下的实体文件，避免自下载自己
+  if (url.startsWith("/")) {
+    const localPath = path.join(process.cwd(), "public", url);
+    if (existsSync(localPath)) {
+      return getMediaDuration(localPath);
+    }
+    // 声明是本地路径但文件不存在（可能已迁 R2 或路径异常）→ 走远程分支兜底
+  }
+
+  const absoluteUrl = absolutizeUrl(url);
+  const tmpDir = path.join(os.tmpdir(), "ai-comic-probe");
+  if (!existsSync(tmpDir)) {
+    await mkdir(tmpDir, { recursive: true });
+  }
+  const tmpFile = path.join(
+    tmpDir,
+    `probe_${Date.now()}_${Math.random().toString(36).slice(2)}.bin`
+  );
+  // SSRF 防护：钉 IP 下载（校验与连接同一地址）
+  const { buffer } = await safeDownload(absoluteUrl);
+  await writeFile(tmpFile, buffer);
+  try {
+    return await getMediaDuration(tmpFile);
+  } finally {
+    try {
+      await unlink(tmpFile);
+    } catch {
+      // 忽略清理错误
+    }
+  }
 }

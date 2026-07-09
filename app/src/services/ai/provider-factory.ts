@@ -23,6 +23,7 @@ import { siliconflowImage } from "./providers/siliconflow";
 import { falImage } from "./providers/fal";
 import { replicateImage } from "./providers/replicate";
 import { proxyUnifiedImage } from "./providers/proxy-unified";
+import { flow2apiImage } from "./providers/flow2api-image";
 
 // Video providers
 import { runwayVideo } from "./providers/runway";
@@ -79,6 +80,15 @@ const IMAGE_PROVIDER_CAPABILITIES: Record<string, ImageProviderCapability> = {
     supportsInpainting: false,
     maxReferenceImages: 1,
   },
+  // flow2api（Imagen/Gemini Image）：图生图走 image_url parts，
+  // 上游协议当前最多接受 3 张参考图
+  flow2api: {
+    supportsReferenceImage: true,
+    supportsMultipleReferences: true,
+    supportsFaceId: false,
+    supportsInpainting: false,
+    maxReferenceImages: 3,
+  },
 };
 
 const DEFAULT_CAPABILITY: ImageProviderCapability = {
@@ -117,6 +127,8 @@ export function getImageProvider(
   switch (protocol) {
     case "proxy-unified":
       return proxyUnifiedImage;
+    case "flow2api":
+      return flow2apiImage;
     case "grok":
       return grokImage;
     case "siliconflow":

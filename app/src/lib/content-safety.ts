@@ -469,17 +469,20 @@ export function checkAndSanitize(text: string): ContentCheckResult {
  * 检查图片生成提示词是否安全（本地检测）
  */
 export function checkImagePromptSafety(prompt: string): ContentCheckResult {
+  // 注意：不要放"刀/枪/武器"这类单字宽词——朴素子串匹配会命中
+  // "刀锋/长枪/刀光剑影"等动作/武侠题材的正常修辞（2026-07-08 移除）。
+  // 真正的暴力硬线由 BLOCKED_KEYWORDS（血腥/残忍等）+ 上游模型安全过滤兜底。
+  //
+  // 同理移除"真人/明星/名人"三个宽词（2026-07-08）：漫剧剧情里"当红明星/
+  // 明星梦/大明星""名人堂""真人快打"等都是正常台词与角色设定，子串匹配
+  // 必然误伤（含这两字即拦，与"生成某真实名人肖像"的真实风险无关）。
+  // 真人肖像/深度伪造风险交由上游 AI 模型自带安全过滤兜底；本地只保留
+  // "政治人物 + 未成年"这类硬线（含义明确、误伤概率极低）。
   const imageBlockedKeywords = [
     ...BLOCKED_KEYWORDS,
-    "真人",
-    "明星",
-    "名人",
     "政治人物",
     "儿童",
     "未成年",
-    "武器",
-    "枪",
-    "刀",
   ];
 
   const lowerPrompt = prompt.toLowerCase();

@@ -64,6 +64,12 @@ export function TimelineDialogs({
           }
           onTranscribe={onTranscribe}
           onClose={onCloseSubtitleStyle}
+          // 预览底板：取首个有图分镜的画面（避免底板空白），比例用项目画面比例
+          previewImageUrl={
+            (project.scenes.find((s) => s.imageUrl) ?? project.scenes[0])
+              ?.imageUrl ?? undefined
+          }
+          aspectRatio={project.aspectRatio}
         />
       )}
 

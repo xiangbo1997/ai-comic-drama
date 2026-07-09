@@ -20,6 +20,12 @@ export interface SceneCharacterInfo extends CharacterInfo {
   id: string;
   role: CharacterRole;
   canonicalImageUrl?: string;
+  /**
+   * 多角度参考图（三视图 front/side/back 在前 + 定妆图兜底，已去重）。
+   * 与手动路径客户端 collectCharacterRefs 的收集规则一致；
+   * 提供时 strategy-resolver 优先消费本字段，缺失时回退单张 canonicalImageUrl。
+   */
+  referenceImageUrls?: string[];
   appearance?: CharacterAppearance | null;
   faceEmbedding?: number[];
 }

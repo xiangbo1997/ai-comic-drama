@@ -1,0 +1,1 @@
+- [a11y-systemic-gaps](a11y_systemic_gaps.md) — 三处系统性无障碍缺口(零aria-live/零reduced-motion/16个手写模态绕过Radix Dialog)+timeline拖拽触屏不可用+ModelSelector手写下拉无键盘

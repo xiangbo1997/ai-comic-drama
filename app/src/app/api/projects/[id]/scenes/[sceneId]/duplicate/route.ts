@@ -12,7 +12,7 @@ interface RouteParams {
 /**
  * 复制指定分镜，在其后插入一个副本
  * POST /api/projects/[id]/scenes/[sceneId]/duplicate
- * 副本保留：description、dialogue、narration、emotion、shotType、duration、selectedCharacterId、selectedCharacterIds
+ * 副本保留：description、dialogue、narration、emotion、shotType、duration、videoLinkNext、selectedCharacterId、selectedCharacterIds
  * 副本清空：imageUrl、videoUrl、audioUrl、imageStatus、videoStatus、audioStatus（媒体需重新生成）
  * order 腾位：源分镜 order+1 处插入，其后所有分镜 order+1
  * 返回：新建的分镜
@@ -69,6 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           narration: sourceScene.narration,
           emotion: sourceScene.emotion,
           duration: sourceScene.duration,
+          videoLinkNext: sourceScene.videoLinkNext,
           selectedCharacterId: sourceScene.selectedCharacterId,
           selectedCharacterIds: sourceScene.selectedCharacterIds,
           // 媒体 URL 和状态清空，副本需重新生成

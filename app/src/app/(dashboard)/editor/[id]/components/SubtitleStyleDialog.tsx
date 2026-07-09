@@ -29,12 +29,18 @@ export function SubtitleStyleDialog({
   onSave,
   onClose,
   onTranscribe,
+  previewImageUrl,
+  aspectRatio,
 }: {
   initialValue?: SubtitleStyle;
   onSave: (style: SubtitleStyle) => void;
   onClose: () => void;
   /** 触发语音识别；resolve 返回提示信息（成功/无结果）。缺省则不显示按钮 */
   onTranscribe?: () => Promise<string>;
+  /** 预览底板图（首个有图分镜的画面）；缺省时面板显示占位 */
+  previewImageUrl?: string;
+  /** 画面比例（如 "9:16"），驱动预览舞台尺寸；缺省 "16:9" */
+  aspectRatio?: string;
 }) {
   const [draft, setDraft] = useState<SubtitleStyle>(
     initialValue ?? DEFAULT_SUBTITLE_STYLE
@@ -99,7 +105,13 @@ export function SubtitleStyleDialog({
               )}
             </div>
           )}
-          <SubtitleStylePanel value={draft} onChange={setDraft} />
+          <SubtitleStylePanel
+            value={draft}
+            onChange={setDraft}
+            previewImageUrl={previewImageUrl}
+            aspectRatio={aspectRatio}
+            interactive
+          />
         </div>
         <DialogFooter className="border-border shrink-0 justify-end gap-2 border-t px-5 py-3">
           <button

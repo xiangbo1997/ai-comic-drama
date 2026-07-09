@@ -22,6 +22,7 @@ import { reviewStoryboard, reviewVideoSequence } from "./narrative-observer";
 import { reviewCharacterBible } from "./character-bible-observer";
 import { resolvePolicy, runClosedLoop } from "./closed-loop";
 import { generateVideo, synthesizeSpeech } from "@/services/ai";
+import { getThreeViewUrls } from "@/lib/three-views";
 import { uploadFile } from "@/services/storage";
 import {
   chargeCredits,
@@ -457,9 +458,12 @@ async function chargeWorkflowItem(
 
 /**
  * 一次性把项目内所有角色解析为 name → SceneCharacterInfo 的 Map，避免逐场景查库（N+1）。
- * 与 buildSceneCharacterContext 用同一套 Character + referenceAssets 查询：
+ * 查全部 referenceAssets（不再只查 isCanonical），在内存中分别解析：
  *   - canonicalImageUrl：优先 isCanonical 参考资产（经 i2i 定妆，最可靠）→ 回退 canonicalImageUrl
  *     字段 → 回退旧 referenceImages[0]（与手动路径 api/generate/image 的回退链一致）。
+ *   - referenceImageUrls：三视图（front/side/back）在前 + 定妆图兜底，去重——
+ *     与手动路径客户端 collectCharacterRefs 同规则。此前只给 1 张定妆图，
+ *     workflow 自动路径的三视图从未进入出图参考，与手动路径质量不对等。
  * role 留空占位，由 ImageConsistencyAgent 按场景出场顺序重定（第一个 = primary）。
  */
 async function resolveProjectCharacters(
@@ -470,17 +474,39 @@ async function resolveProjectCharacters(
     include: {
       appearance: true,
       referenceAssets: {
-        where: { isCanonical: true },
-        orderBy: [{ qualityScore: "desc" }, { createdAt: "asc" }],
+        select: {
+          url: true,
+          pose: true,
+          isCanonical: true,
+          qualityScore: true,
+          createdAt: true,
+        },
       },
     },
   });
 
   const map = new Map<string, SceneCharacterInfo>();
   for (const c of characters) {
-    const canonicalFromAsset = c.referenceAssets[0]?.url;
+    // 定妆图：isCanonical 资产按 qualityScore desc（null 视为最低）、createdAt asc 取最优
+    const canonicalFromAsset = c.referenceAssets
+      .filter((a) => a.isCanonical)
+      .sort(
+        (a, b) =>
+          (b.qualityScore ?? -1) - (a.qualityScore ?? -1) ||
+          a.createdAt.getTime() - b.createdAt.getTime()
+      )[0]?.url;
     const canonicalImageUrl =
       canonicalFromAsset ?? c.canonicalImageUrl ?? c.referenceImages[0];
+
+    // 多角度参考：三视图在前、定妆图兜底、去重
+    const referenceImageUrls: string[] = [];
+    for (const url of getThreeViewUrls(c.referenceAssets)) {
+      if (!referenceImageUrls.includes(url)) referenceImageUrls.push(url);
+    }
+    if (canonicalImageUrl && !referenceImageUrls.includes(canonicalImageUrl)) {
+      referenceImageUrls.push(canonicalImageUrl);
+    }
+
     map.set(c.name, {
       id: c.id,
       name: c.name,
@@ -490,6 +516,8 @@ async function resolveProjectCharacters(
       description: c.description,
       referenceImages: c.referenceImages,
       canonicalImageUrl: canonicalImageUrl ?? undefined,
+      referenceImageUrls:
+        referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
       appearance: c.appearance as SceneCharacterInfo["appearance"],
     });
   }

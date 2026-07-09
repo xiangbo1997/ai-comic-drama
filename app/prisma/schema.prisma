@@ -214,6 +214,10 @@ model Scene {
   duration    Int     @default(3) // 预估时长(秒)
   ttsSpeed    Float   @default(1.0) // 配音语速（0.5–2.0，TTS provider 消费）
 
+  // 尾帧衔接下一镜：生成本镜视频时把下一镜图片作为尾帧（Veo FL 首尾帧插值），
+  // 适合空间连续的相邻镜头；下一镜未出图时生成端自动回落普通 I2V
+  videoLinkNext Boolean @default(false)
+
   // 镜头语言（LLM 脚本解析产出，喂给出图 prompt 增强电影感）
   cameraAngle    String? // 镜头角度: eye-level/high-angle/low-angle/dutch-angle...
   lighting       String? // 光线: soft natural daylight/harsh rim light...

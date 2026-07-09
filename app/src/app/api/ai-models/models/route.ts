@@ -114,6 +114,12 @@ async function fetchModelsFromProvider(
       case "azure-openai":
         // Azure OpenAI 需要特殊处理
         return null;
+      case "flow2api": {
+        // flow2api 的 OpenAI 格式模型列表在 /v1/models；
+        // baseUrl 推荐不带 /v1（与 chat 端点拼接约定一致），这里补上并去重
+        const root = (baseUrl || "").replace(/\/+$/, "").replace(/\/v1$/i, "");
+        return root ? fetchOpenAICompatibleModels(apiKey, `${root}/v1`) : null;
+      }
       default:
         return fetchOpenAICompatibleModels(apiKey, baseUrl || "");
     }

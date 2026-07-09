@@ -10,6 +10,7 @@
  */
 
 import { isLLMModel } from "@/services/ai/providers/openai-compatible";
+import { flow2apiChatUrl } from "@/services/ai/providers/flow2api-shared";
 import type { TestResult } from "./connectivity-test-types";
 
 export const IMAGE_TEST_PROMPT =
@@ -592,12 +593,12 @@ export async function testClaudeModel(
 }
 
 /**
- * 为 flow2api 专属做最小 SSE 探测：
+ * 为 flow2api 专属做最小 SSE 探测（图片/视频模型通用）：
  * 真发一次 stream:true 请求，只读到第一帧 data: 就 abort 关连接。
  * 验证 ① HTTP 200 ② SSE 格式正确 ③ 模型 ID 被上游识别 ④ Bearer Key 有效。
- * 不会真的把视频生成完，也不会消耗用户配额（任务在 Cloudflare 端会立即取消）。
+ * 不会真的把媒体生成完，也不会消耗用户配额（任务在 Cloudflare 端会立即取消）。
  */
-export async function testFlow2apiVideoModel(
+export async function testFlow2apiModel(
   apiKey: string,
   baseUrl: string | null,
   modelId: string
@@ -610,7 +611,9 @@ export async function testFlow2apiVideoModel(
       suggestion: "请填写 https://flow2api.cloudsentryai.com",
     };
   }
-  const url = `${baseUrl.replace(/\/+$/, "")}/v1/chat/completions`;
+  // flow2apiChatUrl 会对尾部 /v1 去重：用户把 Base URL 填成
+  // https://host 或 https://host/v1 都能正确探测
+  const url = flow2apiChatUrl(baseUrl);
   const controller = new AbortController();
   const probeTimeout = setTimeout(() => controller.abort(), 15000);
 
@@ -647,7 +650,7 @@ export async function testFlow2apiVideoModel(
           message: `flow2api 拒绝模型「${modelId}」(HTTP 403): 当前账户 Tier 不支持`,
           errorType: "model",
           suggestion:
-            "改用非 Ultra / 非 4K 的模型，例如 veo_3_1_t2v_fast_landscape",
+            "改用非 Ultra / 非 4K 的模型，例如 veo_3_1_t2v_fast_landscape 或 gemini-3.0-pro-image-landscape",
         };
       }
       if (response.status === 404) {
@@ -692,38 +695,40 @@ export async function testFlow2apiVideoModel(
       };
     }
 
-    // 读 SSE 第一帧（只要看到 data: 行就成功）
+    // 读 SSE 前两帧再判定：首帧只代表任务已受理（"✨ 已启动"），
+    // 账号档位/模型类错误在第二帧才出现（"错误: 当前模型需要 Ult 账号"）。
+    // 只看首帧会出现"测试绿但生成必失败"的假阳性。
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let gotFrame = false;
-    let firstFramePreview = "";
+    let healthyFrames = 0;
+    let errorPreview: string | null = null;
 
     try {
-      while (!gotFrame) {
+      let stop = false;
+      while (!stop) {
         const { value, done } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        const idx = buffer.indexOf("\n\n");
-        if (idx >= 0) {
+        let idx: number;
+        while (!stop && (idx = buffer.indexOf("\n\n")) >= 0) {
           const frame = buffer.slice(0, idx);
-          if (frame.includes("data:")) {
-            gotFrame = true;
-            firstFramePreview = frame.replace(/\s+/g, " ").trim().slice(0, 160);
-            // 检测上游错误标记
-            if (frame.includes("❌")) {
-              return {
-                success: false,
-                message: `flow2api 模型「${modelId}」首帧报错: ${firstFramePreview}`,
-                errorType: "model",
-                suggestion: "确认模型 ID 是否在 flow2api 模型清单内",
-              };
-            }
-            break;
-          }
           buffer = buffer.slice(idx + 2);
+          if (!frame.includes("data:") || frame.includes("[DONE]")) continue;
+          // 上游错误标记：reasoning 带 ❌/"错误:"，或顶层 {"error":...} 帧
+          if (
+            frame.includes("❌") ||
+            frame.includes("错误:") ||
+            frame.includes('"error"')
+          ) {
+            errorPreview = frame.replace(/\s+/g, " ").trim().slice(0, 200);
+            stop = true;
+          } else {
+            healthyFrames++;
+            if (healthyFrames >= 2) stop = true;
+          }
         }
-        if (buffer.length > 16384) break; // 防御：第一帧不应该这么大
+        if (buffer.length > 16384) break; // 防御：单帧不应该这么大
       }
     } finally {
       try {
@@ -731,7 +736,17 @@ export async function testFlow2apiVideoModel(
       } catch {}
     }
 
-    if (!gotFrame) {
+    if (errorPreview) {
+      return {
+        success: false,
+        message: `flow2api 模型「${modelId}」上游报错: ${errorPreview}`,
+        errorType: "model",
+        suggestion:
+          "确认模型 ID 在 flow2api 清单内，且账号档位支持该模型（-4k / _ultra 模型需要 Ult 账号）",
+      };
+    }
+
+    if (healthyFrames === 0) {
       return {
         success: false,
         message: "flow2api 未在 15 秒内返回首帧",
@@ -742,7 +757,7 @@ export async function testFlow2apiVideoModel(
 
     return {
       success: true,
-      message: `flow2api 模型「${modelId}」可用（已收到首帧 SSE）`,
+      message: `flow2api 模型「${modelId}」可用（SSE 前两帧正常）`,
     };
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") {

@@ -33,6 +33,8 @@ export interface Scene {
   duration: number;
   /** 配音语速（0.5–2.0，默认 1.0），生成 TTS 时透传 provider */
   ttsSpeed?: number;
+  /** 尾帧衔接下一镜：视频生成用下一镜图片做尾帧（FL 首尾帧插值），默认关 */
+  videoLinkNext?: boolean;
   /** 镜头语言（LLM 脚本解析产出，喂给出图/视频 prompt） */
   cameraAngle?: string | null;
   lighting?: string | null;

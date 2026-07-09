@@ -276,6 +276,16 @@ export default function EditorPage() {
 
   const { project } = editor;
 
+  // 选中分镜的后继分镜（API 已按 order 升序返回）：SceneEditor 的
+  // "尾帧衔接下一镜"开关据此判断是否为最后一镜/下一镜是否已出图
+  const selectedSceneIndex = editor.selectedScene
+    ? project.scenes.findIndex((s) => s.id === editor.selectedScene!.id)
+    : -1;
+  const nextScene =
+    selectedSceneIndex >= 0
+      ? (project.scenes[selectedSceneIndex + 1] ?? null)
+      : null;
+
   return (
     <div className="bg-background text-foreground flex min-h-screen flex-col">
       <EditorHeader
@@ -374,6 +384,7 @@ export default function EditorPage() {
 
         <SceneEditor
           scene={editor.selectedScene}
+          nextScene={nextScene}
           aspectRatio={project.aspectRatio}
           selectedImageConfig={selectedImageConfig}
           onImageConfigChange={setSelectedImageConfig}

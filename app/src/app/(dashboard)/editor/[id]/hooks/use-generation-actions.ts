@@ -29,6 +29,8 @@ interface GenerateSceneImageOptions {
   referenceImages?: string[];
   /** 追加的 negative prompt；服务端会与预设拼接 */
   negativePrompt?: string;
+  /** 项目画幅（9:16/16:9/1:1）；缺省时服务端 provider 会回落横屏 */
+  aspectRatio?: string;
 }
 
 async function generateSceneImage(
@@ -50,6 +52,7 @@ async function generateSceneImage(
       referenceImage: options?.referenceImage,
       referenceImages: options?.referenceImages,
       negativePrompt: options?.negativePrompt,
+      aspectRatio: options?.aspectRatio,
     },
     { timeoutMs: GENERATION_TIMEOUTS.image, fallbackError: "图片生成失败" }
   );
@@ -122,7 +125,71 @@ function derivePromptInputs(scene: Scene, project: ProjectDetail | undefined) {
   });
 }
 
-export { generateSceneImage, derivePromptInputs };
+/**
+ * 读取项目画幅（仅放行三个合法值）。
+ * 图片/视频生成必须显式携带：请求体缺省时服务端 provider 会回落横屏，
+ * 9:16 项目就会生成横图（2026-07-08 修复的丢参 bug）。
+ */
+function projectAspectRatio(
+  project: ProjectDetail | undefined
+): string | undefined {
+  return project?.aspectRatio === "9:16" ||
+    project?.aspectRatio === "16:9" ||
+    project?.aspectRatio === "1:1"
+    ? project.aspectRatio
+    : undefined;
+}
+
+/**
+ * 主角色身份前缀（≤200 字）：视频人物一致性锚。
+ * workflow 引擎用 CharacterBible.canonicalPrompt 做同样的事（workflow-engine.ts
+ * buildSceneCharacterContext），编辑器手动路径此前完全没传——I2V 只靠首帧
+ * 锚定，画面一动人物就漂。这里取主角色的外貌描述补齐，provider 会把它
+ * 前置注入视频 prompt（见 flow2api-video.ts#buildVideoPrompt）。
+ */
+function deriveIdentityPrompt(
+  scene: Scene,
+  project: ProjectDetail | undefined
+): string | undefined {
+  const byId = new Map(
+    (project?.characters ?? []).map(({ character }) => [
+      character.id,
+      character,
+    ])
+  );
+  const primaryId =
+    scene.selectedCharacterIds?.[0] ??
+    scene.selectedCharacter?.id ??
+    scene.selectedCharacterId ??
+    undefined;
+  const primary = primaryId ? byId.get(primaryId) : undefined;
+  if (!primary?.description) return undefined;
+  return `${primary.name}: ${primary.description}`.slice(0, 200);
+}
+
+/**
+ * 尾帧衔接：分镜开了 videoLinkNext 且下一镜已出图时，返回下一镜图片 URL
+ * 作为尾帧（provider 命中 FL 首尾帧插值路由）；下一镜未出图或已是最后
+ * 一镜时返回 undefined，静默回落普通 I2V（SceneEditor 开关旁有对应提示）。
+ */
+function deriveTailFrame(
+  scene: Scene,
+  project: ProjectDetail | undefined
+): string | undefined {
+  if (!scene.videoLinkNext || !project) return undefined;
+  const ordered = [...project.scenes].sort((a, b) => a.order - b.order);
+  const idx = ordered.findIndex((s) => s.id === scene.id);
+  if (idx < 0) return undefined;
+  return ordered[idx + 1]?.imageUrl ?? undefined;
+}
+
+export {
+  generateSceneImage,
+  derivePromptInputs,
+  deriveIdentityPrompt,
+  deriveTailFrame,
+  projectAspectRatio,
+};
 
 /** 批量生成进度（驱动底部按钮的 X/Y 显示与「停止后续」入口） */
 export interface BatchProgress {
@@ -281,14 +348,13 @@ export function useGenerationActions(
   // 单次视频/配音生成请求（单张与批量共用，保证参数派生完全一致）
   const requestVideo = async (scene: Scene, videoConfigId?: string) => {
     // 复用图像端的派生：拿到与图像生成相同的 referenceImages
-    // 让 flow2api-video / Veo 能走 R2V / 首尾帧路由
+    // 让 flow2api-video / Veo 能走 R2V 路由
     const { referenceImages } = derivePromptInputs(scene, project);
-    const aspectRatio =
-      project?.aspectRatio === "9:16" ||
-      project?.aspectRatio === "16:9" ||
-      project?.aspectRatio === "1:1"
-        ? project.aspectRatio
-        : undefined;
+    const aspectRatio = projectAspectRatio(project);
+    // 人物一致性：主角色身份前缀（此前编辑器路径缺失，视频人物漂移的根因）
+    const identityPrompt = deriveIdentityPrompt(scene, project);
+    // 尾帧衔接下一镜（videoLinkNext 开启且下一镜已出图时才有值）
+    const lastFrameImage = deriveTailFrame(scene, project);
 
     // 异步化：发起任务并轮询到终态（等待期刷新页面不丢任务）
     return runGenerationTask<{ videoUrl?: string }>(
@@ -300,6 +366,8 @@ export function useGenerationActions(
         duration: nearestVideoDuration(scene.duration),
         aspectRatio,
         referenceImages,
+        identityPrompt,
+        lastFrameImage,
         projectId,
         sceneId: scene.id,
         videoConfigId,
@@ -355,6 +423,7 @@ export function useGenerationActions(
         negativePrompt,
         referenceImage,
         referenceImages,
+        aspectRatio: projectAspectRatio(project),
       });
     },
     // 权威数据（imageUrl + COMPLETED）已在手，精确写回缓存即可，无需整页重拉
@@ -461,6 +530,7 @@ export function useGenerationActions(
             negativePrompt,
             referenceImage,
             referenceImages,
+            aspectRatio: projectAspectRatio(project),
           });
           return (
             result?.imageUrl ? { imageUrl: result.imageUrl } : {}

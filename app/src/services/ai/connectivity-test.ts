@@ -6,7 +6,7 @@
  *   - POST /api/ai-models/configs/[id]/test（测试已保存并解密后的配置）
  *
  * 两条路由的「协议连通性探测」核心逻辑（openai 兼容 / claude / gemini / grok /
- * replicate / fal / siliconflow / proxy-unified / flow2api 视频 SSE 探测 /
+ * replicate / fal / siliconflow / proxy-unified / flow2api 图片视频 SSE 探测 /
  * 各家 TTS 与视频厂商连通性、延迟测量、模型列举、错误归一化）此前各存一份，
  * 现统一收口到本模块。路由只保留：鉴权 + 参数校验 + 配置装配（body 解析 /
  * DB 解密）+ 调用门面 + 路由专属副作用（如落库 testStatus）+ HTTP 映射。
@@ -33,7 +33,7 @@ import {
   testOpenAIModelChat,
   testGeminiModel,
   testClaudeModel,
-  testFlow2apiVideoModel,
+  testFlow2apiModel,
 } from "./connectivity-test-probes";
 import {
   testOpenAICompatible,
@@ -61,6 +61,7 @@ const IMAGE_RUNTIME_PROTOCOLS = new Set([
   "fal",
   "replicate",
   "proxy-unified",
+  "flow2api",
 ]);
 
 /**
@@ -113,7 +114,7 @@ async function testModelAvailability(
     category === "VIDEO" &&
     apiProtocol === "flow2api"
   ) {
-    return testFlow2apiVideoModel(apiKey, baseUrl, modelId);
+    return testFlow2apiModel(apiKey, baseUrl, modelId);
   }
 
   // 根据协议选择测试方法
@@ -188,6 +189,9 @@ async function testImageModelAvailability(
       );
     case "proxy-unified":
       return testProxyUnifiedImageModel(apiKey, baseUrl || "", modelId);
+    case "flow2api":
+      // 图片模型与视频模型走同一条 SSE 首帧探测
+      return testFlow2apiModel(apiKey, baseUrl, modelId);
     case "fal":
       return testFalModelImage(apiKey, modelId);
     case "replicate":
@@ -198,7 +202,7 @@ async function testImageModelAvailability(
         message: `当前项目尚未接入「${effectiveProtocol}」协议的图片生成运行时`,
         errorType: "config",
         suggestion:
-          "请改用 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate 或通用中转协议",
+          "请改用 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate、Flow2API 或通用中转协议",
       };
   }
 }
@@ -213,7 +217,7 @@ function getImageRuntimeSupportIssue(protocol: string): TestResult | null {
     message: `当前项目运行时不支持「${protocol}」协议的图片生成`,
     errorType: "config",
     suggestion:
-      "请切换到 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate 或通用中转协议",
+      "请切换到 OpenAI 兼容、Grok、SiliconFlow、Fal、Replicate、Flow2API 或通用中转协议",
   };
 }
 

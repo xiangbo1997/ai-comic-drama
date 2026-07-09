@@ -10,6 +10,23 @@
  */
 
 /**
+ * 字幕入场动效白名单。
+ * 每个取值都必须在导出端（libass override 标签）与预览端（CSS keyframes）
+ * 各有一套时序对齐的实现，保证「预览=成片」：
+ *   - none       无动效，直接显示
+ *   - fade       淡入（当前默认行为，等价旧 \fad(200,200)）
+ *   - slideup    从下方短距离上滑入场 + 轻淡入
+ *   - pop        从较小尺寸弹跳放大到正常 + 轻淡入
+ *   - typewriter 逐字符依次显现（打字机效果）
+ */
+export type SubtitleAnimation =
+  | "none"
+  | "fade"
+  | "slideup"
+  | "pop"
+  | "typewriter";
+
+/**
  * 字幕样式配置
  * 控制视频合成时叠加字幕的视觉呈现
  */
@@ -31,6 +48,23 @@ export interface SubtitleStyle {
   bold: boolean;
   /** 是否显示背景色块（提升可读性），默认 false */
   backgroundBox: boolean;
+  /**
+   * 字幕入场动效，默认 fade（与旧行为一致）。
+   * 可选字段：旧持久化配置无此字段时按 fade 解析（缺省 → "fade"），
+   * 保证老项目导出/预览行为不变。
+   */
+  animation?: SubtitleAnimation;
+  /**
+   * 全片默认字幕位置的「自由归一化中心点」x（0-1，相对画面宽）。
+   *
+   * position 只能表达纵向三档（顶/中/底、横向恒居中）；当用户在字幕样式面板里
+   * 用九宫格或自由拖拽设置默认位置时，用 defaultX/defaultY 存精确坐标。
+   * 二者「均为 number」时优先生效（见 resolveDefaultXY），否则回退 position。
+   * 可选字段：老项目无此字段时行为不变（仍按 position 解析）。
+   */
+  defaultX?: number;
+  /** 全片默认字幕位置的自由归一化中心点 y（0-1，相对画面高）。见 defaultX。 */
+  defaultY?: number;
 }
 
 /**
@@ -74,6 +108,29 @@ export function presetPositionToXY(position: SubtitleStyle["position"]): {
 }
 
 /**
+ * 解析「全片默认」字幕位置的归一化中心点：
+ * 优先用自由坐标 defaultX/defaultY（九宫格/拖拽设置的精确位置，clamp 0-1），
+ * 二者缺失时回退纵向三档 presetPositionToXY(position)。
+ *
+ * 预览端与导出端共用，保证「未单独拖拽的分镜」两端默认落点一致。
+ */
+export function resolveDefaultXY(style: SubtitleStyle | undefined): {
+  x: number;
+  y: number;
+} {
+  if (
+    typeof style?.defaultX === "number" &&
+    typeof style?.defaultY === "number"
+  ) {
+    return {
+      x: Math.min(1, Math.max(0, style.defaultX)),
+      y: Math.min(1, Math.max(0, style.defaultY)),
+    };
+  }
+  return presetPositionToXY(style?.position ?? "bottom");
+}
+
+/**
  * 解析某分镜「最终生效」的字幕位置：优先用单分镜覆盖，否则回退全局默认。
  * 预览端与导出端共用，确保两端落点完全一致（预览=成片）。
  */
@@ -93,7 +150,7 @@ export function resolveSubtitleXY(
       y: Math.min(1, Math.max(0, override.y)),
     };
   }
-  return presetPositionToXY(style?.position ?? "bottom");
+  return resolveDefaultXY(style);
 }
 
 /**
@@ -270,6 +327,7 @@ export const DEFAULT_SUBTITLE_STYLE: SubtitleStyle = {
   position: "bottom",
   bold: false,
   backgroundBox: false,
+  animation: "fade",
 };
 
 /**

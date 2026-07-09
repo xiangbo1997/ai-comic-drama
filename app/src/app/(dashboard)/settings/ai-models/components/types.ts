@@ -138,15 +138,15 @@ export const API_PROTOCOLS: APIProtocol[] = [
   },
   {
     id: "flow2api",
-    name: "Flow2API (Veo 视频)",
+    name: "Flow2API (图片/视频)",
     description:
-      "Google Labs Flow / Veo 视频生成网关，走 /v1/chat/completions + SSE",
+      "Google Labs Flow 网关：Imagen/Gemini 图片 + Veo 视频，走 /v1/chat/completions + SSE",
     authHeader: "Bearer",
     defaultBaseUrl: "https://flow2api.cloudsentryai.com",
     endpoints: {
       LLM: { main: "" },
-      IMAGE: { main: "" },
-      VIDEO: { main: "/v1/chat/completions" },
+      IMAGE: { main: "/v1/chat/completions", list: "/v1/models" },
+      VIDEO: { main: "/v1/chat/completions", list: "/v1/models" },
       TTS: { main: "" },
     },
   },

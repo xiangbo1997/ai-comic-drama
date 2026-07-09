@@ -63,8 +63,14 @@ export interface VideoGenerationOptions {
   duration?: 5 | 10 | 15;
   /** 画幅；与图像端一致，便于 i2v provider 路由（flow2api/Veo 横/竖屏）。 */
   aspectRatio?: "1:1" | "9:16" | "16:9";
-  /** 参考图 URL 列表（首尾帧 / R2V 多参考图；目前 flow2api-video 使用） */
+  /** 参考图 URL 列表（R2V 多参考图语义；目前 flow2api-video 使用） */
   referenceImages?: string[];
+  /**
+   * 尾帧图 URL（首尾帧衔接）：与 imageUrl（首帧）配对时 provider 路由到
+   * FL（首尾帧插值）模型；通常传下一分镜的图片，实现相邻镜头无缝衔接。
+   * 与 referenceImages 互斥消费：有尾帧时角色参考图不再混入图片输入。
+   */
+  lastFrameImage?: string;
   /**
    * 随机种子（v2 引入）；与图像端共用同一 identitySeed = FNV-1a(characterId)。
    * provider 不支持时透传忽略；目前 flow2api-video 在 message 元数据中携带。
