@@ -159,6 +159,9 @@ export function PreviewPlayer({
   // invalidate→refetch，高频拖动时字号会被服务器旧值刷回（看似放不大/闪回）。
   // 故拖动中用此本地值即时渲染，松手才落库一次；落库回流后清空（同位置拖拽 dragXY）。
   const [dragFontSize, setDragFontSize] = useState<number | null>(null);
+  // 滚轮缩放字号的防抖落库计时器：滚动中只更新本地乐观值，停止 400ms 后落库一次
+  // （避免每滚一格发一个 PATCH）。
+  const wheelCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 各视频分镜的「真实时长」（sceneId → 秒），由 <video> 的 onLoadedMetadata 填充。
   // provider 常忽略请求时长返回 ~8s 片段，DB 的 scene.duration（LLM 估算，默认 3s）
   // 与真实长度不符——用真实值驱动计时器，避免播放到一半跳镜/循环。
@@ -424,6 +427,13 @@ export function PreviewPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtitleStyle?.fontSize]);
 
+  // 卸载时清滚轮防抖计时器，避免组件已卸载还触发落库。
+  useEffect(() => {
+    return () => {
+      if (wheelCommitTimer.current) clearTimeout(wheelCommitTimer.current);
+    };
+  }, []);
+
   // 静音命令式管理（据 videoElsRef 表按角色取节点）。
   //
   // 必须命令式设置 muted：React 的 muted JSX 属性对「已挂载 <video>」更新不
@@ -565,6 +575,29 @@ export function PreviewPlayer({
     if (dragFontSize !== null && subtitleStyle) {
       onSubtitleStyleChange?.({ ...subtitleStyle, fontSize: dragFontSize });
     }
+  };
+
+  // 滚轮缩放字号：在字幕块上滚动即缩放（上滚放大 / 下滚缩小），每格 ±1px。
+  // 滚动中只更新本地乐观值（即时、平滑，配合 CSS font-size 过渡），停止 400ms
+  // 后防抖落库一次。preventDefault 阻止页面/弹窗跟着滚。
+  const handleSubtitleWheel = (e: React.WheelEvent) => {
+    if (!subtitleResizable || !subtitleStyle) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const base = dragFontSize ?? subtitleStyle.fontSize;
+    // deltaY<0（上滚）放大，>0（下滚）缩小；每次 ±1px，clamp 到 UI 范围
+    const step = e.deltaY < 0 ? 1 : -1;
+    const next = Math.min(
+      SUBTITLE_FONT_MAX,
+      Math.max(SUBTITLE_FONT_MIN, base + step)
+    );
+    if (next === base) return;
+    setDragFontSize(next);
+    // 防抖落库：滚动停止 400ms 后写回一次
+    if (wheelCommitTimer.current) clearTimeout(wheelCommitTimer.current);
+    wheelCommitTimer.current = setTimeout(() => {
+      onSubtitleStyleChange?.({ ...subtitleStyle, fontSize: next });
+    }, 400);
   };
 
   // 当前分镜字幕的「生效坐标」：拖拽中用实时 dragXY，否则解析覆盖/全局默认
@@ -1008,6 +1041,7 @@ export function PreviewPlayer({
                   onTouchStart={
                     subtitleEditable ? handleSubtitleDragStart : undefined
                   }
+                  onWheel={subtitleResizable ? handleSubtitleWheel : undefined}
                   className={`inline-block rounded-lg px-4 py-2 text-center leading-snug ${
                     subtitleEditable
                       ? "hover:ring-primary/70 cursor-move ring-1 ring-white/20 transition-shadow hover:ring-2"
@@ -1039,6 +1073,9 @@ export function PreviewPlayer({
                     // 单句不换行（与时间轴字幕样式面板一致）——逐句字幕本就是短句，
                     // nowrap 保证一句一行，不再被宽度挤成竖排一列。
                     whiteSpace: "nowrap",
+                    // 字号平滑过渡：拖角/滚轮/滑块改字号时 CSS 插值，消除整数 px
+                    // 步进的顿挫感（僵硬）。仅过渡 font-size，不影响入场动效。
+                    transition: "font-size 80ms ease-out",
                   }}
                 >
                   {typewriterChars && typewriterCharDelays

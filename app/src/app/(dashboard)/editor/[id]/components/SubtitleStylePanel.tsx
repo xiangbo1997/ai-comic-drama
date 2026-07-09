@@ -243,6 +243,20 @@ export function SubtitleStylePanel({
     interactionRef.current = null;
   };
 
+  // 滚轮缩放字号：字幕块上滚动即缩放（上滚放大 / 下滚缩小），每格 ±1px，
+  // clamp 到 UI 范围。面板字号是本地 draft（同步 onChange），无需防抖。
+  const handleWheel = (e: React.WheelEvent) => {
+    if (!interactive) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const step = e.deltaY < 0 ? 1 : -1;
+    const fontSize = Math.min(
+      FONT_MAX,
+      Math.max(FONT_MIN, value.fontSize + step)
+    );
+    if (fontSize !== value.fontSize) onChange({ ...value, fontSize });
+  };
+
   // 九宫格「格子 → 是否当前选中」判断（与 draftXY 近似即高亮）。
   const isActiveCell = (cx: number, cy: number): boolean =>
     Math.abs(cx - draftXY.x) < 0.01 && Math.abs(cy - draftXY.y) < 0.01;
@@ -268,6 +282,8 @@ export function SubtitleStylePanel({
     lineHeight: 1.3,
     whiteSpace: "nowrap",
     display: "inline-block",
+    // 字号平滑过渡：拖角/滚轮/滑块改字号时 CSS 插值，消除整数 px 步进的顿挫。
+    transition: "font-size 80ms ease-out",
   };
 
   // 角控点通用样式（8px 方块，白底蓝边）。
@@ -325,6 +341,7 @@ export function SubtitleStylePanel({
                     : ""
                 }`}
                 onPointerDown={interactive ? handleMovePointerDown : undefined}
+                onWheel={interactive ? handleWheel : undefined}
               >
                 <p
                   // key 绑定 animation：切换动效即重挂载 → 重放入场动画
