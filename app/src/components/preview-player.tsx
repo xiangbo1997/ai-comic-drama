@@ -140,6 +140,9 @@ export function PreviewPlayer({
   // 画面框实际像素高：用于把字号从 1080 基准缩放到当前预览尺寸，
   // 使「预览字号 ≈ 成片字号」。由 ResizeObserver 实时跟踪（响应式/拖窗）。
   const [stageHeight, setStageHeight] = useState(0);
+  // 画面框实际像素宽：用于把字幕换行宽度锚定为「画面宽的固定比例」，
+  // 使字幕折行与成片一致，且不被字幕块靠边位置压缩成窄窄一列。
+  const [stageWidth, setStageWidth] = useState(0);
   // 各视频分镜的「真实时长」（sceneId → 秒），由 <video> 的 onLoadedMetadata 填充。
   // provider 常忽略请求时长返回 ~8s 片段，DB 的 scene.duration（LLM 估算，默认 3s）
   // 与真实长度不符——用真实值驱动计时器，避免播放到一半跳镜/循环。
@@ -367,7 +370,11 @@ export function PreviewPlayer({
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
-    const update = () => setStageHeight(el.getBoundingClientRect().height);
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      setStageHeight(rect.height);
+      setStageWidth(rect.width);
+    };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
@@ -881,8 +888,11 @@ export function PreviewPlayer({
                   top: `${currentSubtitleXY.y * 100}%`,
                   // 以中心点定位：自身偏移 -50% 让坐标对准字幕块中心
                   transform: "translate(-50%, -50%)",
-                  // 不超出画面两侧（最宽 90% 画面框宽，长字幕自动换行）
-                  maxWidth: "90%",
+                  // 换行宽度锚定为「画面宽的 80%」的绝对像素值（非相对包含块的 90%）——
+                  // 字幕定位靠边时，可用宽度不再被「到边缘的距离」压缩成窄窄一列，
+                  // 折行行为与成片一致（成片按 width*0.9 主动插 \N）。stageWidth 未测得
+                  // (初始 0) 时回退 90% 相对宽，避免首帧异常。
+                  maxWidth: stageWidth > 0 ? `${stageWidth * 0.8}px` : "90%",
                 }}
               >
                 {/* 逐句入场动效：key=分镜id+句索引，切句时 <p> 重挂载触发所选动效
