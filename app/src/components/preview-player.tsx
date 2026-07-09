@@ -158,6 +158,10 @@ export function PreviewPlayer({
   const resizeRef = useRef<{ startDist: number; startFont: number } | null>(
     null
   );
+  // 拖角改字号的「本地乐观字号」：updateProject 无 optimistic 且 onSuccess 会
+  // invalidate→refetch，高频拖动时字号会被服务器旧值刷回（看似放不大/闪回）。
+  // 故拖动中用此本地值即时渲染，松手才落库一次；落库回流后清空（同位置拖拽 dragXY）。
+  const [dragFontSize, setDragFontSize] = useState<number | null>(null);
   // 各视频分镜的「真实时长」（sceneId → 秒），由 <video> 的 onLoadedMetadata 填充。
   // provider 常忽略请求时长返回 ~8s 片段，DB 的 scene.duration（LLM 估算，默认 3s）
   // 与真实长度不符——用真实值驱动计时器，避免播放到一半跳镜/循环。
@@ -418,6 +422,15 @@ export function PreviewPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtitlePositions]);
 
+  // 拖角改字号乐观值收尾：松手后 dragFontSize「钉」住松手字号；当 subtitleStyle
+  // 回流确认（fontSize 已等于该值）→ 清空，把控制权交还 props，避免乐观值滞留。
+  useEffect(() => {
+    if (dragFontSize !== null && subtitleStyle?.fontSize === dragFontSize) {
+      setDragFontSize(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subtitleStyle?.fontSize]);
+
   // 静音命令式管理（据 videoElsRef 表按角色取节点）。
   //
   // 必须命令式设置 muted：React 的 muted JSX 属性对「已挂载 <video>」更新不
@@ -546,15 +559,19 @@ export function PreviewPlayer({
       SUBTITLE_FONT_MIN,
       SUBTITLE_FONT_MAX
     );
-    if (fontSize !== subtitleStyle.fontSize) {
-      onSubtitleStyleChange?.({ ...subtitleStyle, fontSize });
-    }
+    // 拖动中只更新本地乐观字号，即时渲染、零 HTTP 往返（避免被 refetch 刷回）。
+    setDragFontSize(fontSize);
   };
 
   const handleSubtitleResizeEnd = (e: React.PointerEvent) => {
     if (!resizeRef.current) return;
     e.currentTarget.releasePointerCapture?.(e.pointerId);
     resizeRef.current = null;
+    // 松手才落库一次；不清 dragFontSize，留作乐观值「钉住」松手字号，
+    // 待 subtitleStyle 回流确认后再由下方 effect 清空，避免闪回旧值。
+    if (dragFontSize !== null && subtitleStyle) {
+      onSubtitleStyleChange?.({ ...subtitleStyle, fontSize: dragFontSize });
+    }
   };
 
   // 当前分镜字幕的「生效坐标」：拖拽中用实时 dragXY，否则解析覆盖/全局默认
@@ -566,10 +583,9 @@ export function PreviewPlayer({
   // 字幕预览字号：把 fontSize(1080 基准) 按画面框实际高等比缩放，与导出端
   // ASS Fontsize 共用 resolveSubtitleFontPx → 预览所见字号 ≈ 成片字号。
   // stageHeight 未测得(初始 0)时函数内部回退基准高，避免首帧字号异常。
-  const subtitleFontPx = resolveSubtitleFontPx(
-    subtitleStyle?.fontSize,
-    stageHeight
-  );
+  // 拖角改字号时优先用本地乐观值 dragFontSize（即时跟手，不被 refetch 刷回）。
+  const effectiveFontSize = dragFontSize ?? subtitleStyle?.fontSize;
+  const subtitleFontPx = resolveSubtitleFontPx(effectiveFontSize, stageHeight);
 
   // 逐句字幕：把当前镜的对白/旁白切成短句 + 按视觉宽度分配时间窗，与导出端
   // （video-synthesis.generateSubtitleFile）共用 splitSubtitleSegments /
@@ -954,9 +970,10 @@ export function PreviewPlayer({
                   transform: "translate(-50%, -50%)",
                   // 换行宽度锚定为「画面宽的 80%」的绝对像素值（非相对包含块的 90%）——
                   // 字幕定位靠边时，可用宽度不再被「到边缘的距离」压缩成窄窄一列，
-                  // 折行行为与成片一致（成片按 width*0.9 主动插 \N）。stageWidth 未测得
+                  // 折行行为与成片一致（成片按 width*0.9 折行）。取画面宽的 90% 绝对像素，
+                  // 与成片同宽 → 单句尽量一行；字号放大后每行容纳更多字。stageWidth 未测得
                   // (初始 0) 时回退 90% 相对宽，避免首帧异常。
-                  maxWidth: stageWidth > 0 ? `${stageWidth * 0.8}px` : "90%",
+                  maxWidth: stageWidth > 0 ? `${stageWidth * 0.9}px` : "90%",
                 }}
               >
                 {/* 逐句入场动效：key=分镜id+句索引，切句时 <p> 重挂载触发所选动效
