@@ -70,7 +70,7 @@ export function SubtitleStyleDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="flex max-h-[85vh] max-w-md flex-col p-0">
+      <DialogContent className="flex max-h-[88vh] max-w-md flex-col p-0 md:max-w-3xl">
         <DialogHeader className="border-border shrink-0 border-b px-5 py-4 text-left">
           <DialogTitle>字幕样式（全片统一）</DialogTitle>
           <DialogDescription className="sr-only">

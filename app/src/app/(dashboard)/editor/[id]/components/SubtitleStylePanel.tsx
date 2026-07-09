@@ -261,14 +261,17 @@ export function SubtitleStylePanel({
     "absolute h-2.5 w-2.5 rounded-sm border border-primary bg-white";
 
   return (
-    <div className="space-y-4">
-      {/* ── 真实迷你舞台：首帧图底板 + 可拖字幕 ── */}
-      <div className="space-y-1">
+    // 宽屏（md+）左右分栏：左预览 sticky 钉住永远可见，右控件独立滚动——
+    // 解决竖屏预览撑满、调参时看不到效果的问题（剪映式）。
+    // 窄屏（如导出弹窗）退化为单列上下堆叠。
+    <div className="md:grid md:grid-cols-[minmax(0,0.9fr)_1fr] md:items-start md:gap-5">
+      {/* ── 左栏：真实迷你舞台（首帧图底板 + 可拖字幕），宽屏下 sticky 钉顶 ── */}
+      <div className="mb-4 space-y-1 md:sticky md:top-0 md:mb-0 md:self-start">
         <p className="text-muted-foreground text-xs">字幕预览</p>
         <div className="flex w-full items-center justify-center overflow-hidden rounded-lg bg-black">
           <div
             ref={stageRef}
-            className="relative max-h-[46vh] w-full overflow-hidden bg-black"
+            className="relative max-h-[38vh] w-full overflow-hidden bg-black md:max-h-[68vh]"
             style={{ aspectRatio: aspectRatioToCss(aspectRatio ?? "16:9") }}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -371,203 +374,207 @@ export function SubtitleStylePanel({
         </p>
       </div>
 
-      {/* 字体大小 */}
-      <div>
-        <div className="mb-1 flex items-center justify-between">
-          <label className="text-muted-foreground text-sm">字号</label>
-          <span className="text-sm">{value.fontSize}px</span>
-        </div>
-        <input
-          type="range"
-          min={FONT_MIN}
-          max={FONT_MAX}
-          step={1}
-          value={value.fontSize}
-          onChange={(e) =>
-            onChange({ ...value, fontSize: Number(e.target.value) })
-          }
-          className="accent-primary w-full"
-        />
-        <p className="text-muted-foreground mt-1 text-[10px]">
-          * 基于 1080p 画面的字号；预览与成片按画面比例自动缩放，所见即所得
-        </p>
-      </div>
-
-      {/* 颜色设置 */}
-      <div className="grid grid-cols-2 gap-3">
-        {/* 字体颜色 */}
+      {/* ── 右栏：所有样式控件（宽屏下独立滚动，左栏预览始终可见） ── */}
+      <div className="space-y-4">
+        {/* 字体大小 */}
         <div>
-          <label className="text-muted-foreground mb-1 block text-sm">
-            字体颜色
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={value.fontColor}
-              onChange={(e) =>
-                onChange({ ...value, fontColor: e.target.value })
-              }
-              className="bg-secondary h-8 w-10 cursor-pointer rounded border-0 p-0.5"
-              title="选择字体颜色"
-            />
-            <span className="text-muted-foreground font-mono text-xs">
-              {value.fontColor.toUpperCase()}
-            </span>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="text-muted-foreground text-sm">字号</label>
+            <span className="text-sm">{value.fontSize}px</span>
           </div>
-        </div>
-
-        {/* 描边颜色 */}
-        <div>
-          <label className="text-muted-foreground mb-1 block text-sm">
-            描边颜色
-          </label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={value.outlineColor}
-              onChange={(e) =>
-                onChange({ ...value, outlineColor: e.target.value })
-              }
-              className="bg-secondary h-8 w-10 cursor-pointer rounded border-0 p-0.5"
-              title="选择描边颜色"
-            />
-            <span className="text-muted-foreground font-mono text-xs">
-              {value.outlineColor.toUpperCase()}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* 描边宽度 */}
-      <div>
-        <div className="mb-1 flex items-center justify-between">
-          <label className="text-muted-foreground text-sm">描边宽度</label>
-          <span className="text-sm">{value.outlineWidth}px</span>
-        </div>
-        <input
-          type="range"
-          min={0}
-          max={5}
-          step={1}
-          value={value.outlineWidth}
-          onChange={(e) =>
-            onChange({ ...value, outlineWidth: Number(e.target.value) })
-          }
-          className="accent-primary w-full"
-        />
-      </div>
-
-      {/* 默认位置 — 九宫格（全局默认；单分镜可在预览播放器里拖拽覆盖） */}
-      <div>
-        <label className="text-muted-foreground mb-1 block text-sm">
-          默认位置
-        </label>
-        <div className="bg-secondary grid grid-cols-3 gap-1 rounded-lg p-1">
-          {SUBTITLE_QUICK_POSITIONS.map((pos) => {
-            const active = isActiveCell(pos.x, pos.y);
-            return (
-              <button
-                key={pos.label}
-                type="button"
-                onClick={() =>
-                  onChange({
-                    ...value,
-                    defaultX: pos.x,
-                    defaultY: pos.y,
-                    position: nearestBand(pos.y),
-                  })
-                }
-                className={`rounded-md py-1.5 text-xs transition-colors ${
-                  active
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {pos.label}
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-muted-foreground mt-1 text-[10px]">
-          * 这是所有字幕的默认位置；也可直接在上方预览里拖动字幕自由定位
-        </p>
-      </div>
-
-      {/* 入场动效 — segmented control（逐句字幕的出场方式；预览与成片一致） */}
-      <div>
-        <label className="text-muted-foreground mb-1 block text-sm">
-          入场动效
-        </label>
-        <div className="bg-secondary flex rounded-lg p-1">
-          {ANIMATION_OPTIONS.map((opt) => {
-            // 旧配置无 animation 字段时按 fade 解析（与导出/预览端一致）
-            const active = (value.animation ?? "fade") === opt.value;
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => onChange({ ...value, animation: opt.value })}
-                className={`flex-1 rounded-md py-1 text-sm transition-colors ${
-                  active
-                    ? "bg-primary text-primary-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-muted-foreground mt-1 text-[10px]">
-          * 每句字幕的出场方式；切换后在上方预览里实时重播
-        </p>
-      </div>
-
-      {/* 开关行：加粗 + 底框 */}
-      <div className="space-y-2">
-        {/* 加粗 */}
-        <label className="flex cursor-pointer items-center justify-between">
-          <span className="text-sm">文字加粗</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={value.bold}
-            onClick={() => onChange({ ...value, bold: !value.bold })}
-            className={`focus:ring-primary relative h-5 w-9 rounded-full transition-colors focus:ring-2 focus:outline-none ${
-              value.bold ? "bg-primary" : "bg-secondary border-border border"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                value.bold ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
-          </button>
-        </label>
-
-        {/* 底框 */}
-        <label className="flex cursor-pointer items-center justify-between">
-          <span className="text-sm">显示底框（提升可读性）</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={value.backgroundBox}
-            onClick={() =>
-              onChange({ ...value, backgroundBox: !value.backgroundBox })
+          <input
+            type="range"
+            min={FONT_MIN}
+            max={FONT_MAX}
+            step={1}
+            value={value.fontSize}
+            onChange={(e) =>
+              onChange({ ...value, fontSize: Number(e.target.value) })
             }
-            className={`focus:ring-primary relative h-5 w-9 rounded-full transition-colors focus:ring-2 focus:outline-none ${
-              value.backgroundBox
-                ? "bg-primary"
-                : "bg-secondary border-border border"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                value.backgroundBox ? "translate-x-4" : "translate-x-0.5"
+            className="accent-primary w-full"
+          />
+          <p className="text-muted-foreground mt-1 text-[10px]">
+            * 基于 1080p 画面的字号；预览与成片按画面比例自动缩放，所见即所得
+          </p>
+        </div>
+
+        {/* 颜色设置 */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* 字体颜色 */}
+          <div>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              字体颜色
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={value.fontColor}
+                onChange={(e) =>
+                  onChange({ ...value, fontColor: e.target.value })
+                }
+                className="bg-secondary h-8 w-10 cursor-pointer rounded border-0 p-0.5"
+                title="选择字体颜色"
+              />
+              <span className="text-muted-foreground font-mono text-xs">
+                {value.fontColor.toUpperCase()}
+              </span>
+            </div>
+          </div>
+
+          {/* 描边颜色 */}
+          <div>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              描边颜色
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={value.outlineColor}
+                onChange={(e) =>
+                  onChange({ ...value, outlineColor: e.target.value })
+                }
+                className="bg-secondary h-8 w-10 cursor-pointer rounded border-0 p-0.5"
+                title="选择描边颜色"
+              />
+              <span className="text-muted-foreground font-mono text-xs">
+                {value.outlineColor.toUpperCase()}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* 描边宽度 */}
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <label className="text-muted-foreground text-sm">描边宽度</label>
+            <span className="text-sm">{value.outlineWidth}px</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={5}
+            step={1}
+            value={value.outlineWidth}
+            onChange={(e) =>
+              onChange({ ...value, outlineWidth: Number(e.target.value) })
+            }
+            className="accent-primary w-full"
+          />
+        </div>
+
+        {/* 默认位置 — 九宫格（全局默认；单分镜可在预览播放器里拖拽覆盖） */}
+        <div>
+          <label className="text-muted-foreground mb-1 block text-sm">
+            默认位置
+          </label>
+          <div className="bg-secondary grid grid-cols-3 gap-1 rounded-lg p-1">
+            {SUBTITLE_QUICK_POSITIONS.map((pos) => {
+              const active = isActiveCell(pos.x, pos.y);
+              return (
+                <button
+                  key={pos.label}
+                  type="button"
+                  onClick={() =>
+                    onChange({
+                      ...value,
+                      defaultX: pos.x,
+                      defaultY: pos.y,
+                      position: nearestBand(pos.y),
+                    })
+                  }
+                  className={`rounded-md py-1.5 text-xs transition-colors ${
+                    active
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {pos.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-muted-foreground mt-1 text-[10px]">
+            * 这是所有字幕的默认位置；也可直接在上方预览里拖动字幕自由定位
+          </p>
+        </div>
+
+        {/* 入场动效 — segmented control（逐句字幕的出场方式；预览与成片一致） */}
+        <div>
+          <label className="text-muted-foreground mb-1 block text-sm">
+            入场动效
+          </label>
+          <div className="bg-secondary flex rounded-lg p-1">
+            {ANIMATION_OPTIONS.map((opt) => {
+              // 旧配置无 animation 字段时按 fade 解析（与导出/预览端一致）
+              const active = (value.animation ?? "fade") === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => onChange({ ...value, animation: opt.value })}
+                  className={`flex-1 rounded-md py-1 text-sm transition-colors ${
+                    active
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-muted-foreground mt-1 text-[10px]">
+            * 每句字幕的出场方式；切换后在上方预览里实时重播
+          </p>
+        </div>
+
+        {/* 开关行：加粗 + 底框 */}
+        <div className="space-y-2">
+          {/* 加粗 */}
+          <label className="flex cursor-pointer items-center justify-between">
+            <span className="text-sm">文字加粗</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={value.bold}
+              onClick={() => onChange({ ...value, bold: !value.bold })}
+              className={`focus:ring-primary relative h-5 w-9 rounded-full transition-colors focus:ring-2 focus:outline-none ${
+                value.bold ? "bg-primary" : "bg-secondary border-border border"
               }`}
-            />
-          </button>
-        </label>
+            >
+              <span
+                className={`absolute top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  value.bold ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </label>
+
+          {/* 底框 */}
+          <label className="flex cursor-pointer items-center justify-between">
+            <span className="text-sm">显示底框（提升可读性）</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={value.backgroundBox}
+              onClick={() =>
+                onChange({ ...value, backgroundBox: !value.backgroundBox })
+              }
+              className={`focus:ring-primary relative h-5 w-9 rounded-full transition-colors focus:ring-2 focus:outline-none ${
+                value.backgroundBox
+                  ? "bg-primary"
+                  : "bg-secondary border-border border"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  value.backgroundBox ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </label>
+        </div>
+        {/* ── 右栏结束 ── */}
       </div>
     </div>
   );
