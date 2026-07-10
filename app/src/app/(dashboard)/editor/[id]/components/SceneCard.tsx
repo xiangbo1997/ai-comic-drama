@@ -32,6 +32,7 @@ import {
   Copy,
   Plus,
   Trash2,
+  Play,
 } from "lucide-react";
 import type { Scene, ProjectDetail } from "@/types";
 import { SortableItem } from "./SortableItem";
@@ -55,6 +56,8 @@ interface SceneCardProps {
   onGenerateImage: (scene: Scene) => void;
   onGenerateVideo: (scene: Scene) => void;
   onGenerateAudio: (scene: Scene) => void;
+  /** 查看该分镜视频（弹窗播放）；有 videoUrl 时可点 */
+  onViewVideo: (scene: Scene) => void;
   updateScene: (sceneId: string, data: Partial<Scene>) => void;
   /** 登记卡片 DOM，供选中时 scrollIntoView（稳定回调，避免内联闭包击穿 memo） */
   registerItemRef: (id: string, el: HTMLElement | null) => void;
@@ -77,6 +80,7 @@ function SceneCardImpl({
   onGenerateImage,
   onGenerateVideo,
   onGenerateAudio,
+  onViewVideo,
   updateScene,
   registerItemRef,
 }: SceneCardProps) {
@@ -339,6 +343,21 @@ function SceneCardImpl({
               ) : (
                 <Video size={14} />
               )}
+            </button>
+            {/* 查看视频：该分镜已生成视频时可点，弹窗播放 */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewVideo(scene);
+              }}
+              disabled={!scene.videoUrl}
+              className="hover:bg-secondary rounded p-1.5 disabled:opacity-30"
+              title={scene.videoUrl ? "查看视频" : "尚未生成视频"}
+            >
+              <Play
+                size={14}
+                className={scene.videoUrl ? "text-primary" : ""}
+              />
             </button>
             <button
               onClick={(e) => {

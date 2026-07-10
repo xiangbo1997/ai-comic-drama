@@ -9,6 +9,7 @@ import {
   Star,
   Layers,
   AlertCircle,
+  Video,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { Scene, ShotType, Emotion, Character } from "@/types";
@@ -38,6 +39,10 @@ interface SceneEditorProps {
   /** 下一分镜（按 order 排序的后继）；null/undefined = 当前已是最后一镜 */
   nextScene?: Pick<Scene, "imageUrl"> | null;
   aspectRatio: string;
+  /** 当前分镜播放速度（0.25–4，缺省 1），来自 generationParams.sceneEffects */
+  sceneSpeed?: number;
+  /** 变更播放速度回调（落库到 sceneEffects，导出端消费做变速） */
+  onSceneSpeedChange?: (sceneId: string, speed: number) => void;
   selectedImageConfig?: string;
   onImageConfigChange: (id: string | undefined) => void;
   onOpenMultiImageDialog: () => void;
@@ -54,6 +59,8 @@ export function SceneEditor({
   scene,
   nextScene,
   aspectRatio,
+  sceneSpeed = 1,
+  onSceneSpeedChange,
   selectedImageConfig,
   onImageConfigChange,
   onOpenMultiImageDialog,
@@ -65,6 +72,8 @@ export function SceneEditor({
   onCharacterRoleChange,
 }: SceneEditorProps) {
   const [flickerCompare, setFlickerCompare] = useState(false);
+  // 预览媒体 tab：图片 / 视频。该分镜有 videoUrl 时才显示"视频"tab。
+  const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
 
   // 文本字段本地草稿 + 防抖落库：避免每次 keystroke 都 PATCH 数据库（高频写+竞态）。
   // 本地 state 保证输入即时响应，停止输入 400ms 后才提交。
@@ -84,6 +93,8 @@ export function SceneEditor({
       dialogue: scene.dialogue ?? "",
       narration: scene.narration ?? "",
     });
+    // 切换分镜时预览 tab 重置为图片（新分镜可能没视频）
+    setMediaTab("image");
   }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 尚未落库的提交函数快照：卸载（如点返回项目列表）恰逢防抖窗口内时
@@ -155,6 +166,34 @@ export function SceneEditor({
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
+        {/* 图片 / 视频 切换 tab —— 仅该分镜已生成视频时显示"视频"tab */}
+        {scene.videoUrl && (
+          <div className="bg-secondary mb-2 flex w-fit rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => setMediaTab("image")}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs transition-colors ${
+                mediaTab === "image"
+                  ? "bg-primary text-primary-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <ImageIcon size={13} /> 图片
+            </button>
+            <button
+              type="button"
+              onClick={() => setMediaTab("video")}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs transition-colors ${
+                mediaTab === "video"
+                  ? "bg-primary text-primary-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Video size={13} /> 视频
+            </button>
+          </div>
+        )}
+
         {/* Preview */}
         <div
           className={`bg-card mb-4 flex items-center justify-center overflow-hidden rounded-xl ${
@@ -167,7 +206,17 @@ export function SceneEditor({
                 : "aspect-square"
           }`}
         >
-          {scene.imageStatus === "PROCESSING" ? (
+          {/* 视频 tab：内联播放该分镜视频（原生 controls，最省事） */}
+          {scene.videoUrl && mediaTab === "video" ? (
+            <video
+              key={scene.videoUrl}
+              src={scene.videoUrl}
+              controls
+              playsInline
+              // object-contain 与导出端 scale+pad 语义一致：比例≠画幅时不裁切
+              className="h-full w-full bg-black object-contain"
+            />
+          ) : scene.imageStatus === "PROCESSING" ? (
             <div className="text-center">
               <Loader2
                 size={32}
@@ -200,6 +249,51 @@ export function SceneEditor({
             </div>
           )}
         </div>
+
+        {/* 播放速度（变速）—— 落库到 sceneEffects，导出端做变速。快捷倍速 + 滑块微调 */}
+        {onSceneSpeedChange && (
+          <div className="border-border bg-card/50 mb-4 rounded-lg border p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-muted-foreground text-xs">
+                播放速度（导出生效）
+              </span>
+              <span className="text-sm font-medium">
+                {sceneSpeed.toFixed(2)}×
+              </span>
+            </div>
+            <div className="mb-2 flex gap-1">
+              {[0.5, 1, 1.5, 2].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => scene && onSceneSpeedChange(scene.id, v)}
+                  className={`flex-1 rounded-md py-1 text-xs transition-colors ${
+                    Math.abs(sceneSpeed - v) < 0.01
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {v}×
+                </button>
+              ))}
+            </div>
+            <input
+              type="range"
+              min={0.25}
+              max={4}
+              step={0.25}
+              value={sceneSpeed}
+              onChange={(e) =>
+                scene && onSceneSpeedChange(scene.id, Number(e.target.value))
+              }
+              className="accent-primary w-full"
+            />
+            <p className="text-muted-foreground mt-1 text-[10px]">
+              * 0.25–4× 逐分镜变速；&lt;1 放慢、&gt;1
+              加快，导出时对该分镜画面与配音同步变速
+            </p>
+          </div>
+        )}
 
         {/* Scene Characters Strip with Role Toggle */}
         {sceneCharacters.length > 0 && (

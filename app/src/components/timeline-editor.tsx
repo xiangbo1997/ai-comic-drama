@@ -302,10 +302,10 @@ function TimelineEditorImpl({
           <button
             onClick={onEffectClick}
             className="text-muted-foreground hover:bg-secondary hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-xs transition"
-            title="设置分镜滤镜 / 变速"
+            title="设置分镜滤镜 / 播放速度"
           >
             <SlidersHorizontal size={14} />
-            滤镜
+            滤镜/变速
           </button>
         </div>
 

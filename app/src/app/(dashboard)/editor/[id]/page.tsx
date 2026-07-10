@@ -222,6 +222,30 @@ export default function EditorPage() {
     [editorProject, editorUpdateProject]
   );
 
+  // 分镜播放速度变更 → 按 sceneId upsert 到 generationParams.sceneEffects.speed
+  // （保留已有 effect 滤镜字段）。与滤镜/变速弹窗同一数据源，导出端 video-synthesis
+  // 消费 speed 做 setpts/atempo 变速。speed=1 时移除该分镜的 speed 覆盖（回默认）。
+  const handleSceneSpeedChange = useCallback(
+    (sceneId: string, speed: number) => {
+      if (!editorProject) return;
+      const prev = editorProject.generationParams?.sceneEffects ?? [];
+      const existing = prev.find((e) => e.sceneId === sceneId);
+      const rest = prev.filter((e) => e.sceneId !== sceneId);
+      // speed=1 且无滤镜 → 该分镜无需覆盖，整条移除保持配置干净
+      const next =
+        speed === 1 && !existing?.effect
+          ? rest
+          : [...rest, { sceneId, effect: existing?.effect ?? null, speed }];
+      editorUpdateProject({
+        generationParams: {
+          ...editorProject.generationParams,
+          sceneEffects: next,
+        },
+      });
+    },
+    [editorProject, editorUpdateProject]
+  );
+
   // 稳定化 mediaConfig 引用：原为内联对象字面量（含 6 个内联箭头），
   // 每次渲染都是新引用 → 击穿 SceneList 的 React.memo，任一弹窗 state
   // 变化都全量重渲染 20-40 张分镜卡片（perf-frontend P0）。useMemo +
@@ -402,6 +426,12 @@ export default function EditorPage() {
           scene={editor.selectedScene}
           nextScene={nextScene}
           aspectRatio={project.aspectRatio}
+          sceneSpeed={
+            project.generationParams?.sceneEffects?.find(
+              (e) => e.sceneId === editor.selectedScene?.id
+            )?.speed ?? 1
+          }
+          onSceneSpeedChange={handleSceneSpeedChange}
           selectedImageConfig={selectedImageConfig}
           onImageConfigChange={setSelectedImageConfig}
           onOpenMultiImageDialog={() => setShowMultiImageDialog(true)}

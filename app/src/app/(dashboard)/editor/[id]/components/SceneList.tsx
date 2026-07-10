@@ -33,6 +33,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { SceneCard } from "./SceneCard";
+import { SceneVideoDialog } from "./SceneVideoDialog";
 
 /** 单个媒体类型（图/视/音）的配置控制三元组 */
 export interface MediaConfigControl {
@@ -127,6 +128,10 @@ function SceneListImpl({
   const [viewMode, setViewMode] = useState<"list" | "grid2" | "grid3">("list");
   // 当前打开三点菜单的分镜 id
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // 当前在弹窗查看视频的分镜（null=弹窗关闭）
+  const [viewingVideoScene, setViewingVideoScene] = useState<Scene | null>(
+    null
+  );
 
   // 选中分镜自动滚动入视（ux-editor P0-2）：从时间轴播放/预览/搜索切换
   // 分镜后，把对应卡片滚到可见区，避免分镜多时用户「丢失当前位置」。
@@ -257,6 +262,10 @@ function SceneListImpl({
     },
     [generateAudioMutation, mediaConfig.audio.selected]
   );
+  // 查看该分镜视频（弹窗播放）；稳定引用避免击穿 SceneCard 的 memo
+  const handleViewVideo = useCallback((scene: Scene) => {
+    setViewingVideoScene(scene);
+  }, []);
 
   // 拖拽传感器：8px 移动阈值，避免点击卡片被误判为拖拽
   const sensors = useSensors(
@@ -452,6 +461,7 @@ function SceneListImpl({
                   onGenerateImage={handleGenerateImage}
                   onGenerateVideo={handleGenerateVideo}
                   onGenerateAudio={handleGenerateAudio}
+                  onViewVideo={handleViewVideo}
                   updateScene={updateScene}
                   registerItemRef={registerItemRef}
                 />
@@ -591,6 +601,15 @@ function SceneListImpl({
           </div>
         </div>
       )}
+
+      {/* 单分镜视频查看弹窗 */}
+      <SceneVideoDialog
+        open={!!viewingVideoScene}
+        videoUrl={viewingVideoScene?.videoUrl ?? null}
+        title={`分镜 #${(viewingVideoScene?.order ?? 0) + 1} 视频`}
+        aspectRatio={project.aspectRatio}
+        onClose={() => setViewingVideoScene(null)}
+      />
     </div>
   );
 }
