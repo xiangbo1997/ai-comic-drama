@@ -54,6 +54,39 @@ export function ExportDialog({
   initialSubtitleStyle,
   initialWatermark,
 }: ExportDialogProps) {
+  // 下载中状态 + 失败提示
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  // 下载视频：视频在 R2 跨域，<a download> 属性对跨域资源无效（浏览器忽略，
+  // 变成新标签打开）。改为 fetch 成 blob → createObjectURL → 触发下载。
+  const handleDownload = async (url: string) => {
+    setDownloadError(null);
+    setDownloading(true);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`下载失败 (HTTP ${res.status})`);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      // 从 URL 取文件名，缺省用时间戳；确保 .mp4 后缀
+      const nameFromUrl = url.split("/").pop()?.split("?")[0] || "";
+      a.download = /\.\w+$/.test(nameFromUrl)
+        ? nameFromUrl
+        : `video_${nameFromUrl || "export"}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // 释放 blob URL（延迟一拍确保下载已启动）
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "下载失败，请重试");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
     <Dialog
       open={isOpen}
@@ -104,16 +137,21 @@ export function ExportDialog({
             <div className="py-8 text-center">
               <CheckCircle2 size={40} className="text-primary mx-auto mb-4" />
               <p className="mb-4 text-lg">导出完成</p>
-              <a
-                href={exportStatus.videoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-                className="bg-primary hover:bg-primary/90 mx-auto flex w-fit items-center gap-2 rounded-lg px-4 py-2 text-sm"
+              <button
+                onClick={() => handleDownload(exportStatus.videoUrl!)}
+                disabled={downloading}
+                className="bg-primary hover:bg-primary/90 mx-auto flex w-fit items-center gap-2 rounded-lg px-4 py-2 text-sm disabled:opacity-60"
               >
-                <Download size={16} />
-                下载视频
-              </a>
+                {downloading ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Download size={16} />
+                )}
+                {downloading ? "下载中..." : "下载视频"}
+              </button>
+              {downloadError && (
+                <p className="mt-2 text-xs text-red-400">{downloadError}</p>
+              )}
               <button
                 onClick={onClose}
                 className="text-muted-foreground hover:text-foreground mt-3 text-sm"
