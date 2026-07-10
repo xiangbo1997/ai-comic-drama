@@ -35,11 +35,15 @@ export function StoryboardTablePanel({
   const [cells, setCells] = useState<StoryboardCell[]>(remoteCells);
   const [imageConfigId, setImageConfigId] = useState<string | undefined>();
 
-  // 远端分镜表变化时同步本地（生成完成后）
+  // 远端分镜表变化时同步本地（生成完成后）。
+  // 依赖用 storyboard 内容的序列化——生成分镜表（POST）只更新 storyboard 不 bump
+  // version，若仅依赖 script.version 则新分镜表到了 props 也不会同步到本地 cells，
+  // 界面空白需手动刷新。改为监听 storyboard 实际内容（9 格数据量小，序列化开销可忽略）。
+  const remoteCellsKey = JSON.stringify(remoteCells);
   useEffect(() => {
     setCells(remoteCells);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [script.id, script.version]);
+  }, [script.id, remoteCellsKey]);
 
   const hasCells = cells.length === 9;
 
