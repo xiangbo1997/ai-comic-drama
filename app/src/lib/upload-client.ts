@@ -37,13 +37,42 @@ export interface UploadFileParams {
  * 上传文件并返回可访问 URL。
  * 失败时抛出带中文提示的 Error，由调用方捕获展示。
  */
+/** 各上传类型的大小上限（MB），与后端 ALLOWED_FILE_TYPES.maxBytes 对齐，用于前端预检 */
+const MAX_MB: Record<UploadFileParams["fileType"], number> = {
+  image: 15,
+  watermark: 2,
+  video: 200,
+  audio: 30,
+};
+
+/** 把底层网络异常（fetch reject，如 Failed to fetch）包装成友好中文提示 */
+async function fetchOrFriendly(
+  input: RequestInfo,
+  init?: RequestInit
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    // fetch reject = 请求未完成握手（断网/连接被重置/CORS）——非 HTTP 错误码
+    throw new Error("网络异常，上传未送达，请检查网络后重试");
+  }
+}
+
 export async function uploadFileViaApi({
   file,
   fileType,
   projectId,
 }: UploadFileParams): Promise<string> {
+  // 前端大小预检：超限直接提示，不发请求（省一次往返，提示更明确）
+  const maxMb = MAX_MB[fileType];
+  if (file.size > maxMb * 1024 * 1024) {
+    throw new Error(
+      `文件过大（${(file.size / 1024 / 1024).toFixed(1)} MB），上限 ${maxMb} MB`
+    );
+  }
+
   // 第一步：JSON 请求上传凭证
-  const presignRes = await fetch("/api/upload", {
+  const presignRes = await fetchOrFriendly("/api/upload", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -63,7 +92,7 @@ export async function uploadFileViaApi({
 
   // R2 模式：拿到预签名地址，PUT 直传
   if (presign.uploadUrl && presign.fileUrl) {
-    const putRes = await fetch(presign.uploadUrl, {
+    const putRes = await fetchOrFriendly(presign.uploadUrl, {
       method: "PUT",
       headers: { "Content-Type": file.type },
       body: file,
@@ -81,7 +110,7 @@ export async function uploadFileViaApi({
     formData.append("fileType", fileType);
     if (projectId) formData.append("projectId", projectId);
 
-    const uploadRes = await fetch("/api/upload", {
+    const uploadRes = await fetchOrFriendly("/api/upload", {
       method: "POST",
       body: formData,
     });
