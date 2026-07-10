@@ -71,56 +71,22 @@ export async function uploadFileViaApi({
     );
   }
 
-  // 第一步：JSON 请求上传凭证
-  const presignRes = await fetchOrFriendly("/api/upload", {
+  // 一段式 multipart 上传，服务端中转到存储后端（R2 / 本地盘由 isR2Configured 决定）。
+  // 不走「浏览器预签名直传 R2」——那要求 R2 bucket 配 CORS 允许本站域名 PUT，
+  // 否则跨域 preflight 被拒（Failed to fetch / net::ERR_FAILED）。服务端中转
+  // 用后端对象写 token，零跨域，且小文件（水印/图/音频）过服务器无压力。
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("fileType", fileType);
+  if (projectId) formData.append("projectId", projectId);
+
+  const uploadRes = await fetchOrFriendly("/api/upload", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      fileName: file.name,
-      contentType: file.type,
-      fileType,
-      fileSize: file.size,
-      projectId,
-    }),
+    body: formData,
   });
-
-  const presign = (await presignRes.json()) as PresignResponse;
-
-  if (!presignRes.ok) {
-    throw new Error(presign.error ?? "获取上传凭证失败");
+  const result = (await uploadRes.json()) as PresignResponse;
+  if (!uploadRes.ok || !result.fileUrl) {
+    throw new Error(result.error ?? "上传失败，请重试");
   }
-
-  // R2 模式：拿到预签名地址，PUT 直传
-  if (presign.uploadUrl && presign.fileUrl) {
-    const putRes = await fetchOrFriendly(presign.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": file.type },
-      body: file,
-    });
-    if (!putRes.ok) {
-      throw new Error("上传失败，请重试");
-    }
-    return presign.fileUrl;
-  }
-
-  // 本地模式：改用 multipart/form-data 一段式直传
-  if (presign.direct) {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("fileType", fileType);
-    if (projectId) formData.append("projectId", projectId);
-
-    const uploadRes = await fetchOrFriendly("/api/upload", {
-      method: "POST",
-      body: formData,
-    });
-    const result = (await uploadRes.json()) as PresignResponse;
-    if (!uploadRes.ok || !result.fileUrl) {
-      throw new Error(result.error ?? "上传失败，请重试");
-    }
-    return result.fileUrl;
-  }
-
-  // 两种形态都不满足——后端契约异常
-  throw new Error("上传响应异常，请稍后重试");
+  return result.fileUrl;
 }

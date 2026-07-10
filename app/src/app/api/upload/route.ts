@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import {
   getPresignedUploadUrl,
   uploadToLocal,
+  uploadToR2,
   isR2Configured,
   isStorageConfigured,
   type FileType,
@@ -182,13 +183,18 @@ export async function POST(request: NextRequest) {
       }
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      const fileUrl = await uploadToLocal(buffer, {
+      const storageOptions = {
         fileName: toResolvedFileName(fileType, file.name),
         contentType: file.type,
         fileType: toStorageFileType(fileType),
         userId,
         projectId: resolvedProjectId,
-      });
+      };
+      // 配了 R2 → 服务端中转到 R2（服务器持对象写 token，不涉浏览器跨域，
+      // 规避 bucket 未配 CORS 导致的前端直传 PUT 被拦）；否则落本地盘。
+      const fileUrl = isR2Configured()
+        ? await uploadToR2(buffer, storageOptions)
+        : await uploadToLocal(buffer, storageOptions);
 
       return NextResponse.json({ fileUrl });
     }
