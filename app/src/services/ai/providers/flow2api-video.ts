@@ -103,10 +103,13 @@ export function chooseModel(
   // 角色身份参考而非尾帧；Veo 没有"I2V+身份参考"组合，身份一致性由
   // identityPrompt 前缀承担。FL（首尾帧）在显式选择 FL 模型或传入
   // lastFrameImage 时生效。
+  // 升级（2026-07-11）：从 i2v_lite 升到标准 i2v_s 档。lite 对首帧忠实度弱，
+  // 运动幅度大时人物/场景易偏离分镜图（观感"没依据图"）；i2v_s 首帧还原度
+  // 明显更高。两档均为 I2V（图进 image_url 作首帧），仅质量档位不同。
   if (hasMain) {
     return aspectRatio === "portrait"
-      ? "veo_3_1_i2v_lite_portrait"
-      : "veo_3_1_i2v_lite_landscape";
+      ? "veo_3_1_i2v_s_portrait"
+      : "veo_3_1_i2v_s_landscape";
   }
 
   // 无主图、有参考图（R2V 多图参考）

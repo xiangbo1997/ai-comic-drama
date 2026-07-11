@@ -160,7 +160,7 @@ describe("chooseModel（尾帧衔接 lastFrameImage 路由 FL）", () => {
     ).toBe("veo_3_1_i2v_s_fast_fl");
   });
 
-  it("主图无尾帧（即使带角色参考图）→ I2V lite，参考图不当尾帧", () => {
+  it("主图无尾帧（即使带角色参考图）→ 标准 I2V，参考图不当尾帧", () => {
     expect(
       chooseModel(
         {
@@ -170,7 +170,7 @@ describe("chooseModel（尾帧衔接 lastFrameImage 路由 FL）", () => {
         },
         cfg
       )
-    ).toBe("veo_3_1_i2v_lite_portrait");
+    ).toBe("veo_3_1_i2v_s_portrait");
   });
 
   it("config.model 显式指定时优先，不被尾帧路由覆盖", () => {
