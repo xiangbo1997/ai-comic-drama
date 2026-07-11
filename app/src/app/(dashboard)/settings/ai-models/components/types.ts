@@ -319,7 +319,14 @@ export function generateUrlPreview(
   const { normalized } = normalizeBaseUrl(baseUrl);
   const path = protocol.endpoints[category]?.[endpointType];
   if (!path) return normalized;
-  return `${normalized}${path}`;
+  // /v1 去重：当协议 path 以 /v1 开头、用户填的 base 又以 /v1 结尾时，去掉 base
+  // 的末尾 /v1，避免预览拼出 .../v1/v1/...。与后端 flow2apiChatUrl 的去重一致，
+  // 保证「预览显示」= 实际请求 URL（此前预览误显 /v1/v1 吓人，实际请求正常）。
+  const base =
+    path.toLowerCase().startsWith("/v1/") && /\/v1$/i.test(normalized)
+      ? normalized.replace(/\/v1$/i, "")
+      : normalized;
+  return `${base}${path}`;
 }
 
 export function getDefaultProtocolForProvider(slug: string): string {
