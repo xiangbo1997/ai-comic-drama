@@ -9,6 +9,8 @@ import {
   buildCharacterBasePrompt,
   POSE_CONSTRAINTS,
   IDENTITY_LOCK,
+  SINGLE_SUBJECT,
+  THREE_VIEW_NEGATIVE,
 } from "@/lib/prompts/character-reference";
 import { hashStringToSeed } from "@/services/generation";
 import { Prisma } from "@prisma/client";
@@ -166,16 +168,19 @@ async function runThreeViewsTask(
     // 后续视图的参考锚：优先延用主图（保持与主图同源），front 落库后升级为最新锚。
     let canonicalUrl: string | undefined = anchorImageUrl;
     for (const pose of POSES) {
-      // 有参考图时追加身份锁定指令：保留外貌/配色/画风，只换角度，禁止重设计。
+      // 构图硬约束前置：先「单角度 + 单主体」锁死画面（防九宫格拼版），
+      // 有参考图时再追加身份锁定（保外貌/配色/画风，只换角度，禁止重设计）。
       const prompt = canonicalUrl
-        ? `${basePrompt}, ${POSE_CONSTRAINTS[pose]}, ${IDENTITY_LOCK}`
-        : `${basePrompt}, ${POSE_CONSTRAINTS[pose]}`;
+        ? `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${IDENTITY_LOCK}, ${basePrompt}`
+        : `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${basePrompt}`;
       let imageUrl = await generateImage({
         prompt,
         aspectRatio: "1:1",
         seed,
         // 有主图时三视图全部带参考锚定身份；无主图时 front 文生图打底
         referenceImage: canonicalUrl,
+        // 负向双向防九宫格：显式排斥拼版/多姿势/多角色
+        negativePrompt: THREE_VIEW_NEGATIVE,
         config: imageConfig || undefined,
       });
 
