@@ -15,8 +15,8 @@ export const STORYBOARD_TABLE_SYSTEM = `你是一位专业的院线分镜师，�
 - 输出纯 JSON，不要 markdown 代码块，不要额外文字
 - 顶层字段：cells（数组，长度必须恰好为 9）
 - 每格含：index(1-9)、sceneTitle、shot(镜头语言：景别+运镜)、dialogue(对白或null)、closeup(特写要点)、transition(转场效果)
-- 9 格要覆盖完整故事弧线：开场抓人 → 中段升级 → 结尾留钩
-- shot 要具体（如「大全景·缓推」「特写·横移」），便于后续生成`;
+- 9 格要覆盖完整故事弧线：第 1 格 = 本片冲突最高点 / 悬念最强的画面（严禁风景空镜或日常铺垫开场）→ 中段（2-7 格）逐格升级冲突、堆叠爽点 → 第 9 格 = 停在未解决张力的悬念钩子（悬念/反转/情绪/信息/危机 任一），绝不完整收尾
+- 景别以近景/特写为主（竖屏），反转/揭秘瞬间用急推特写；shot 要具体（如「大特写·急推」「近景·横移」），便于后续生成`;
 
 export function buildStoryboardTableUserPrompt(
   script: DramaScriptArtifact
@@ -36,8 +36,8 @@ ${scenesBrief}
 
 要求：
 1. cells 数组长度必须恰好为 9（不多不少）
-2. 9 格串起来要节奏完整：开场→发展→高潮→收尾
-3. 每格 shot 写明景别与运镜，closeup 写明该镜头的视觉重点，transition 写转场
+2. 节奏完整且钩子分明：第 1 格是冲突最高点/悬念最强画面（钩住观众），中段逐格升级冲突堆爽点，第 9 格停在未解决的悬念钩子上（绝不完整收尾）
+3. 每格 shot 写明景别与运镜（以近景/特写为主，反转瞬间用急推特写），closeup 写明该镜头的视觉重点，transition 写转场
 4. 有对白则填 dialogue，无则置 null
 
 输出格式：

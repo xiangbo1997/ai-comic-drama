@@ -7,6 +7,7 @@ import {
   buildEpisodeTitle,
   pickCarryOverGenerationParams,
 } from "@/lib/series";
+import { ensureEpisodeChronicled } from "@/services/series/chronicler";
 import type { GenerationParams } from "@/types/project";
 
 import { createLogger } from "@/lib/logger";
@@ -59,6 +60,27 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         (b.episodeNumber ?? 0) - (a.episodeNumber ?? 0) ||
         b.createdAt.getTime() - a.createdAt.getTime()
     )[0];
+
+    // 归档上一集进故事圣经（幂等），保证本集续写拿到最新累积记忆。
+    // 几秒延迟在创建流程可接受；归档失败也不阻断建集（静默降级）。
+    if (previous?.episodeNumber != null) {
+      try {
+        await ensureEpisodeChronicled(
+          series.id,
+          previous.episodeNumber,
+          userId
+        );
+      } catch (chronicleErr) {
+        log.warn("上一集归档失败，继续建集", {
+          seriesId: series.id,
+          prevEpisode: previous.episodeNumber,
+          error:
+            chronicleErr instanceof Error
+              ? chronicleErr.message
+              : String(chronicleErr),
+        });
+      }
+    }
 
     let carryOverParams: GenerationParams = {};
     let characterIds: string[] = [];

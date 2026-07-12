@@ -5,6 +5,7 @@ import { getUserLLMConfig } from "@/lib/ai-config";
 import { parseScriptWithAgent } from "@/services/script";
 import { prisma } from "@/lib/prisma";
 import { chargeCredits, InsufficientCreditsError } from "@/lib/credits";
+import { loadSeriesMemoryDigest } from "@/lib/series-memory";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:script:parse");
@@ -40,10 +41,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
     }
 
-    const { text } = await request.json();
+    const body = await request.json();
+    const text = body?.text;
+    const projectId =
+      typeof body?.projectId === "string" ? body.projectId : undefined;
 
     if (!text || typeof text !== "string") {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
+    }
+
+    // 系列续集：取既定设定 digest 注入解析（校验项目归属后再查）。
+    // 记忆是增强项，任何缺失都不阻断解析。
+    let seriesContext: string | undefined;
+    if (projectId) {
+      const owned = await prisma.project.findFirst({
+        where: { id: projectId, userId: session.user.id },
+        select: { id: true },
+      });
+      if (owned) {
+        seriesContext =
+          (await loadSeriesMemoryDigest(projectId, "script")) ?? undefined;
+      }
     }
 
     if (text.length > 10000) {
@@ -76,7 +94,7 @@ export async function POST(request: NextRequest) {
     // 兼容：?sync=true 走旧同步路径（仅留作调试或紧急回退用）
     const url = new URL(request.url);
     if (url.searchParams.get("sync") === "true") {
-      const result = await parseScriptWithAgent(text, llmConfig);
+      const result = await parseScriptWithAgent(text, llmConfig, seriesContext);
       return NextResponse.json(result);
     }
 
@@ -85,18 +103,27 @@ export async function POST(request: NextRequest) {
       data: {
         type: "SCRIPT_PARSE",
         status: "PROCESSING",
-        input: { text, userId: session.user.id },
+        input: {
+          text,
+          userId: session.user.id,
+          ...(projectId && { projectId }),
+        },
+        ...(projectId && { projectId }),
         startedAt: new Date(),
       },
     });
 
     // Fire-and-forget：不 await，让请求立即返回
-    void runScriptParseTask(task.id, text, llmConfig, session.user.id).catch(
-      (err) => {
-        // 这里只 catch 防止 unhandled rejection；任务内部已经把错误写入 DB
-        log.error(`Background task ${task.id} unhandled rejection:`, err);
-      }
-    );
+    void runScriptParseTask(
+      task.id,
+      text,
+      llmConfig,
+      session.user.id,
+      seriesContext
+    ).catch((err) => {
+      // 这里只 catch 防止 unhandled rejection；任务内部已经把错误写入 DB
+      log.error(`Background task ${task.id} unhandled rejection:`, err);
+    });
 
     return NextResponse.json({ taskId: task.id, status: "PROCESSING" });
   } catch (error) {
@@ -115,10 +142,11 @@ async function runScriptParseTask(
   taskId: string,
   text: string,
   llmConfig: Parameters<typeof parseScriptWithAgent>[1],
-  userId: string
+  userId: string,
+  seriesContext?: string
 ): Promise<void> {
   try {
-    const result = await parseScriptWithAgent(text, llmConfig);
+    const result = await parseScriptWithAgent(text, llmConfig, seriesContext);
     await prisma.generationTask.update({
       where: { id: taskId },
       data: {

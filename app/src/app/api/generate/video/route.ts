@@ -1,24 +1,247 @@
 import { auth } from "@/lib/auth";
-import { getUserVideoConfig } from "@/lib/ai-config";
+import { getUserVideoConfig, getUserLLMConfig } from "@/lib/ai-config";
 import { contentSafetyMiddleware } from "@/lib/content-safety";
 import { prisma } from "@/lib/prisma";
-import { generateVideo } from "@/services/ai";
 import { probeMediaDurationFromUrl } from "@/services/video-synthesis";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { chargeCredits } from "@/lib/credits";
+import { buildVideoScenePrompt } from "@/lib/prompts";
+import {
+  directVideoScene,
+  generateSceneVideoSegmented,
+  estimateVideoCost,
+  planVideoSegments,
+  clampSceneDuration,
+} from "@/services/generation";
+import { getVideoModelCapability } from "@/services/ai/video-capabilities";
+import { buildPreviousEpisodeRecap } from "@/lib/series";
+import { loadSeriesMemoryDigest } from "@/lib/series-memory";
 
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 const log = createLogger("api:generate:video");
 
-// 视频生成成本（积分）
-const VIDEO_COST = {
-  5: 10, // 5秒视频 10积分
-  10: 20, // 10秒视频 20积分
-  15: 30, // 15秒视频 30积分（Seedance 2.0 直出）
-};
+/**
+ * 分段生成兜底超时上限（秒）。分段最多 6 段，每段生成可达数分钟；自托管 Node
+ * 进程该值仅作声明式兜底（fire-and-forget 后台任务不受平台超时约束），从原
+ * 300s 提到 1800s，覆盖最坏情况（6 段 × ~5min）。
+ */
+export const maxDuration = 1800;
+
+/**
+ * 生成时视频导演增强：服务端重建视频 prompt（LLM 导演增强 · Deliverable 2）。
+ *
+ * 有 sceneId + projectId 时：查分镜（全镜头字段 + actionBeat）、项目（风格 +
+ * 系列前情提要）、相邻镜（order±1，仅 description+actionBeat）、出场角色
+ * （name + description 作身份锚），调 directVideoScene 导演一次「运动」，再用
+ * buildVideoScenePrompt 服务端重建 finalPrompt（导演产出优先，缺失回落 DB 值）。
+ *
+ * 重建后的 prompt 含 LLM 输出（actionBeat）必须过内容安全；不安全或链路任一步
+ * 失败（无 LLM 配置 / 导演 null / 查库异常）→ 返回 null，调用方沿用客户端已
+ * 安全校验过的 prompt（不改 202/task/billing 流程）。
+ *
+ * @returns { prompt, reason } —— prompt 为重建后已安全校验的 finalPrompt；
+ *   返回 null 表示应沿用客户端 prompt（reason 供日志排障）。
+ */
+async function buildDirectedVideoPrompt(params: {
+  userId: string;
+  projectId?: string;
+  sceneId?: string;
+  hasLastFrame: boolean;
+  duration: number;
+}): Promise<{ prompt: string; reason: string } | null> {
+  const { userId, projectId, sceneId, hasLastFrame, duration } = params;
+  if (!projectId || !sceneId) return null;
+
+  try {
+    const scene = await prisma.scene.findUnique({
+      where: { id: sceneId },
+      select: {
+        order: true,
+        description: true,
+        actionBeat: true,
+        shotType: true,
+        cameraAngle: true,
+        cameraMovement: true,
+        lighting: true,
+        emotion: true,
+        duration: true,
+        selectedCharacterId: true,
+        selectedCharacterIds: true,
+      },
+    });
+    if (!scene || !scene.description?.trim()) return null;
+
+    // 项目风格 + 系列信息（跨集前情提要的来源）
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: {
+        style: true,
+        seriesId: true,
+        episodeNumber: true,
+        title: true,
+      },
+    });
+
+    // 相邻镜（order±1，仅取 description + actionBeat 供承接/铺垫）
+    const [prevScene, nextScene] = await Promise.all([
+      prisma.scene.findFirst({
+        where: { projectId, order: scene.order - 1 },
+        select: { description: true, actionBeat: true },
+      }),
+      prisma.scene.findFirst({
+        where: { projectId, order: scene.order + 1 },
+        select: { description: true, actionBeat: true },
+      }),
+    ]);
+
+    // 出场角色（name + description 作身份锚，≤200 字，仅供理解不复述）
+    const characterIds =
+      scene.selectedCharacterIds && scene.selectedCharacterIds.length > 0
+        ? scene.selectedCharacterIds
+        : scene.selectedCharacterId
+          ? [scene.selectedCharacterId]
+          : [];
+    const dbCharacters =
+      characterIds.length > 0
+        ? await prisma.character.findMany({
+            where: { id: { in: characterIds } },
+            select: { name: true, description: true },
+          })
+        : [];
+    const characters = dbCharacters.map((c) => ({
+      name: c.name,
+      identity: (c.description ?? "").slice(0, 200),
+    }));
+
+    // 跨集记忆（仅续集）：优先故事圣经 digest（stage 'scene'：角色状态 + 上一集
+    // 结尾钩 + 既定场景/道具），圣经为空的老系列回落旧「上一集前情提要」。
+    const seriesRecap =
+      (await loadSeriesMemoryDigest(projectId, "scene")) ??
+      (await deriveVideoSeriesRecap(project));
+
+    const llmConfig = await getUserLLMConfig(userId);
+    const direction = await directVideoScene(
+      {
+        scene: {
+          description: scene.description,
+          actionBeat: scene.actionBeat,
+          shotType: scene.shotType,
+          cameraAngle: scene.cameraAngle,
+          lighting: scene.lighting,
+          emotion: scene.emotion,
+          duration: scene.duration,
+        },
+        characters,
+        prevScene: prevScene ?? null,
+        nextScene: nextScene ?? null,
+        style: project?.style,
+        seriesRecap,
+      },
+      llmConfig
+    );
+    if (!direction) return null;
+
+    // 服务端重建：导演产出优先，缺失回落 DB 值；氛围走 atmosphereOverride
+    const finalPrompt = buildVideoScenePrompt({
+      description: scene.description,
+      actionBeat: direction.actionBeat ?? scene.actionBeat,
+      style: project?.style,
+      shotType: scene.shotType,
+      cameraAngle: scene.cameraAngle,
+      cameraMovement: direction.cameraMovement ?? scene.cameraMovement,
+      lighting: scene.lighting,
+      emotion: scene.emotion,
+      atmosphereOverride: direction.atmosphere,
+      duration,
+      hasLastFrame,
+    });
+
+    // 重建后的 prompt 含 LLM 输出（actionBeat），必须重新过内容安全
+    const safety = await contentSafetyMiddleware(finalPrompt, "video");
+    if (!safety.safe) {
+      return null;
+    }
+    return {
+      prompt: safety.sanitizedText || finalPrompt,
+      reason: "enhanced",
+    };
+  } catch (err) {
+    log.warn("视频导演增强链路失败，沿用客户端 prompt", {
+      sceneId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+/**
+ * 视频导演的跨集前情提要（对齐 drama-script 路由的 derivePreviousEpisodeRecap）：
+ * 从上一集的 ShortDramaScript 或 Scene 结尾组装钩子。第 1 集/独立项目返回 null。
+ */
+async function deriveVideoSeriesRecap(
+  project: {
+    seriesId: string | null;
+    episodeNumber: number | null;
+    title: string | null;
+  } | null
+): Promise<string | null> {
+  if (
+    !project?.seriesId ||
+    project.episodeNumber == null ||
+    project.episodeNumber <= 1
+  ) {
+    return null;
+  }
+
+  const prev = await prisma.project.findFirst({
+    where: {
+      seriesId: project.seriesId,
+      episodeNumber: { lt: project.episodeNumber },
+    },
+    orderBy: { episodeNumber: "desc" },
+    select: { id: true, title: true, episodeNumber: true },
+  });
+  if (!prev) return null;
+
+  const script = await prisma.shortDramaScript.findFirst({
+    where: { projectId: prev.id },
+    orderBy: { updatedAt: "desc" },
+    select: { filmTitle: true, scriptDoc: true },
+  });
+  const doc = script?.scriptDoc as {
+    logline?: unknown;
+    scenes?: Array<{
+      description: string;
+      dialogue: string | null;
+      narration: string | null;
+    }>;
+  } | null;
+  if (doc?.scenes && doc.scenes.length > 0) {
+    return buildPreviousEpisodeRecap({
+      episodeNumber: prev.episodeNumber,
+      title: script?.filmTitle ?? prev.title,
+      logline: typeof doc.logline === "string" ? doc.logline : null,
+      endingScenes: doc.scenes.slice(-2),
+    });
+  }
+
+  const lastScenes = await prisma.scene.findMany({
+    where: { projectId: prev.id },
+    orderBy: { order: "desc" },
+    take: 2,
+    select: { description: true, dialogue: true, narration: true },
+  });
+  if (lastScenes.length === 0) return null;
+  return buildPreviousEpisodeRecap({
+    episodeNumber: prev.episodeNumber,
+    title: prev.title,
+    logline: null,
+    endingScenes: [...lastScenes].reverse(),
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -46,7 +269,7 @@ export async function POST(request: NextRequest) {
     const {
       imageUrl,
       prompt,
-      duration = 5,
+      duration: rawDuration = 5,
       aspectRatio,
       referenceImages,
       identityPrompt,
@@ -63,15 +286,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // duration 白名单：只接受 provider 支持的 5/10/15 秒档。
-    // 计费按 VIDEO_COST[duration] 折算，若放任任意值（如 8），会命中 ||10 兜底
-    // 却按 8s 生成，导致「扣 10 分 / 实际时长不符」的计费错配。非枚举值直接 400。
-    if (![5, 10, 15].includes(duration)) {
-      return NextResponse.json(
-        { error: "duration 必须为 5 / 10 / 15 秒" },
-        { status: 400 }
-      );
-    }
+    // duration 现接受整数 1–60 秒：系统按模型能力自动分段（超过单段时长拆成 N 段
+    // 无缝拼接）。越界/非数值一律钳到 [1,60]，杜绝非法值直达规划器/计费/DB。
+    const duration = clampSceneDuration(rawDuration);
 
     // 内容安全检查（如果有提示词）
     let safePrompt = prompt;
@@ -114,8 +331,19 @@ export async function POST(request: NextRequest) {
         ? lastFrameImage
         : undefined;
 
+    // 提前取视频配置：分段数与计费都取决于模型能力（Veo 无视时长固定 ~8s、
+    // runway/fal 接受档位），必须先知道 protocol 才能规划分段与估算成本。
+    // 生成主体仍在后台 run() 里执行，此处仅用于「计费 + 分段规划」的前置决策。
+    const videoConfig = await getUserVideoConfig(userId, videoConfigId);
+    const capability = getVideoModelCapability(
+      videoConfig?.protocol ?? "",
+      videoConfig?.model
+    );
+    // 分段计划（决定段数与计费）；成本 = 各段档位成本之和（与客户端预览同源估算器）
+    const plan = planVideoSegments(duration, capability);
+    const cost = estimateVideoCost(duration, capability);
+
     // 检查积分
-    const cost = VIDEO_COST[duration as keyof typeof VIDEO_COST] || 10;
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { credits: true },
@@ -177,20 +405,42 @@ export async function POST(request: NextRequest) {
     // 页面刷新也不丢任务。扣费语义不变：成功后事务内扣费。
     const run = async () => {
       try {
-        // 获取用户视频生成配置
-        const videoConfig = await getUserVideoConfig(userId, videoConfigId);
-
-        // 调用视频生成服务（使用净化后的提示词）
-        const rawVideoUrl = await generateVideo({
-          imageUrl,
-          prompt: safePrompt,
+        // LLM 导演增强（Deliverable 2）：服务端重建带「运动 + 记忆」的 prompt。
+        // 成功返回已安全校验的 finalPrompt；任一步失败/不安全返回 null，沿用
+        // 客户端已安全校验过的 safePrompt。不改 202/task/billing 流程。
+        const directed = await buildDirectedVideoPrompt({
+          userId,
+          projectId,
+          sceneId,
+          hasLastFrame: !!safeLastFrame,
           duration,
+        });
+        const finalPrompt = directed?.prompt ?? safePrompt;
+        log.info("视频 prompt 路径", {
+          sceneId,
+          path: directed ? "enhanced" : "client_fallback",
+          segments: plan.segments.length,
+        });
+
+        // 分段生成编排：时长 ≤ 单段能力时退化为一次生成（零回归）；超过时按 plan
+        // 拆成 N 段链式衔接（末帧→下段首帧）+ ffmpeg 拼接成单条视频。多段路径内部
+        // 已走 storage 门面落自有存储；单段路径返回 provider 临时 URL（下方转存）。
+        const segResult = await generateSceneVideoSegmented({
+          imageUrl,
+          requestedSeconds: duration,
+          capability,
+          prompts: [finalPrompt],
           aspectRatio,
           referenceImages,
           identityPrompt: safeIdentityPrompt,
           lastFrameImage: safeLastFrame,
           config: videoConfig ?? undefined,
+          userId,
+          projectId,
+          sceneId,
         });
+        const isMultiSegment = segResult.segments.length > 1;
+        const rawVideoUrl = segResult.videoUrl;
 
         // 转存到自有存储（R2 或本地盘），落库自有 URL —— 与图片生成路径一致。
         // 关键修复：provider（flow2api）返回的是内部受限域名的临时签名 URL
@@ -198,8 +448,9 @@ export async function POST(request: NextRequest) {
         // 但用户浏览器无法解析该域名 → 预览 <video> 加载超时「视频看不了」，且
         // URL 带过期时间，过期后彻底失效。转存后浏览器用自有 URL 加载，稳定可播。
         // 转存失败降级沿用原始 URL（至少服务端导出仍可用），不阻塞生成。
+        // 多段路径的 videoUrl 已是拼接后上传的自有 URL，无需再转存。
         let videoUrl = rawVideoUrl;
-        if (isStorageConfigured()) {
+        if (!isMultiSegment && isStorageConfigured()) {
           try {
             videoUrl = await uploadFileFromUrl(rawVideoUrl, {
               fileName: `scene_${sceneId || "unknown"}_${Date.now()}.mp4`,
@@ -215,20 +466,30 @@ export async function POST(request: NextRequest) {
         }
 
         // 探测视频真实时长回写 Scene.duration：provider（flow2api/Veo）常忽略
-        // 请求的 5/10/15s，返回 ~8s 片段，与 DB 声明时长不符。一旦分镜有了视频，
+        // 请求的时长，返回 ~8s 片段，与 DB 声明时长不符。一旦分镜有了视频，
         // 视频的真实长度就是分镜时长——预览计时/导出时轴全部据此对齐（三层修复的源头）。
-        // 用转存后的自有 URL 探测（本地盘直读/自有域名可达），探测失败回退请求时长。
+        // 多段路径 orchestrator 已 ffprobe 拼接后总时长，优先采用；否则用自有 URL 探测。
         let resolvedDuration = duration;
-        try {
-          const probed = await probeMediaDurationFromUrl(videoUrl);
-          if (probed > 0) {
-            resolvedDuration = Math.max(1, Math.round(probed));
+        if (
+          segResult.measuredDurationSeconds &&
+          segResult.measuredDurationSeconds > 0
+        ) {
+          resolvedDuration = Math.max(
+            1,
+            Math.round(segResult.measuredDurationSeconds)
+          );
+        } else {
+          try {
+            const probed = await probeMediaDurationFromUrl(videoUrl);
+            if (probed > 0) {
+              resolvedDuration = Math.max(1, Math.round(probed));
+            }
+          } catch (probeErr) {
+            log.warn("视频真实时长探测失败，回退请求时长", {
+              duration,
+              error: probeErr instanceof Error ? probeErr.message : probeErr,
+            });
           }
-        } catch (probeErr) {
-          log.warn("视频真实时长探测失败，回退请求时长", {
-            duration,
-            error: probeErr instanceof Error ? probeErr.message : probeErr,
-          });
         }
 
         // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
@@ -242,8 +503,13 @@ export async function POST(request: NextRequest) {
             data: {
               status: "COMPLETED",
               // output 即轮询端点透传给客户端的 result，保持与原同步响应同形；
-              // 附带 duration 供排障/客户端使用（真实回写值）
-              output: { videoUrl, cost, duration: resolvedDuration },
+              // 附带 duration（真实回写值）与 segments 元数据（分段排障留痕）
+              output: {
+                videoUrl,
+                cost,
+                duration: resolvedDuration,
+                segments: segResult.segments,
+              },
               completedAt: new Date(),
             },
           });

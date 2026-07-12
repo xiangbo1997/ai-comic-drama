@@ -12,6 +12,12 @@ export interface AIServiceConfig {
   model: string;
   protocol: string;
   authType?: AuthType;
+  /**
+   * provider 特有的扩展配置：来自 UserAIConfig.extraConfig（jsonb）。
+   * 承载各家非标准字段，如 GPT-SoVITS 的参考音频路径 refAudioPath / promptText 等。
+   * 仅收窄为字符串键值对（非字符串值在装配层被过滤）。
+   */
+  extraConfig?: Record<string, string>;
 }
 
 /** LLM 消息 */
@@ -60,7 +66,14 @@ export interface ImageGenerationOptions {
 export interface VideoGenerationOptions {
   imageUrl: string;
   prompt?: string;
-  duration?: 5 | 10 | 15;
+  /**
+   * 请求时长（秒）。语义：调用方期望的单段时长。
+   * - 接受 duration 参数的 provider（runway/fal/proxy-unified）会在内部就近吸附
+   *   到自家档位（5/10/15），保证下发给上游 API 的是合法值。
+   * - 忽略 duration 的 provider（flow2api/Veo）透传忽略。
+   * 分段生成（segmented-video）会为每段传入已规划好的档位或 undefined。
+   */
+  duration?: number;
   /** 画幅；与图像端一致，便于 i2v provider 路由（flow2api/Veo 横/竖屏）。 */
   aspectRatio?: "1:1" | "9:16" | "16:9";
   /** 参考图 URL 列表（R2V 多参考图语义；目前 flow2api-video 使用） */
@@ -109,4 +122,5 @@ export type AIProviderProtocol =
   | "siliconflow"
   | "proxy-unified"
   | "volcengine"
-  | "elevenlabs";
+  | "elevenlabs"
+  | "gpt-sovits";

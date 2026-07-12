@@ -8,6 +8,7 @@ import { chargeCredits } from "@/lib/credits";
 import {
   buildCharacterBasePrompt,
   POSE_CONSTRAINTS,
+  IDENTITY_LOCK,
 } from "@/lib/prompts/character-reference";
 import { hashStringToSeed } from "@/services/generation";
 import { Prisma } from "@prisma/client";
@@ -112,11 +113,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    void runThreeViewsTask(task.id, id, userId, character, imageConfig).catch(
-      (err) => {
-        log.error(`Background three-views task ${task.id} unhandled:`, err);
-      }
-    );
+    // 身份锚点：优先用定妆图 canonicalImageUrl，退回旧数组首图。
+    // 这是角色卡主图展示的同一张，三视图以它作 i2i 起点 → 转的是「这只角色」，
+    // 而非照文字重画一个新角色（三视图与主图不一致的根因）。
+    const anchorImageUrl =
+      character.canonicalImageUrl ?? character.referenceImages[0] ?? undefined;
+
+    void runThreeViewsTask(
+      task.id,
+      id,
+      userId,
+      character,
+      imageConfig,
+      anchorImageUrl
+    ).catch((err) => {
+      log.error(`Background three-views task ${task.id} unhandled:`, err);
+    });
 
     return NextResponse.json({ taskId: task.id, status: "PROCESSING" });
   } catch (error) {
@@ -136,27 +148,34 @@ async function runThreeViewsTask(
   characterId: string,
   userId: string,
   character: Parameters<typeof buildCharacterBasePrompt>[0],
-  imageConfig: Awaited<ReturnType<typeof getUserImageConfig>>
+  imageConfig: Awaited<ReturnType<typeof getUserImageConfig>>,
+  anchorImageUrl: string | undefined
 ): Promise<void> {
   try {
     const basePrompt = buildCharacterBasePrompt(character);
 
-    // 角色一致性闭环：同一角色用同一 seed，且侧/背视图以「正面定妆图」作
-    // i2i 参考，确保三视图是同一个人（feat-creative P0-2）。POSES 顺序
-    // 保证 front 在首，先产出 canonical，后两视图锚定它。
+    // 角色一致性闭环：同一角色用同一 seed；三视图**全部以主图 i2i 锚定身份**，
+    // 确保转出的是「角色卡上这只角色」而非照文字重画的新角色。
+    // - 有主图（anchorImageUrl）：front 也带参考图，用 IDENTITY_LOCK 指令强制保形，
+    //   仅改角度/姿势；side/back 以最新落库的 front 作二次锚（同一画风继续转面）。
+    // - 无主图（全新角色先生三视图）：退回原「front 文生图 → 侧/背锚 front」链路。
     const seed = hashStringToSeed(characterId);
 
     // 串行生成三视图（防限流）
     const results: { pose: string; url: string }[] = [];
-    let canonicalUrl: string | undefined;
+    // 后续视图的参考锚：优先延用主图（保持与主图同源），front 落库后升级为最新锚。
+    let canonicalUrl: string | undefined = anchorImageUrl;
     for (const pose of POSES) {
-      const prompt = `${basePrompt}, ${POSE_CONSTRAINTS[pose]}`;
+      // 有参考图时追加身份锁定指令：保留外貌/配色/画风，只换角度，禁止重设计。
+      const prompt = canonicalUrl
+        ? `${basePrompt}, ${POSE_CONSTRAINTS[pose]}, ${IDENTITY_LOCK}`
+        : `${basePrompt}, ${POSE_CONSTRAINTS[pose]}`;
       let imageUrl = await generateImage({
         prompt,
         aspectRatio: "1:1",
         seed,
-        // 正面无参考；侧/背用正面定妆图锚定身份
-        referenceImage: pose === "front" ? undefined : canonicalUrl,
+        // 有主图时三视图全部带参考锚定身份；无主图时 front 文生图打底
+        referenceImage: canonicalUrl,
         config: imageConfig || undefined,
       });
 
@@ -175,7 +194,8 @@ async function runThreeViewsTask(
           );
         }
       }
-      // 正面图落库后即作为后续视图的参考锚（用落库 URL，避免外链过期）
+      // 正面图落库后升级为后续视图的参考锚（用落库 URL，避免外链过期）：
+      // 用「已保形的正面转面图」继续锚定侧/背，画风比原主图更贴近三视图语境。
       if (pose === "front") canonicalUrl = imageUrl;
       results.push({ pose, url: imageUrl });
     }

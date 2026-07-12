@@ -42,6 +42,24 @@ export function isUsingPlatformFallback(
 }
 
 /**
+ * 把 UserAIConfig.extraConfig（jsonb，类型未知）安全收窄为 Record<string,string>。
+ * 只保留值为字符串的条目（GPT-SoVITS 的 refAudioPath / promptText 等都是字符串）；
+ * 无任何字符串条目时返回 undefined，避免下游拿到空对象误判"已配置"。
+ */
+function narrowExtraConfig(raw: unknown): Record<string, string> | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    return undefined;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === "string") {
+      result[key] = value;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+/**
  * P5：从一条 UserAIConfig(含 provider)装配为 AIServiceConfig。
  *
  * 这是四个 getUserXConfig 函数末尾完全重复的"解密 + 组装"逻辑的抽取。
@@ -60,6 +78,7 @@ async function assembleServiceConfig(
     apiProtocol: string | null;
     selectedModel: string | null;
     authType: string | null;
+    extraConfig?: unknown;
     provider: { baseUrl: string | null; apiProtocol: string | null };
   },
   fallbackModel = "",
@@ -86,6 +105,7 @@ async function assembleServiceConfig(
       config.apiProtocol || config.provider.apiProtocol || defaultProtocol,
     authType:
       (config.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") || "API_KEY",
+    extraConfig: narrowExtraConfig(config.extraConfig),
   };
 }
 

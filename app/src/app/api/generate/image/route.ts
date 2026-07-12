@@ -18,6 +18,7 @@ import type { SceneCharacterInfo, CharacterRole } from "@/services/generation";
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 import { getAnalysisCache, setAnalysisCache } from "@/lib/cache/analysis-cache";
+import { loadSeriesMemoryDigest } from "@/lib/series-memory";
 import { chargeCredits } from "@/lib/credits";
 
 const log = createLogger("api:generate:image");
@@ -201,6 +202,7 @@ export async function POST(request: NextRequest) {
           const scene = await prisma.scene.findUnique({
             where: { id: sceneId },
             select: {
+              order: true,
               description: true,
               dialogue: true,
               emotion: true,
@@ -294,14 +296,38 @@ export async function POST(request: NextRequest) {
 
           if (characters.length > 0 && scene?.description && llmConfig) {
             try {
+              // 连续性记忆（Deliverable 3）：取相邻镜画面描述（order±1），让分析层
+              // 保持人物状态/道具/服装延续、不与前后镜冲突。cheap select，仅取 description。
+              const [prevScene, nextScene] = await Promise.all([
+                prisma.scene.findFirst({
+                  where: { projectId, order: scene.order - 1 },
+                  select: { description: true },
+                }),
+                prisma.scene.findFirst({
+                  where: { projectId, order: scene.order + 1 },
+                  select: { description: true },
+                }),
+              ]);
+              const prevSceneDescription = prevScene?.description || undefined;
+              const nextSceneDescription = nextScene?.description || undefined;
+
+              // 系列记忆（既定场景/道具/角色状态）：续集时注入分析 prompt，保证
+              // 跨集视觉一致。空圣经/非系列返回 null。digest 变化必须进 cache key。
+              const seriesContext =
+                (await loadSeriesMemoryDigest(projectId, "scene")) || undefined;
+
               // 场景分析缓存（a7 P1-4）：同分镜重复生成时内容不变，跳过
-              // 这次 ~1024 tokens 的 LLM 往返。key 按场景内容+角色名哈希。
+              // 这次 ~1024 tokens 的 LLM 往返。key 按场景内容+角色名+相邻镜描述+
+              // 系列记忆 digest 哈希（任一变化会改变分析指令，故纳入 key）。
               const analysisCacheKey = {
                 sceneDescription: scene.description,
                 dialogue: scene.dialogue || undefined,
                 emotion: scene.emotion || undefined,
                 shotType: scene.shotType || undefined,
                 characterNames: characters.map((c) => c.name),
+                prevSceneDescription,
+                nextSceneDescription,
+                seriesContext,
               };
               let analysisResponse = await getAnalysisCache(analysisCacheKey);
 
@@ -312,6 +338,9 @@ export async function POST(request: NextRequest) {
                   characters,
                   emotion: scene.emotion || undefined,
                   shotType: scene.shotType || undefined,
+                  prevSceneDescription,
+                  nextSceneDescription,
+                  seriesContext,
                 });
 
                 analysisResponse = await chatCompletion(

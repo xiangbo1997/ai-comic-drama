@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Scene, ProjectDetail } from "@/types";
 import { buildFinalPrompt } from "@/lib/prompt-builder";
+import { buildVideoScenePrompt } from "@/lib/prompts";
 import { getThreeViewUrls } from "@/lib/three-views";
 import { apiUpdateScene } from "./use-editor-project";
 import { useToast } from "@/components/ui/toast";
@@ -12,6 +13,7 @@ import {
   runGenerationTask,
   GENERATION_TIMEOUTS,
 } from "@/lib/generation-task-client";
+import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
 export interface GenerateImageResult {
   imageUrl: string;
@@ -203,15 +205,6 @@ interface BatchOutcome {
   cancelled: boolean;
 }
 
-/**
- * 按场景时长就近映射到 provider 支持的 5/10/15 秒档。
- * 单张、多版本、workflow 三条路径统一走此函数，避免各自不同的时长逻辑
- * （此前多版本把 15s 档压成 10s）。
- */
-export function nearestVideoDuration(duration: number): 5 | 10 | 15 {
-  return duration > 10 ? 15 : duration > 5 ? 10 : 5;
-}
-
 export function useGenerationActions(
   projectId: string,
   project: ProjectDetail | undefined
@@ -361,9 +354,22 @@ export function useGenerationActions(
       "/api/generate/video",
       {
         imageUrl: scene.imageUrl,
-        prompt: scene.description,
-        // 按场景时长就近映射到 provider 支持的 5/10/15s（15s 适配 Seedance 2.0 直出）
-        duration: nearestVideoDuration(scene.duration),
+        // 统一视频 prompt 构建器：镜头语言 + 运镜 + 氛围 + 连续性 + 负面词。
+        // 身份前缀由 provider 单独 prepend（identityPrompt），此处不内联。
+        prompt: buildVideoScenePrompt({
+          description: scene.description,
+          style: project?.style,
+          shotType: scene.shotType,
+          cameraAngle: scene.cameraAngle,
+          cameraMovement: scene.cameraMovement,
+          lighting: scene.lighting,
+          emotion: scene.emotion,
+          duration: scene.duration,
+          hasLastFrame: !!lastFrameImage,
+        }),
+        // 发送真实时长（1–60，客户端仅做安全钳制）：服务端按模型能力规划分段，
+        // 超过单段时长自动拆成 N 段无缝拼接（不再在客户端预先压成 5/10/15 档）。
+        duration: clampSceneDuration(scene.duration),
         aspectRatio,
         referenceImages,
         identityPrompt,

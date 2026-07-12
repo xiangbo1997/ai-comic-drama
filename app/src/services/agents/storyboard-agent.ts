@@ -34,6 +34,7 @@ const SceneArtifactSchema = z.object({
   emotion: z.string(),
   duration: z.number().min(1).max(30),
   cameraMovement: z.string().nullable().optional(),
+  actionBeat: z.string().nullable().optional(),
   transition: z.string().nullable().optional(),
 });
 
@@ -154,7 +155,20 @@ export class StoryboardAgent implements Agent<
         const result = StoryboardSchema.safeParse(parsed);
 
         if (result.success) {
-          return { scenes: result.data.scenes as SceneArtifact[], tokensUsed };
+          // 回填解析层导演产出：cameraMovement / actionBeat 是解析器基于「全剧本
+          // 记忆」设计的运动节拍（相邻镜不重复、动作跨镜连贯），storyboard LLM
+          // 只负责 imagePrompt 精修，不应覆盖这份导演意图。按 scene id 回填，
+          // 解析层有值则优先，缺失时保留 storyboard LLM 自身的值。
+          const byId = new Map(scenes.map((s) => [s.id, s]));
+          const merged = result.data.scenes.map((sc) => {
+            const src = byId.get(sc.id);
+            return {
+              ...sc,
+              cameraMovement: src?.cameraMovement ?? sc.cameraMovement,
+              actionBeat: src?.actionBeat ?? sc.actionBeat,
+            };
+          });
+          return { scenes: merged as SceneArtifact[], tokensUsed };
         }
 
         log.warn(`Storyboard batch attempt ${attempt} validation failed`);
@@ -202,7 +216,9 @@ export class StoryboardAgent implements Agent<
         narration: s.narration,
         emotion: s.emotion,
         duration: s.duration,
-        cameraMovement: undefined,
+        // 透传解析层导演产出（此前硬置 undefined，运镜/节拍全丢失）
+        cameraMovement: s.cameraMovement,
+        actionBeat: s.actionBeat,
         transition: undefined,
       };
     });

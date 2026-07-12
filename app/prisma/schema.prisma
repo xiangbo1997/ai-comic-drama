@@ -126,6 +126,9 @@ model Series {
   genre       String? // 类型：都市/玄幻/悬疑…
   style       String   @default("anime") // 系列统一画风，新集继承
   aspectRatio String   @default("9:16") // 系列统一画幅，新集继承
+  // 系列故事圣经——跨集永久记忆，由史官 LLM 每集收官后增量更新。
+  // 结构见 types/series-bible.ts#SeriesStoryBible；默认 "{}" 对老系列完全兼容。
+  storyBible  Json     @default("{}")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -224,6 +227,7 @@ model Scene {
   composition    String? // 构图: rule of thirds/centered symmetry...
   colorPalette   String? // 色调: warm orange & teal/desaturated muted tones...
   cameraMovement String? // 运镜（喂给视频模型）: zoom_in/pan_left/tilt_up/static...
+  actionBeat     String? @db.Text // 运动节拍——这一镜内"什么在动"，LLM 解析产出，喂视频 prompt
 
   // 生成结果
   imageUrl String? // 生成的图片URL

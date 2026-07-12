@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { flow2apiChatUrl } from "@/services/ai/providers/flow2api-shared";
+import {
+  flow2apiChatUrl,
+  isTransientImageLoadError,
+} from "@/services/ai/providers/flow2api-shared";
 import { adaptModelOrientation } from "@/services/ai/providers/flow2api-image";
 import {
   planImageInputs,
@@ -26,6 +29,25 @@ describe("flow2apiChatUrl（Base URL 尾部 /v1 去重）", () => {
     );
     expect(flow2apiChatUrl("https://flow2api.example.com/")).toBe(
       "https://flow2api.example.com/v1/chat/completions"
+    );
+  });
+});
+
+describe("isTransientImageLoadError（瞬时抓图失败判定）", () => {
+  it("网关 Failed to load image 错误命中（r2.dev 限流场景）", () => {
+    expect(
+      isTransientImageLoadError(
+        'flow2api 请求失败（400）：{"detail":"Failed to load image from https://pub-x.r2.dev/a.webp"}'
+      )
+    ).toBe(true);
+  });
+
+  it("其他 400/超时错误不命中，不误重试", () => {
+    expect(isTransientImageLoadError("flow2api 任务失败: 档位不支持")).toBe(
+      false
+    );
+    expect(isTransientImageLoadError("flow2api 视频生成超时（>30 分钟）")).toBe(
+      false
     );
   });
 });
@@ -100,16 +122,35 @@ describe("planImageInputs（按视频模型类别裁剪图片输入）", () => {
     ]);
   });
 
-  it("fl（首尾帧）最多 2 张", () => {
+  it("fl（首尾帧）第 2 张只认显式尾帧：[首帧, 尾帧]", () => {
     expect(
-      planImageInputs("veo_3_1_i2v_s_fast_portrait_8s_fl", main, refs)
-    ).toEqual([main, refs[0]]);
+      planImageInputs(
+        "veo_3_1_i2v_s_fast_portrait_8s_fl",
+        main,
+        refs,
+        "https://x/next-scene.png"
+      )
+    ).toEqual([main, "https://x/next-scene.png"]);
   });
 
-  it("interpolation（首尾帧过渡）最多 2 张", () => {
+  it("fl 无尾帧时角色参考图不得补位：只送首帧（回归：钉 FL 模型致视频结尾闪现立绘）", () => {
+    expect(
+      planImageInputs("veo_3_1_i2v_s_fast_portrait_fl", main, refs)
+    ).toEqual([main]);
+  });
+
+  it("interpolation（首尾帧过渡）同样只认显式尾帧", () => {
+    expect(
+      planImageInputs(
+        "veo_3_1_interpolation_lite_portrait",
+        main,
+        refs,
+        "https://x/next-scene.png"
+      )
+    ).toEqual([main, "https://x/next-scene.png"]);
     expect(
       planImageInputs("veo_3_1_interpolation_lite_portrait", main, refs)
-    ).toEqual([main, refs[0]]);
+    ).toEqual([main]);
   });
 
   it("r2v 参考图语义：最多 3 张", () => {
@@ -123,10 +164,18 @@ describe("planImageInputs（按视频模型类别裁剪图片输入）", () => {
     ]);
   });
 
-  it("fl 放大变体（_fl_4k）也按首尾帧裁剪", () => {
+  it("fl 放大变体（_fl_4k）也按首尾帧分槽", () => {
+    expect(
+      planImageInputs(
+        "veo_3_1_i2v_s_fast_ultra_fl_4k",
+        main,
+        refs,
+        "https://x/next-scene.png"
+      )
+    ).toEqual([main, "https://x/next-scene.png"]);
     expect(
       planImageInputs("veo_3_1_i2v_s_fast_ultra_fl_4k", main, refs)
-    ).toEqual([main, refs[0]]);
+    ).toEqual([main]);
   });
 });
 
@@ -184,9 +233,12 @@ describe("chooseModel（尾帧衔接 lastFrameImage 路由 FL）", () => {
 
   it("尾帧场景的图片输入严格为 [首帧, 尾帧]", () => {
     expect(
-      planImageInputs("veo_3_1_i2v_s_fast_fl", base.imageUrl, [
-        "https://x/scene-2.png",
-      ])
+      planImageInputs(
+        "veo_3_1_i2v_s_fast_fl",
+        base.imageUrl,
+        [],
+        "https://x/scene-2.png"
+      )
     ).toEqual([base.imageUrl, "https://x/scene-2.png"]);
   });
 });

@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Loader2, FileText, ListVideo } from "lucide-react";
+import {
+  Sparkles,
+  Loader2,
+  FileText,
+  ListVideo,
+  BookMarked,
+  RefreshCw,
+} from "lucide-react";
 import type {
   ProjectDetail,
   DramaScriptArtifact,
@@ -45,6 +52,29 @@ export function DramaScriptPanel({
   );
   const [durationSec, setDurationSec] = useState(90);
 
+  // 系列记忆刷新（手动触发史官归档缺失集）：本地态，不引入新 hook
+  const [isRefreshingMemory, setIsRefreshingMemory] = useState(false);
+  const [memoryRefreshed, setMemoryRefreshed] = useState(false);
+  const bibleSummary = project.series?.bibleSummary ?? null;
+
+  const handleRefreshMemory = async () => {
+    if (!project.series || isRefreshingMemory) return;
+    setIsRefreshingMemory(true);
+    setMemoryRefreshed(false);
+    try {
+      const res = await fetch(`/api/series/${project.series.id}/chronicle`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (res.ok) setMemoryRefreshed(true);
+    } catch {
+      // 静默：记忆刷新失败不影响创作
+    } finally {
+      setIsRefreshingMemory(false);
+    }
+  };
+
   const latest: ShortDramaScriptRecord | undefined = scripts[0];
   const latestDoc = latest?.scriptDoc as DramaScriptArtifact | undefined;
 
@@ -76,6 +106,49 @@ export function DramaScriptPanel({
           本集是「{project.series.title}」第 {project.episodeNumber} 集：
           生成脚本时将自动衔接上一集的剧情结尾，无需手动写前情提要
         </p>
+      )}
+
+      {/* 系列记忆（故事圣经）摘要 + 手动刷新入口：有归档时展示 */}
+      {project.series && bibleSummary && (
+        <div className="bg-card rounded-lg border border-white/5 p-3">
+          <div className="mb-1.5 flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <BookMarked size={13} className="text-agent" />
+              <span className="text-xs font-medium">系列记忆</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleRefreshMemory}
+              disabled={isRefreshingMemory}
+              className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-[11px] transition-colors disabled:opacity-50"
+              title="归档尚未记录的集数，刷新跨集记忆"
+            >
+              <RefreshCw
+                size={11}
+                className={isRefreshingMemory ? "animate-spin" : ""}
+              />
+              {isRefreshingMemory
+                ? "刷新中"
+                : memoryRefreshed
+                  ? "已刷新"
+                  : "刷新记忆"}
+            </button>
+          </div>
+          <div className="text-muted-foreground space-y-0.5 text-[11px]">
+            {bibleSummary.theme && (
+              <p className="line-clamp-1">主题：{bibleSummary.theme}</p>
+            )}
+            <p>
+              已归档 {bibleSummary.episodeCount} 集 · 未解决伏笔{" "}
+              {bibleSummary.openThreads} 条
+            </p>
+            {bibleSummary.lastEpisodeHook && (
+              <p className="line-clamp-1">
+                上一集钩子：{bibleSummary.lastEpisodeHook}
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       <textarea

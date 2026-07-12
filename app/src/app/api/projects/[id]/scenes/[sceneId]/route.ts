@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:scenes:[sceneId]");
@@ -39,6 +40,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       duration,
       ttsSpeed,
       videoLinkNext,
+      cameraMovement,
+      actionBeat,
       imageUrl,
       videoUrl,
       audioUrl,
@@ -58,7 +61,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(dialogue !== undefined && { dialogue }),
         ...(narration !== undefined && { narration }),
         ...(emotion !== undefined && { emotion }),
-        ...(duration !== undefined && { duration }),
+        // 时长钳到 1–60 整数：分镜时长上限即视频分段上限，防越界值直达 DB
+        ...(duration !== undefined && {
+          duration: clampSceneDuration(duration),
+        }),
         // 配音语速：夹取到 provider 支持的 0.5–2.0，防越界值直达适配器
         ...(ttsSpeed !== undefined && {
           ttsSpeed: Math.min(2, Math.max(0.5, Number(ttsSpeed) || 1)),
@@ -67,6 +73,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(videoLinkNext !== undefined && {
           videoLinkNext: Boolean(videoLinkNext),
         }),
+        // 运镜 / 运动节拍：LLM 导演产出，编辑器可手改（喂视频 prompt）
+        ...(cameraMovement !== undefined && {
+          cameraMovement: cameraMovement || null,
+        }),
+        ...(actionBeat !== undefined && { actionBeat: actionBeat || null }),
         ...(imageUrl !== undefined && { imageUrl }),
         ...(videoUrl !== undefined && { videoUrl }),
         ...(audioUrl !== undefined && { audioUrl }),

@@ -227,3 +227,64 @@ export async function testElevenLabs(apiKey: string): Promise<TestResult> {
     message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
   };
 }
+
+// GPT-SoVITS 自建网关测试：GET /health（无鉴权），gateway 为 up 即连通，
+// 顺带回显 model_version 与两卡 worker 状态供用户确认后端就绪。
+export async function testGptSovits(baseUrl: string): Promise<TestResult> {
+  const base = baseUrl.replace(/\/+$/, "");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`${base}/health`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const error = await response.text().catch(() => "");
+      return {
+        success: false,
+        message: `连接失败: ${response.status} ${error.slice(0, 200)}`,
+        errorType: response.status >= 500 ? "network" : "unknown",
+        suggestion: "确认网关地址正确且服务已启动（GET /health 应返回 up）",
+      };
+    }
+    const data = (await response.json()) as {
+      gateway?: string;
+      model_version?: string;
+      workers?: Record<string, string>;
+    };
+    if (data.gateway !== "up") {
+      return {
+        success: false,
+        message: `网关未就绪（gateway=${data.gateway ?? "未知"}）`,
+        errorType: "network",
+        suggestion: "让运维检查 GPT-SoVITS 后端进程是否存活",
+      };
+    }
+    const workerInfo = data.workers
+      ? Object.entries(data.workers)
+          .map(([name, status]) => `${name}:${status}`)
+          .join(", ")
+      : "";
+    return {
+      success: true,
+      message: `连接成功（model ${data.model_version ?? "未知"}${workerInfo ? `，${workerInfo}` : ""}）`,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return {
+        success: false,
+        message: "连接超时（10 秒内未响应 /health）",
+        errorType: "network",
+        suggestion: "确认网关地址可达",
+      };
+    }
+    return {
+      success: false,
+      message: `网络错误: ${error instanceof Error ? error.message : "请求失败"}`,
+      errorType: "network",
+      suggestion: "确认网关地址正确",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}

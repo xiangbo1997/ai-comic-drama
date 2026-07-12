@@ -1,7 +1,9 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { parseStoryBible } from "@/types/series-bible";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:series:[id]");
@@ -58,6 +60,8 @@ const UpdateSeriesSchema = z.object({
   aspectRatio: z.string().trim().max(20).optional(),
   worldview: z.string().trim().max(8000).nullable().optional(),
   protagonist: z.string().trim().max(2000).nullable().optional(),
+  // 高级用户手动编辑故事圣经：任意 JSON，写入前经 parseStoryBible 规整（坏字段降级）
+  storyBible: z.unknown().optional(),
 });
 
 // 更新系列设定（世界观/主角/风格等；不回写已有各集，只影响后续新集）
@@ -102,6 +106,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(input.worldview !== undefined && { worldview: input.worldview }),
         ...(input.protagonist !== undefined && {
           protagonist: input.protagonist,
+        }),
+        ...(input.storyBible !== undefined && {
+          storyBible: JSON.parse(
+            JSON.stringify(parseStoryBible(input.storyBible))
+          ) as Prisma.InputJsonValue,
         }),
       },
     });

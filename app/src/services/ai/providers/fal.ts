@@ -4,8 +4,12 @@
 
 import type { ImageProvider, VideoProvider } from "../types";
 import { pollUntilDone, type PollStep } from "./poll";
+import { nearestVideoDuration } from "@/services/generation/video-segmenter";
 
 const FAL_QUEUE_BASE = "https://queue.fal.run";
+
+/** Fal.ai（minimax 系列）接受的时长档位（秒） */
+const FAL_DURATIONS = [5, 10] as const;
 
 /**
  * Fal.ai 队列轮询：提交后按 requestId 轮询状态，完成则拉取结果 JSON。
@@ -119,11 +123,9 @@ export const falImage: ImageProvider = {
 
 export const falVideo: VideoProvider = {
   async generateVideo(options, config) {
-    const {
-      imageUrl,
-      prompt = "gentle camera movement",
-      duration = 5,
-    } = options;
+    const { imageUrl, prompt = "gentle camera movement" } = options;
+    // 请求时长就近吸附到 Fal 合法档位，防越界值直达上游 API
+    const duration = nearestVideoDuration(options.duration, FAL_DURATIONS);
     const model = config.model || "fal-ai/minimax/video-01-live/image-to-video";
 
     const response = await fetch(`${FAL_QUEUE_BASE}/${model}`, {

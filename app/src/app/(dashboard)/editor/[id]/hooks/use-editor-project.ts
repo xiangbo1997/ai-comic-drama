@@ -32,12 +32,16 @@ async function apiUpdateProject(id: string, data: Partial<ProjectDetail>) {
  *   3) status === "COMPLETED" 返回 result；"FAILED" 抛错；"PROCESSING" 继续轮询
  *   4) 5 分钟超时兜底（按理 ScriptParserAgent 最多 3 × 45s = 135s 就该结束）
  */
-async function parseScript(text: string): Promise<ParsedScript> {
-  // 步骤 1：POST 立即拿 taskId
+async function parseScript(
+  text: string,
+  projectId?: string
+): Promise<ParsedScript> {
+  // 步骤 1：POST 立即拿 taskId。带 projectId：系列续集时服务端注入既定设定，
+  // 让解析结果不与前作矛盾（人物名/状态/世界观）。
   const startRes = await fetch("/api/script/parse", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(projectId ? { text, projectId } : { text }),
   });
   if (!startRes.ok) {
     const errBody = await startRes.json().catch(() => ({}));
@@ -221,7 +225,8 @@ export function useEditorProject(projectId: string) {
   }
 
   const parseMutation = useMutation({
-    mutationFn: () => parseScript(inputText),
+    mutationFn: () =>
+      parseScript(inputText, projectId !== "new" ? projectId : undefined),
     onSuccess: async (result) => {
       // SceneScript[] 与 saveScenes 期望的 Record<string, unknown>[] 在序列化层等价；
       // 仅为 TypeScript 索引签名校验做 cast，运行时无影响

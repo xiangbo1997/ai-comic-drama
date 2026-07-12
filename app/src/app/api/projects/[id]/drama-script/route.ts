@@ -6,6 +6,8 @@ import { getUserLLMConfig } from "@/lib/ai-config";
 import { generateDramaScript } from "@/services/drama-script";
 import { prisma } from "@/lib/prisma";
 import { buildPreviousEpisodeRecap } from "@/lib/series";
+import { loadSeriesMemoryDigest } from "@/lib/series-memory";
+import { chronicleEpisode } from "@/services/series/chronicler";
 import type { DramaScriptArtifact, DramaScriptInput } from "@/types/drama";
 
 import { createLogger } from "@/lib/logger";
@@ -99,7 +101,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       },
     });
 
-    void runDramaScriptTask(task.id, id, input, llmConfig).catch((err) => {
+    void runDramaScriptTask(task.id, id, input, llmConfig, {
+      userId: session.user.id,
+      seriesId: project.seriesId,
+      episodeNumber: project.episodeNumber,
+    }).catch((err) => {
       log.error(`Background drama-script task ${task.id} unhandled:`, err);
     });
 
@@ -115,11 +121,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 }
 
 /**
- * 系列第 N>1 集：把上一集剧情压缩成前情提要（供 prompt 注入）。
- * 优先取上一集最新短剧脚本（logline + 结尾场景）；无脚本（直接文本
- * 解析路径）则以其最后两个分镜兜底。独立项目/第 1 集返回 undefined。
+ * 系列第 N>1 集：生成注入本集脚本 prompt 的前情/记忆上下文。
+ *
+ * 优先用故事圣经 digest（累积记忆：主题锁/未解决伏笔/角色状态/近 3 集回顾），
+ * 覆盖 1..N-1 全部集数；圣经为空（老系列尚未归档）时回落到旧的「上一集前情提要」
+ * （仅 N-1 集的 logline + 结尾场景）。独立项目/第 1 集返回 undefined。
  */
 async function derivePreviousEpisodeRecap(project: {
+  id: string;
   seriesId: string | null;
   episodeNumber: number | null;
 }): Promise<string | undefined> {
@@ -131,6 +140,11 @@ async function derivePreviousEpisodeRecap(project: {
     return undefined;
   }
 
+  // 优先：累积故事圣经 digest（覆盖全部前作，非仅上一集）
+  const digest = await loadSeriesMemoryDigest(project.id, "script");
+  if (digest) return digest;
+
+  // 回落：pre-bible 老系列，用旧的上一集前情提要
   const prev = await prisma.project.findFirst({
     where: {
       seriesId: project.seriesId,
@@ -187,7 +201,12 @@ async function runDramaScriptTask(
   taskId: string,
   projectId: string,
   input: DramaScriptInput,
-  llmConfig: Awaited<ReturnType<typeof getUserLLMConfig>>
+  llmConfig: Awaited<ReturnType<typeof getUserLLMConfig>>,
+  series: {
+    userId: string;
+    seriesId: string | null;
+    episodeNumber: number | null;
+  }
 ): Promise<void> {
   try {
     const artifact: DramaScriptArtifact = await generateDramaScript(
@@ -221,6 +240,24 @@ async function runDramaScriptTask(
       },
     });
     log.info(`Drama script task ${taskId} completed → script ${created.id}`);
+
+    // 系列集：脚本定稿后 fire-and-forget 归档进故事圣经（跨集记忆增量更新）。
+    // 静默失败，不回写 task 状态、不影响已交付的脚本。
+    if (series.seriesId && series.episodeNumber != null) {
+      void chronicleEpisode({
+        seriesId: series.seriesId,
+        projectId,
+        episodeNumber: series.episodeNumber,
+        userId: series.userId,
+      }).catch((chronicleErr) => {
+        log.warn(`Drama script task ${taskId} 归档失败（脚本已交付）`, {
+          error:
+            chronicleErr instanceof Error
+              ? chronicleErr.message
+              : String(chronicleErr),
+        });
+      });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(`Drama script task ${taskId} failed:`, message);

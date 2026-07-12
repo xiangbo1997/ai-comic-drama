@@ -140,4 +140,13 @@ export interface AnalyzeSceneRequest {
   characters: CharacterInfo[];
   emotion?: string;
   shotType?: string;
+  /** 上一镜画面描述（承接连续性：人物状态/道具/服装延续，不与前情冲突） */
+  prevSceneDescription?: string;
+  /** 下一镜画面描述（连续性参考） */
+  nextSceneDescription?: string;
+  /**
+   * 系列记忆上下文（既定场景/道具/角色状态，一句话预算级；系列续集时注入）。
+   * 见 lib/series.ts#buildSeriesMemoryDigest（stage 'scene'）。
+   */
+  seriesContext?: string;
 }

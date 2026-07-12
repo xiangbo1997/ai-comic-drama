@@ -24,6 +24,18 @@ export interface SeriesEpisodeRef {
   episodeNumber: number | null;
 }
 
+/** 系列故事圣经的编辑器展示摘要（不含全量圣经；史官维护的跨集记忆概览） */
+export interface SeriesBibleSummary {
+  /** 主题锁（一句话） */
+  theme: string | null;
+  /** 未解决伏笔数 */
+  openThreads: number;
+  /** 已归档集数 */
+  episodeCount: number;
+  /** 最后一集结尾钩子 */
+  lastEpisodeHook: string | null;
+}
+
 /** 挂在项目详情上的系列上下文（编辑器消费：徽标、上下集跳转、世界观预填） */
 export interface ProjectSeriesInfo {
   id: string;
@@ -32,4 +44,6 @@ export interface ProjectSeriesInfo {
   worldview: string | null;
   protagonist: string | null;
   episodes: SeriesEpisodeRef[];
+  /** 系列记忆摘要（有归档时非 null，供编辑器展示 + 刷新入口） */
+  bibleSummary?: SeriesBibleSummary | null;
 }

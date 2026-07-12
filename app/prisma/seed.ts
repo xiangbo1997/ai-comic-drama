@@ -13,8 +13,33 @@ const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
+/** 预置提供商种子形状；apiProtocol 可选，未定义时 Prisma 直接跳过写入 */
+interface SeedProvider {
+  slug: string;
+  name: string;
+  category: AICategory;
+  description: string;
+  baseUrl: string;
+  apiProtocol?: string;
+  models: Array<{
+    id: string;
+    name: string;
+    costPerUnit: number;
+    description?: string;
+  }>;
+  configSchema: {
+    fields: Array<{
+      key: string;
+      label: string;
+      type: string;
+      required: boolean;
+    }>;
+  };
+  sortOrder: number;
+}
+
 // AI 服务提供商预置数据
-const providers = [
+const providers: SeedProvider[] = [
   // ============ LLM ============
   {
     slug: "deepseek",
@@ -377,6 +402,50 @@ const providers = [
     },
     sortOrder: 4,
   },
+  {
+    slug: "gpt-sovits",
+    name: "GPT-SoVITS",
+    category: AICategory.TTS,
+    description: "自建 GPT-SoVITS 网关（v2ProPlus），参考音频克隆式中文 TTS",
+    baseUrl: "https://weed-attachment-section-knife.trycloudflare.com",
+    apiProtocol: "gpt-sovits",
+    models: [{ id: "v2ProPlus", name: "GPT-SoVITS v2ProPlus", costPerUnit: 0 }],
+    configSchema: {
+      fields: [
+        {
+          key: "apiKey",
+          label: "API Key（网关未启用鉴权，可填任意占位值如 none）",
+          type: "password",
+          required: true,
+        },
+        {
+          key: "refAudioPath",
+          label: "参考音频路径（先在网关 /docs 用 /upload_ref 上传获取）",
+          type: "text",
+          required: true,
+        },
+        {
+          key: "promptText",
+          label: "参考音频的文字内容（可选，提升音色相似度）",
+          type: "text",
+          required: false,
+        },
+        {
+          key: "textLang",
+          label: "合成文本语言（默认 zh）",
+          type: "text",
+          required: false,
+        },
+        {
+          key: "promptLang",
+          label: "参考音频语言（默认 zh）",
+          type: "text",
+          required: false,
+        },
+      ],
+    },
+    sortOrder: 5,
+  },
 ];
 
 // 预设角色标签
@@ -412,6 +481,7 @@ async function main() {
         category: provider.category,
         description: provider.description,
         baseUrl: provider.baseUrl,
+        apiProtocol: provider.apiProtocol,
         models: provider.models,
         configSchema: provider.configSchema,
         sortOrder: provider.sortOrder,
@@ -422,6 +492,7 @@ async function main() {
         category: provider.category,
         description: provider.description,
         baseUrl: provider.baseUrl,
+        apiProtocol: provider.apiProtocol,
         models: provider.models,
         configSchema: provider.configSchema,
         sortOrder: provider.sortOrder,

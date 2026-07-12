@@ -7,13 +7,14 @@ import {
   derivePromptInputs,
   deriveIdentityPrompt,
   deriveTailFrame,
-  nearestVideoDuration,
   projectAspectRatio,
 } from "./use-generation-actions";
 import {
   runGenerationTask,
   GENERATION_TIMEOUTS,
 } from "@/lib/generation-task-client";
+import { buildVideoScenePrompt } from "@/lib/prompts";
+import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
 // MultiGenerateDialog.onGenerate 的入参形态（该组件未导出此类型，就近声明）
 type MultiGenerateConfig = { configId: string; modelId: string };
@@ -86,7 +87,7 @@ export function useMultiGenerate({
       if (!selectedScene?.imageUrl || !project) return;
       onCloseVideo();
 
-      // 与单张视频一致：就近映射 5/10/15s 三档（不再把 15s 压成 10s），
+      // 与单张视频一致：发送真实时长（服务端按模型能力自动分段），
       // 注入角色参考图（R2V 路由）+ 身份前缀（人物一致性）+ 尾帧衔接。
       const { referenceImages } = derivePromptInputs(selectedScene, project);
       const videoAspectRatio = projectAspectRatio(project);
@@ -99,8 +100,19 @@ export function useMultiGenerate({
           "/api/generate/video",
           {
             imageUrl: selectedScene!.imageUrl,
-            prompt: selectedScene!.description,
-            duration: nearestVideoDuration(selectedScene!.duration),
+            // 统一视频 prompt 构建器（与单张视频同源）；身份前缀由 provider 单独 prepend
+            prompt: buildVideoScenePrompt({
+              description: selectedScene!.description,
+              style: project.style,
+              shotType: selectedScene!.shotType,
+              cameraAngle: selectedScene!.cameraAngle,
+              cameraMovement: selectedScene!.cameraMovement,
+              lighting: selectedScene!.lighting,
+              emotion: selectedScene!.emotion,
+              duration: selectedScene!.duration,
+              hasLastFrame: !!lastFrameImage,
+            }),
+            duration: clampSceneDuration(selectedScene!.duration),
             aspectRatio: videoAspectRatio,
             referenceImages,
             identityPrompt,

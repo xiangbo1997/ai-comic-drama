@@ -178,23 +178,23 @@ describe("buildPreviousEpisodeRecap", () => {
   });
 });
 
-describe("buildDramaScriptUserPrompt 前情提要注入", () => {
+describe("buildDramaScriptUserPrompt 系列记忆注入", () => {
   const baseInput = { worldview: "苍潮界，群岛与古代遗迹的世界" };
 
-  it("有前情提要：注入回顾块 + 续集承接要求", () => {
+  it("有系列记忆：注入记忆块 + 续集承接要求", () => {
     const prompt = buildDramaScriptUserPrompt({
       ...baseInput,
       previousEpisodeRecap: "第1集《启程》\n梗概：发现碎片",
     });
-    expect(prompt).toContain("前情提要");
+    expect(prompt).toContain("系列记忆");
     expect(prompt).toContain("第1集《启程》");
     expect(prompt).toContain("本集是系列续集");
     expect(prompt).toContain("引向下一集的悬念钩子");
   });
 
-  it("无前情提要（第一集/独立项目）：不出现续集相关内容", () => {
+  it("无系列记忆（第一集/独立项目）：不出现续集相关内容", () => {
     const prompt = buildDramaScriptUserPrompt(baseInput);
-    expect(prompt).not.toContain("前情提要");
+    expect(prompt).not.toContain("系列记忆");
     expect(prompt).not.toContain("本集是系列续集");
   });
 });

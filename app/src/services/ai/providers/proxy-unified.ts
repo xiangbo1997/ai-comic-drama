@@ -11,6 +11,10 @@
 
 import type { ImageProvider, VideoProvider } from "../types";
 import { trimUrl, fetchWithError } from "./base";
+import { nearestVideoDuration } from "@/services/generation/video-segmenter";
+
+/** 中转协议通用时长档位（秒）；具体后端不支持的档位由中转站自行处理 */
+const PROXY_DURATIONS = [5, 10, 15] as const;
 
 /** 把 aspectRatio 映射到 OpenAI images API 的 size 字段 */
 function aspectRatioToSize(aspect?: string): string {
@@ -136,11 +140,9 @@ export const proxyUnifiedImage: ImageProvider = {
 
 export const proxyUnifiedVideo: VideoProvider = {
   async generateVideo(options, config) {
-    const {
-      imageUrl,
-      prompt = "gentle camera movement",
-      duration = 5,
-    } = options;
+    const { imageUrl, prompt = "gentle camera movement" } = options;
+    // 请求时长就近吸附到通用档位，防越界值直达中转站
+    const duration = nearestVideoDuration(options.duration, PROXY_DURATIONS);
     const url = `${trimUrl(config.baseUrl)}/video/generations`;
 
     const response = await fetchWithError(

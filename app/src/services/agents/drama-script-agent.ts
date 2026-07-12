@@ -17,6 +17,7 @@ import { parseLooseJSON } from "@/lib/json-repair";
 import { resolveLLMParams } from "./llm-params";
 import type { Agent, AgentResult, WorkflowContext } from "./types";
 import type { DramaScriptInput, DramaScriptArtifact } from "@/types/drama";
+import { HOOK_TYPES } from "@/types/series-bible";
 
 const log = createLogger("agent:drama-script");
 
@@ -39,6 +40,9 @@ const DramaScriptSchema = z.object({
   protagonist: z.string(),
   worldview: z.string().min(1),
   logline: z.string().min(1),
+  // 本集结尾钩子类型（爆款方法论）；与 series-bible HOOK_TYPES 对齐，供史官读取。
+  // 可选 + 非法回落 undefined：LLM 漏填 / 写错不阻断整脚本校验。
+  hookType: z.enum(HOOK_TYPES).optional().catch(undefined),
   scenes: z.array(DramaSceneSchema).min(1),
 });
 

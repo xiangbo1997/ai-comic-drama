@@ -128,6 +128,45 @@ describe("SceneScriptZ optional cinema fields (Stage 1.8)", () => {
   });
 });
 
+describe("SceneScriptZ director fields (cameraMovement / actionBeat)", () => {
+  const base = {
+    id: 1,
+    shotType: "近景",
+    description: "林萧靠在墙边，泪水在眼眶里打转",
+    characters: ["林萧"],
+    dialogue: null,
+    narration: null,
+    emotion: "sad",
+    duration: 4,
+  };
+
+  it("accepts a valid 13-value cameraMovement + actionBeat", () => {
+    const r = SceneScriptZ.safeParse({
+      ...base,
+      cameraMovement: "dolly_in",
+      actionBeat: "指尖收紧攥皱信纸，泪水将落未落",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.cameraMovement).toBe("dolly_in");
+      expect(r.data.actionBeat).toBe("指尖收紧攥皱信纸，泪水将落未落");
+    }
+  });
+
+  it("invalid cameraMovement falls back to undefined (does not fail the scene)", () => {
+    const r = SceneScriptZ.safeParse({
+      ...base,
+      cameraMovement: "whip_pan",
+      actionBeat: "急速转身",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.cameraMovement).toBeUndefined();
+      expect(r.data.actionBeat).toBe("急速转身");
+    }
+  });
+});
+
 describe("validateAgentOutput()", () => {
   it("throws readable error with agent name and issue paths on failure", () => {
     expect(() =>

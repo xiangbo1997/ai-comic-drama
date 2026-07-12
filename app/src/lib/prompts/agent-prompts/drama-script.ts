@@ -7,6 +7,11 @@
  */
 
 import type { DramaScriptInput } from "@/types/drama";
+import {
+  EPISODE_HOOK_RULES,
+  EPISODE_PACING_RULES,
+  EPISODE_ENDING_RULES,
+} from "../episode-structure";
 
 export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅长把"世界观设定"扩写为可直接用于 AI 视频生成 / 分镜制作的短剧脚本。
 
@@ -14,36 +19,43 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
 1. 从世界观中提炼戏剧冲突与主角成长弧线
 2. 控制短视频平台适合的节奏（开场抓人、中段升级、结尾留钩）
 3. 把抽象设定转化为视觉化、可生成的场景描述
-4. 合理切分场景，使总时长贴合目标时长
+4. 用短切镜头堆爽点，而非拉长镜头凑时长
 
 输出要求（严格遵守）：
 - 输出纯 JSON，不要 markdown 代码块，不要额外文字
-- 顶层字段：filmTitle、genre、durationSec、aspectRatio、style、protagonist、worldview、logline、scenes
+- 顶层字段：filmTitle、genre、durationSec、aspectRatio、style、protagonist、worldview、logline、hookType、scenes
 - scenes 是场景数组，每个场景含：index(从1起)、title、description、dialogue、narration、emotion、durationSec
 - emotion 必须为：neutral、happy、sad、angry、surprised、fear 之一
-- 所有场景的 durationSec 之和应接近目标总时长
-- description 要视觉化、含环境/光线/人物动作，适合 AI 图像/视频生成`;
+- hookType 为本集结尾钩子类型，必须是：悬念、反转、情绪、信息、危机 之一
+- 每镜时长按叙事需要 2-15 秒（长动作可更长，系统会按视频模型能力自动分段衔接），总时长与目标偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
+- description 要视觉化、含环境/光线/人物动作，适合 AI 图像/视频生成
+
+${EPISODE_HOOK_RULES}
+
+${EPISODE_PACING_RULES}
+
+${EPISODE_ENDING_RULES}`;
 
 export function buildDramaScriptUserPrompt(input: DramaScriptInput): string {
   const durationSec = input.durationSec ?? 90;
   const aspectRatio = input.aspectRatio ?? "9:16";
   const style = input.style ?? "anime";
-  const sceneCount = Math.max(6, Math.min(12, Math.round(durationSec / 10)));
 
   const charactersLine =
     input.characterNames && input.characterNames.length > 0
       ? `已有角色（脚本应围绕这些角色展开）：${input.characterNames.join("、")}`
       : "";
 
-  // 系列续集：注入上一集前情提要，让本集剧情自然承接（由服务端生成，
-  // 见 lib/series.ts#buildPreviousEpisodeRecap）
+  // 系列续集：注入累积系列记忆（优先故事圣经 digest，覆盖全部前作；老系列回落
+  // 上一集前情提要）。由服务端生成，见 lib/series-memory.ts / lib/series.ts。
   const recapBlock = input.previousEpisodeRecap
-    ? `前情提要（上一集回顾，仅供承接，不要在本集复述这些情节）：
+    ? `系列记忆（前作既定设定与剧情，仅供承接，不要在本集复述这些情节，且不得与之矛盾）：
 ${input.previousEpisodeRecap}
 `
     : "";
+  // 续集专属承接要求；结尾留钩已在下方无条件要求里，这里只补「开场承接前情」。
   const recapRequirement = input.previousEpisodeRecap
-    ? "\n5. 本集是系列续集：开场自然承接前情提要的结尾（呼应上一集留下的钩子），推进新的冲突与剧情，结尾再留下引向下一集的悬念钩子"
+    ? "\n7. 本集是系列续集：开场自然承接系列记忆里的结尾钩子，遵守既定人物状态/世界观/未回收伏笔，推进新的冲突与剧情，结尾再留下引向下一集的悬念钩子（不得与「近 N 集钩子类型」重复）"
     : "";
 
   return `请根据以下世界观，生成一版结构化 AI 短剧脚本：
@@ -61,9 +73,11 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
 
 要求：
 1. 整体基调统一、节奏紧凑，适合短视频平台
-2. 切分为 ${sceneCount} 个左右场景，各场景 durationSec 之和接近 ${durationSec} 秒
-3. 每个场景 description 要视觉化（环境 + 光线 + 人物动作/表情），适合 AI 生成
-4. 保留必要对白与旁白，无则置 null${recapRequirement}
+2. 按情绪节拍切分场景，不按固定数量凑：开场钩子段（≤30s，冲突最高点前置）+ 三段递进冲突（每段必须有新信息 / 新爽点）+ 结尾爽点与新钩子段（≈30s）；每分钟约 15-25 镜
+3. 每镜时长按叙事需要 2-15 秒（长动作可更长，系统自动分段），总时长与目标（约 ${durationSec} 秒）偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
+4. 每个场景 description 要视觉化（环境 + 光线 + 人物动作/表情），适合 AI 生成
+5. 结尾必须留钩：从悬念/反转/情绪/信息/危机五类中选一，并把类型写入顶层 hookType；若系列上下文给出「近 N 集钩子类型」，本集必须选不同类型
+6. 保留必要对白与旁白，无则置 null${recapRequirement}
 
 输出格式：
 {
@@ -75,6 +89,7 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
   "protagonist": "主角身份描述",
   "worldview": "提炼后的世界观一段话",
   "logline": "一句话故事梗概",
+  "hookType": "悬念",
   "scenes": [
     {
       "index": 1,

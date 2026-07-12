@@ -124,12 +124,63 @@ function parseFrame(jsonStr: string): ParsedFrame | null {
 }
 
 /**
+ * 判断是否为「网关拉取输入图片失败」类瞬时错误。
+ *
+ * 场景：图片存 R2 的 pub-*.r2.dev 开发域（Cloudflare 官方限流），批量生成时
+ * 网关并发抓图会被瞬时掐掉个别请求，返回 400 "Failed to load image from ..."。
+ * 该 URL 几秒后即恢复可达，直接重试即可挽回，不应让整个生成任务失败。
+ */
+export function isTransientImageLoadError(message: string): boolean {
+  return /failed to load image/i.test(message);
+}
+
+/** 瞬时抓图失败的额外重试次数与退避（毫秒） */
+const IMAGE_LOAD_RETRIES = 2;
+const IMAGE_LOAD_BACKOFF_MS = [3_000, 8_000];
+
+/**
  * 发起 flow2api SSE 生成请求并读到最终结果。
+ *
+ * 对「网关拉取输入图片失败」的瞬时错误自动重试（最多 2 次，退避 3s/8s），
+ * 其余错误原样抛出。
  *
  * @param label 日志/错误文案里的任务名（如 "图像" / "视频"）
  * @returns finish_reason==='stop' 帧的 content 原文（由调用方提取媒体 URL）
  */
 export async function requestFlow2apiGeneration(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  content: unknown;
+  timeoutMs: number;
+  label: string;
+}): Promise<string> {
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt <= IMAGE_LOAD_RETRIES; attempt++) {
+    try {
+      return await requestFlow2apiGenerationOnce(params);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      if (
+        attempt < IMAGE_LOAD_RETRIES &&
+        isTransientImageLoadError(error.message)
+      ) {
+        log.warn(
+          `flow2api ${params.label}生成遇到瞬时抓图失败，${IMAGE_LOAD_BACKOFF_MS[attempt] / 1000}s 后重试（第 ${attempt + 1}/${IMAGE_LOAD_RETRIES} 次）`,
+          { error: error.message }
+        );
+        await new Promise((r) => setTimeout(r, IMAGE_LOAD_BACKOFF_MS[attempt]));
+        lastError = error;
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError ?? new Error(`flow2api ${params.label}生成失败`);
+}
+
+/** 单次 SSE 生成请求（重试语义由 requestFlow2apiGeneration 包装） */
+async function requestFlow2apiGenerationOnce(params: {
   baseUrl: string;
   apiKey: string;
   model: string;

@@ -128,25 +128,35 @@ export function chooseModel(
 /**
  * 按最终模型的类别裁剪图片输入，保证送给上游的图片数量/语义合法：
  * - t2v：不接受图片，一张都不传
- * - fl / interpolation（首尾帧）：最多 2 张（1=首帧，2=首尾帧）
+ * - fl / interpolation（首尾帧）：第 1 张=首帧，第 2 张只认显式尾帧
  * - r2v：参考图语义，上游最多 3 张
  * - 其他 i2v：只吃 1 张首帧
  * 模型可能来自用户显式配置，也可能来自自动路由——两条路都在此收口。
+ *
+ * FL 槽位约束（2026-07-11）：第 2 张的语义是「视频结束画面」，只能来自
+ * lastFrameImage（videoLinkNext=下一分镜图）。角色参考图绝不能补位——
+ * 用户配置显式钉 FL 模型时曾发生参考图被当尾帧，导致每段视频结尾都
+ * 闪现角色立绘、拼接不连贯。网关 FL 模型 min_images=1：无尾帧时只送
+ * 首帧，行为等同普通 I2V。
  */
 export function planImageInputs(
   model: string,
   imageUrl: string | undefined,
-  referenceImages: string[]
+  referenceImages: string[],
+  lastFrameImage?: string
 ): string[] {
-  const all = [...(imageUrl ? [imageUrl] : []), ...referenceImages];
   if (model.includes("_t2v_")) return [];
   if (
     model.endsWith("_fl") ||
     model.includes("_fl_") ||
     model.includes("interpolation")
   ) {
-    return all.slice(0, 2);
+    return [
+      ...(imageUrl ? [imageUrl] : []),
+      ...(lastFrameImage ? [lastFrameImage] : []),
+    ].slice(0, 2);
   }
+  const all = [...(imageUrl ? [imageUrl] : []), ...referenceImages];
   if (model.includes("_r2v_")) return all.slice(0, 3);
   return all.slice(0, 1);
 }
@@ -198,12 +208,13 @@ export const flow2apiVideo: VideoProvider = {
       seed,
     });
 
-    // 图片输入：有尾帧时严格 [首帧, 尾帧]（FL 语义，与角色参考图互斥）；
-    // 否则主图在前、参考图在后。两条路都再按模型类别裁剪到合法数量。
+    // 图片输入：尾帧与角色参考图分参传入，由 planImageInputs 按模型
+    // 类别分槽——FL 第 2 张只认尾帧（参考图绝不补位），r2v 吃参考图。
     const imageInputs = planImageInputs(
       model,
       imageUrl,
-      lastFrameImage ? [lastFrameImage] : referenceImages
+      referenceImages,
+      lastFrameImage
     );
 
     const finalContent = await requestFlow2apiGeneration({

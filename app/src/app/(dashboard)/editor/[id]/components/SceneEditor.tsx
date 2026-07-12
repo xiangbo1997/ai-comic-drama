@@ -508,14 +508,15 @@ export function SceneEditor({
               <input
                 type="number"
                 min={1}
-                max={15}
+                max={60}
                 value={scene.duration}
-                onChange={(e) =>
+                onChange={(e) => {
+                  const v = parseInt(e.target.value) || 3;
                   onUpdateScene(scene.id, {
-                    duration: parseInt(e.target.value) || 3,
-                  })
-                }
-                title="生成视频时就近映射到 5 / 10 / 15 秒档"
+                    duration: Math.min(60, Math.max(1, v)),
+                  });
+                }}
+                title="超过模型单段时长将自动分段并无缝衔接（最长 60 秒）"
                 className="bg-card w-full rounded-lg px-3 py-2 text-sm"
               />
             </div>

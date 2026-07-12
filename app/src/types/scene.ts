@@ -41,6 +41,8 @@ export interface Scene {
   composition?: string | null;
   colorPalette?: string | null;
   cameraMovement?: string | null;
+  /** 运动节拍：这一镜内"什么在动"（LLM 解析产出，喂视频 prompt） */
+  actionBeat?: string | null;
   imageUrl: string | null;
   videoUrl: string | null;
   audioUrl: string | null;
@@ -89,6 +91,8 @@ export interface SceneScript {
   colorPalette?: string;
   /** 运镜（喂给视频模型）: zoom_in/pan_left/tilt_up/static... */
   cameraMovement?: string;
+  /** 运动节拍：这一镜内"什么在动"（中文，喂视频 prompt） */
+  actionBeat?: string;
 }
 
 /** 剧本解析完整结果 */

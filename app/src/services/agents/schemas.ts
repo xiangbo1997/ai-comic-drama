@@ -12,11 +12,19 @@
  */
 
 import { z } from "zod";
+import { CAMERA_MOVEMENTS } from "@/lib/prompts";
 
 // ============ 基础原语 ============
 
 const ShotTypeSchema = z.string(); // 允许自定义字符串；UI 层枚举
 const EmotionSchema = z.string();
+
+/**
+ * 运镜枚举（13 值，与 video-prompt 的 CAMERA_MOVEMENTS 唯一真源对齐）。
+ * LLM 导演增强：解析器 / 视频导演产出的运镜都收窄到此枚举，非法值在校验层
+ * 用 .catch(undefined) 回落（不因运镜写错让整镜结构校验失败）。
+ */
+export const CameraMovementSchema = z.enum(CAMERA_MOVEMENTS);
 
 // ============ ScriptArtifact ============
 
@@ -34,6 +42,9 @@ export const SceneScriptZ = z.object({
   lighting: z.string().optional(),
   composition: z.string().optional(),
   colorPalette: z.string().optional(),
+  // LLM 导演增强：运镜（13 值枚举，非法回落 undefined）+ 运动节拍（中文可选）
+  cameraMovement: CameraMovementSchema.optional().catch(undefined),
+  actionBeat: z.string().optional(),
 });
 
 export const ScriptArtifactZ = z.object({

@@ -5,6 +5,8 @@
  * 与 Scene（一镜一图执行单元）解耦，作为可反复打磨的创作态草稿。
  */
 
+import type { HookType } from "@/types/series-bible";
+
 /** 生成结构化短剧脚本的输入（创作者提供世界观 + 参数） */
 export interface DramaScriptInput {
   /** 世界观设定（必填，创作的源头） */
@@ -63,6 +65,12 @@ export interface DramaScriptArtifact {
   worldview: string;
   /** 一句话故事梗概 */
   logline: string;
+  /**
+   * 本集结尾钩子类型（爆款方法论，五分类）。
+   * 可选：老数据 / LLM 漏填时为 undefined；与 series-bible HOOK_TYPES 同源，
+   * 供史官（chronicler）直接读取沉淀到故事圣经。
+   */
+  hookType?: HookType;
   scenes: DramaSceneScript[];
 }
 

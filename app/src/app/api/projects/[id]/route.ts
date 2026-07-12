@@ -6,6 +6,7 @@ import { deleteFile } from "@/services/storage";
 
 import { createLogger } from "@/lib/logger";
 import { normalizeSubtitleStyle } from "@/lib/subtitle-style-normalize";
+import { parseStoryBible, isBibleEmpty } from "@/types/series-bible";
 const log = createLogger("api:projects:[id]");
 
 /**
@@ -125,6 +126,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             genre: true,
             worldview: true,
             protagonist: true,
+            storyBible: true,
             projects: {
               orderBy: { episodeNumber: "asc" },
               select: { id: true, title: true, episodeNumber: true },
@@ -181,8 +183,31 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    // series.projects → series.episodes：对齐前端 ProjectSeriesInfo 契约
+    // series.projects → series.episodes：对齐前端 ProjectSeriesInfo 契约。
+    // 故事圣经只回传编辑器需要的「摘要」（主题/未解决伏笔数/上一集钩子），
+    // 不回传完整圣经（那是史官/手动编辑端的数据，前端展示用不到全量）。
     const { series, ...rest } = project;
+    let bibleSummary: {
+      theme: string | null;
+      openThreads: number;
+      episodeCount: number;
+      lastEpisodeHook: string | null;
+    } | null = null;
+    if (series) {
+      const bible = parseStoryBible(series.storyBible);
+      if (!isBibleEmpty(bible)) {
+        const sortedEps = [...bible.episodes].sort(
+          (a, b) => a.episodeNumber - b.episodeNumber
+        );
+        const lastEp = sortedEps[sortedEps.length - 1];
+        bibleSummary = {
+          theme: bible.theme ?? null,
+          openThreads: bible.threads.filter((t) => t.status === "open").length,
+          episodeCount: bible.episodes.length,
+          lastEpisodeHook: lastEp?.endingHook || null,
+        };
+      }
+    }
     return NextResponse.json({
       ...rest,
       series: series
@@ -193,6 +218,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             worldview: series.worldview,
             protagonist: series.protagonist,
             episodes: series.projects,
+            bibleSummary,
           }
         : null,
     });

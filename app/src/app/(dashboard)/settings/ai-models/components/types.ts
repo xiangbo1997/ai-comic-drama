@@ -150,6 +150,20 @@ export const API_PROTOCOLS: APIProtocol[] = [
       TTS: { main: "" },
     },
   },
+  {
+    id: "gpt-sovits",
+    name: "GPT-SoVITS (语音克隆)",
+    description:
+      "自建 GPT-SoVITS 网关：参考音频克隆式中文 TTS，走 POST /tts；参考音频需先经 /upload_ref 上传拿到服务端路径",
+    authHeader: "Bearer",
+    defaultBaseUrl: "https://weed-attachment-section-knife.trycloudflare.com",
+    endpoints: {
+      LLM: { main: "" },
+      IMAGE: { main: "" },
+      VIDEO: { main: "" },
+      TTS: { main: "/tts" },
+    },
+  },
 ];
 
 export function getProtocolsForCategory(category: AICategory): APIProtocol[] {
@@ -339,6 +353,7 @@ export function getDefaultProtocolForProvider(slug: string): string {
     gemini: "gemini",
     mistral: "openai",
     cohere: "cohere",
+    "gpt-sovits": "gpt-sovits",
   };
   return protocolMap[slug] || "openai";
 }

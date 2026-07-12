@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import type { GenerationParams } from "@/types";
+import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:scenes");
@@ -194,7 +195,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         dialogue: scene.dialogue || null,
         narration: scene.narration || null,
         emotion: scene.emotion || "neutral",
-        duration: scene.duration || 3,
+        // 时长钳到 1–60 整数：分镜时长上限即视频分段上限，防越界值直达 DB/规划器
+        duration: clampSceneDuration(scene.duration ?? 3),
         selectedCharacterId,
         // 镜头语言：LLM 解析产出，此前落库被丢弃 → 出图缺电影感
         cameraAngle: scene.cameraAngle || null,
@@ -202,6 +204,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         composition: scene.composition || null,
         colorPalette: scene.colorPalette || null,
         cameraMovement: scene.cameraMovement || null,
+        // 运动节拍：LLM 导演产出，喂视频 prompt 的 Action 段
+        actionBeat: scene.actionBeat || null,
       };
     });
 

@@ -16,7 +16,28 @@ export type {
   SeriesSummary,
   SeriesEpisodeRef,
   ProjectSeriesInfo,
+  SeriesBibleSummary,
 } from "./series";
+
+// 系列故事圣经（跨集永久记忆）
+export type {
+  SeriesStoryBible,
+  WorldSetting,
+  BibleLocation,
+  BibleProp,
+  BibleCharacter,
+  BibleThread,
+  BibleEpisode,
+  HookType,
+  ThreadStatus,
+} from "./series-bible";
+export {
+  parseStoryBible,
+  isBibleEmpty,
+  emptyBible,
+  HOOK_TYPES,
+  THREAD_STATUSES,
+} from "./series-bible";
 
 // 场景
 export type {

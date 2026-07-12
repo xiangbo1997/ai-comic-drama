@@ -35,6 +35,7 @@ import { flow2apiVideo } from "./providers/flow2api-video";
 import { volcengineTTS } from "./providers/tts/volcengine";
 import { elevenlabsTTS } from "./providers/tts/elevenlabs";
 import { openaiCompatibleTTS } from "./providers/tts/openai-compatible";
+import { gptSovitsTTS } from "./providers/tts/gpt-sovits";
 
 /** 图像 Provider 能力表 */
 const IMAGE_PROVIDER_CAPABILITIES: Record<string, ImageProviderCapability> = {
@@ -197,6 +198,8 @@ export function getTTSProvider(
       return elevenlabsTTS;
     case "openai":
       return openaiCompatibleTTS;
+    case "gpt-sovits":
+      return gptSovitsTTS;
     default:
       break;
   }

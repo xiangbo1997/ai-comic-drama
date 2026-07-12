@@ -27,6 +27,14 @@ export interface AnalysisCacheKeyInput {
   shotType?: string;
   /** 角色名列表（有序，影响多角色互动分析） */
   characterNames: string[];
+  /** 相邻镜画面描述（连续性记忆）：变化会改变连续性指令，故纳入 key */
+  prevSceneDescription?: string;
+  nextSceneDescription?: string;
+  /**
+   * 系列记忆 digest（续集时注入分析 prompt）：圣经更新会改变既定设定指令，
+   * 必须纳入 key，否则圣经变化后仍命中旧分析（stale）。
+   */
+  seriesContext?: string;
 }
 
 function normalize(s: string): string {
@@ -40,6 +48,9 @@ function buildKey(input: AnalysisCacheKeyInput): string {
     input.emotion ?? "",
     input.shotType ?? "",
     input.characterNames.join("|"),
+    input.prevSceneDescription ? normalize(input.prevSceneDescription) : "",
+    input.nextSceneDescription ? normalize(input.nextSceneDescription) : "",
+    input.seriesContext ? normalize(input.seriesContext) : "",
   ].join("\n");
   const hash = createHash("sha256").update(parts).digest("hex");
   return `${KEY_PREFIX}${hash}`;

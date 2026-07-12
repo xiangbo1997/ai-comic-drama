@@ -5,14 +5,16 @@
 import type { VideoProvider } from "../types";
 import { fetchWithError } from "./base";
 import { pollUntilDone, type PollStep } from "./poll";
+import { nearestVideoDuration } from "@/services/generation/video-segmenter";
+
+/** Runway gen3a_turbo 接受的时长档位（秒） */
+const RUNWAY_DURATIONS = [5, 10] as const;
 
 export const runwayVideo: VideoProvider = {
   async generateVideo(options, config) {
-    const {
-      imageUrl,
-      prompt = "gentle camera movement",
-      duration = 5,
-    } = options;
+    const { imageUrl, prompt = "gentle camera movement" } = options;
+    // 请求时长就近吸附到 Runway 合法档位，防越界值直达上游 API
+    const duration = nearestVideoDuration(options.duration, RUNWAY_DURATIONS);
     const apiKey = config.apiKey;
 
     if (!apiKey) {

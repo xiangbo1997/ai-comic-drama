@@ -48,6 +48,7 @@ import {
   testVolcengine,
   testFishAudio,
   testElevenLabs,
+  testGptSovits,
 } from "./connectivity-test-connection-probes";
 
 const log = createLogger("services:ai:connectivity-test");
@@ -312,6 +313,10 @@ async function testProviderConnection(
       return testOpenAICompatible(
         apiKey,
         baseUrl || "https://api.openai.com/v1"
+      );
+    case "gpt-sovits":
+      return testGptSovits(
+        baseUrl || "https://weed-attachment-section-knife.trycloudflare.com"
       );
 
     default:

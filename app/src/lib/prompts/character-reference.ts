@@ -61,3 +61,15 @@ export const POSE_CONSTRAINTS: Record<"front" | "side" | "back", string> = {
   side: "side view, full body profile, character turnaround",
   back: "back view, from behind, full body, character turnaround",
 };
+
+/**
+ * 身份锁定指令：带参考图（i2i）生成三视图时追加，强制「保形 + 仅换角度」。
+ *
+ * 根因治理：三视图曾以文字重画角色，与主图不一致。改为 i2i 后，若不显式
+ * 约束，模型仍可能「参考风格但重新设计角色」。这句把参考图钉为**同一角色**，
+ * 只允许角度/姿势变化，禁止改动脸型/发色/配色/服装/画风。
+ */
+export const IDENTITY_LOCK =
+  "keep the exact same character identity as the reference image: " +
+  "same face, hairstyle, hair color, body proportions, outfit, color palette and art style; " +
+  "only change the viewing angle and pose, do not redesign the character";
