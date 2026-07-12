@@ -11,6 +11,7 @@ import type { AIServiceConfig, SceneScript, ParsedScript } from "@/types";
 import { SCRIPT_PARSE_SYSTEM, buildScriptParseUserPrompt } from "@/lib/prompts";
 import { getSimpleStylePrefix } from "@/lib/prompts";
 import { parseLooseJSON } from "@/lib/json-repair";
+import { calibrateSceneDurations } from "@/lib/shot-timing";
 import { ScriptParserAgent } from "./agents/script-parser-agent";
 import type { WorkflowContext } from "./agents/types";
 
@@ -18,9 +19,10 @@ export type { SceneScript, ParsedScript };
 
 export async function parseScript(
   text: string,
-  config?: AIServiceConfig
+  config?: AIServiceConfig,
+  seriesContext?: string
 ): Promise<ParsedScript> {
-  const userPrompt = buildScriptParseUserPrompt(text);
+  const userPrompt = buildScriptParseUserPrompt(text, seriesContext);
 
   const response = await chatCompletion(
     [
@@ -32,7 +34,14 @@ export async function parseScript(
 
   // Hotfix 2026-05-20：用 parseLooseJSON 容错（处理 LLM 输出的智能引号 /
   // trailing comma / 注释 等不规范格式），失败由调用方接住
-  return parseLooseJSON(response) as ParsedScript;
+  const parsed = parseLooseJSON(response) as ParsedScript;
+
+  // 时长校准（断裂 C 修复）：与 Agent 路径同源，把 LLM 的 duration 校准为对白
+  // 驱动的确定值。防御式：scenes 缺失/非数组时原样返回。
+  if (Array.isArray(parsed?.scenes)) {
+    parsed.scenes = calibrateSceneDurations(parsed.scenes);
+  }
+  return parsed;
 }
 
 // 生成图像提示词
@@ -71,7 +80,8 @@ export function generateImagePrompt(
  */
 export async function parseScriptWithAgent(
   text: string,
-  config?: AIServiceConfig
+  config?: AIServiceConfig,
+  seriesContext?: string
 ): Promise<ParsedScript> {
   const agent = new ScriptParserAgent();
 
@@ -95,7 +105,7 @@ export async function parseScriptWithAgent(
     emit: noop,
   };
 
-  const result = await agent.run({ text }, minimalCtx);
+  const result = await agent.run({ text, seriesContext }, minimalCtx);
 
   if (!result.success || !result.data) {
     throw new Error(result.error ?? "Agent 剧本解析失败");

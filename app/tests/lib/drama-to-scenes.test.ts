@@ -69,7 +69,9 @@ describe("dramaScriptToScenes", () => {
       dialogue: null,
       narration: "这座城市由 AI 管理一切",
       emotion: "压抑",
-      duration: 9,
+      // 时长改为对白/旁白驱动（断裂 C 修复）：旁白 9 汉字 + "AI" 1 词 ≈ 4s 朗读，
+      // LLM 给的 9s 超出「空镜软上限」故不采信，校准为 4s。
+      duration: 4,
     });
     expect(scenes[1].dialogue).toBe("林烬：不……这不可能！");
   });
@@ -101,13 +103,14 @@ describe("dramaScriptToScenes", () => {
     expect(scenes[1].characters).toEqual(["林烬"]);
   });
 
-  it("时长钳制：异常值回落默认，越界收敛边界", () => {
+  it("时长校准：LLM 异常值被对白/旁白驱动的确定时长取代", () => {
+    // 断裂 C 修复：durationSec 异常值不再简单 clamp，而是回落到对白/旁白朗读时长。
     const doc = makeDoc();
-    doc.scenes[0].durationSec = 0;
-    doc.scenes[1].durationSec = 999;
+    doc.scenes[0].durationSec = 0; // 旁白 9 汉字 + AI ≈ 4s → 校准为 4
+    doc.scenes[1].durationSec = 999; // 对白「林烬不这不可能」7 汉字 ≈ 2.8s，超软上限故回落 3
     const scenes = dramaScriptToScenes(doc, null);
-    expect(scenes[0].duration).toBe(3);
-    expect(scenes[1].duration).toBe(60);
+    expect(scenes[0].duration).toBe(4);
+    expect(scenes[1].duration).toBe(3);
   });
 
   it("九宫格 index 与场景错位时不串格", () => {

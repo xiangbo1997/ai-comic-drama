@@ -13,6 +13,8 @@ import {
 import { createLogger } from "@/lib/logger";
 import { parseLooseJSON } from "@/lib/json-repair";
 import { resolveLLMParams } from "./llm-params";
+import { calibrateSceneDurations } from "@/lib/shot-timing";
+import { CameraMovementSchema } from "./schemas";
 import type {
   Agent,
   AgentResult,
@@ -26,6 +28,8 @@ const log = createLogger("agent:script-parser");
 // Zod schema 验证 LLM 输出
 // Stage 1.8：cameraAngle / lighting / composition / colorPalette 作为可选字段，
 // 老 LLM 输出（不含这些字段）仍能通过校验，新字段在 SceneScript 类型里透传。
+// LLM 导演增强：cameraMovement 收窄为 13 值枚举，非法值 catch 回落 undefined
+// （不因运镜写错整镜校验失败）；actionBeat 可选中文字符串。
 const SceneScriptSchema = z.object({
   id: z.number(),
   shotType: z.string(),
@@ -34,11 +38,15 @@ const SceneScriptSchema = z.object({
   dialogue: z.string().nullable(),
   narration: z.string().nullable(),
   emotion: z.string(),
-  duration: z.number().min(1).max(30),
+  // 上限放宽到 60（与 prompt「1-60s，系统自动分段」一致）；具体值随后由
+  // calibrateSceneDurations 按对白驱动校准，不再依赖 LLM 拍脑袋的数字。
+  duration: z.number().min(1).max(60),
   cameraAngle: z.string().optional(),
   lighting: z.string().optional(),
   composition: z.string().optional(),
   colorPalette: z.string().optional(),
+  cameraMovement: CameraMovementSchema.optional().catch(undefined),
+  actionBeat: z.string().optional(),
 });
 
 const ScriptArtifactSchema = z.object({
@@ -113,14 +121,20 @@ export class ScriptParserAgent implements Agent<
               { role: "system" as const, content: SCRIPT_PARSER_SYSTEM },
               {
                 role: "user" as const,
-                content: buildScriptParserUserPrompt(input.text),
+                content: buildScriptParserUserPrompt(
+                  input.text,
+                  input.seriesContext
+                ),
               },
             ]
           : [
               { role: "system" as const, content: SCRIPT_PARSER_SYSTEM },
               {
                 role: "user" as const,
-                content: buildScriptParserUserPrompt(input.text),
+                content: buildScriptParserUserPrompt(
+                  input.text,
+                  input.seriesContext
+                ),
               },
               {
                 role: "assistant" as const,
@@ -157,10 +171,17 @@ export class ScriptParserAgent implements Agent<
 
         if (result.success) {
           log.info(`Script parsed successfully on attempt ${attempt}`);
+          // 时长校准（断裂 C 修复）：把 LLM 拍脑袋的 duration 校准为「对白驱动」的
+          // 确定值——对白镜不短于朗读时长，空镜不被凑长。下游（视频分段/TTS/导出）
+          // 无需改动即受益。immutable：不改动其它字段。
+          const calibrated = {
+            ...result.data,
+            scenes: calibrateSceneDurations(result.data.scenes),
+          };
           return {
             success: true,
-            data: result.data as ScriptArtifact,
-            reasoning: `成功解析剧本，提取了 ${result.data.scenes.length} 个分镜和 ${result.data.characters.length} 个角色`,
+            data: calibrated as ScriptArtifact,
+            reasoning: `成功解析剧本，提取了 ${calibrated.scenes.length} 个分镜和 ${calibrated.characters.length} 个角色`,
             attempts: attempt,
             tokensUsed: totalTokens,
           };

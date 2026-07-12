@@ -18,6 +18,7 @@ import type {
   StoryboardCell,
   StoryboardTableArtifact,
 } from "@/types";
+import { computeShotDuration } from "@/lib/shot-timing";
 
 /** POST /api/projects/[id]/scenes 接受的单镜字段（route 侧按此消费） */
 export interface SceneDraft {
@@ -29,16 +30,6 @@ export interface SceneDraft {
   duration: number;
   characters: string[];
   [key: string]: unknown;
-}
-
-/** 单镜时长的合理边界（与解析链路的 3s 默认对齐，防脚本异常值） */
-const MIN_DURATION = 1;
-const MAX_DURATION = 60;
-const DEFAULT_DURATION = 3;
-
-function clampDuration(sec: number | undefined): number {
-  if (!sec || Number.isNaN(sec)) return DEFAULT_DURATION;
-  return Math.min(MAX_DURATION, Math.max(MIN_DURATION, Math.round(sec)));
 }
 
 /** 场景文本中出现的项目角色名（确定性子串匹配，供后端挂 selectedCharacterId） */
@@ -72,14 +63,24 @@ export function dramaScriptToScenes(
       : scene.description;
 
     const dialogue = scene.dialogue ?? cell?.dialogue ?? null;
+    const narration = scene.narration ?? null;
 
     return {
       shotType: cell?.shot || null,
       description,
       dialogue,
-      narration: scene.narration ?? null,
+      narration,
       emotion: scene.emotion || "neutral",
-      duration: clampDuration(scene.durationSec),
+      // 时长校准（断裂 C 修复）：短剧脚本路径同源走对白驱动时长，
+      // 而非仅 clamp 脚本给的 durationSec。九宫格 shot 非标准五景别时，
+      // computeShotDuration 有兜底（对白下限逻辑仍生效）。
+      duration: computeShotDuration({
+        dialogue,
+        narration,
+        shotType: cell?.shot ?? null,
+        emotion: scene.emotion ?? null,
+        llmDuration: scene.durationSec ?? null,
+      }),
       characters: matchCharacters(
         characterNames,
         scene.title,
