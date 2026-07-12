@@ -165,22 +165,24 @@ async function runThreeViewsTask(
 
     // 串行生成三视图（防限流）
     const results: { pose: string; url: string }[] = [];
-    // 后续视图的参考锚：优先延用主图（保持与主图同源），front 落库后升级为最新锚。
-    let canonicalUrl: string | undefined = anchorImageUrl;
+    // 锚点铁律（根因治理）：三视图**全部**锚定同一张「原始参考图」anchorImageUrl，
+    // 三张之间互不作为彼此的参考。绝不能用「刚生成的 front」去锚 side/back——
+    // 否则每次重生成都在上次产物上二次漂移，画风雪崩（2D→3D）。同源同锚才一致。
+    const anchor = anchorImageUrl; // 全程只读，不被覆盖
     for (const pose of POSES) {
       // Prompt 排布（权重递增，末尾最重）：
       //   构图硬约束(单角度+单主体，防九宫格) → 角色内容(basePrompt)
       //   → 身份+画风锁定(IDENTITY_LOCK 放最末，紧邻 provider 追加的
       //     FACE_ANCHOR_SUFFIX，用最高权重压住"2D→3D/换装/换光"漂移)。
-      const prompt = canonicalUrl
+      const prompt = anchor
         ? `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${basePrompt}, ${IDENTITY_LOCK}`
         : `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${basePrompt}`;
       let imageUrl = await generateImage({
         prompt,
         aspectRatio: "1:1",
         seed,
-        // 有主图时三视图全部带参考锚定身份；无主图时 front 文生图打底
-        referenceImage: canonicalUrl,
+        // 三视图全部锚定同一张原始参考图（同源）；无参考图时纯文生图打底
+        referenceImage: anchor,
         // 负向双向防九宫格：显式排斥拼版/多姿势/多角色
         negativePrompt: THREE_VIEW_NEGATIVE,
         config: imageConfig || undefined,
@@ -201,13 +203,17 @@ async function runThreeViewsTask(
           );
         }
       }
-      // 正面图落库后升级为后续视图的参考锚（用落库 URL，避免外链过期）：
-      // 用「已保形的正面转面图」继续锚定侧/背，画风比原主图更贴近三视图语境。
-      if (pose === "front") canonicalUrl = imageUrl;
       results.push({ pose, url: imageUrl });
     }
 
     const frontUrl = results.find((r) => r.pose === "front")?.url;
+
+    // 锚点铁律（续）：canonical 定妆锚**只认第一张、永不被三视图覆盖**。
+    // 已有 anchorImageUrl（用户上传的原始参考图或历史 canonical）时，本次
+    // 生成的 front 只是「衍生视图」，不得抢占 canonical——否则下次重生成会锚
+    // 到本次产物，画风逐轮漂移。仅当角色此前**完全没有**身份锚时，才用本次
+    // front 补一个初始锚。
+    const hasAnchor = Boolean(anchorImageUrl);
 
     // 落库 + 扣费 + 完成任务（事务）。CharacterReferenceAsset 写入带 schema 容错。
     await prisma.$transaction(async (tx) => {
@@ -218,8 +224,8 @@ async function runThreeViewsTask(
               characterId,
               url,
               sourceType: "ai_generated",
-              // 正面定妆图设为 canonical 锚点，供后续分镜出图/Face Validator 引用
-              isCanonical: pose === "front",
+              // 仅在「原本无锚」且是 front 时补设 canonical；已有锚则全部非 canonical
+              isCanonical: !hasAnchor && pose === "front",
               pose,
             },
           });
@@ -245,8 +251,9 @@ async function runThreeViewsTask(
             ...(current?.referenceImages ?? []),
             ...results.map((r) => r.url),
           ],
-          // 写回身份锚：后续分镜出图以它作 i2i 参考、Face Validator 以它为基准
-          ...(frontUrl ? { canonicalImageUrl: frontUrl } : {}),
+          // canonicalImageUrl 只在「原本为空」时用本次 front 初始化；
+          // 已有原始参考图时绝不覆盖（否则锚点漂移、画风雪崩）。
+          ...(!hasAnchor && frontUrl ? { canonicalImageUrl: frontUrl } : {}),
         },
       });
 
