@@ -86,13 +86,20 @@ export const THREE_VIEW_NEGATIVE =
   "multiple poses, multiple views, multiple characters, split panels, tiled images, contact sheet";
 
 /**
- * 身份锁定指令：带参考图（i2i）生成三视图时追加，强制「保形 + 仅换角度」。
+ * 身份锁定指令：带参考图（i2i）生成三视图时追加，强制「保形 + 保画风 + 仅换角度」。
  *
- * 根因治理：三视图曾以文字重画角色，与主图不一致。改为 i2i 后，若不显式
- * 约束，模型仍可能「参考风格但重新设计角色」。这句把参考图钉为**同一角色**，
- * 只允许角度/姿势变化，禁止改动脸型/发色/配色/服装/画风。
+ * 根因治理（三修）：
+ * 1. 一修：三视图曾以文字重画角色 → 改 i2i 锚定主图。
+ * 2. 二修：character sheet 措辞出九宫格 → 见 POSE_CONSTRAINTS。
+ * 3. 三修（本次）：gpt-image-2/gemini 自带 3D 渲染先验，把 2D 主图重画成
+ *    3D 毛绒/黏土材质，且服装/光照全变。provider 的 FACE_ANCHOR_SUFFIX
+ *    只锁脸、反而放行"outfit/lighting 可变"，与画风一致性冲突。
+ *    这里显式锁死 **medium/材质/渲染方式**：2D 不得转 3D、平涂不得变毛绒。
  */
 export const IDENTITY_LOCK =
-  "keep the exact same character identity as the reference image: " +
-  "same face, hairstyle, hair color, body proportions, outfit, color palette and art style; " +
-  "only change the viewing angle and pose, do not redesign the character";
+  "keep the exact same character identity AND the exact same art style as the reference image: " +
+  "same face, hairstyle, hair color, body proportions, outfit, color palette; " +
+  "reproduce the identical medium, rendering style, texture, shading and outline of the reference — " +
+  "if the reference is a flat 2D illustration keep it flat 2D, " +
+  "do NOT convert it into a 3D render, plush toy, clay or figurine look; " +
+  "only change the viewing angle and pose, do not redesign the character and do not restyle it";

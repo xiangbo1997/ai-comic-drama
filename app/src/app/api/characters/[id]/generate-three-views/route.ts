@@ -168,10 +168,12 @@ async function runThreeViewsTask(
     // 后续视图的参考锚：优先延用主图（保持与主图同源），front 落库后升级为最新锚。
     let canonicalUrl: string | undefined = anchorImageUrl;
     for (const pose of POSES) {
-      // 构图硬约束前置：先「单角度 + 单主体」锁死画面（防九宫格拼版），
-      // 有参考图时再追加身份锁定（保外貌/配色/画风，只换角度，禁止重设计）。
+      // Prompt 排布（权重递增，末尾最重）：
+      //   构图硬约束(单角度+单主体，防九宫格) → 角色内容(basePrompt)
+      //   → 身份+画风锁定(IDENTITY_LOCK 放最末，紧邻 provider 追加的
+      //     FACE_ANCHOR_SUFFIX，用最高权重压住"2D→3D/换装/换光"漂移)。
       const prompt = canonicalUrl
-        ? `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${IDENTITY_LOCK}, ${basePrompt}`
+        ? `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${basePrompt}, ${IDENTITY_LOCK}`
         : `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${basePrompt}`;
       let imageUrl = await generateImage({
         prompt,
