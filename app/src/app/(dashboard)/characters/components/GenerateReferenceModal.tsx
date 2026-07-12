@@ -334,6 +334,33 @@ export function GenerateReferenceModal({
             <p className="text-muted-foreground text-xs">
               提示：将与角色基础信息合并生成
             </p>
+
+            {/* 智能引导：已有定妆照 + 填了提示词 + 却选纯 AI 生成时，
+                提示改用「当前图片作为参考」，让提示词基于原图改而非重画 */}
+            {hasImages &&
+              generateOptions.source === "none" &&
+              generateOptions.customPrompt.trim() && (
+                <div className="border-agent/40 bg-agent/10 space-y-1.5 rounded-lg border p-2.5">
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    你已有定妆照并填写了提示词。当前是「纯 AI 生成」，模型会
+                    <b>忽略现有图片重新画</b>
+                    ，效果可能偏差较大。建议改用「使用当前图片作为参考」，让提示词在原图基础上微调。
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOptionsChange({
+                        ...generateOptions,
+                        source: "existing",
+                        uploadedImage: null,
+                      })
+                    }
+                    className="text-agent text-xs font-medium hover:underline"
+                  >
+                    → 改用当前图片作为参考（5 积分）
+                  </button>
+                </div>
+              )}
           </div>
 
           {/* 一键三视图：正/侧/背，防生成崩坏 */}

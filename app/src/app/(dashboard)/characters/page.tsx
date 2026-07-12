@@ -281,8 +281,25 @@ export default function CharactersPage() {
         existingImageIndex?: number;
       };
     }) => generateReference(id, options || {}),
-    onSuccess: () => {
+    onSuccess: (data: unknown) => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
+      // 生成可见：把后端实际发给模型的 prompt 展示出来，
+      // 让用户能确认自定义提示词确实进了 prompt（此前 API 返回却从不展示）
+      const usedPrompt =
+        typeof data === "object" &&
+        data !== null &&
+        "debug" in data &&
+        typeof (data as { debug?: { prompt?: unknown } }).debug?.prompt ===
+          "string"
+          ? (data as { debug: { prompt: string } }).debug.prompt
+          : null;
+      if (usedPrompt) {
+        const shown =
+          usedPrompt.length > 120 ? `${usedPrompt.slice(0, 120)}…` : usedPrompt;
+        toast.success(`参考图生成成功 · 实际提示词：${shown}`);
+      } else {
+        toast.success("参考图生成成功");
+      }
     },
     onError: (error) => {
       // 积分不足附「去充值」出口（消息已含差额），不足时不再是死胡同

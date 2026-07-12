@@ -5,7 +5,7 @@ import { generateImage } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { createLogger } from "@/lib/logger";
 import { chargeCredits } from "@/lib/credits";
-import { buildCharacterBasePrompt } from "@/lib/prompts/character-reference";
+import { buildCharacterPromptWithCustom } from "@/lib/prompts/character-reference";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -124,13 +124,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 构建提示词（与三视图共用 buildCharacterBasePrompt，保证一致）
-    const basePromptParts = [buildCharacterBasePrompt(character)];
-
-    // 添加自定义提示词（如果有）
-    if (customPrompt?.trim()) {
-      basePromptParts.push(customPrompt.trim());
-    }
+    // 构建提示词：用户自定义提示词「提权」到最前面并声明最高优先级，
+    // 避免被 base prompt 的几十个基础关键词淹没（提示词不生效根因）。
+    const basePromptParts = [
+      buildCharacterPromptWithCustom(character, customPrompt),
+    ];
 
     // 如果有参考图，添加参考图说明
     if (hasReferenceImage) {

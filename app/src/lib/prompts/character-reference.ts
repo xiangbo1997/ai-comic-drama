@@ -55,6 +55,41 @@ export function buildCharacterBasePrompt(
 }
 
 /**
+ * 把用户自定义提示词与角色基础 prompt 合并，并给用户指令「提权」。
+ *
+ * 根因治理（提示词不生效）：此前实现把用户短句（如「开口笑，可爱一点」）
+ * 直接 append 到 base prompt 末尾，被几十个基础关键词淹没，权重极低，
+ * 表现为「自定义提示词不生效」。
+ *
+ * 修复策略：
+ * 1. **位置提权**——用户指令放到 prompt 最前面（模型对前置 token 更敏感）。
+ * 2. **语义提权**——用英文优先级声明包裹（"highest priority"），显式告诉
+ *    指令遵循型模型（gpt-image / gemini 系）这是必须遵守的要求，而非背景词。
+ * 3. base prompt 降级为「角色身份锚点」，仍提供一致性，但不再喧宾夺主。
+ *
+ * @param character 角色基础字段
+ * @param customPrompt 用户输入的自定义提示词（可空/可含中文）
+ * @returns 合并后的最终 prompt
+ */
+export function buildCharacterPromptWithCustom(
+  character: CharacterPromptInput,
+  customPrompt?: string | null
+): string {
+  const base = buildCharacterBasePrompt(character);
+  const custom = customPrompt?.trim();
+
+  if (!custom) {
+    return base;
+  }
+
+  // 用户指令前置 + 优先级声明包裹；base 作为身份锚点跟在后面。
+  return [
+    `User instruction (highest priority, must follow): ${custom}`,
+    `character identity reference: ${base}`,
+  ].join(". ");
+}
+
+/**
  * 三视图视角约束词：注入 prompt 强制生成对应角度。
  *
  * ⚠️ 措辞禁忌（血泪教训）：绝不能出现 "character sheet" / "turnaround" /
