@@ -106,6 +106,9 @@ export class ImageConsistencyAgent implements Agent<
               characterBible: input.characterBible,
               expectedEmotion: input.scene.emotion,
               expectedShotType: input.scene.shotType,
+              // 色彩一致性门禁：把全片统一色板传给 Observer，让「色调一致性」维度
+              // 有基准可评（缺省时该维度退化为一般色彩合理性判断）。
+              expectedPalette: input.seriesPalette,
             },
             ctx
           );

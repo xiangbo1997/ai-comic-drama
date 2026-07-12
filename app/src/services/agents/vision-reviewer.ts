@@ -28,6 +28,8 @@ export interface VisionReviewArgs {
   characterDescriptions: string;
   expectedEmotion: string;
   expectedShotType: string;
+  /** 全片统一主色板（来自圣经 colorScript）；有值时评「色调一致性」维度 */
+  expectedPalette?: string;
   llmConfig: AIServiceConfig;
 }
 
@@ -44,6 +46,7 @@ export async function reviewImageWithVision(
     characterDescriptions,
     expectedEmotion,
     expectedShotType,
+    expectedPalette,
     llmConfig,
   } = args;
 
@@ -79,7 +82,8 @@ export async function reviewImageWithVision(
               sceneDescription,
               characterDescriptions,
               expectedEmotion,
-              expectedShotType
+              expectedShotType,
+              expectedPalette
             ),
           },
           { type: "image_url", image_url: { url: imageUrl } },

@@ -21,9 +21,24 @@ import { ImageConsistencyAgent } from "./image-consistency-agent";
 import { reviewStoryboard, reviewVideoSequence } from "./narrative-observer";
 import { reviewCharacterBible } from "./character-bible-observer";
 import { resolvePolicy, runClosedLoop } from "./closed-loop";
-import { generateVideo, synthesizeSpeech } from "@/services/ai";
+import { synthesizeSpeech } from "@/services/ai";
 import { getThreeViewUrls } from "@/lib/three-views";
-import { uploadFile } from "@/services/storage";
+import { loadSeriesMemoryDigest } from "@/lib/series-memory";
+import { parseStoryBible } from "@/types/series-bible";
+import { extractSeriesPalette } from "@/lib/series";
+import { buildVideoScenePrompt } from "@/lib/prompts";
+import {
+  directVideoScene,
+  generateSceneVideoSegmented,
+  estimateVideoCost,
+} from "@/services/generation";
+import { getVideoModelCapability } from "@/services/ai/video-capabilities";
+import {
+  uploadFile,
+  uploadFileFromUrl,
+  isStorageConfigured,
+} from "@/services/storage";
+import { probeMediaDurationFromUrl } from "@/services/video-synthesis";
 import {
   chargeCredits,
   InsufficientCreditsError,
@@ -176,11 +191,15 @@ async function executeWorkflow(
     });
 
     // ===== Step 1: 剧本解析 =====
+    // 系列续集：注入既定设定 digest，解析结果不与前作矛盾（人物/世界观/伏笔）。
+    // 非系列项目返回 null，对解析行为无影响。
+    const parseSeriesContext =
+      (await loadSeriesMemoryDigest(ctx.projectId, "script")) ?? undefined;
     const scriptResult = await executeAgentStep(
       "parse_script",
       "script_parser",
       new ScriptParserAgent(),
-      { text: inputText },
+      { text: inputText, seriesContext: parseSeriesContext },
       ctx
     );
 
@@ -466,6 +485,37 @@ async function chargeWorkflowItem(
  *     workflow 自动路径的三视图从未进入出图参考，与手动路径质量不对等。
  * role 留空占位，由 ImageConsistencyAgent 按场景出场顺序重定（第一个 = primary）。
  */
+/**
+ * 取项目所属系列的统一色板（精简串）。
+ *
+ * 非系列项目 / 无 colorScript / 查库异常一律返回 undefined —— 色板是出图增强项，
+ * 绝不阻断生成。链路：Project.seriesId → Series.storyBible(Json) → parseStoryBible
+ * （容错，永不抛错）→ extractSeriesPalette（裸色板事实）。
+ */
+async function loadSeriesPalette(
+  projectId: string
+): Promise<string | undefined> {
+  try {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { seriesId: true },
+    });
+    if (!project?.seriesId) return undefined;
+    const series = await prisma.series.findUnique({
+      where: { id: project.seriesId },
+      select: { storyBible: true },
+    });
+    if (!series) return undefined;
+    return extractSeriesPalette(parseStoryBible(series.storyBible));
+  } catch (err) {
+    log.warn(
+      `[workflow] 加载系列色板失败，按无色板出图`,
+      err instanceof Error ? err.message : err
+    );
+    return undefined;
+  }
+}
+
 async function resolveProjectCharacters(
   projectId: string
 ): Promise<Map<string, SceneCharacterInfo>> {
@@ -562,7 +612,12 @@ async function executeImageGeneration(
   // 与手动路径「透传客户端 negativePrompt」语义一致。
   const customNegative = ctx.config.generationParams?.customNegative;
 
-  // 为单个场景组装 Agent 输入：注入 DB 解析出的角色 + sceneDbId + 画幅 + 负向词
+  // 色彩设计（color script）：批次前一次性取系列统一色板（非系列 / 无色板为
+  // undefined）。透传给出图 Agent，激活「Observer 色调一致性门禁」，让整部剧色调
+  // 统一（单镜色彩只在主色板内局部偏移）。查库失败不阻断出图——色板是增强项。
+  const seriesPalette = await loadSeriesPalette(ctx.projectId);
+
+  // 为单个场景组装 Agent 输入：注入 DB 解析出的角色 + sceneDbId + 画幅 + 负向词 + 色板
   const buildInput = (scene: SceneArtifact) => {
     const resolvedCharacters = (scene.characters ?? [])
       .map((name) => characterMap.get(name))
@@ -574,6 +629,7 @@ async function executeImageGeneration(
       sceneDbId: sceneIdByOrder.get(scene.order),
       aspectRatio: projectAspectRatio,
       negativePrompt: customNegative,
+      seriesPalette,
     };
   };
 
@@ -814,23 +870,91 @@ async function executeMediaGeneration(
         characterBible
       );
 
-      // v2：拼"身份前缀 + 镜头描述 + 运镜"作为最终 prompt（Prompt Pinning）。
-      // 运镜（cameraMovement）此前从不喂给视频模型 → 运镜全靠模型自由发挥。
-      const motionPhrase = describeCameraMovement(sceneArtifact.cameraMovement);
-      const baseVideoPrompt = charContext.identityPrompt
-        ? `${charContext.identityPrompt}. ${sceneArtifact.description}`
-        : sceneArtifact.description;
-      const videoPrompt = motionPhrase
-        ? `${baseVideoPrompt}. Camera: ${motionPhrase}`
-        : baseVideoPrompt;
+      // LLM 导演增强（Deliverable 2）：生成前导演一次「运动 + 记忆」。
+      // 角色身份锚取 characterBible 的 canonicalPrompt（≤200 字，仅供理解不复述）；
+      // 相邻镜取 order±1 的 artifact（承接上、铺垫下）。失败返回 null，回落确定性构建。
+      const directorCharacters = (sceneArtifact.characters ?? [])
+        .map((name) => {
+          const bibleEntry = characterBible?.characters.find(
+            (e) => e.name === name
+          );
+          return {
+            name,
+            identity: (bibleEntry?.canonicalPrompt ?? "").slice(0, 200),
+          };
+        })
+        .filter((c) => c.name);
+      const prevArtifact = scenes.find(
+        (s) => s.order === sceneArtifact.order - 1
+      );
+      const nextArtifact = scenes.find(
+        (s) => s.order === sceneArtifact.order + 1
+      );
+      const direction = await directVideoScene(
+        {
+          scene: {
+            description: sceneArtifact.description,
+            actionBeat: sceneArtifact.actionBeat,
+            shotType: sceneArtifact.shotType,
+            cameraAngle: sceneArtifact.cameraAngle,
+            lighting: sceneArtifact.lighting,
+            emotion: sceneArtifact.emotion,
+            duration: sceneArtifact.duration,
+          },
+          characters: directorCharacters,
+          prevScene: prevArtifact
+            ? {
+                description: prevArtifact.description,
+                actionBeat: prevArtifact.actionBeat,
+              }
+            : null,
+          nextScene: nextArtifact
+            ? {
+                description: nextArtifact.description,
+                actionBeat: nextArtifact.actionBeat,
+              }
+            : null,
+          style: ctx.config.style,
+        },
+        ctx.config.llm
+      );
 
+      // 统一视频 prompt 构建器：镜头语言 + 运镜 + 氛围 + 连续性 + 负面词。
+      // 修复：身份前缀此前内联 + provider 双重注入 —— 现在 prompt 不含身份前缀，
+      // 仅通过 identityPrompt 选项透传，由 provider 单次 prepend。
+      // 导演产出（cameraMovement/actionBeat/atmosphere）优先，缺失回落 artifact 值。
+      const videoPrompt = buildVideoScenePrompt({
+        description: sceneArtifact.description,
+        actionBeat: direction?.actionBeat ?? sceneArtifact.actionBeat,
+        style: ctx.config.style,
+        shotType: sceneArtifact.shotType,
+        cameraAngle: sceneArtifact.cameraAngle,
+        cameraMovement:
+          direction?.cameraMovement ?? sceneArtifact.cameraMovement,
+        lighting: sceneArtifact.lighting,
+        emotion: sceneArtifact.emotion,
+        atmosphereOverride: direction?.atmosphere,
+        duration: sceneArtifact.duration,
+        hasLastFrame: false,
+      });
+
+      // 分段生成对齐手动路径：按模型能力自动分段（超单段时长拆 N 段无缝拼接），
+      // 内部走 storage 门面落自有 URL。计费与手动路径同源（estimateVideoCost）。
+      const videoCapability = getVideoModelCapability(
+        ctx.config.video?.protocol ?? "",
+        ctx.config.video?.model
+      );
+      const videoCost = estimateVideoCost(
+        sceneArtifact.duration,
+        videoCapability
+      );
       tasks.push(
-        generateVideo({
+        generateSceneVideoSegmented({
           imageUrl: dbScene.imageUrl,
-          prompt: videoPrompt,
-          // duration 就近映射到 provider 合法档位 5/10/15（而非粗暴 >5?10:5
-          // 把 8s 和 15s 都压成 10s）。保留脚本节奏意图（feat-creative P1）。
-          duration: nearestVideoDuration(sceneArtifact.duration),
+          // 用户设定的真实时长（1–60），由分段器按模型能力规划段数
+          requestedSeconds: sceneArtifact.duration,
+          capability: videoCapability,
+          prompts: [videoPrompt],
           aspectRatio: projectAspectRatio,
           // v2：透传角色参考图（激活 flow2api Veo R2V / 后续 Kling Elements / Runway Gen-4 Refs）
           referenceImages:
@@ -842,19 +966,65 @@ async function executeMediaGeneration(
           // v2：透传 identityPrompt（provider 可在内部再做一次强化）
           identityPrompt: charContext.identityPrompt,
           config: ctx.config.video,
+          userId: ctx.userId,
+          projectId: ctx.projectId,
+          sceneId: dbScene.id,
         })
-          .then(async (videoUrl) => {
+          .then(async (segResult) => {
+            const isMultiSegment = segResult.segments.length > 1;
+            // 单段路径返回 provider 临时 URL，转存自有存储（对齐手动路径，修复
+            // flow2api 临时受限域名 URL 浏览器够不到 / 会过期的问题）。多段路径
+            // 已是拼接后上传的自有 URL，无需再转存。
+            let videoUrl = segResult.videoUrl;
+            if (!isMultiSegment && isStorageConfigured()) {
+              try {
+                videoUrl = await uploadFileFromUrl(segResult.videoUrl, {
+                  fileName: `scene_${dbScene.id}_${Date.now()}.mp4`,
+                  contentType: "video/mp4",
+                  fileType: "video",
+                  userId: ctx.userId,
+                  projectId: ctx.projectId,
+                });
+              } catch (uploadErr) {
+                log.error(
+                  `[workflow] 场景 ${dbScene.id} 视频转存失败，沿用外部 URL`,
+                  uploadErr instanceof Error ? uploadErr.message : uploadErr
+                );
+              }
+            }
+            // 回写真实时长（对齐手动路径修复的 stale-DB 缺口）：多段路径 orchestrator
+            // 已 ffprobe 拼接后总时长；单段路径此处补探一次。真实视频长度即分镜时长。
+            let resolvedDuration = sceneArtifact.duration;
+            if (
+              segResult.measuredDurationSeconds &&
+              segResult.measuredDurationSeconds > 0
+            ) {
+              resolvedDuration = Math.max(
+                1,
+                Math.round(segResult.measuredDurationSeconds)
+              );
+            } else {
+              try {
+                const probed = await probeMediaDurationFromUrl(videoUrl);
+                if (probed > 0)
+                  resolvedDuration = Math.max(1, Math.round(probed));
+              } catch {
+                // 探测失败回退声明时长，不阻塞
+              }
+            }
             await prisma.scene.update({
               where: { id: dbScene.id },
-              data: { videoUrl, videoStatus: "COMPLETED" },
+              data: {
+                videoUrl,
+                videoStatus: "COMPLETED",
+                duration: resolvedDuration,
+              },
             });
-            // 成功后扣费（10积分/5秒，与手动路径一致）
+            // 成功后扣费（与手动路径同源估算器，按分段档位求和）
             await chargeWorkflowItem(ctx, {
               sceneId: dbScene.id,
               kind: "video",
-              amount:
-                Math.ceil(nearestVideoDuration(sceneArtifact.duration) / 5) *
-                10,
+              amount: videoCost,
               note: `场景 ${dbScene.id} 视频生成`,
             });
           })
@@ -1126,42 +1296,7 @@ async function reviewVideoCoherence(
  * - 同一 order：update 文本字段（shotType/description/...）但**保留**已生成的 URL 与状态
  * - 新增 order：create（默认 PENDING）
  * - 被删除的 order（新 script 比老 script 少）：删除多余
-/**
- * 把运镜标识符（zoom_in/pan_left/...）转成视频模型可理解的自然语言短语。
- * 未知值原样返回；空值返回空串（调用方据此决定是否拼接）。
- */
-function describeCameraMovement(movement?: string | null): string {
-  if (!movement) return "";
-  const map: Record<string, string> = {
-    static: "static shot, no camera movement",
-    zoom_in: "slow zoom in",
-    zoom_out: "slow zoom out",
-    pan_left: "smooth pan to the left",
-    pan_right: "smooth pan to the right",
-    tilt_up: "tilt up",
-    tilt_down: "tilt down",
-    dolly_in: "dolly in toward the subject",
-    dolly_out: "dolly out from the subject",
-    orbit: "orbit around the subject",
-    handheld: "subtle handheld camera shake",
-    tracking: "tracking shot following the subject",
-  };
-  return map[movement] ?? movement.replace(/_/g, " ");
-}
-
-/**
- * 把脚本的精确秒数就近映射到视频 provider 合法档位（5/10/15）。
- * 例：7→5、9→10、13→15。缺省/异常回落 5s。
- */
-function nearestVideoDuration(seconds?: number): 5 | 10 | 15 {
-  const d = typeof seconds === "number" && seconds > 0 ? seconds : 5;
-  const options: Array<5 | 10 | 15> = [5, 10, 15];
-  return options.reduce((best, opt) =>
-    Math.abs(opt - d) < Math.abs(best - d) ? opt : best
-  );
-}
-
-/**
+ *
  * 这样重跑 workflow 时，已完成图像/视频的分镜不需要重新生成。
  */
 async function saveScenesToProject(
@@ -1188,6 +1323,8 @@ async function saveScenesToProject(
       composition: s.composition ?? null,
       colorPalette: s.colorPalette ?? null,
       cameraMovement: s.cameraMovement ?? null,
+      // 运动节拍：LLM 导演产出，喂视频 prompt 的 Action 段
+      actionBeat: s.actionBeat ?? null,
     };
 
     if (sceneId) {

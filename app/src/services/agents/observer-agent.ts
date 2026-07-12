@@ -79,6 +79,7 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
           characterDescriptions,
           expectedEmotion: input.expectedEmotion ?? "neutral",
           expectedShotType: input.expectedShotType ?? "medium shot",
+          expectedPalette: input.expectedPalette,
           llmConfig: ctx.config.llm,
         });
         const result = ObserverVerdictSchema.safeParse(raw);
@@ -116,7 +117,8 @@ export class ObserverAgent implements Agent<ObserverInput, ObserverVerdict> {
               input.sceneDescription,
               characterDescriptions,
               input.expectedEmotion ?? "neutral",
-              input.expectedShotType ?? "medium shot"
+              input.expectedShotType ?? "medium shot",
+              input.expectedPalette
             ),
           },
         ],

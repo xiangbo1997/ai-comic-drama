@@ -44,6 +44,13 @@ export interface BuildPromptOptions {
   analysis: SceneAnalysis;
   shotType?: string;
   originalPrompt?: string;
+  /**
+   * 系列级统一主色板（color script）的英文约束文本。
+   * 调用方可从 series 的 colorScript 传入（如把 keyColors + overallTone 拼成
+   * "warm amber, deep teal shadow; overall tone: desaturated teal-and-orange"），
+   * 使整部剧色调统一。留空则行为完全不变（向后兼容）。
+   */
+  seriesPalette?: string;
 }
 
 /**
@@ -53,17 +60,34 @@ export interface BuildPromptOptions {
  * - 角色 description 包含完整的人物形象描述（外貌+服装+发型+饰品）
  * - 将 description 放在 prompt 前面，强调这是角色的固定特征
  * - 动作、表情、姿态根据场景变化
+ * - 若传入 seriesPalette（系列 colorScript），把统一主色板作为全局色彩约束前置，
+ *   单镜光线/色调只在该主色板内局部偏移，消除跨镜色调漂移
  *
- * @param options 构建选项
+ * @param options 构建选项（seriesPalette 可选，调用方从 series colorScript 传入）
  * @returns 增强后的 prompt
  */
 export function buildEnhancedPrompt(options: BuildPromptOptions): string {
-  const { style, characters, analysis, shotType, originalPrompt } = options;
+  const {
+    style,
+    characters,
+    analysis,
+    shotType,
+    originalPrompt,
+    seriesPalette,
+  } = options;
 
   const parts: string[] = [];
 
   // 1. 风格前缀
   parts.push(getStylePrefix(style));
+
+  // 1.5 系列统一主色板（有值时作为全局色彩约束前置；单镜色调只在其内局部偏移）
+  const palette = seriesPalette?.trim();
+  if (palette) {
+    parts.push(
+      `unified color palette (must obey across all shots): ${palette}`
+    );
+  }
 
   // 2. 角色外貌描述（重要：放在最前面，作为固定特征）
   if (characters.length > 0) {
@@ -238,7 +262,16 @@ export function buildFinalPrompt(
  * @returns LLM prompt
  */
 export function buildSceneAnalysisPrompt(request: AnalyzeSceneRequest): string {
-  const { sceneDescription, dialogue, characters, emotion, shotType } = request;
+  const {
+    sceneDescription,
+    dialogue,
+    characters,
+    emotion,
+    shotType,
+    prevSceneDescription,
+    nextSceneDescription,
+    seriesContext,
+  } = request;
 
   const characterInfo = characters
     .map((c) => {
@@ -246,6 +279,18 @@ export function buildSceneAnalysisPrompt(request: AnalyzeSceneRequest): string {
       return `- ${c.name}${details ? ` (${details})` : ""}`;
     })
     .join("\n");
+
+  // 连续性上下文（承接前情/铺垫后续）：有相邻镜时注入，让人物状态/道具/服装延续
+  const continuityBlock =
+    prevSceneDescription || nextSceneDescription
+      ? `## 连续性上下文（承接前后镜，人物状态/道具/服装要延续，不与前情冲突）
+${prevSceneDescription ? `上一镜：${prevSceneDescription}\n` : ""}${nextSceneDescription ? `下一镜：${nextSceneDescription}\n` : ""}`
+      : "";
+
+  // 系列记忆（既定场景/道具/角色状态）：续集时注入，保证跨集视觉一致
+  const seriesBlock = seriesContext?.trim()
+    ? `## 系列既定设定（沿用，勿与之冲突）\n${seriesContext.trim()}\n`
+    : "";
 
   return `你是一个专业的分镜师，请分析以下场景，提取图片生成所需的关键信息。
 
@@ -258,7 +303,8 @@ ${characterInfo || "（无指定角色）"}
 
 ${emotion ? `## 情感基调\n${emotion}\n` : ""}
 ${shotType ? `## 景别\n${shotType}\n` : ""}
-
+${continuityBlock}
+${seriesBlock}
 请分析并输出 JSON 格式的结果：
 
 \`\`\`json
@@ -283,7 +329,8 @@ ${shotType ? `## 景别\n${shotType}\n` : ""}
 1. 动作要具体，如"站在窗边，双手抱胸"而不是"站着"
 2. 表情要根据对话内容和情感推断
 3. 如果有多个角色，描述他们的相对位置和互动
-4. 只输出 JSON，不要有其他内容`;
+4. 人物状态/道具/服装延续前情，不与前后镜冲突（若提供了连续性上下文）
+5. 只输出 JSON，不要有其他内容`;
 }
 
 /**

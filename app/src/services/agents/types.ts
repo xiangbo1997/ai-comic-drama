@@ -196,6 +196,11 @@ export interface WorkflowEvent {
 /** ScriptParserAgent 输入 */
 export interface ScriptParserInput {
   text: string;
+  /**
+   * 系列上下文（既定设定摘要，系列续集时由调用方注入）。
+   * 见 lib/series.ts#buildSeriesMemoryDigest（stage 'script'）。非系列项目不传。
+   */
+  seriesContext?: string;
 }
 
 /** ScriptParserAgent 输出 — 复用已有 ParsedScript 并扩展 */
@@ -273,6 +278,8 @@ export interface SceneArtifact {
   colorPalette?: string;
   /** 运镜方向（喂给视频模型） */
   cameraMovement?: string;
+  /** 运动节拍：这一镜内"什么在动"（LLM 解析产出，喂视频 prompt） */
+  actionBeat?: string;
   /** 转场效果 */
   transition?: string;
 }
@@ -305,6 +312,12 @@ export interface ImageGenerationInput {
   aspectRatio?: "1:1" | "9:16" | "16:9";
   /** 负向提示词（来自项目生成参数），透传给 orchestrator。 */
   negativePrompt?: string;
+  /**
+   * 系列级统一色板（来自故事圣经 colorScript，出图前由 workflow 渲染）。
+   * 用于色彩一致性门禁：出图 prompt 前置统一色板 + Observer 评审「色调一致性」维度。
+   * 非系列项目 / 圣经无 colorScript 时为空，色板门禁自然退化为无约束。
+   */
+  seriesPalette?: string;
 }
 
 /** 图像生成结果 */
@@ -329,6 +342,12 @@ export interface ObserverInput {
   /** 期望的情感/氛围 */
   expectedEmotion?: string;
   expectedShotType?: string;
+  /**
+   * 期望的全片统一主色板（来自故事圣经 colorScript）。
+   * 提供时 Observer 评审「色调一致性」维度会拿它当基准，判断生成图主色调是否服从色板；
+   * 缺省时该维度退化为一般色彩合理性判断（不阻塞）。
+   */
+  expectedPalette?: string;
 }
 
 /** ObserverAgent 评审结果 */
