@@ -166,9 +166,28 @@ model Project {
   characters        ProjectCharacter[]
   workflowRuns      WorkflowRun[]
   shortDramaScripts ShortDramaScript[]
+  locations         ProjectLocation[]
 
   @@index([userId]) // 项目列表页按 userId 查询，无此索引则全表扫描
   @@index([seriesId, episodeNumber]) // 系列分组/上下集导航按此查询
+}
+
+// 场景锚图（地点空景板，计划 §5 · 2.2）：以 locationKey 为业务键，为同一物理地点
+// 沉淀一张「无人物环境板」+ 环境描述，作为该地点所有分镜出图的场景锚（锁背景/布局/光线）。
+// 刻意不在 Scene 上加 locationId 外键：分镜已带 locationKey（解析层产出），
+// 再加一个外键会有「两处地点标识」不一致的风险；此表用 locationKey 关联，单一真源。
+model ProjectLocation {
+  id          String   @id @default(cuid())
+  projectId   String
+  locationKey String // 与 Scene.locationKey 对齐的地点短标签
+  description String?  // 地点环境描述（LLM 汇总，可用户改）
+  imageUrl    String?  // 空景锚图（无人物环境板）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, locationKey])
+  @@index([projectId])
 }
 
 // 短剧创作脚本：承载「世界观→结构化脚本」+「九宫格分镜表」+「一键九宫格图」

@@ -14,6 +14,7 @@ import {
   Grid3x3,
   Film,
   Link2,
+  MapPin,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
@@ -36,6 +37,7 @@ import {
 import { SceneCard, type ChainState } from "./SceneCard";
 import { SceneVideoDialog } from "./SceneVideoDialog";
 import { SuggestLinksDialog } from "./SuggestLinksDialog";
+import { LocationsDialog } from "./LocationsDialog";
 
 /** 单个媒体类型（图/视/音）的配置控制三元组 */
 export interface MediaConfigControl {
@@ -142,6 +144,8 @@ function SceneListImpl({
   );
   // AI 衔接建议弹窗开合（计划 §5 · 2.1 · 任务 C）
   const [showSuggestLinks, setShowSuggestLinks] = useState(false);
+  // 场景地点弹窗开合（计划 §5 · 2.2 · 地点空景板）
+  const [showLocations, setShowLocations] = useState(false);
 
   // 每个分镜的衔接链条状态：开了 videoLinkNext 时，下一镜是否已出图。
   // 已衔接=下一镜有图（生成时 FL 尾帧生效）；衔接待出图=下一镜缺图（会回落普通生成）。
@@ -390,6 +394,22 @@ function SceneListImpl({
             >
               <Link2 size={12} />
               AI 建议衔接
+            </button>
+          )}
+          {/* 场景地点（计划 §5 · 2.2）：为每个地点沉淀无人物空景板作场景锚，
+              锁同地点多镜背景/布局/光线。有分镜即可入口。 */}
+          {project.scenes.length >= 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowLocations(true);
+              }}
+              disabled={anyBatchPending}
+              className="bg-secondary hover:bg-secondary/80 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
+              title="管理场景地点：生成/上传无人物空景板作为背景一致性锚"
+            >
+              <MapPin size={12} />
+              场景地点
             </button>
           )}
           {/* 仅补失败镜：workflow 部分成功或批量后有失败时的一键重试入口，
@@ -663,6 +683,14 @@ function SceneListImpl({
         projectId={projectId}
         scenes={project.scenes}
         onApplied={refreshProject}
+      />
+
+      {/* 场景地点弹窗（空景板锚图管理） */}
+      <LocationsDialog
+        open={showLocations}
+        onClose={() => setShowLocations(false)}
+        projectId={projectId}
+        imageConfigId={mediaConfig.image.selected}
       />
     </div>
   );
