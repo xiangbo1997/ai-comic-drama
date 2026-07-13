@@ -208,6 +208,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         actionBeat: scene.actionBeat || null,
         // 地点标签：LLM 解析产出，供场景锚定图（环境一致性）分组
         locationKey: scene.locationKey || null,
+        // 尾帧衔接下一镜：LLM 解析产出（linkNext），映射到 videoLinkNext；
+        // 老输出无此字段时布尔化为 false，行为与今日一致（向后兼容）。
+        videoLinkNext: Boolean(scene.linkNext),
         // 分镜级换装标注（Json）：LLM 解析产出，供场景定妆照换装。
         // 有数组用 InputJsonValue，缺省用 JsonNull（Prisma Json 空值语义）。
         characterOutfits:

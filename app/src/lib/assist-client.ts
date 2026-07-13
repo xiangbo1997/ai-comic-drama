@@ -53,6 +53,52 @@ export async function draftAppearance(body: {
   return res.json();
 }
 
+/** 尾帧衔接建议结果（对应 suggest-links 路由 POST 返回） */
+export interface LinkSuggestion {
+  sceneId: string;
+  nextSceneId: string;
+  reason: string;
+}
+
+export interface SuggestLinksResult {
+  suggestions: LinkSuggestion[];
+  /** 当前视频模型是否支持首尾帧插值；false 时衔接开启后会回落普通生成 */
+  flSupported: boolean;
+}
+
+/** 尾帧衔接：AI 建议相邻镜哪些适合开启衔接（计划 §5 · 2.1） */
+export async function suggestLinks(
+  projectId: string
+): Promise<SuggestLinksResult> {
+  const res = await fetch(`/api/projects/${projectId}/suggest-links`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "衔接建议失败"));
+  }
+  return res.json();
+}
+
+/** 批量应用衔接：把指定分镜的 videoLinkNext 置 true，返回更新数量 */
+export async function applyLinks(
+  projectId: string,
+  sceneIds: string[]
+): Promise<{ updated: number }> {
+  const res = await fetch(`/api/projects/${projectId}/suggest-links`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sceneIds }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "应用衔接失败"));
+  }
+  return res.json();
+}
+
 export type PromptSuggestContext = "character_reference" | "scene_iterate";
 
 /** 提示词 AI 建议：返回 2~3 条中文短句 */

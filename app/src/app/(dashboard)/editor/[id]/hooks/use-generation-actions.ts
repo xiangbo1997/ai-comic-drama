@@ -607,8 +607,29 @@ export function useGenerationActions(
     }: {
       scenes: Scene[];
       videoConfigId?: string;
-    }) =>
-      runBatch("video", scenes, {
+    }) => {
+      // 视频批量按 order 串行（尾帧衔接依赖下一镜已出图，顺序稳定才可靠）
+      const ordered = [...scenes].sort((a, b) => a.order - b.order);
+
+      // 衔接保障（计划 §5 · 2.1 · 任务 B）：开了 videoLinkNext 但下一镜未出图的分镜，
+      // 生成时会静默回落普通 I2V。批量前给一次汇总提示（不阻断、不自动出图——
+      // 避免未经确认的积分消耗），让用户知道哪些衔接不会生效。
+      if (project) {
+        const byOrder = [...project.scenes].sort((a, b) => a.order - b.order);
+        const fallbackCount = ordered.filter((scene) => {
+          if (!scene.videoLinkNext) return false;
+          const idx = byOrder.findIndex((s) => s.id === scene.id);
+          const next = idx >= 0 ? byOrder[idx + 1] : undefined;
+          return next ? !next.imageUrl : false;
+        }).length;
+        if (fallbackCount > 0) {
+          toast.warning(
+            `${fallbackCount} 个已衔接分镜的下一镜未出图，这些镜将回落普通生成`
+          );
+        }
+      }
+
+      return runBatch("video", ordered, {
         statusField: "videoStatus",
         run: async (scene) => {
           if (!scene.imageUrl) throw new Error("请先生成图片");
@@ -617,7 +638,8 @@ export function useGenerationActions(
             data?.videoUrl ? { videoUrl: data.videoUrl } : {}
           ) as Partial<Scene>;
         },
-      }),
+      });
+    },
     onSuccess: (outcome) => summarizeBatch("视频", outcome),
     onSettled: () => {
       setBatchProgress(null);

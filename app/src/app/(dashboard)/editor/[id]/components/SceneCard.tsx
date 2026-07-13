@@ -33,9 +33,18 @@ import {
   Plus,
   Trash2,
   Play,
+  Link2,
 } from "lucide-react";
 import type { Scene, ProjectDetail } from "@/types";
 import { SortableItem } from "./SortableItem";
+
+/**
+ * 衔接链条状态（尾帧衔接，计划 §5 · 2.1）：
+ * - linked：开了 videoLinkNext 且下一镜已出图 → 生成视频时 FL 尾帧生效。
+ * - pending：开了 videoLinkNext 但下一镜缺图 → 会回落普通生成（提醒色）。
+ * undefined 表示未开启衔接（不显示 chip）。
+ */
+export type ChainState = "linked" | "pending";
 
 interface SceneCardProps {
   scene: Scene;
@@ -61,6 +70,8 @@ interface SceneCardProps {
   updateScene: (sceneId: string, data: Partial<Scene>) => void;
   /** 登记卡片 DOM，供选中时 scrollIntoView（稳定回调，避免内联闭包击穿 memo） */
   registerItemRef: (id: string, el: HTMLElement | null) => void;
+  /** 衔接链条状态（尾帧衔接）；undefined=未开启衔接，不显示 chip */
+  chainState?: ChainState;
 }
 
 function SceneCardImpl({
@@ -83,6 +94,7 @@ function SceneCardImpl({
   onViewVideo,
   updateScene,
   registerItemRef,
+  chainState,
 }: SceneCardProps) {
   return (
     <SortableItem id={scene.id}>
@@ -120,7 +132,7 @@ function SceneCardImpl({
               <span className="bg-background/70 absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium backdrop-blur-sm">
                 #{index + 1}
               </span>
-              {/* 左下角景别 + 时长 */}
+              {/* 左下角景别 + 时长 + 衔接链条状态 */}
               <div className="absolute bottom-1 left-1 z-10 flex items-center gap-1">
                 <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
                   {scene.shotType || "中景"}
@@ -128,6 +140,7 @@ function SceneCardImpl({
                 <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
                   {scene.duration}s
                 </span>
+                {chainState && <ChainChip state={chainState} />}
               </div>
               {/* 图像内容 */}
               <div className="flex h-full w-full items-center justify-center">
@@ -407,6 +420,33 @@ function Thumb({ src, alt }: { src: string; alt: string }) {
     );
   }
   return <img src={src} alt={alt} className="h-full w-full object-cover" />;
+}
+
+/**
+ * 衔接链条状态 chip（尾帧衔接，计划 §5 · 2.1）：叠在缩略图左下角景别/时长旁。
+ * - linked（已衔接）：primary 色，下一镜已出图，FL 尾帧会生效。
+ * - pending（衔接待出图）：muted 提醒色，下一镜缺图，生成时会回落普通生成。
+ * 只在开启衔接的分镜显示（chainState 为 undefined 时上层不渲染本组件）。
+ */
+function ChainChip({ state }: { state: ChainState }) {
+  const linked = state === "linked";
+  return (
+    <span
+      className={`flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm ${
+        linked
+          ? "bg-primary/80 text-primary-foreground"
+          : "bg-background/70 text-muted-foreground"
+      }`}
+      title={
+        linked
+          ? "已衔接：下一镜已出图，生成视频时首尾帧插值生效"
+          : "衔接待出图：下一镜尚未出图，生成时将回落普通生成"
+      }
+    >
+      <Link2 size={9} />
+      {linked ? "已衔接" : "待出图"}
+    </span>
+  );
 }
 
 /**

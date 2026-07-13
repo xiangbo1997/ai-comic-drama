@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import {
   Image as ImageIcon,
   Video,
@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   Grid3x3,
   Film,
+  Link2,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
@@ -32,8 +33,9 @@ import {
   verticalListSortingStrategy,
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
-import { SceneCard } from "./SceneCard";
+import { SceneCard, type ChainState } from "./SceneCard";
 import { SceneVideoDialog } from "./SceneVideoDialog";
+import { SuggestLinksDialog } from "./SuggestLinksDialog";
 
 /** 单个媒体类型（图/视/音）的配置控制三元组 */
 export interface MediaConfigControl {
@@ -138,6 +140,23 @@ function SceneListImpl({
   const [viewingVideoScene, setViewingVideoScene] = useState<Scene | null>(
     null
   );
+  // AI 衔接建议弹窗开合（计划 §5 · 2.1 · 任务 C）
+  const [showSuggestLinks, setShowSuggestLinks] = useState(false);
+
+  // 每个分镜的衔接链条状态：开了 videoLinkNext 时，下一镜是否已出图。
+  // 已衔接=下一镜有图（生成时 FL 尾帧生效）；衔接待出图=下一镜缺图（会回落普通生成）。
+  // 在此计算（能看到 project.scenes 全序），逐张 memo 化传给 SceneCard。
+  const chainStateById = useMemo(() => {
+    const ordered = [...project.scenes].sort((a, b) => a.order - b.order);
+    const map = new Map<string, ChainState>();
+    for (let i = 0; i < ordered.length; i++) {
+      const scene = ordered[i];
+      if (!scene.videoLinkNext) continue;
+      const next = ordered[i + 1];
+      map.set(scene.id, next?.imageUrl ? "linked" : "pending");
+    }
+    return map;
+  }, [project.scenes]);
 
   // 选中分镜自动滚动入视（ux-editor P0-2）：从时间轴播放/预览/搜索切换
   // 分镜后，把对应卡片滚到可见区，避免分镜多时用户「丢失当前位置」。
@@ -357,6 +376,22 @@ function SceneListImpl({
               批量生成
             </button>
           )}
+          {/* AI 建议衔接（计划 §5 · 2.1）：LLM 判断相邻镜是否同场景+动作连续，
+              一键批量开启 videoLinkNext。分镜 ≥2 才有意义。 */}
+          {project.scenes.length >= 2 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowSuggestLinks(true);
+              }}
+              disabled={anyBatchPending}
+              className="bg-secondary hover:bg-secondary/80 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
+              title="AI 判断相邻分镜是否适合尾帧衔接，一键批量开启"
+            >
+              <Link2 size={12} />
+              AI 建议衔接
+            </button>
+          )}
           {/* 仅补失败镜：workflow 部分成功或批量后有失败时的一键重试入口，
               避免逐张扫红角标手动点（历史遗留候选项） */}
           {batchGenerateImagesMutation &&
@@ -473,6 +508,7 @@ function SceneListImpl({
                   onViewVideo={handleViewVideo}
                   updateScene={updateScene}
                   registerItemRef={registerItemRef}
+                  chainState={chainStateById.get(scene.id)}
                 />
               ))}
             </SortableContext>
@@ -618,6 +654,15 @@ function SceneListImpl({
         title={`分镜 #${(viewingVideoScene?.order ?? 0) + 1} 视频`}
         aspectRatio={project.aspectRatio}
         onClose={() => setViewingVideoScene(null)}
+      />
+
+      {/* AI 衔接建议弹窗 */}
+      <SuggestLinksDialog
+        open={showSuggestLinks}
+        onClose={() => setShowSuggestLinks(false)}
+        projectId={projectId}
+        scenes={project.scenes}
+        onApplied={refreshProject}
       />
     </div>
   );

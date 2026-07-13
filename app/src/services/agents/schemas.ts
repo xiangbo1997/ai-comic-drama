@@ -88,6 +88,9 @@ export const SceneScriptZ = z.object({
   actionBeat: z.string().optional(),
   // 环境一致性：地点短标签（同地点共用同值，供场景锚定图分组）
   locationKey: LocationKeySchema,
+  // 尾帧衔接下一镜（可选）：同地点且动作/时间连续时置 true，映射 Scene.videoLinkNext。
+  // 非布尔等异常值 .catch(undefined) 兜底，不因它让整镜结构校验失败。
+  linkNext: z.boolean().optional().catch(undefined),
   // 分镜级换装标注（仅剧情非默认着装时出现，供场景定妆照换装）
   characterOutfits: CharacterOutfitsSchema,
 });
