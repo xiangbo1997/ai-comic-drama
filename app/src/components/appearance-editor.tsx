@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X } from "lucide-react";
+import { Plus, X, Sparkles, Loader2 } from "lucide-react";
 import type { CharacterAppearance, ClothingPreset } from "@/types";
+import { draftAppearance } from "@/lib/assist-client";
+import { useToast } from "@/components/ui/toast";
 
 /** 外貌编辑器用的表单数据（不含 id/characterId） */
 export interface AppearanceFormData {
@@ -57,6 +59,56 @@ export function isAppearanceEmpty(data: AppearanceFormData): boolean {
   });
 }
 
+/**
+ * 用 AI 起草结果「只填空字段」地合并进当前外貌表单（批次 1 · 1.2 交互原则 3）。
+ *
+ * 返回 { merged, filledCount }：
+ * - merged：只把 current 中为空的字段用 draft 补上，用户已填的字段一律不覆盖（不可变构造新对象）；
+ * - filledCount：本次实际填入的字段数，供调用方判断「已填写完整」给对应提示。
+ */
+export function mergeAppearanceDraft(
+  current: AppearanceFormData,
+  draft: Partial<AppearanceFormData>
+): { merged: AppearanceFormData; filledCount: number } {
+  let filledCount = 0;
+
+  const pick = (field: keyof AppearanceFormData): string => {
+    const cur = (current[field] as string) || "";
+    if (cur.trim()) return cur; // 用户已填 → 保留
+    const next = ((draft[field] as string) || "").trim();
+    if (next) {
+      filledCount += 1;
+      return next;
+    }
+    return cur;
+  };
+
+  const clothingPresets =
+    current.clothingPresets.length > 0
+      ? current.clothingPresets // 用户已有服装 → 不动
+      : (() => {
+          const drafted = draft.clothingPresets ?? [];
+          if (drafted.length > 0) filledCount += 1;
+          return drafted;
+        })();
+
+  return {
+    merged: {
+      hairStyle: pick("hairStyle"),
+      hairColor: pick("hairColor"),
+      faceShape: pick("faceShape"),
+      eyeColor: pick("eyeColor"),
+      bodyType: pick("bodyType"),
+      height: pick("height"),
+      skinTone: pick("skinTone"),
+      accessories: pick("accessories"),
+      freeText: pick("freeText"),
+      clothingPresets,
+    },
+    filledCount,
+  };
+}
+
 const HAIR_STYLES = [
   "短发",
   "长直发",
@@ -89,16 +141,56 @@ interface AppearanceEditorProps {
   value: AppearanceFormData;
   onChange: (data: AppearanceFormData) => void;
   compact?: boolean;
+  /**
+   * 角色上下文（供「✨ AI 分析填写」按钮起草外貌用）。
+   * 传入且 name 非空时才显示按钮；不传则按钮隐藏（向后兼容旧调用）。
+   */
+  characterContext?: {
+    name: string;
+    gender?: string;
+    age?: string;
+    description?: string;
+  };
 }
 
 export function AppearanceEditor({
   value,
   onChange,
   compact = false,
+  characterContext,
 }: AppearanceEditorProps) {
+  const toast = useToast();
   const [showAddClothing, setShowAddClothing] = useState(false);
   const [newClothingName, setNewClothingName] = useState("");
   const [newClothingDesc, setNewClothingDesc] = useState("");
+  const [drafting, setDrafting] = useState(false);
+
+  const canDraft = !!characterContext?.name.trim();
+
+  // AI 分析填写：只填空字段，用户已填的不覆盖；全部已填时提示先清空
+  const handleAIDraft = async () => {
+    if (!characterContext?.name.trim() || drafting) return;
+    setDrafting(true);
+    try {
+      const draft = await draftAppearance({
+        name: characterContext.name.trim(),
+        gender: characterContext.gender,
+        age: characterContext.age,
+        description: characterContext.description,
+      });
+      const { merged, filledCount } = mergeAppearanceDraft(value, draft);
+      if (filledCount === 0) {
+        toast.info("外貌已填写完整，如需重填请先清空对应字段");
+        return;
+      }
+      onChange(merged);
+      toast.success(`AI 已填入 ${filledCount} 个空字段，可继续修改`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "外貌预填失败");
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   const update = (
     field: keyof AppearanceFormData,
@@ -156,6 +248,22 @@ export function AppearanceEditor({
 
   return (
     <div className={compact ? "space-y-1" : "space-y-2"}>
+      {canDraft && (
+        <button
+          type="button"
+          onClick={handleAIDraft}
+          disabled={drafting}
+          className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 flex w-full items-center justify-center gap-1.5 rounded-lg border py-1.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-60"
+          title="根据角色名/性别/年龄/描述，AI 推断填入下方空字段"
+        >
+          {drafting ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Sparkles size={12} />
+          )}
+          {drafting ? "AI 分析中..." : "✨ AI 分析填写（只填空字段）"}
+        </button>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <div>{renderChips("hairStyle", HAIR_STYLES, "发型")}</div>
         <div>{renderChips("hairColor", HAIR_COLORS, "发色")}</div>

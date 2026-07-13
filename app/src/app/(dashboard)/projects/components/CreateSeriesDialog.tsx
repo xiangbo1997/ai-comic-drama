@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Clapperboard } from "lucide-react";
+import { Loader2, Clapperboard, Wand2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,11 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
+import { draftWorldview } from "@/lib/assist-client";
 import type { ProjectListItem, SeriesSummary } from "@/types";
+
+/** 世界观框内容达到此长度即视为「已较完整」，AI 起草前需二次确认（会覆盖） */
+const WORLDVIEW_DRAFT_THRESHOLD = 50;
 
 const STYLES: Array<{ value: string; label: string }> = [
   { value: "anime", label: "日漫风格" },
@@ -70,6 +74,42 @@ export function CreateSeriesDialog({
   const [worldview, setWorldview] = useState("");
   const [protagonist, setProtagonist] = useState("");
   const [fromProjectId, setFromProjectId] = useState("");
+
+  // 世界观 AI 起草（批次 1 · 1.1）：世界观框短文本当想法扩写，
+  // 替换世界观 + 只回填空的 title(片名)/genre/protagonist。
+  const [drafting, setDrafting] = useState(false);
+
+  const handleDraftWorldview = async () => {
+    if (drafting) return;
+    const idea = worldview.trim();
+    if (!idea) {
+      toast.info("请先在世界观框里写一句话想法，AI 会帮你扩写");
+      return;
+    }
+    if (idea.length >= WORLDVIEW_DRAFT_THRESHOLD) {
+      const ok = await toast.confirm(
+        "世界观框已有较完整内容，AI 起草将覆盖它（作为想法扩写）。确认继续？"
+      );
+      if (!ok) return;
+    }
+    setDrafting(true);
+    try {
+      const draft = await draftWorldview({
+        idea,
+        genre: genre.trim() || undefined,
+      });
+      setWorldview(draft.worldview);
+      // 仅回填空字段，非空不动
+      if (!protagonist.trim()) setProtagonist(draft.protagonist);
+      if (!genre.trim()) setGenre(draft.genre);
+      if (!title.trim()) setTitle(draft.filmTitle);
+      toast.success("已起草世界观，可继续修改");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "世界观起草失败");
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: createSeries,
@@ -170,13 +210,29 @@ export function CreateSeriesDialog({
           </div>
 
           <div>
-            <label className="text-muted-foreground mb-1 block text-sm">
-              世界观（每集短剧脚本自动预填）
-            </label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="text-muted-foreground block text-sm">
+                世界观（每集短剧脚本自动预填）
+              </label>
+              <button
+                type="button"
+                onClick={handleDraftWorldview}
+                disabled={drafting || createMutation.isPending}
+                className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 flex items-center gap-1 rounded px-2 py-0.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-60"
+                title="写一句话想法，AI 帮你扩写成完整世界观（并回填空的片名/类型/主角）"
+              >
+                {drafting ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Wand2 size={11} />
+                )}
+                {drafting ? "起草中..." : "✨ AI 起草"}
+              </button>
+            </div>
             <textarea
               value={worldview}
               onChange={(e) => setWorldview(e.target.value)}
-              placeholder="输入系列共享的世界观设定…"
+              placeholder="写一句话想法（如：重生复仇爽剧，女主是被陷害的豪门千金），点「✨ AI 起草」扩写；或直接输入完整世界观…"
               className="bg-card focus:ring-primary h-20 w-full resize-none rounded-lg p-2 text-sm focus:ring-2 focus:outline-none"
             />
           </div>

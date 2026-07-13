@@ -357,6 +357,12 @@ function CharacterEditForm({
               onChange={(appearance: AppearanceFormData) =>
                 onFormDataChange({ ...formData, appearance })
               }
+              characterContext={{
+                name: formData.name,
+                gender: formData.gender,
+                age: formData.age,
+                description: formData.description,
+              }}
               compact
             />
           </div>

@@ -3,10 +3,20 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Coins, Loader2, Wand2, Upload, X, Grid2x2 } from "lucide-react";
+import {
+  Coins,
+  Loader2,
+  Wand2,
+  Upload,
+  X,
+  Grid2x2,
+  Sparkles,
+} from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { CharacterListItem } from "@/types";
 import type { GenerateOptions } from "./constants";
+import { suggestPrompts } from "@/lib/assist-client";
+import { useToast } from "@/components/ui/toast";
 import {
   Dialog,
   DialogContent,
@@ -52,10 +62,47 @@ export function GenerateReferenceModal({
   onGenerateThreeViews,
   threeViewsPending,
 }: GenerateReferenceModalProps) {
+  const toast = useToast();
   const character = characters.find((c) => c.id === characterId);
   const hasImages = (character?.referenceImages?.length ?? 0) > 0;
   const [readingImage, setReadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // 提示词 AI 建议（批次 1 · 1.3）：基于角色信息给 2~3 条可点选短句，
+  // 点选后追加进自定义提示词（保留已有内容，可继续编辑）。
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+
+  const handleSuggest = async () => {
+    if (!character || suggesting) return;
+    setSuggesting(true);
+    try {
+      const { suggestions: list } = await suggestPrompts({
+        context: "character_reference",
+        character: {
+          name: character.name,
+          gender: character.gender ?? undefined,
+          age: character.age ?? undefined,
+          description: character.description ?? undefined,
+        },
+        currentPrompt: generateOptions.customPrompt.trim() || undefined,
+      });
+      setSuggestions(list);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "提示词建议失败");
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  // 点选建议：追加到已有自定义提示词末尾（中文顿号分隔），不覆盖
+  const appendSuggestion = (text: string) => {
+    const cur = generateOptions.customPrompt.trim();
+    const next = cur ? `${cur}、${text}` : text;
+    onOptionsChange({ ...generateOptions, customPrompt: next });
+    // 已选的从候选里移除，避免重复点
+    setSuggestions((prev) => prev.filter((s) => s !== text));
+  };
 
   // 余额前置：此前只标单次消耗不显余额，用户连续生成到没钱才撞
   // "积分不足"报错（ux-config P1-5）。与积分页共享 ["credits"] 缓存。
@@ -316,9 +363,25 @@ export function GenerateReferenceModal({
           )}
 
           <div className="space-y-2">
-            <label className="text-muted-foreground text-sm">
-              自定义提示词（可选）
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-muted-foreground text-sm">
+                自定义提示词（可选）
+              </label>
+              <button
+                type="button"
+                onClick={handleSuggest}
+                disabled={suggesting || !character}
+                className="text-agent hover:text-agent/80 flex items-center gap-1 text-xs transition disabled:cursor-not-allowed disabled:opacity-50"
+                title="根据角色信息，AI 给几条可点选的调整建议"
+              >
+                {suggesting ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <Sparkles size={11} />
+                )}
+                帮我写
+              </button>
+            </div>
             <textarea
               value={generateOptions.customPrompt}
               onChange={(e) =>
@@ -331,6 +394,21 @@ export function GenerateReferenceModal({
               className="border-border bg-secondary w-full resize-none rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               rows={3}
             />
+            {suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {suggestions.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => appendSuggestion(s)}
+                    className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 rounded-full border px-2.5 py-1 text-xs transition"
+                    title="点击追加到提示词"
+                  >
+                    + {s}
+                  </button>
+                ))}
+              </div>
+            )}
             <p className="text-muted-foreground text-xs">
               提示：将与角色基础信息合并生成
             </p>

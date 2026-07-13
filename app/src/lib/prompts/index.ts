@@ -37,3 +37,24 @@ export {
   NARRATION_DISCIPLINE_RULES,
   buildAdaptationBlock,
 } from "./adaptation-rules";
+export {
+  WORLDVIEW_DRAFT_SYSTEM,
+  buildWorldviewDraftPrompt,
+} from "./worldview-draft";
+export type { WorldviewDraftInput } from "./worldview-draft";
+export {
+  APPEARANCE_PRESETS,
+  APPEARANCE_DRAFT_SYSTEM,
+  buildAppearanceDraftPrompt,
+} from "./appearance-draft";
+export type { AppearanceDraftInput } from "./appearance-draft";
+export {
+  PROMPT_SUGGEST_SYSTEM,
+  buildPromptSuggestPrompt,
+} from "./prompt-suggest";
+export type {
+  PromptSuggestContext,
+  PromptSuggestInput,
+  PromptSuggestCharacter,
+  PromptSuggestScene,
+} from "./prompt-suggest";

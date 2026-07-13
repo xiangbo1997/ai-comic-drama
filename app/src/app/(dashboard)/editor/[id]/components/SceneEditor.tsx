@@ -11,10 +11,13 @@ import {
   AlertCircle,
   Video,
   Wand2,
+  Sparkles,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { Scene, ShotType, Emotion, Character } from "@/types";
 import { SceneVersionStrip } from "./SceneVersionStrip";
+import { suggestPrompts } from "@/lib/assist-client";
+import { useToast } from "@/components/ui/toast";
 
 const SHOT_TYPES: ShotType[] = ["特写", "近景", "中景", "全景", "远景"];
 const EMOTIONS: Emotion[] = [
@@ -79,11 +82,44 @@ export function SceneEditor({
   lastGenerationInfo,
   onCharacterRoleChange,
 }: SceneEditorProps) {
+  const toast = useToast();
   const [flickerCompare, setFlickerCompare] = useState(false);
   // 预览媒体 tab：图片 / 视频。该分镜有 videoUrl 时才显示"视频"tab。
   const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
   // 迭代追加指令草稿（本地态，不落库；点「基于此图迭代」后清空）
   const [iterateNote, setIterateNote] = useState("");
+  // 迭代提示词 AI 建议（批次 1 · 1.3）：基于分镜上下文给 2~3 条可点选短句
+  const [iterateSuggesting, setIterateSuggesting] = useState(false);
+  const [iterateSuggestions, setIterateSuggestions] = useState<string[]>([]);
+
+  const handleSuggestIterate = async () => {
+    if (!scene || iterateSuggesting) return;
+    setIterateSuggesting(true);
+    try {
+      const { suggestions } = await suggestPrompts({
+        context: "scene_iterate",
+        scene: {
+          description: scene.description ?? undefined,
+          dialogue: scene.dialogue ?? undefined,
+          emotion: scene.emotion ?? undefined,
+          shotType: scene.shotType ?? undefined,
+        },
+        currentPrompt: iterateNote.trim() || undefined,
+      });
+      setIterateSuggestions(suggestions);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "提示词建议失败");
+    } finally {
+      setIterateSuggesting(false);
+    }
+  };
+
+  // 点选建议：追加到迭代 note 末尾（顿号分隔），不覆盖
+  const appendIterateSuggestion = (text: string) => {
+    const cur = iterateNote.trim();
+    setIterateNote(cur ? `${cur}、${text}` : text);
+    setIterateSuggestions((prev) => prev.filter((s) => s !== text));
+  };
 
   // 文本字段本地草稿 + 防抖落库：避免每次 keystroke 都 PATCH 数据库（高频写+竞态）。
   // 本地 state 保证输入即时响应，停止输入 400ms 后才提交。
@@ -635,6 +671,24 @@ export function SceneEditor({
                   <span className="text-xs font-medium">
                     在当前图基础上调整
                   </span>
+                  <button
+                    type="button"
+                    onClick={handleSuggestIterate}
+                    disabled={
+                      iterateSuggesting ||
+                      scene.imageStatus === "PROCESSING" ||
+                      isGeneratingImage
+                    }
+                    className="text-agent hover:text-agent/80 ml-auto flex items-center gap-1 text-xs transition disabled:cursor-not-allowed disabled:opacity-50"
+                    title="根据分镜内容，AI 给几条可点选的调整建议"
+                  >
+                    {iterateSuggesting ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <Sparkles size={11} />
+                    )}
+                    帮我写
+                  </button>
                 </div>
                 <textarea
                   value={iterateNote}
@@ -646,6 +700,21 @@ export function SceneEditor({
                   }
                   className="border-border bg-background focus:ring-primary/40 w-full resize-none rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 disabled:opacity-50"
                 />
+                {iterateSuggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {iterateSuggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => appendIterateSuggestion(s)}
+                        className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 rounded-full border px-2.5 py-1 text-xs transition"
+                        title="点击追加到调整指令"
+                      >
+                        + {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     const note = iterateNote.trim();

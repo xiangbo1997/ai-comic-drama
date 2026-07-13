@@ -8,6 +8,7 @@ import {
   ListVideo,
   BookMarked,
   RefreshCw,
+  Wand2,
 } from "lucide-react";
 import type {
   ProjectDetail,
@@ -15,11 +16,16 @@ import type {
   StoryboardTableArtifact,
 } from "@/types";
 import { dramaScriptToScenes, scriptToInputText } from "@/lib/drama-to-scenes";
+import { draftWorldview } from "@/lib/assist-client";
+import { useToast } from "@/components/ui/toast";
 import {
   useDramaScript,
   type ShortDramaScriptRecord,
 } from "../hooks/use-drama-script";
 import { StoryboardTablePanel } from "./StoryboardTablePanel";
+
+/** 世界观框内容达到此长度即视为「已较完整」，AI 起草前需二次确认（会覆盖） */
+const WORLDVIEW_DRAFT_THRESHOLD = 50;
 
 interface DramaScriptPanelProps {
   projectId: string;
@@ -43,6 +49,7 @@ export function DramaScriptPanel({
 }: DramaScriptPanelProps) {
   const { scripts, generateMutation, updateMutation } =
     useDramaScript(projectId);
+  const toast = useToast();
 
   // 系列内的集：世界观/主角自动预填系列设定（挂载时一次性初始化，
   // 用户可自由改写，不会被后续 refetch 覆盖）
@@ -51,6 +58,39 @@ export function DramaScriptPanel({
     project.series?.protagonist ?? ""
   );
   const [durationSec, setDurationSec] = useState(90);
+
+  // 世界观 AI 起草（批次 1 · 1.1）：把世界观框已有短文本当「想法」扩写，
+  // 结果替换世界观 + 只回填空的 protagonist/genre/filmTitle。
+  const [drafting, setDrafting] = useState(false);
+
+  const handleDraftWorldview = async () => {
+    if (drafting) return;
+    const idea = worldview.trim();
+    if (!idea) {
+      toast.info("请先在世界观框里写一句话想法，AI 会帮你扩写");
+      return;
+    }
+    // 已有较完整世界观时二次确认（起草将覆盖世界观框）
+    if (idea.length >= WORLDVIEW_DRAFT_THRESHOLD) {
+      const ok = await toast.confirm(
+        "世界观框已有较完整内容，AI 起草将覆盖它（作为想法扩写）。确认继续？"
+      );
+      if (!ok) return;
+    }
+    setDrafting(true);
+    try {
+      const draft = await draftWorldview({ idea });
+      // 世界观：替换（语义为扩写原想法）
+      setWorldview(draft.worldview);
+      // 主角：仅在为空时回填（不覆盖用户已写）
+      if (!protagonist.trim()) setProtagonist(draft.protagonist);
+      toast.success(`已起草世界观《${draft.filmTitle}》，可继续修改`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "世界观起草失败");
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   // 系列记忆刷新（手动触发史官归档缺失集）：本地态，不引入新 hook
   const [isRefreshingMemory, setIsRefreshingMemory] = useState(false);
@@ -151,10 +191,27 @@ export function DramaScriptPanel({
         </div>
       )}
 
+      <div className="flex items-center justify-between">
+        <label className="text-muted-foreground text-xs">世界观</label>
+        <button
+          type="button"
+          onClick={handleDraftWorldview}
+          disabled={drafting || generateMutation.isPending}
+          className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 flex items-center gap-1 rounded px-2 py-0.5 text-xs transition disabled:cursor-not-allowed disabled:opacity-60"
+          title="写一句话想法，AI 帮你扩写成完整世界观（并回填空的主角字段）"
+        >
+          {drafting ? (
+            <Loader2 size={11} className="animate-spin" />
+          ) : (
+            <Wand2 size={11} />
+          )}
+          {drafting ? "起草中..." : "✨ AI 起草"}
+        </button>
+      </div>
       <textarea
         value={worldview}
         onChange={(e) => setWorldview(e.target.value)}
-        placeholder="输入世界观设定，如：在由群岛、高空洋流与古代遗迹组成的世界「苍潮界」中，传说有一条失落的古代航路…"
+        placeholder="写一句话想法（如：重生复仇爽剧，女主是被陷害的豪门千金），点「✨ AI 起草」扩写；或直接输入完整世界观…"
         className="bg-card focus:ring-primary h-24 w-full resize-none rounded-lg p-3 text-sm focus:ring-2 focus:outline-none"
       />
 
