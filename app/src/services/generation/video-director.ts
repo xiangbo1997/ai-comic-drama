@@ -27,7 +27,7 @@ import { z } from "zod";
 import { chatCompletion } from "@/services/ai";
 import { parseLooseJSON } from "@/lib/json-repair";
 import { createLogger } from "@/lib/logger";
-import { CAMERA_MOVEMENTS } from "@/lib/prompts";
+import { CAMERA_MOVEMENTS, PROMPT_FIDELITY_RULES } from "@/lib/prompts";
 import {
   getVideoDirectionCache,
   setVideoDirectionCache,
@@ -94,6 +94,17 @@ const ATMOSPHERE_MAX_CHARS = 60;
 /** endFrameDesc 中文上限；超限截断到此长度（保留终态描述，不整条丢） */
 const END_FRAME_DESC_MAX_CHARS = 160;
 
+/**
+ * 首帧/关键帧识别原则（借鉴 Toonflow storyboard_prompt_techniques「首帧识别原则」）。
+ * 用于导演写 endFrameDesc（本镜终态快照）时把「动作」凝固成具体成形的静态帧，
+ * 而非抽象「预备态」——避免动作语义被稀释。注入 DIRECTOR_SYSTEM 的尾帧规则里。
+ */
+const FRAME_IDENTIFICATION_RULE = `【帧识别原则（写 endFrameDesc 终态快照时遵守）】
+- 静态瞬间（停步凝视 / 伏案 / 冷笑）：直接按描述写成该静态帧，不做动作改写。
+- 连续动作过程（挥剑斩下 / 转身离去）：取动作【起始瞬间的凝固态】——写出具体的、已成形的起始姿势（如「剑已举至头顶、剑尖朝下、即将劈落的那一刻」），而非抽象「预备态」。
+- 镜头运动（推 / 拉 / 摇）：取起始端景别的构图。
+- 严禁把所有动作一律改写成「即将发生」的预备态（会稀释动作语义，例：「停步仰望」不可写成「即将抬头」；「冷笑」不可写成「嘴角即将扬起」）。`;
+
 const DIRECTOR_SYSTEM = `你是一位资深动画分镜导演，只负责导演「运动」——镜头怎么动、角色做什么动作、环境什么在动。
 
 规则（严格遵守，全部生效）：
@@ -108,7 +119,11 @@ const DIRECTOR_SYSTEM = `你是一位资深动画分镜导演，只负责导演�
    - large：构图 / 景别显著变化（大幅运镜、由全景推到特写、主体在画面里大幅移动）。
    - medium：新角色入画，或角色由背面转正面（画面主体明显改变但景别不变）。
    - small：仅表情 / 小动作 / 温和运镜——大多数镜头都是 small。
-9. 仅当 variationType 为 medium 或 large 时，额外输出 endFrameDesc：本镜【最后一帧】的纯静态快照描述，中文 ≤160 字。只写「终态」（例如「他坐在椅子上身体前倾，双手撑在膝盖上」），绝对禁止进行时态（不要写「他正要站起来」「他缓缓抬手」）。写明主体在画面中的位置与朝向，与 actionBeat 的动作终点逻辑一致。沿用上面铁律：禁止外貌 / 服装描写、禁止引入画面外新元素、禁止对白。variationType 为 small 时省略 endFrameDesc。
+9. 仅当 variationType 为 medium 或 large 时，额外输出 endFrameDesc：本镜【最后一帧】的纯静态快照描述，中文 ≤160 字。只写「终态」（例如「他坐在椅子上身体前倾，双手撑在膝盖上」），绝对禁止进行时态（不要写「他正要站起来」「他缓缓抬手」）。写明主体在画面中的位置与朝向，与 actionBeat 的动作终点逻辑一致。写 endFrameDesc 时遵守下方【帧识别原则】。沿用上面铁律：禁止外貌 / 服装描写、禁止引入画面外新元素、禁止对白。variationType 为 small 时省略 endFrameDesc。
+
+${FRAME_IDENTIFICATION_RULE}
+
+${PROMPT_FIDELITY_RULES}
 
 输出仅一个 JSON 对象，不要 markdown 代码块，不要额外文字（small 时省略 endFrameDesc）：
 {"cameraMovement": "...", "actionBeat": "...", "atmosphere": "...", "variationType": "...", "endFrameDesc": "..."}`;
@@ -275,10 +290,13 @@ export function parseDirectorResponse(raw: string): VideoDirection {
  * 缓存 key 按完整输入的稳定哈希（见 video-direction-cache），同分镜同上下文
  * 重复生成时跳过这次 ~640 tokens 的往返。
  *
- * 缓存兼容（镜内首尾帧分解零回归）：缓存 key 只取输入形状哈希、存的是原始响应串。
- * 本次新增只加了「输出」字段（variationType/endFrameDesc），未改输入形状 → 老缓存
- * 命中的 key 不变。老缓存串里没有这两个键，parseDirectorResponse 解析出 undefined
- * variationType → 不触发尾帧生成，行为等价升级前，零回归。
+ * 缓存兼容：缓存 key 只取输入形状哈希、存的是原始响应串，不含 DIRECTOR_SYSTEM 文本。
+ * - 镜内首尾帧分解（批 B）只加「输出」字段（variationType/endFrameDesc），未改输入形状 →
+ *   老缓存命中的 key 不变，且缺这两键时 parseDirectorResponse 解析出 undefined
+ *   variationType → 不触发尾帧生成，行为等价升级前，零回归。
+ * - 本次注入「帧识别原则」改变了 DIRECTOR_SYSTEM 对 endFrameDesc 的写法语义，但 key 不含
+ *   提示词文本 → 老缓存会原样重放、绕过新规则。故已在 video-direction-cache 里 bump
+ *   KEY_PREFIX 版本号（v1→v2）令旧缓存整体失效，新提示词重新生效。
  *
  * @returns 成功返回 VideoDirection；无 LLM 配置 / 解析失败 / 上游错误一律返回
  *   null 并 log.warn（调用方回落到确定性 buildVideoScenePrompt）。

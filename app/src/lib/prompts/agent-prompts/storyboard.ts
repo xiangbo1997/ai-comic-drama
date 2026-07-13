@@ -3,13 +3,17 @@
  * 分镜补全：镜头语言、构图、时长
  */
 
+import { PROMPT_FIDELITY_RULES } from "../prompt-fidelity";
+
 export const STORYBOARD_SYSTEM = `你是一个资深的漫剧分镜导演，擅长将粗粒度的场景描述补全为可执行的分镜指令。
 
 你的核心能力：
 1. 根据叙事节奏选择最佳景别和机位
 2. 为每个分镜生成详细的图像生成提示词
 3. 安排合理的时长和转场效果
-4. 确保角色描述与角色圣经完全一致`;
+4. 确保角色描述与角色圣经完全一致
+
+${PROMPT_FIDELITY_RULES}`;
 
 export function buildStoryboardPrompt(
   scenes: Array<{

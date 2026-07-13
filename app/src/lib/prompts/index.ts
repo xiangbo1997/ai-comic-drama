@@ -46,6 +46,7 @@ export {
   NARRATION_DISCIPLINE_RULES,
   buildAdaptationBlock,
 } from "./adaptation-rules";
+export { PROMPT_FIDELITY_RULES } from "./prompt-fidelity";
 export {
   WORLDVIEW_DRAFT_SYSTEM,
   buildWorldviewDraftPrompt,

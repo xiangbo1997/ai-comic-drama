@@ -29,6 +29,9 @@ const THREE_VIEW_COST = PER_VIEW_COST * POSES.length; // 9
 
 const BodySchema = z.object({
   imageConfigId: z.string().max(255).optional(),
+  // 可选项目画风：命中完整画风包时给定妆照锚定画风基线（角色定妆规则 + 色彩系统）。
+  // 独立角色页（无项目上下文）不传，行为不变。
+  style: z.string().max(50).optional(),
 });
 
 function isReferenceAssetSchemaMismatch(error: unknown): boolean {
@@ -67,6 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const imageConfigId = parsed.success
       ? parsed.data.imageConfigId
       : undefined;
+    const style = parsed.success ? parsed.data.style : undefined;
 
     // 角色归属
     const character = await prisma.character.findFirst({
@@ -127,7 +131,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       userId,
       character,
       imageConfig,
-      anchorImageUrl
+      anchorImageUrl,
+      style
     ).catch((err) => {
       log.error(`Background three-views task ${task.id} unhandled:`, err);
     });
@@ -151,10 +156,12 @@ async function runThreeViewsTask(
   userId: string,
   character: Parameters<typeof buildCharacterBasePrompt>[0],
   imageConfig: Awaited<ReturnType<typeof getUserImageConfig>>,
-  anchorImageUrl: string | undefined
+  anchorImageUrl: string | undefined,
+  style: string | undefined
 ): Promise<void> {
   try {
-    const basePrompt = buildCharacterBasePrompt(character);
+    // style 命中完整画风包时，basePrompt 尾部会带上「画风基线」块（定妆规则 + 色彩系统）
+    const basePrompt = buildCharacterBasePrompt(character, style);
 
     // 角色一致性闭环：同一角色用同一 seed；三视图**全部以主图 i2i 锚定身份**，
     // 确保转出的是「角色卡上这只角色」而非照文字重画的新角色。

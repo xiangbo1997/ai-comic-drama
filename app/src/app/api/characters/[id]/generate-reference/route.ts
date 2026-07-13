@@ -52,6 +52,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       useExistingImage, // 是否使用角色现有图片作为参考
       existingImageIndex, // 使用哪张现有图片（默认 0）
       imageConfigId,
+      // 可选项目画风：命中完整画风包时给参考图锚定画风基线；独立角色页不传，行为不变
+      style,
       // 多候选档位（1 / 2 / 4，缺省 1）
       count,
     } = body as {
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       useExistingImage?: boolean;
       existingImageIndex?: number;
       imageConfigId?: string;
+      style?: string;
       count?: number;
     };
 
@@ -107,9 +110,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
     const llmConfig = await getUserLLMConfig(userId);
 
-    // 构建提示词：自定义提示词「提权」到最前并声明最高优先级
+    // 构建提示词：自定义提示词「提权」到最前并声明最高优先级；
+    // style 命中完整画风包时，身份锚点段会带上画风基线（不喧宾夺主）
     const basePromptParts = [
-      buildCharacterPromptWithCustom(character, customPrompt),
+      buildCharacterPromptWithCustom(character, customPrompt, style),
     ];
     if (hasReferenceImage) {
       basePromptParts.push(

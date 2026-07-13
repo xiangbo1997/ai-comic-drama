@@ -4,6 +4,8 @@
  * 从 generate-reference 路由提取，保证单图生成与三视图生成的 prompt 一致。
  */
 
+import { getStylePack } from "./style-packs";
+
 /**
  * 构建角色 prompt 所需的最小字段（与 Prisma Character + tags 结构兼容）。
  * tags 元素的 tag 用 name 字段 + 索引签名，兼容 Prisma tag 的多余字段。
@@ -17,11 +19,35 @@ export interface CharacterPromptInput {
 }
 
 /**
+ * 画风基线块：当 style 命中「完整画风包」（characterRules 非空，即 Toonflow 改编包
+ * 或存量增强包，非 legacy 平面风格）时，取该包的角色定妆规则 + 分层色彩系统，
+ * 拼成一段「画风基线」文本作为定妆照的风格锚定。legacy 平面风格（characterRules
+ * 为空串）返回空串，调用方按无基线处理，行为不变（零回归）。
+ *
+ * 单一真源：画风内容全部来自 style-packs.ts 注册表，此处只做查表 + 拼接，
+ * 不内联任何画风文案。
+ */
+export function buildCharacterStyleBaseline(style?: string | null): string {
+  const pack = getStylePack(style);
+  // legacy 平面风格无 characterRules → 视为「无完整包」，不注入基线
+  if (!pack.characterRules.trim()) return "";
+  return [pack.characterRules, pack.colorSystem]
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
  * 构建角色基础提示词（性别关键词前置 + 名称 + 年龄 + 外貌 + 风格标签 + 质量词）。
  * 与原 generate-reference 路由的拼接逻辑等价。
+ *
+ * @param style 可选项目画风 id；命中完整画风包时在质量词前追加「画风基线」块
+ *   （角色定妆规则 + 分层色彩系统），让定妆照的线条/色调锚定到项目画风。
+ *   缺省 / legacy 平面风格时不追加，行为与原逻辑等价。
  */
 export function buildCharacterBasePrompt(
-  character: CharacterPromptInput
+  character: CharacterPromptInput,
+  style?: string | null
 ): string {
   const genderText =
     character.gender === "male"
@@ -42,12 +68,16 @@ export function buildCharacterBasePrompt(
       ) || [];
   const tagsText = tagNames.length > 0 ? tagNames.join(", ") : "";
 
+  // 画风基线：仅命中完整画风包时非空（见 buildCharacterStyleBaseline）
+  const styleBaseline = style ? buildCharacterStyleBaseline(style) : "";
+
   return [
     genderText, // 第一优先级：多个性别关键词
     character.name,
     ageText,
     character.description || "",
     tagsText,
+    styleBaseline ? `画风基线：${styleBaseline}` : "",
     "detailed face, clean background, masterpiece",
   ]
     .filter(Boolean)
@@ -69,13 +99,15 @@ export function buildCharacterBasePrompt(
  *
  * @param character 角色基础字段
  * @param customPrompt 用户输入的自定义提示词（可空/可含中文）
+ * @param style 可选项目画风 id；透传给 base prompt，命中完整画风包时锚定画风基线
  * @returns 合并后的最终 prompt
  */
 export function buildCharacterPromptWithCustom(
   character: CharacterPromptInput,
-  customPrompt?: string | null
+  customPrompt?: string | null,
+  style?: string | null
 ): string {
-  const base = buildCharacterBasePrompt(character);
+  const base = buildCharacterBasePrompt(character, style);
   const custom = customPrompt?.trim();
 
   if (!custom) {

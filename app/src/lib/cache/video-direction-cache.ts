@@ -18,7 +18,14 @@ import type { VideoDirectorInput } from "@/services/generation/video-director";
 const log = createLogger("lib:video-direction-cache");
 
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
-const KEY_PREFIX = "vdcache:scene:";
+/**
+ * 缓存 key 前缀带版本号。缓存 key 只哈希输入形状、不含 DIRECTOR_SYSTEM 提示词文本，
+ * 故导演提示词语义变更（如 v2 注入「帧识别原则」，改变 endFrameDesc 的写法）时，
+ * 老缓存会原样重放、绕过新规则。凡改动 DIRECTOR_SYSTEM 的产出语义，必须 bump 此版本号
+ * 令旧缓存整体失效（miss 后按新提示词重新导演）。
+ * v1→v2：注入首帧/关键帧识别原则（终态凝固态，禁「即将发生」预备态）。
+ */
+const KEY_PREFIX = "vdcache:scene:v2:";
 
 function normalize(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();

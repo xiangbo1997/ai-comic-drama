@@ -6,6 +6,7 @@
  */
 
 import type { DramaScriptArtifact } from "@/types/drama";
+import { PROMPT_FIDELITY_RULES } from "../prompt-fidelity";
 
 export const STORYBOARD_TABLE_SYSTEM = `你是一位专业的院线分镜师，擅长把短剧脚本浓缩为「九宫格分镜表」。
 
@@ -16,7 +17,9 @@ export const STORYBOARD_TABLE_SYSTEM = `你是一位专业的院线分镜师，�
 - 顶层字段：cells（数组，长度必须恰好为 9）
 - 每格含：index(1-9)、sceneTitle、shot(镜头语言：景别+运镜)、dialogue(对白或null)、closeup(特写要点)、transition(转场效果)
 - 9 格要覆盖完整故事弧线：第 1 格 = 本片冲突最高点 / 悬念最强的画面（严禁风景空镜或日常铺垫开场）→ 中段（2-7 格）逐格升级冲突、堆叠爽点 → 第 9 格 = 停在未解决张力的悬念钩子（悬念/反转/情绪/信息/危机 任一），绝不完整收尾
-- 景别以近景/特写为主（竖屏），反转/揭秘瞬间用急推特写；shot 要具体（如「大特写·急推」「近景·横移」），便于后续生成`;
+- 景别以近景/特写为主（竖屏），反转/揭秘瞬间用急推特写；shot 要具体（如「大特写·急推」「近景·横移」），便于后续生成
+
+${PROMPT_FIDELITY_RULES}`;
 
 export function buildStoryboardTableUserPrompt(
   script: DramaScriptArtifact
