@@ -104,3 +104,27 @@ export interface ParsedScript {
     description: string;
   }>;
 }
+
+/**
+ * 分镜的一个历史生成版本（迭代式图片生成）。
+ *
+ * 对应 Prisma 的 GenerationAttempt（按 sceneId 关联），但**不复用**
+ * types/character.ts 里同名的角色域 GenerationAttempt——那是角色三视图域的
+ * 前端类型，字段与语义不同。此处专供分镜版本历史 UI（SceneVersionStrip）。
+ */
+export interface SceneVersion {
+  id: string;
+  /** 该分镜第几版（1 起） */
+  attemptNumber: number;
+  /** 生成策略：prompt_only | reference_edit | face_id */
+  strategy: string;
+  /** 该版用户输入的追加指令（"改成夜晚"）；null=常规/首版 */
+  note: string | null;
+  /** 该版生成图 URL */
+  outputUrl: string;
+  /** 是否为当前选中版本 */
+  isCurrent: boolean;
+  /** 人脸一致性是否通过（无验证时 null） */
+  passedValidation: boolean | null;
+  createdAt: string;
+}

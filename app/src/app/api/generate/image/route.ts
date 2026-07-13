@@ -66,6 +66,11 @@ export async function POST(request: NextRequest) {
       // Stage 1.3 引入：客户端可显式传入 negativePrompt。orchestrator 将在 Stage 1.4
       // 正式消费（目前先记录，便于观察管线是否打通）。
       negativePrompt,
+      // 迭代式生成：iterate=true 时 referenceImages 是「上一版整图」，
+      // note 是用户追加指令（"改成夜晚"）——note 会被提权到 finalPrompt 最前，
+      // iterate 透传给 orchestrator 切换 reference_edit 措辞。
+      note,
+      iterate,
     } = await request.json();
 
     if (!prompt) {
@@ -162,6 +167,9 @@ export async function POST(request: NextRequest) {
           aspectRatio,
           style,
           imageConfigId,
+          // 迭代式生成：留痕用户追加指令与迭代标记，便于排查
+          note: note ?? null,
+          iterate: iterate ?? false,
         },
         projectId,
         sceneId,
@@ -394,10 +402,19 @@ export async function POST(request: NextRequest) {
           sceneCinematics?.composition,
           sceneCinematics?.colorPalette,
         ].filter((v): v is string => !!v && v.trim().length > 0);
-        const finalPrompt =
+        const composedPrompt =
           cinematicParts.length > 0
             ? `${enhancedPrompt}, ${cinematicParts.join(", ")}`
             : enhancedPrompt;
+
+        // 迭代式生成：用户追加指令提权到 prompt 最前、声明最高优先级
+        // （复用角色端 buildCharacterPromptWithCustom 的成熟提权句式）。
+        // 必须拼进传给 orchestrator 的 prompt，note 才会进 enhancedPrompt→进
+        // cacheKey，同一分镜换 note 不会误命中旧缓存返回旧图（缓存正确性）。
+        const iterationNote = typeof note === "string" ? note.trim() : "";
+        const finalPrompt = iterationNote
+          ? `User instruction (highest priority, must follow): ${iterationNote}. ${composedPrompt}`
+          : composedPrompt;
 
         // 通过编排器生成图像（统一策略选择 + 验证 + 重试）
         // Stage 1.4：把客户端传入的 negativePrompt 与 referenceImage 透传给 orchestrator。
@@ -425,6 +442,8 @@ export async function POST(request: NextRequest) {
               : referenceImage
                 ? [referenceImage]
                 : undefined,
+          // 迭代模式：参考图是上一版整图，切换 reference_edit 为迭代友好措辞
+          iterate: iterate === true,
         });
 
         let imageUrl = result.imageUrl;
@@ -480,6 +499,34 @@ export async function POST(request: NextRequest) {
             await tx.scene.updateMany({
               where: { id: sceneId },
               data: { imageUrl, imageStatus: "COMPLETED" },
+            });
+
+            // 迭代式生成：把本次结果落成一条版本记录（GenerationAttempt），
+            // 供分镜版本历史 UI 对比/切换回退。attemptNumber=该分镜已有版本数+1，
+            // 新版本成为当前版本，同分镜旧版本取消 isCurrent。
+            const priorCount = await tx.generationAttempt.count({
+              where: { sceneId },
+            });
+            await tx.generationAttempt.updateMany({
+              where: { sceneId, isCurrent: true },
+              data: { isCurrent: false },
+            });
+            await tx.generationAttempt.create({
+              data: {
+                taskId: task.id,
+                sceneId,
+                attemptNumber: priorCount + 1,
+                provider: imageConfig?.protocol ?? "unknown",
+                model: imageConfig?.model ?? "",
+                strategy: result.strategy,
+                referenceAssetIds: [],
+                note: iterationNote || null,
+                outputUrl: imageUrl,
+                passedValidation: result.validation?.passed ?? null,
+                faceCount: result.validation?.faceCount ?? null,
+                failureReason: result.validation?.reason || null,
+                isCurrent: true,
+              },
             });
           }
 

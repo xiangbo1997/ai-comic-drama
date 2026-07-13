@@ -11,8 +11,13 @@
 import { generateImage } from "@/services/ai";
 import { resolveStrategy } from "./strategy-resolver";
 import { validateFaceConsistency } from "./face-validator";
+import {
+  composeReferenceGrid,
+  type ReferenceCell,
+} from "./reference-composite";
 import { getPromptCache, setPromptCache } from "@/lib/cache/prompt-cache";
 import { createLogger } from "@/lib/logger";
+import type { SceneCharacterInfo } from "./types";
 import type {
   OrchestratorRequest,
   OrchestratorResult,
@@ -33,17 +38,71 @@ export async function orchestrateImageGeneration(
     request.prompt,
     request.imageConfig,
     request.shotType,
-    { referenceImagesOverride: request.referenceImages }
+    {
+      referenceImagesOverride: request.referenceImages,
+      iterateMode: request.iterate,
+    }
   );
 
+  // 多角色参考图归一：≥2 张参考图时，编辑型端点（OpenAI /images/edits 等）
+  // 会把多张图当图层融合重画，导致多个角色互相污染、谁都不像。这里把每个角色
+  // 的定妆图横向拼成【一张】带名字标签的合成参考图，只喂一张底图，模型即可分清
+  // 谁是谁（多角色一致性根治）。
+  //
+  // 触发只看两件事：① 非迭代（迭代时参考图是上一版整图，拼接会破坏构图）；
+  // ② 场景解析出 ≥2 个各自带参考图的角色。不看 request.referenceImages 的来源——
+  // 手动路径的 referenceImages 本就装着角色定妆图（正是要合成的对象），迭代整图
+  // 已被 !iterate 挡住。以 buildReferenceCells 的「每角色一张代表图」为准，避免
+  // 把同一角色的三视图误当多角色（decision.referenceImageUrls 可能含三视图多张）。
+  //
+  // 合成结果覆写参考图与 prompt，使缓存 key/生成/验证全链自动改用合成图
+  // （一处改动、全链一致 + 缓存正确）。
+  let effectiveRefUrl = decision.referenceImageUrl;
+  let effectiveRefUrls = decision.referenceImageUrls;
+  let effectivePrompt = decision.enhancedPrompt;
+  const referenceCells = request.iterate
+    ? []
+    : buildReferenceCells(request.characters);
+  if (
+    (decision.referenceImageUrls?.length ?? 0) >= 2 &&
+    referenceCells.length >= 2
+  ) {
+    try {
+      const composed = await composeReferenceGrid(referenceCells);
+      effectiveRefUrl = composed;
+      effectiveRefUrls = [composed];
+      // 语义配套：告诉模型这张底图并排展示了多个角色（名字已标注），
+      // 让它按各自形象把角色画进场景，而不是只画第一个或融合成一人。
+      // 前置进 prompt，且必须进 cacheKey（下方复用 effectivePrompt）。
+      const names = referenceCells
+        .map((c) => c.label)
+        .filter(Boolean)
+        .join(", ");
+      effectivePrompt =
+        `The reference image shows ${referenceCells.length} characters side by side` +
+        (names ? ` (labeled: ${names})` : "") +
+        `. Render each of them in the scene keeping their exact appearance and identity from the reference. ` +
+        decision.enhancedPrompt;
+      log.info("多角色参考图已合成为单张", {
+        sceneId: request.sceneId,
+        characterCount: referenceCells.length,
+      });
+    } catch (err) {
+      // 合成失败不阻断出图：退回原多图路径（至少不比现状差），仅记日志
+      log.warn("参考图合成失败，回退多图路径", {
+        sceneId: request.sceneId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   const cacheKeyInput = {
-    prompt: decision.enhancedPrompt,
+    prompt: effectivePrompt,
     model: request.imageConfig.model,
     style: request.style,
     aspectRatio: request.aspectRatio,
     referenceImages:
-      decision.referenceImageUrls ??
-      (decision.referenceImageUrl ? [decision.referenceImageUrl] : []),
+      effectiveRefUrls ?? (effectiveRefUrl ? [effectiveRefUrl] : []),
     negativePrompt: request.negativePrompt,
   };
 
@@ -90,9 +149,9 @@ export async function orchestrateImageGeneration(
         ? undefined
         : (baseSeed + (attempt - 1)) % 0x7fffffff;
     imageUrl = await generateImage({
-      prompt: decision.enhancedPrompt,
-      referenceImage: decision.referenceImageUrl,
-      referenceImages: decision.referenceImageUrls,
+      prompt: effectivePrompt,
+      referenceImage: effectiveRefUrl,
+      referenceImages: effectiveRefUrls,
       negativePrompt: request.negativePrompt,
       aspectRatio: request.aspectRatio,
       style: request.style,
@@ -139,6 +198,34 @@ export type {
   GenerationStrategy,
   ValidationResult,
 };
+
+/**
+ * 从场景角色列表构建合成参考图的格子：每个角色取【一张】最具代表性的参考图
+ * （优先定妆脸 canonicalImageUrl，回退首张多角度参考），配上角色名标签。
+ *
+ * 只取每角色一张（而非三视图全塞）：多角色 × 三视图会让合成图过宽、每格过小，
+ * 稀释身份信息。定妆正面脸是身份识别度最高的单图。按 role 排序（primary 在前）。
+ */
+function buildReferenceCells(
+  characters: SceneCharacterInfo[]
+): ReferenceCell[] {
+  const ordered = [...characters].sort(
+    (a, b) => roleRank(a.role) - roleRank(b.role)
+  );
+  const cells: ReferenceCell[] = [];
+  const seen = new Set<string>();
+  for (const c of ordered) {
+    const url = c.canonicalImageUrl || c.referenceImageUrls?.[0];
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    cells.push({ url, label: c.name });
+  }
+  return cells;
+}
+
+function roleRank(role: SceneCharacterInfo["role"]): number {
+  return role === "primary" ? 0 : role === "secondary" ? 1 : 2;
+}
 
 /**
  * 把字符串稳定地映射到 [0, 2^31-1) 区间作为 seed。

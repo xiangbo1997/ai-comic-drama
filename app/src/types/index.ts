@@ -45,6 +45,7 @@ export type {
   ScenePreview,
   SceneScript,
   ParsedScript,
+  SceneVersion,
   GenerationStatus,
   ShotType,
   Emotion,

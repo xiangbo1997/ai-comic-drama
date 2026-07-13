@@ -55,6 +55,13 @@ export interface OrchestratorRequest {
    * 常用于用户在 UI 手动指定多张参考图的场景。
    */
   referenceImages?: string[];
+  /**
+   * 迭代式生成：参考图是「上一版整图」而非角色定妆脸。
+   * 为 true 时 strategy-resolver 改用迭代友好的 reference_edit 措辞
+   * （以整图为基础、保留构图与身份、按需改动），避免默认「锁死角色外貌」
+   * 与用户「改外貌类指令」冲突。
+   */
+  iterate?: boolean;
 }
 
 /** 策略决策结果 */

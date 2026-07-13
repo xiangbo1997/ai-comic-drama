@@ -10,9 +10,11 @@ import {
   Layers,
   AlertCircle,
   Video,
+  Wand2,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { Scene, ShotType, Emotion, Character } from "@/types";
+import { SceneVersionStrip } from "./SceneVersionStrip";
 
 const SHOT_TYPES: ShotType[] = ["特写", "近景", "中景", "全景", "远景"];
 const EMOTIONS: Emotion[] = [
@@ -36,6 +38,8 @@ const EMOTION_LABELS: Record<Emotion, string> = {
 
 interface SceneEditorProps {
   scene: Scene | undefined;
+  /** 项目 ID（版本历史 hook 切换版本后失效 project 缓存） */
+  projectId: string;
   /** 下一分镜（按 order 排序的后继）；null/undefined = 当前已是最后一镜 */
   nextScene?: Pick<Scene, "imageUrl"> | null;
   aspectRatio: string;
@@ -48,6 +52,8 @@ interface SceneEditorProps {
   onOpenMultiImageDialog: () => void;
   onUpdateScene: (sceneId: string, data: Partial<Scene>) => void;
   onGenerateImage: (sceneId: string, scene: Scene) => void;
+  /** 迭代生成：基于上一版整图 + 追加指令 note 重生成 */
+  onIterateImage: (sceneId: string, scene: Scene, note: string) => void;
   isGeneratingImage: boolean;
   projectCharacters?: Array<{ character: Character }>;
   lastGenerationInfo?: { strategy?: string; attemptCount?: number };
@@ -57,6 +63,7 @@ interface SceneEditorProps {
 
 export function SceneEditor({
   scene,
+  projectId,
   nextScene,
   aspectRatio,
   sceneSpeed = 1,
@@ -66,6 +73,7 @@ export function SceneEditor({
   onOpenMultiImageDialog,
   onUpdateScene,
   onGenerateImage,
+  onIterateImage,
   isGeneratingImage,
   projectCharacters = [],
   lastGenerationInfo,
@@ -74,6 +82,8 @@ export function SceneEditor({
   const [flickerCompare, setFlickerCompare] = useState(false);
   // 预览媒体 tab：图片 / 视频。该分镜有 videoUrl 时才显示"视频"tab。
   const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
+  // 迭代追加指令草稿（本地态，不落库；点「基于此图迭代」后清空）
+  const [iterateNote, setIterateNote] = useState("");
 
   // 文本字段本地草稿 + 防抖落库：避免每次 keystroke 都 PATCH 数据库（高频写+竞态）。
   // 本地 state 保证输入即时响应，停止输入 400ms 后才提交。
@@ -95,6 +105,8 @@ export function SceneEditor({
     });
     // 切换分镜时预览 tab 重置为图片（新分镜可能没视频）
     setMediaTab("image");
+    // 切换分镜时清空迭代指令草稿，避免上一镜的指令残留
+    setIterateNote("");
   }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 尚未落库的提交函数快照：卸载（如点返回项目列表）恰逢防抖窗口内时
@@ -249,6 +261,14 @@ export function SceneEditor({
             </div>
           )}
         </div>
+
+        {/* 版本历史条：迭代生成的多版本缩略图，可对比 + 一键设为当前 */}
+        <SceneVersionStrip
+          sceneId={scene.id}
+          projectId={projectId}
+          currentImageUrl={scene.imageUrl}
+          isBusy={scene.imageStatus === "PROCESSING" || isGeneratingImage}
+        />
 
         {/* 播放速度（变速）—— 落库到 sceneEffects，导出端做变速。快捷倍速 + 滑块微调 */}
         {onSceneSpeedChange && (
@@ -605,6 +625,50 @@ export function SceneEditor({
                     : "生成图片"}
               </button>
             </div>
+
+            {/* 迭代生成：仅已出图时可用。基于「上一版整图」+ 追加指令重生成，
+                保留原图构图与画风，只按指令改动。区别于「重新生成」（换随机性）。 */}
+            {scene.imageUrl && (
+              <div className="border-border bg-card/50 space-y-2 rounded-lg border p-3">
+                <div className="flex items-center gap-1.5">
+                  <Wand2 size={13} className="text-primary" />
+                  <span className="text-xs font-medium">
+                    在当前图基础上调整
+                  </span>
+                </div>
+                <textarea
+                  value={iterateNote}
+                  onChange={(e) => setIterateNote(e.target.value)}
+                  rows={2}
+                  placeholder="描述想调整的地方，例如：把背景改成夜晚、让她笑起来、镜头拉远"
+                  disabled={
+                    scene.imageStatus === "PROCESSING" || isGeneratingImage
+                  }
+                  className="border-border bg-background focus:ring-primary/40 w-full resize-none rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 disabled:opacity-50"
+                />
+                <button
+                  onClick={() => {
+                    const note = iterateNote.trim();
+                    if (!note) return;
+                    onIterateImage(scene.id, scene, note);
+                    setIterateNote("");
+                  }}
+                  disabled={
+                    !iterateNote.trim() ||
+                    scene.imageStatus === "PROCESSING" ||
+                    isGeneratingImage
+                  }
+                  className="bg-primary/10 text-primary hover:bg-primary/20 flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:opacity-40"
+                >
+                  <Wand2 size={15} />
+                  基于此图迭代
+                </button>
+                <p className="text-muted-foreground text-[10px]">
+                  *
+                  以当前图为基础，保留构图与画风，只按你的指令改动；结果存为新版本，可随时切回
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

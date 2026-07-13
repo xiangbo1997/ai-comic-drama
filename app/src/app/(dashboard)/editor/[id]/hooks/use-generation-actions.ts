@@ -33,6 +33,15 @@ interface GenerateSceneImageOptions {
   negativePrompt?: string;
   /** 项目画幅（9:16/16:9/1:1）；缺省时服务端 provider 会回落横屏 */
   aspectRatio?: string;
+  /**
+   * 迭代模式：把 baseImageUrl（上一版整图）当参考图 + note 提权重生成。
+   * iterate=true 时 referenceImages 会被 [baseImageUrl] 覆盖，note 透传给服务端。
+   */
+  iterate?: boolean;
+  /** 迭代追加指令（"改成夜晚"），服务端提权到 prompt 最前 */
+  note?: string;
+  /** 迭代基准图 URL（通常是 scene.imageUrl，即上一版结果） */
+  baseImageUrl?: string;
 }
 
 async function generateSceneImage(
@@ -43,6 +52,12 @@ async function generateSceneImage(
 ): Promise<GenerateImageResult> {
   // 异步化（2026-07-04）：POST 立即返回 taskId，此处轮询到终态后返回
   // 与原同步响应同形的结果——上层（单张/批量/多版本）调用方式零改动。
+  // 迭代模式：参考图强制为上一版整图（覆盖角色参考），并透传 note/iterate
+  const iterateRefs =
+    options?.iterate && options?.baseImageUrl
+      ? [options.baseImageUrl]
+      : options?.referenceImages;
+
   const data = await runGenerationTask<GenerateImageResult>(
     "/api/generate/image",
     {
@@ -52,9 +67,11 @@ async function generateSceneImage(
       style: options?.style,
       imageConfigId: options?.imageConfigId,
       referenceImage: options?.referenceImage,
-      referenceImages: options?.referenceImages,
+      referenceImages: iterateRefs,
       negativePrompt: options?.negativePrompt,
       aspectRatio: options?.aspectRatio,
+      note: options?.note,
+      iterate: options?.iterate,
     },
     { timeoutMs: GENERATION_TIMEOUTS.image, fallbackError: "图片生成失败" }
   );
@@ -410,10 +427,16 @@ export function useGenerationActions(
       sceneId,
       scene,
       imageConfigId,
+      iterate,
+      note,
     }: {
       sceneId: string;
       scene: Scene;
       imageConfigId?: string;
+      /** 迭代模式：基于上一版整图 + note 重生成 */
+      iterate?: boolean;
+      /** 迭代追加指令 */
+      note?: string;
     }) => {
       await apiUpdateScene(projectId, sceneId, { imageStatus: "PROCESSING" });
       // 精确置「生成中」，不整 project 重拉（此前 invalidateProject 会重新 GET
@@ -430,14 +453,21 @@ export function useGenerationActions(
         referenceImage,
         referenceImages,
         aspectRatio: projectAspectRatio(project),
+        // 迭代：把上一版整图作参考基准，note 提权重生成
+        iterate,
+        note,
+        baseImageUrl: iterate ? (scene.imageUrl ?? undefined) : undefined,
       });
     },
     // 权威数据（imageUrl + COMPLETED）已在手，精确写回缓存即可，无需整页重拉
-    onSuccess: (result, { sceneId }) =>
+    onSuccess: (result, { sceneId }) => {
       patchSceneInCache(sceneId, {
         imageStatus: "COMPLETED",
         ...(result?.imageUrl ? { imageUrl: result.imageUrl } : {}),
-      }),
+      });
+      // 刷新版本历史，让新版本缩略图立即出现在 SceneVersionStrip
+      queryClient.invalidateQueries({ queryKey: ["scene-versions", sceneId] });
+    },
     onError: async (error, { sceneId }) => {
       await apiUpdateScene(projectId, sceneId, { imageStatus: "FAILED" });
       patchSceneInCache(sceneId, { imageStatus: "FAILED" });

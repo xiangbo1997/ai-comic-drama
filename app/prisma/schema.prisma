@@ -252,6 +252,9 @@ model Scene {
 
   sceneCharacters SceneCharacter[]
 
+  // 迭代式图片生成：该分镜的历次生成版本（用于版本对比/切换回退）
+  generationAttempts GenerationAttempt[] @relation("SceneAttempts")
+
   // 分镜恒按 project 查询并按 order 排序（列表/导出/批量保存回读）
   @@index([projectId, order])
 }
@@ -462,7 +465,17 @@ model GenerationAttempt {
   outputUrl String?
   createdAt DateTime @default(now())
 
+  // 迭代式图片生成：直接关联分镜，供「按分镜列所有历史版本」单表查询
+  sceneId   String?
+  scene     Scene?  @relation("SceneAttempts", fields: [sceneId], references: [id], onDelete: Cascade)
+  // 本次迭代用户输入的追加指令（"改成夜晚"），null=常规生成/首版
+  note      String? @db.Text
+  // 是否为该分镜当前选中版本（切换回退时维护；当前版本真相仍是 Scene.imageUrl）
+  isCurrent Boolean @default(false)
+
   @@index([taskId])
+  // 按分镜列历史版本，最新在前
+  @@index([sceneId, createdAt])
 }
 
 enum TaskType {

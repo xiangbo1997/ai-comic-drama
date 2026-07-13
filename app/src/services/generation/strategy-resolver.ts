@@ -14,6 +14,12 @@ import type {
 export interface ResolveStrategyOptions {
   /** 客户端/上游显式传入的参考图；若提供，覆盖主角色 canonicalImage 推断 */
   referenceImagesOverride?: string[];
+  /**
+   * 迭代模式：参考图是「上一版整图」而非角色定妆脸。
+   * 为 true 时 reference_edit 措辞改为「以整图为基础、保留构图与身份、按需改动」，
+   * 避免默认「锁死角色外貌」与用户「改外貌类指令」冲突。
+   */
+  iterateMode?: boolean;
 }
 
 export function resolveStrategy(
@@ -73,7 +79,8 @@ export function resolveStrategy(
     prompt,
     characters,
     strategy,
-    shotType
+    shotType,
+    options?.iterateMode
   );
 
   return {
@@ -95,7 +102,8 @@ function buildStrategyPrompt(
   basePrompt: string,
   characters: SceneCharacterInfo[],
   strategy: GenerationStrategy,
-  shotType?: string
+  shotType?: string,
+  iterateMode?: boolean
 ): string {
   const parts: string[] = [];
 
@@ -115,8 +123,13 @@ function buildStrategyPrompt(
   }
 
   if (strategy === "reference_edit") {
+    // 迭代模式：参考图是上一版整图（含背景/构图/光线），措辞改为
+    // 「以整图为基础、保留构图与身份、按需改动」——默认「锁死外貌」会与
+    // 用户「改成夜晚/换服装」等改动类指令冲突。
     parts.push(
-      "IMPORTANT: Keep character appearance exactly as described above, consistent facial features, consistent hairstyle, consistent clothing"
+      iterateMode
+        ? "IMPORTANT: use the reference image as the base, preserve the overall composition and character identity, apply the requested change while keeping everything else consistent"
+        : "IMPORTANT: Keep character appearance exactly as described above, consistent facial features, consistent hairstyle, consistent clothing"
     );
   }
 

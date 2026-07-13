@@ -424,6 +424,7 @@ export default function EditorPage() {
 
         <SceneEditor
           scene={editor.selectedScene}
+          projectId={project.id}
           nextScene={nextScene}
           aspectRatio={project.aspectRatio}
           sceneSpeed={
@@ -443,6 +444,15 @@ export default function EditorPage() {
               sceneId,
               scene,
               imageConfigId: selectedImageConfig,
+            })
+          }
+          onIterateImage={(sceneId, scene, note) =>
+            generation.generateImageMutation.mutate({
+              sceneId,
+              scene,
+              imageConfigId: selectedImageConfig,
+              iterate: true,
+              note,
             })
           }
           isGeneratingImage={generation.generateImageMutation.isPending}
