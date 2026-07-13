@@ -34,17 +34,16 @@ const NEGATIVE_BASELINE = [
   "duplicate",
 ].join(", ");
 
-/** 风格特化 —— 各风格常见的噪声 */
+import { STYLE_PACKS } from "./style-packs";
+
+/**
+ * 风格特化负向词 —— 各风格常见的噪声。
+ *
+ * 单一真源：每个画风包（含新旧共 9 个 style id）的 negative 从 STYLE_PACKS 派生，
+ * 再补一个非画风 id 的 `cinematic` 特例（历史保留，供需要影调负向的调用方）。
+ */
 const STYLE_NEGATIVE: Record<string, string> = {
-  anime: "3d render, photorealistic, real photo, realistic skin texture",
-  realistic: "cartoon, anime, painting, illustration, sketch, cel shading",
-  comic: "photo, 3d, realistic skin texture, soft shading",
-  watercolor: "digital art, harsh lines, 3d render",
-  oil: "digital art, flat shading, anime",
-  sketch: "color, 3d, shaded rendering, painted",
-  "3d": "flat illustration, 2d anime, cel shaded",
-  cyberpunk: "medieval, fantasy village, rustic",
-  fantasy: "modern technology, cars, skyscrapers",
+  ...Object.fromEntries(STYLE_PACKS.map((pack) => [pack.id, pack.negative])),
   cinematic: "cartoon, anime, flat lighting, unbalanced composition",
 };
 

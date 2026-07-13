@@ -19,17 +19,14 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { draftWorldview } from "@/lib/assist-client";
+import { STYLE_PACK_OPTIONS } from "@/lib/prompts/style-packs";
 import type { ProjectListItem, SeriesSummary } from "@/types";
 
 /** 世界观框内容达到此长度即视为「已较完整」，AI 起草前需二次确认（会覆盖） */
 const WORLDVIEW_DRAFT_THRESHOLD = 50;
 
-const STYLES: Array<{ value: string; label: string }> = [
-  { value: "anime", label: "日漫风格" },
-  { value: "realistic", label: "写实风格" },
-  { value: "comic", label: "漫画风格" },
-  { value: "watercolor", label: "水彩风格" },
-];
+/** 画风选项：从画风包注册表派生（单一真源），顺序即注册表顺序 */
+const STYLES = STYLE_PACK_OPTIONS;
 
 const ASPECT_RATIOS: Array<{ value: string; label: string }> = [
   { value: "9:16", label: "9:16 (竖屏)" },
@@ -185,7 +182,7 @@ export function CreateSeriesDialog({
                 className="bg-card rounded-lg p-2 text-sm"
               >
                 {STYLES.map((s) => (
-                  <option key={s.value} value={s.value}>
+                  <option key={s.value} value={s.value} title={s.description}>
                     {s.label}
                   </option>
                 ))}

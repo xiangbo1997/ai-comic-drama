@@ -26,7 +26,7 @@ import { getThreeViewUrls } from "@/lib/three-views";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
 import { parseStoryBible } from "@/types/series-bible";
 import { extractSeriesPalette } from "@/lib/series";
-import { buildVideoScenePrompt } from "@/lib/prompts";
+import { buildVideoScenePrompt, getStylePaletteBaseline } from "@/lib/prompts";
 import {
   directVideoScene,
   generateSceneVideoSegmented,
@@ -641,7 +641,12 @@ async function executeImageGeneration(
   // 色彩设计（color script）：批次前一次性取系列统一色板（非系列 / 无色板为
   // undefined）。透传给出图 Agent，激活「Observer 色调一致性门禁」，让整部剧色调
   // 统一（单镜色彩只在主色板内局部偏移）。查库失败不阻断出图——色板是增强项。
-  const seriesPalette = await loadSeriesPalette(ctx.projectId);
+  // 无系列色板时，退回画风包色彩基线（画风调性 + 情绪色盘）作为色调门禁参考，
+  // 让 Observer 在画风调性内判色调一致性，而非无基线自由判。legacy 风格返回空 → undefined。
+  const seriesPalette =
+    (await loadSeriesPalette(ctx.projectId)) ||
+    getStylePaletteBaseline(ctx.config.style) ||
+    undefined;
 
   // 为单个场景组装 Agent 输入：注入 DB 解析出的角色 + sceneDbId + 画幅 + 负向词 + 色板
   const buildInput = (scene: SceneArtifact) => {

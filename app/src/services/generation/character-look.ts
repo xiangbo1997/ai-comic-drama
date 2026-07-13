@@ -26,7 +26,7 @@ import { Prisma } from "@prisma/client";
 import { generateImage } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { contentSafetyMiddleware } from "@/lib/content-safety";
-import { getSimpleStylePrefix } from "@/lib/prompts";
+import { getSimpleStylePrefix, getStylePack } from "@/lib/prompts";
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import {
@@ -70,14 +70,26 @@ export interface ResolveCharacterLookArgs {
  * 编辑式换装 prompt：英文框架包裹服装短语。
  * 明确「基于参考图（定妆锚）换成指定服装」，脸/发型/身形/身份保持不变，
  * 只换服装。full-body 正面、纯白背景（定妆照规格）。style 后缀保持画风一致。
+ *
+ * 画风包注入（画风一致性增强）：命中完整画风包时，把该包的角色定妆规则
+ * （characterRules，线条/头身比/肤感/背景）与分层色彩系统（colorSystem）作为
+ * 「画风基线」追加，让换装图的画风与三视图/定妆照对齐，而非仅靠短前缀。
+ * legacy 平面风格（characterRules 为空）自动跳过，行为不变。
  */
 function buildLookPrompt(outfit: string, style?: string | null): string {
   const base =
     `Based on the reference image, generate the SAME character wearing: ${outfit}. ` +
     `Full-body, front view, plain white background. ` +
     `Keep the face, hairstyle, body shape and identity EXACTLY the same as the reference; ONLY change the clothing.`;
-  const stylePrefix = style ? getSimpleStylePrefix(style) : "";
-  return stylePrefix ? `${base} ${stylePrefix}` : base;
+  if (!style) return base;
+
+  const stylePrefix = getSimpleStylePrefix(style);
+  const pack = getStylePack(style);
+  const packBaseline = [pack.characterRules, pack.colorSystem]
+    .filter((s) => s.trim())
+    .join(" ");
+  const packBlock = packBaseline ? ` 画风基线：${packBaseline}` : "";
+  return `${base} ${stylePrefix}${packBlock}`;
 }
 
 /**

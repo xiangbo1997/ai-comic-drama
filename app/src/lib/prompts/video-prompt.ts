@@ -126,7 +126,11 @@ const ATMOSPHERE_MAP: Record<string, string> = {
   fear: "ominous, suspenseful tension",
 };
 
-/** 风格 → 视频专用短句（不复用图像端冗长 getStylePrefix，避免 morphing） */
+/**
+ * 风格 → 视频专用短句（不复用图像端冗长 getStylePrefix，避免 morphing）。
+ * 每个 style id 一条极简短句；画风包新增的 5 个 id 同样给短句，未命中的 id
+ * 由调用方（line 253 的 `input.style ? map[input.style] : undefined`）自动省略。
+ */
 const VIDEO_STYLE_MAP: Record<string, string> = {
   anime: "consistent 2D anime aesthetic",
   realistic: "photorealistic cinematic film look, natural physics",
@@ -137,6 +141,12 @@ const VIDEO_STYLE_MAP: Record<string, string> = {
   "3d": "polished 3D-rendered look",
   oil: "oil-painting texture in motion",
   sketch: "hand-drawn sketch aesthetic",
+  // 画风包新增（Toonflow 改编）：短句化，保持「不 morphing」纪律
+  anime90s: "retro 90s hand-drawn anime look, warm nostalgic tone",
+  guofeng2d: "Chinese guofeng cel-shaded anime look, oriental elegance",
+  anime3d: "cel-look 3D-rendered animation, warm healing tone",
+  "guofeng-cyber": "guofeng-cyberpunk 3D render, oriental sci-fi mood",
+  urban2d: "modern urban romance anime look, cool desaturated tone",
 };
 
 /** 通用负面词（纯 ASCII） */

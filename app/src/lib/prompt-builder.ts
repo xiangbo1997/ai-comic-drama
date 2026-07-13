@@ -23,6 +23,7 @@ import {
   getShotTypeDescription,
   getLightingPrefix,
   buildConsistencyGuard,
+  getStylePack,
 } from "@/lib/prompts";
 import {
   getNegativePromptPreset,
@@ -78,15 +79,22 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
 
   const parts: string[] = [];
 
-  // 1. 风格前缀
-  parts.push(getStylePrefix(style));
+  // 画风包：风格锚定词 + 分层色彩系统（作为 color script 的风格基线）+ 场景规则。
+  const pack = getStylePack(style);
 
-  // 1.5 系列统一主色板（有值时作为全局色彩约束前置；单镜色调只在其内局部偏移）
+  // 1. 风格前缀（画风包锚定词）
+  parts.push(pack.anchor);
+
+  // 1.5 系列统一主色板（有值时作为全局色彩约束前置；单镜色调只在其内局部偏移）。
+  //     无系列主色板时，退回画风包的分层色彩系统作为色彩基线（让每镜色调服从画风调性，
+  //     而非自由发挥）。legacy 平面风格 colorSystem 为空 → 自动跳过，行为不变。
   const palette = seriesPalette?.trim();
   if (palette) {
     parts.push(
       `unified color palette (must obey across all shots): ${palette}`
     );
+  } else if (pack.colorSystem.trim()) {
+    parts.push(`色彩风格基线（画面色调服从画风调性）：${pack.colorSystem}`);
   }
 
   // 2. 角色外貌描述（重要：放在最前面，作为固定特征）
@@ -126,9 +134,13 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     parts.push(analysis.interaction);
   }
 
-  // 5. 环境描述
+  // 5. 环境描述（+ 画风包场景规则：空间质感/光影语言，让场景出图贴合画风；
+  //    legacy 平面风格 sceneRules 为空 → 自动跳过，行为不变）
   if (analysis.environment) {
     parts.push(analysis.environment);
+    if (pack.sceneRules.trim()) {
+      parts.push(`场景画风：${pack.sceneRules}`);
+    }
   }
 
   // 6. 光线（过灯光预设映射：命中预设 key 翻译成电影级布光片段，自由文本原样保留）

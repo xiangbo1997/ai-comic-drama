@@ -7,12 +7,10 @@
 
 "use client";
 
-const STYLES: Array<{ value: string; label: string }> = [
-  { value: "anime", label: "日漫风格" },
-  { value: "realistic", label: "写实风格" },
-  { value: "comic", label: "漫画风格" },
-  { value: "watercolor", label: "水彩风格" },
-];
+import { STYLE_PACK_OPTIONS } from "@/lib/prompts/style-packs";
+
+/** 画风选项：从画风包注册表派生（单一真源），与新建系列弹窗一致 */
+const STYLES = STYLE_PACK_OPTIONS;
 
 const ASPECT_RATIOS: Array<{ value: string; label: string }> = [
   { value: "9:16", label: "9:16 (竖屏)" },
@@ -43,7 +41,7 @@ export function SettingsPanel({
           className="bg-secondary rounded px-2 py-1 text-sm"
         >
           {STYLES.map((s) => (
-            <option key={s.value} value={s.value}>
+            <option key={s.value} value={s.value} title={s.description}>
               {s.label}
             </option>
           ))}

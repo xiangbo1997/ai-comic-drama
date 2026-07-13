@@ -1,23 +1,15 @@
 /**
  * 图像生成 Prompt 模板
+ *
+ * 风格前缀统一从 style-packs.ts 的画风包（StylePack）派生——单一真源。
+ * 原 STYLE_MAP / SIMPLE_STYLE_MAP 已折进画风包，避免多处重复的风格规则文本。
  */
 
-/** 风格前缀映射 */
-const STYLE_MAP: Record<string, string> = {
-  anime: "anime style, Japanese animation, vibrant colors, clean lines",
-  realistic:
-    "photorealistic, highly detailed, cinematic lighting, 8k resolution",
-  comic: "comic book style, bold outlines, dynamic composition, cel shading",
-  watercolor: "watercolor painting style, soft edges, flowing colors",
-  oil: "oil painting style, rich textures, classical composition",
-  sketch: "pencil sketch style, detailed linework, artistic shading",
-  "3d": "3D rendered, Pixar style, smooth surfaces, volumetric lighting",
-  cyberpunk: "cyberpunk style, neon lights, futuristic, high contrast",
-  fantasy: "fantasy art style, magical atmosphere, ethereal lighting",
-};
+import { getStylePack } from "./style-packs";
 
+/** 风格前缀：取画风包的英文锚定词（anchor）。未知 style 由 getStylePack 回落 anime。 */
 export function getStylePrefix(style?: string): string {
-  return STYLE_MAP[style || "anime"] || STYLE_MAP.anime;
+  return getStylePack(style).anchor;
 }
 
 /** 景别描述映射 */
@@ -110,14 +102,15 @@ export function buildConsistencyGuard(characterCount: number): string {
   ].join(", ");
 }
 
-/** 简易 prompt 风格前缀（与 script.ts 中的 generateImagePrompt 对齐） */
-const SIMPLE_STYLE_MAP: Record<string, string> = {
-  anime: "anime style, high quality anime illustration,",
-  realistic: "photorealistic, cinematic lighting,",
-  comic: "comic book style, bold lines,",
-  watercolor: "watercolor painting style, soft colors,",
-};
-
+/**
+ * 简易 prompt 风格前缀（短前缀语义：取画风包 anchor 的首个子句 + 尾随逗号）。
+ *
+ * 用于 script.ts / grid / tail-frame / character-look 等需要「轻量风格提示」的场景：
+ * 只取锚定词的第一段（避免整段冗长锚词压制主体描述），末尾补逗号便于拼接。
+ * 与 getStylePrefix 同源于画风包，未知 style 回落 anime。
+ */
 export function getSimpleStylePrefix(style: string): string {
-  return SIMPLE_STYLE_MAP[style] || "anime style,";
+  const anchor = getStylePack(style).anchor;
+  const firstClause = anchor.split(",")[0]?.trim() || anchor;
+  return `${firstClause},`;
 }

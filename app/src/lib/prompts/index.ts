@@ -15,6 +15,13 @@ export {
   buildConsistencyGuard,
 } from "./image-prompt";
 export {
+  STYLE_PACKS,
+  STYLE_PACK_OPTIONS,
+  getStylePack,
+  getStylePaletteBaseline,
+} from "./style-packs";
+export type { StylePack, StylePackOption } from "./style-packs";
+export {
   getNegativePromptPreset,
   getNegativeBaseline,
   getSceneNegativePrompt,
