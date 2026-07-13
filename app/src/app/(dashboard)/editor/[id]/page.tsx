@@ -630,7 +630,13 @@ export default function EditorPage() {
       <ExportDialog
         isOpen={showExportDialog}
         exportStatus={exportStatus}
+        projectId={projectId}
         onExport={handleExport}
+        // 审片报告建议「定位」→ 选中该分镜并关闭导出弹窗（复用 3.1 跳转写法）
+        onJumpToScene={(sceneId) => {
+          editor.setSelectedSceneId(sceneId);
+          setShowExportDialog(false);
+        }}
         // 时间轴入口已配置的字幕/水印作为导出表单初值，保证预览/时间轴/导出三处一致
         initialSubtitleStyle={project.generationParams?.subtitleStyle}
         initialWatermark={project.generationParams?.watermark}
