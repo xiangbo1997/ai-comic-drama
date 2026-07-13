@@ -21,7 +21,18 @@ export {
   parseDirectorResponse,
   directVideoScene,
 } from "./video-director";
-export type { VideoDirectorInput, VideoDirection } from "./video-director";
+export type {
+  VideoDirectorInput,
+  VideoDirection,
+  VariationType,
+} from "./video-director";
+
+// 镜内首尾帧分解（包 B）：尾帧图生成器 + 裁决纯函数
+export {
+  generateIntraShotTailFrame,
+  shouldGenerateTailFrame,
+} from "./tail-frame";
+export type { GenerateTailFrameArgs } from "./tail-frame";
 
 export {
   planVideoSegments,

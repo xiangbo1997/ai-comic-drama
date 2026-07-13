@@ -14,7 +14,7 @@ interface RouteParams {
  * POST /api/projects/[id]/scenes/[sceneId]/duplicate
  * 副本保留：description、dialogue、narration、emotion、shotType、duration、videoLinkNext、
  *          镜头语言（cameraAngle/lighting/composition/colorPalette）、运镜与运动节拍
- *          （cameraMovement/actionBeat）、selectedCharacterId、selectedCharacterIds
+ *          （cameraMovement/actionBeat）、地点标签（locationKey）、selectedCharacterId、selectedCharacterIds
  * 副本清空：imageUrl、videoUrl、audioUrl、imageStatus、videoStatus、audioStatus（媒体需重新生成）
  * order 腾位：源分镜 order+1 处插入，其后所有分镜 order+1
  * 返回：新建的分镜
@@ -79,6 +79,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           colorPalette: sourceScene.colorPalette,
           cameraMovement: sourceScene.cameraMovement,
           actionBeat: sourceScene.actionBeat,
+          // 地点标签：副本沿用同一地点，与源分镜共享场景锚定分组
+          locationKey: sourceScene.locationKey,
           selectedCharacterId: sourceScene.selectedCharacterId,
           selectedCharacterIds: sourceScene.selectedCharacterIds,
           // 媒体 URL 和状态清空，副本需重新生成

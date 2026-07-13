@@ -26,6 +26,21 @@ const EmotionSchema = z.string();
  */
 export const CameraMovementSchema = z.enum(CAMERA_MOVEMENTS);
 
+/**
+ * 地点标签校验：LLM 产出的地点短标签。
+ * trim 后空串归一为 undefined（不落无意义空值）；超 30 字截断（防 LLM 写成整段描述）。
+ * 全程 .catch(undefined) 兜底：非字符串等异常值不因它让整镜结构校验失败。
+ */
+export const LocationKeySchema = z
+  .string()
+  .optional()
+  .transform((v) => {
+    const trimmed = v?.trim();
+    if (!trimmed) return undefined;
+    return trimmed.length > 30 ? trimmed.slice(0, 30) : trimmed;
+  })
+  .catch(undefined);
+
 // ============ ScriptArtifact ============
 
 export const SceneScriptZ = z.object({
@@ -45,6 +60,8 @@ export const SceneScriptZ = z.object({
   // LLM 导演增强：运镜（13 值枚举，非法回落 undefined）+ 运动节拍（中文可选）
   cameraMovement: CameraMovementSchema.optional().catch(undefined),
   actionBeat: z.string().optional(),
+  // 环境一致性：地点短标签（同地点共用同值，供场景锚定图分组）
+  locationKey: LocationKeySchema,
 });
 
 export const ScriptArtifactZ = z.object({
@@ -128,6 +145,8 @@ export const SceneArtifactZ = z.object({
   duration: z.number().min(1).max(30),
   cameraMovement: z.string().nullable().optional(),
   transition: z.string().nullable().optional(),
+  // 环境一致性：地点短标签（供场景锚定图分组）
+  locationKey: LocationKeySchema,
 });
 
 export const StoryboardArtifactZ = z.object({

@@ -30,6 +30,8 @@ import { buildVideoScenePrompt } from "@/lib/prompts";
 import {
   directVideoScene,
   generateSceneVideoSegmented,
+  generateIntraShotTailFrame,
+  shouldGenerateTailFrame,
   estimateVideoCost,
 } from "@/services/generation";
 import { getVideoModelCapability } from "@/services/ai/video-capabilities";
@@ -568,6 +570,11 @@ async function resolveProjectCharacters(
       canonicalImageUrl: canonicalImageUrl ?? undefined,
       referenceImageUrls:
         referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+      // 带 pose 的参考资产：供朝向感知选图（背影镜取背视图等），与手动路径对等
+      referenceAssets:
+        c.referenceAssets.length > 0
+          ? c.referenceAssets.map((a) => ({ url: a.url, pose: a.pose }))
+          : undefined,
       appearance: c.appearance as SceneCharacterInfo["appearance"],
     });
   }
@@ -919,6 +926,42 @@ async function executeMediaGeneration(
         ctx.config.llm
       );
 
+      // 分段生成对齐手动路径：按模型能力自动分段（超单段时长拆 N 段无缝拼接），
+      // 内部走 storage 门面落自有 URL。计费与手动路径同源（estimateVideoCost）。
+      // 能力提前到 prompt 构建之前：镜内尾帧裁决需要 FL 能力标志。
+      const videoCapability = getVideoModelCapability(
+        ctx.config.video?.protocol ?? "",
+        ctx.config.video?.model
+      );
+
+      // 镜内尾帧（包 B，与手动路径对等）：导演判定本镜变化幅度为 large 且模型
+      // 支持 FL 时，以本镜首帧图编辑式生成「终态」尾帧图走首尾帧插值，锁死大
+      // 动作终点。workflow 无客户端跨镜尾帧（hasClientLastFrame 恒 false）。
+      // 任何失败返回 null 走原路径，绝不阻断视频生成。
+      let intraShotLastFrame: string | undefined;
+      if (
+        ctx.config.image &&
+        direction?.endFrameDesc &&
+        shouldGenerateTailFrame({
+          variationType: direction.variationType,
+          hasClientLastFrame: false,
+          supportsLastFrame: videoCapability.supportsFirstLastFrame,
+          hasSceneImage: !!dbScene.imageUrl,
+        })
+      ) {
+        intraShotLastFrame =
+          (await generateIntraShotTailFrame({
+            endFrameDesc: direction.endFrameDesc,
+            sceneImageUrl: dbScene.imageUrl,
+            style: ctx.config.style,
+            aspectRatio: projectAspectRatio,
+            imageConfig: ctx.config.image,
+            userId: ctx.userId,
+            projectId: ctx.projectId,
+            sceneId: dbScene.id,
+          })) ?? undefined;
+      }
+
       // 统一视频 prompt 构建器：镜头语言 + 运镜 + 氛围 + 连续性 + 负面词。
       // 修复：身份前缀此前内联 + provider 双重注入 —— 现在 prompt 不含身份前缀，
       // 仅通过 identityPrompt 选项透传，由 provider 单次 prepend。
@@ -935,15 +978,9 @@ async function executeMediaGeneration(
         emotion: sceneArtifact.emotion,
         atmosphereOverride: direction?.atmosphere,
         duration: sceneArtifact.duration,
-        hasLastFrame: false,
+        // 镜内尾帧存在时启用 FL 文案（视频精确结束于所给尾帧画面）
+        hasLastFrame: !!intraShotLastFrame,
       });
-
-      // 分段生成对齐手动路径：按模型能力自动分段（超单段时长拆 N 段无缝拼接），
-      // 内部走 storage 门面落自有 URL。计费与手动路径同源（estimateVideoCost）。
-      const videoCapability = getVideoModelCapability(
-        ctx.config.video?.protocol ?? "",
-        ctx.config.video?.model
-      );
       const videoCost = estimateVideoCost(
         sceneArtifact.duration,
         videoCapability
@@ -951,6 +988,8 @@ async function executeMediaGeneration(
       tasks.push(
         generateSceneVideoSegmented({
           imageUrl: dbScene.imageUrl,
+          // 镜内尾帧（variationType=large 时生成）：末段走 FL 首尾帧插值
+          lastFrameImage: intraShotLastFrame,
           // 用户设定的真实时长（1–60），由分段器按模型能力规划段数
           requestedSeconds: sceneArtifact.duration,
           capability: videoCapability,
@@ -1325,6 +1364,8 @@ async function saveScenesToProject(
       cameraMovement: s.cameraMovement ?? null,
       // 运动节拍：LLM 导演产出，喂视频 prompt 的 Action 段
       actionBeat: s.actionBeat ?? null,
+      // 地点标签：同一物理地点的分镜共用同一短标签，供场景锚定图分组（环境一致性）
+      locationKey: s.locationKey ?? null,
     };
 
     if (sceneId) {

@@ -4,6 +4,7 @@
  */
 
 import { getImageProviderCapability } from "@/services/ai/provider-factory";
+import { pickAssetUrlForFacing, type Facing } from "./facing";
 import type { AIServiceConfig } from "@/types";
 import type {
   SceneCharacterInfo,
@@ -20,6 +21,12 @@ export interface ResolveStrategyOptions {
    * 避免默认「锁死角色外貌」与用户「改外貌类指令」冲突。
    */
   iterateMode?: boolean;
+  /**
+   * 分镜里角色的朝向（front|side|back）。收集每角色参考图时，把该角色
+   * referenceAssets 里朝向匹配的资产 URL 排到其首位（其余顺序不变）；
+   * 无 referenceAssets 时行为与现状完全一致（零回归）。
+   */
+  facing?: Facing;
 }
 
 export function resolveStrategy(
@@ -54,7 +61,13 @@ export function resolveStrategy(
         : c.canonicalImageUrl
           ? [c.canonicalImageUrl]
           : [];
-      for (const url of urls) {
+
+      // 朝向感知：该角色有三视图资产且传入朝向时，把匹配朝向的资产 URL
+      // 排到本角色 URL 列表首位（其余顺序不变），让参考图第一张就是对的朝向。
+      // 无 referenceAssets / 无 facing 时 orderedUrls === urls（零回归）。
+      const orderedUrls = reorderByFacing(urls, c, options?.facing);
+
+      for (const url of orderedUrls) {
         if (!collectedUrls.includes(url)) collectedUrls.push(url);
       }
     }
@@ -96,6 +109,24 @@ export function resolveStrategy(
 
 function roleWeight(role: SceneCharacterInfo["role"]): number {
   return role === "primary" ? 0 : role === "secondary" ? 1 : 2;
+}
+
+/**
+ * 把角色三视图里「朝向匹配」的那张 URL 排到该角色 URL 列表首位（其余相对顺序不变）。
+ * 仅当角色有 referenceAssets 且传入 facing 时生效；否则原样返回（零回归）。
+ * 匹配到的 URL 若不在原 urls 里（理论上应在），也会被提到最前，保证参考图第一张是对的朝向。
+ */
+function reorderByFacing(
+  urls: string[],
+  char: SceneCharacterInfo,
+  facing?: Facing
+): string[] {
+  if (!facing || !char.referenceAssets?.length) return urls;
+  const matchUrl = pickAssetUrlForFacing(char.referenceAssets, facing);
+  if (!matchUrl) return urls;
+  const rest = urls.filter((u) => u !== matchUrl);
+  // 去重保留：matchUrl 置首，其余顺序不变
+  return [matchUrl, ...rest];
 }
 
 function buildStrategyPrompt(

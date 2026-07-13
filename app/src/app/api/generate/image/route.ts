@@ -40,6 +40,34 @@ const IMAGE_COST = {
   withRef: 3, // 带参考图（角色一致性）
 };
 
+/**
+ * 三视图参考资产排序：isCanonical desc（定妆图优先）→ qualityScore desc（高分优先）
+ * → createdAt asc（早建的稳定），取 url + pose 供 orchestrator 按朝向挑选。
+ * 空/缺省返回 undefined，orchestrator 回落既有 canonicalImageUrl 逻辑（零回归）。
+ */
+function sortReferenceAssets(
+  assets:
+    | Array<{
+        url: string;
+        pose: string | null;
+        isCanonical: boolean;
+        qualityScore: number | null;
+        createdAt: Date;
+      }>
+    | undefined
+): Array<{ url: string; pose: string | null }> | undefined {
+  if (!assets || assets.length === 0) return undefined;
+  return [...assets]
+    .sort((a, b) => {
+      if (a.isCanonical !== b.isCanonical) return a.isCanonical ? -1 : 1;
+      const qa = a.qualityScore ?? -1;
+      const qb = b.qualityScore ?? -1;
+      if (qa !== qb) return qb - qa;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    })
+    .map((a) => ({ url: a.url, pose: a.pose }));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
@@ -232,6 +260,13 @@ export async function POST(request: NextRequest) {
         // 无 sceneId 时回落到用户 prompt / 中性情绪，仍可打分（角色维度亦复用）。
         let sceneDescriptionForReview = safePrompt;
         let sceneEmotionForReview: string | undefined;
+        // 朝向感知三视图选择：分镜画面线索（描述/镜头角度/构图），透传 orchestrator
+        // 推断角色朝向。无 sceneId 时为 null（朝向按默认 front）。
+        let sceneFacingHints: {
+          description?: string | null;
+          cameraAngle?: string | null;
+          composition?: string | null;
+        } | null = null;
 
         if (sceneId) {
           const scene = await prisma.scene.findUnique({
@@ -257,6 +292,16 @@ export async function POST(request: NextRequest) {
                   referenceImages: true,
                   canonicalImageUrl: true,
                   appearance: true,
+                  // 朝向感知三视图选择：带 pose 的参考资产（front/side/back/3quarter）
+                  referenceAssets: {
+                    select: {
+                      url: true,
+                      pose: true,
+                      isCanonical: true,
+                      qualityScore: true,
+                      createdAt: true,
+                    },
+                  },
                 },
               },
             },
@@ -274,6 +319,14 @@ export async function POST(request: NextRequest) {
           // VLM 择优评审上下文（真实分镜的画面描述 + 情绪，比 prompt 更贴合评审语义）
           if (scene?.description) sceneDescriptionForReview = scene.description;
           sceneEmotionForReview = scene?.emotion || undefined;
+          // 朝向线索：优先真实分镜画面描述/镜头角度/构图（比用户 prompt 更贴合）
+          sceneFacingHints = scene
+            ? {
+                description: scene.description,
+                cameraAngle: scene.cameraAngle,
+                composition: scene.composition,
+              }
+            : null;
 
           // 获取角色信息并构建 SceneCharacterInfo
           const buildSceneChar = (
@@ -286,6 +339,13 @@ export async function POST(request: NextRequest) {
               referenceImages: string[];
               canonicalImageUrl?: string | null;
               appearance?: Record<string, unknown> | null;
+              referenceAssets?: Array<{
+                url: string;
+                pose: string | null;
+                isCanonical: boolean;
+                qualityScore: number | null;
+                createdAt: Date;
+              }>;
             },
             index: number
           ): SceneCharacterInfo => ({
@@ -301,6 +361,9 @@ export async function POST(request: NextRequest) {
             canonicalImageUrl:
               c.canonicalImageUrl || (c.referenceImages as string[])?.[0],
             appearance: c.appearance as SceneCharacterInfo["appearance"],
+            // 朝向感知三视图选择：按 isCanonical desc、qualityScore desc 排序后取 url+pose，
+            // 供 orchestrator 按分镜朝向挑对应视图。不改变上面的 canonicalImageUrl 回退链。
+            referenceAssets: sortReferenceAssets(c.referenceAssets),
           });
 
           if ((scene?.selectedCharacterIds?.length ?? 0) > 0) {
@@ -315,6 +378,16 @@ export async function POST(request: NextRequest) {
                 referenceImages: true,
                 canonicalImageUrl: true,
                 appearance: true,
+                // 朝向感知三视图选择：带 pose 的参考资产
+                referenceAssets: {
+                  select: {
+                    url: true,
+                    pose: true,
+                    isCanonical: true,
+                    qualityScore: true,
+                    createdAt: true,
+                  },
+                },
               },
             });
             sceneCharacters = dbCharacters.map((c, i) => buildSceneChar(c, i));
@@ -477,6 +550,8 @@ export async function POST(request: NextRequest) {
             referenceImages: explicitRefs,
             // 迭代模式：参考图是上一版整图，切换 reference_edit 为迭代友好措辞
             iterate: iterate === true,
+            // 朝向感知三视图选择：分镜画面线索透传，orchestrator 据此挑对应朝向参考图
+            sceneFacingHints: sceneFacingHints || undefined,
           });
 
           let candidateUrl = result.imageUrl;

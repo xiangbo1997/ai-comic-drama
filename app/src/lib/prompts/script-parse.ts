@@ -47,6 +47,12 @@ export const SCRIPT_PARSE_SYSTEM = `你是一个专业的漫剧分镜编剧，�
 5. description 要具体到场景元素、角色动作、姿态与表情——适合 AI 图像生成
 6. 情感标签：neutral, happy, sad, angry, surprised, fear
 7. 时长单位为秒，单镜默认 2-4 秒；按叙事需要可填 1-60 秒（系统会按视频模型能力自动分段衔接），绝不为凑时长拉长单镜
+8. locationKey: 地点标签（中文短标签，≤12 字，如 "出租屋客厅"、"学校操场"）。同一物理地点的所有分镜必须用【完全相同】的标签，换地点才换值；禁止同一地点写出多个变体（如 "客厅" 与 "出租屋客厅" 混用）——它用于把同地点分镜的背景/空间锚定一致。
+
+【环境与空间一致性（务必遵守）】
+- description 必须写明主体元素在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）。
+- 每个地点第一次出现的分镜尽量用全景/远景建立场景空间（establishing shot），交代地点全貌。
+- 每个分镜的 description 必须自足，完整独立可读；不得用"同上""延续上一镜"等指代，不得省略环境。
 
 【导演运镜设计（你看得到整个剧本，用好这份全局记忆）】
 - 相邻分镜不要重复同一 cameraMovement；运镜要服务叙事节奏（如情绪推进用 zoom_in / dolly_in，环境交代用 crane / pan，紧张对峙用 handheld / tracking）。
@@ -79,7 +85,8 @@ ${NARRATION_DISCIPLINE_RULES}
   "composition": "subject on the left third, negative space on the right",
   "colorPalette": "desaturated cool tones with a hint of warm skin highlight",
   "cameraMovement": "dolly_in",
-  "actionBeat": "指尖缓缓收紧攥皱辞职信，泪水在眼眶里聚起将落未落，肩膀轻轻一颤"
+  "actionBeat": "指尖缓缓收紧攥皱辞职信，泪水在眼眶里聚起将落未落，肩膀轻轻一颤",
+  "locationKey": "出租屋客厅"
 }
 
 【完整输出结构】
@@ -112,9 +119,10 @@ ${text}
 要求：
 1. 提取所有出场角色及其外貌描述（发型、瞳色、体型、服装、饰品等尽量齐全）
 2. 按故事长度拆分分镜：每分钟成片约 15-25 个分镜，分镜数由内容决定，禁止凑数；开场 10 秒内快切 3-5 镜
-3. 每个分镜的 description 要详细，包含空间位置、动作、表情、氛围
+3. 每个分镜的 description 要详细且自足，包含空间位置（主体的左/中/右、前景/背景）、角色面向、动作、表情、氛围；不得用"同上"等指代
 4. 镜头语言四字段（cameraAngle / lighting / composition / colorPalette）尽量补全
 5. 每个分镜必须给出 cameraMovement（13 值枚举之一）与 actionBeat（中文 ≤80 字，只写"动"的内容）；相邻镜头运镜不重复，运镜服务节奏
-6. 保留原文的对话和旁白
-7. 输出纯JSON，不要其他内容`;
+6. 每个分镜必须给出 locationKey（中文短标签 ≤12 字）：同一物理地点用完全相同的标签，同地点禁止多个变体；每个地点首次出现尽量用全景/远景建立场景空间
+7. 保留原文的对话和旁白
+8. 输出纯JSON，不要其他内容`;
 }

@@ -229,6 +229,11 @@ model Scene {
   cameraMovement String? // 运镜（喂给视频模型）: zoom_in/pan_left/tilt_up/static...
   actionBeat     String? @db.Text // 运动节拍——这一镜内"什么在动"，LLM 解析产出，喂视频 prompt
 
+  // 地点标签：同一物理地点的分镜共用同一短标签，供场景锚定图（环境一致性）分组，
+  // 让同一地点的多个分镜背景/空间布局不漂移；LLM 解析产出。
+  // 不加索引：所有查询都带 projectId（走 @@index([projectId, order]) 已足够）。
+  locationKey String?
+
   // 生成结果
   imageUrl String? // 生成的图片URL
   videoUrl String? // 生成的视频URL

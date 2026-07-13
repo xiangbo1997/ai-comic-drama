@@ -15,6 +15,8 @@ import {
   composeReferenceGrid,
   type ReferenceCell,
 } from "./reference-composite";
+import { inferFacing, pickAssetUrlForFacing, type Facing } from "./facing";
+import { resolveEnvironmentAnchor } from "./environment-anchor";
 import { getPromptCache, setPromptCache } from "@/lib/cache/prompt-cache";
 import { createLogger } from "@/lib/logger";
 import type { SceneCharacterInfo } from "./types";
@@ -33,6 +35,11 @@ export async function orchestrateImageGeneration(
 ): Promise<OrchestratorResult> {
   const maxRetries = request.maxRetries ?? DEFAULT_MAX_RETRIES;
 
+  // 朝向推断（朝向感知三视图选择）：据分镜画面线索推一次角色朝向，
+  // 供 resolveStrategy 挑参考图 + buildReferenceCells 挑合成格代表图。
+  // 无 hints 时默认 front（零回归）。
+  const facing: Facing = inferFacing(request.sceneFacingHints ?? {});
+
   const decision = resolveStrategy(
     request.characters,
     request.prompt,
@@ -41,6 +48,7 @@ export async function orchestrateImageGeneration(
     {
       referenceImagesOverride: request.referenceImages,
       iterateMode: request.iterate,
+      facing,
     }
   );
 
@@ -62,13 +70,28 @@ export async function orchestrateImageGeneration(
   let effectivePrompt = decision.enhancedPrompt;
   const referenceCells = request.iterate
     ? []
-    : buildReferenceCells(request.characters);
-  if (
+    : buildReferenceCells(request.characters, facing);
+
+  // 场景锚定图（环境一致性）：非迭代且有 sceneId 时，取同地点最早已出图的分镜作锚，
+  // 锁背景/布局/光线。锚是增强项，为 null 时全部注入分支自然跳过，绝不阻断出图。
+  const anchor =
+    !request.iterate && request.sceneId
+      ? await resolveEnvironmentAnchor(request.sceneId)
+      : null;
+
+  const gridTriggered =
     (decision.referenceImageUrls?.length ?? 0) >= 2 &&
-    referenceCells.length >= 2
-  ) {
+    referenceCells.length >= 2;
+
+  if (gridTriggered) {
+    // 优先级 ①：合成格子路径。锚图作为最后一格追加（label "SCENE"），
+    // 与角色格一起合成为单张底图，并在 prompt 里声明「SCENE 格是场景环境，
+    // 只锁背景/布局/光线，角色形象只跟角色格与文字描述走」。
+    const gridCells: ReferenceCell[] = anchor
+      ? [...referenceCells, { url: anchor.url, label: "SCENE" }]
+      : referenceCells;
     try {
-      const composed = await composeReferenceGrid(referenceCells);
+      const composed = await composeReferenceGrid(gridCells);
       effectiveRefUrl = composed;
       effectiveRefUrls = [composed];
       // 语义配套：告诉模型这张底图并排展示了多个角色（名字已标注），
@@ -78,20 +101,74 @@ export async function orchestrateImageGeneration(
         .map((c) => c.label)
         .filter(Boolean)
         .join(", ");
+      const scenePrefix = anchor
+        ? `The last cell labeled SCENE is the established scene environment; the background, spatial layout and lighting must stay consistent with it; only follow the character cells and the text description for the characters' appearance — do NOT copy any character from the SCENE cell. `
+        : "";
       effectivePrompt =
         `The reference image shows ${referenceCells.length} characters side by side` +
         (names ? ` (labeled: ${names})` : "") +
         `. Render each of them in the scene keeping their exact appearance and identity from the reference. ` +
+        scenePrefix +
         decision.enhancedPrompt;
+      if (anchor) {
+        log.info("场景锚定图已合成进多角色格子", {
+          sceneId: request.sceneId,
+          anchorSceneId: anchor.sourceSceneId,
+        });
+      }
       log.info("多角色参考图已合成为单张", {
         sceneId: request.sceneId,
         characterCount: referenceCells.length,
       });
     } catch (err) {
-      // 合成失败不阻断出图：退回原多图路径（至少不比现状差），仅记日志
+      // 合成失败不阻断出图：退回原多图路径（至少不比现状差），仅记日志。
+      // 锚格加入后失败同样回退，行为不劣化。
       log.warn("参考图合成失败，回退多图路径", {
         sceneId: request.sceneId,
         error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } else if (anchor) {
+    // 未触发合成时，按策略把锚图注入参考列表 / prompt（优先级 ②③④）。
+    // 就地改写 effectiveRefUrl/effectiveRefUrls/effectivePrompt，锚图与新增子句
+    // 一并进入 cacheKeyInput（下方复用这三个变量）。
+    const cap = decision.capability;
+    const currentRefs = effectiveRefUrls ?? [];
+    const anchorClause =
+      " The last reference image shows the established scene environment; keep the background, spatial layout and lighting consistent with it; do NOT copy any character from it.";
+
+    if (
+      // ②：reference_edit 且 provider 支持多参考图，且还有余量塞一张
+      decision.strategy === "reference_edit" &&
+      cap.supportsMultipleReferences &&
+      currentRefs.length > 0 &&
+      currentRefs.length < cap.maxReferenceImages &&
+      !currentRefs.includes(anchor.url)
+    ) {
+      effectiveRefUrls = [...currentRefs, anchor.url];
+      effectivePrompt = decision.enhancedPrompt + anchorClause;
+      log.debug("场景锚定图注入参考列表（②多图余量）", {
+        sceneId: request.sceneId,
+        anchorSceneId: anchor.sourceSceneId,
+      });
+    } else if (
+      // ③：prompt_only（纯环境镜/无角色）且 provider 支持参考图 → 锚图作唯一参考
+      decision.strategy === "prompt_only" &&
+      cap.supportsReferenceImage
+    ) {
+      effectiveRefUrl = anchor.url;
+      effectiveRefUrls = [anchor.url];
+      decision.strategy = "reference_edit";
+      effectivePrompt = decision.enhancedPrompt + anchorClause;
+      log.debug("场景锚定图作唯一参考（③纯环境镜）", {
+        sceneId: request.sceneId,
+        anchorSceneId: anchor.sourceSceneId,
+      });
+    } else {
+      // ④：其余情况跳过注入
+      log.debug("场景锚定图跳过注入（④不满足注入条件）", {
+        sceneId: request.sceneId,
+        strategy: decision.strategy,
       });
     }
   }
@@ -200,14 +277,19 @@ export type {
 };
 
 /**
- * 从场景角色列表构建合成参考图的格子：每个角色取【一张】最具代表性的参考图
- * （优先定妆脸 canonicalImageUrl，回退首张多角度参考），配上角色名标签。
+ * 从场景角色列表构建合成参考图的格子：每个角色取【一张】最具代表性的参考图，
+ * 配上角色名标签。
+ *
+ * 代表图挑选（朝向感知）：角色有三视图 referenceAssets 时按分镜朝向挑
+ * （背影镜取背视图、侧面镜取侧视图，避免正脸参考把画面拉回正面）；
+ * 无 referenceAssets 时回退既有 canonicalImageUrl || referenceImageUrls[0] 逻辑（零回归）。
  *
  * 只取每角色一张（而非三视图全塞）：多角色 × 三视图会让合成图过宽、每格过小，
- * 稀释身份信息。定妆正面脸是身份识别度最高的单图。按 role 排序（primary 在前）。
+ * 稀释身份信息。按 role 排序（primary 在前）。
  */
 function buildReferenceCells(
-  characters: SceneCharacterInfo[]
+  characters: SceneCharacterInfo[],
+  facing: Facing
 ): ReferenceCell[] {
   const ordered = [...characters].sort(
     (a, b) => roleRank(a.role) - roleRank(b.role)
@@ -215,7 +297,10 @@ function buildReferenceCells(
   const cells: ReferenceCell[] = [];
   const seen = new Set<string>();
   for (const c of ordered) {
-    const url = c.canonicalImageUrl || c.referenceImageUrls?.[0];
+    const facingUrl = c.referenceAssets?.length
+      ? pickAssetUrlForFacing(c.referenceAssets, facing)
+      : undefined;
+    const url = facingUrl || c.canonicalImageUrl || c.referenceImageUrls?.[0];
     if (!url || seen.has(url)) continue;
     seen.add(url);
     cells.push({ url, label: c.name });

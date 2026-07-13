@@ -39,6 +39,8 @@ export const SCRIPT_PARSER_SYSTEM = `你是一个专业的漫剧分镜编剧，�
   - cameraMovement 必须为：static、zoom_in、zoom_out、pan_left、pan_right、tilt_up、tilt_down、dolly_in、dolly_out、orbit、tracking、handheld、crane 之一
   - actionBeat：中文 ≤80 字，只写这一镜里"动"的内容（角色动作 / 表情变化 / 环境动态）；禁止外貌描写、禁止对白、禁止引入画面外新元素
 - 导演运镜设计（你看得到整个剧本）：相邻分镜不要重复同一 cameraMovement，运镜要服务叙事节奏；actionBeat 要与前后镜连贯，人物状态跨镜延续（受伤/持物/情绪不失忆）
+- 每个分镜必须给出 locationKey（中文短标签 ≤12 字，如 "出租屋客厅"）：同一物理地点用【完全相同】的标签，换地点才换值，同地点禁止多个变体——它用于把同地点分镜的背景/空间锚定一致
+- 环境与空间一致性：description 必须写明主体在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）；每个地点首次出现尽量用全景/远景建立场景空间；每个分镜 description 必须自足，不得用"同上""延续上一镜"等指代
 
 ${EPISODE_HOOK_RULES}
 
@@ -81,6 +83,7 @@ ${text}
 4. 保留原文对话和旁白
 5. 合理安排景别：对话用近景/中景，动作用全景，情感特写用特写
 6. 每个分镜给出 cameraMovement（13 值枚举之一）与 actionBeat（中文 ≤80 字，只写"动"的内容）；相邻镜头运镜不重复，运镜服务节奏，动作跨镜连贯
+7. 每个分镜给出 locationKey（中文短标签 ≤12 字）：同一物理地点用完全相同标签，同地点禁止多个变体；每个地点首次出现尽量用全景/远景建立场景空间；description 必须自足并写明主体位置与角色面向
 
 输出格式：
 {
@@ -96,7 +99,8 @@ ${text}
       "emotion": "neutral",
       "duration": 3,
       "cameraMovement": "dolly_in",
-      "actionBeat": "角色缓步向前，抬手推开半掩的门，目光扫过屋内"
+      "actionBeat": "角色缓步向前，抬手推开半掩的门，目光扫过屋内",
+      "locationKey": "老宅门厅"
     }
   ],
   "characters": [

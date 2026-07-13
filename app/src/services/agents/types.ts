@@ -280,6 +280,8 @@ export interface SceneArtifact {
   cameraMovement?: string;
   /** 运动节拍：这一镜内"什么在动"（LLM 解析产出，喂视频 prompt） */
   actionBeat?: string;
+  /** 地点标签：同一物理地点的分镜共用同一短标签（供场景锚定图分组） */
+  locationKey?: string;
   /** 转场效果 */
   transition?: string;
 }

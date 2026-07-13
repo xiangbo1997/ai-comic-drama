@@ -1,5 +1,9 @@
 import { auth } from "@/lib/auth";
-import { getUserVideoConfig, getUserLLMConfig } from "@/lib/ai-config";
+import {
+  getUserVideoConfig,
+  getUserLLMConfig,
+  getUserImageConfig,
+} from "@/lib/ai-config";
 import { contentSafetyMiddleware } from "@/lib/content-safety";
 import { prisma } from "@/lib/prisma";
 import { probeMediaDurationFromUrl } from "@/services/video-synthesis";
@@ -11,10 +15,13 @@ import { buildVideoScenePrompt } from "@/lib/prompts";
 import {
   directVideoScene,
   generateSceneVideoSegmented,
+  generateIntraShotTailFrame,
+  shouldGenerateTailFrame,
   estimateVideoCost,
   planVideoSegments,
   clampSceneDuration,
 } from "@/services/generation";
+import type { VideoDirection } from "@/services/generation";
 import { getVideoModelCapability } from "@/services/ai/video-capabilities";
 import { buildPreviousEpisodeRecap } from "@/lib/series";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
@@ -31,28 +38,45 @@ const log = createLogger("api:generate:video");
 export const maxDuration = 1800;
 
 /**
- * 生成时视频导演增强：服务端重建视频 prompt（LLM 导演增强 · Deliverable 2）。
+ * 视频导演增强结果：导演产出 + 项目风格 + prompt 重建闭包。
+ *
+ * buildPrompt(hasLastFrame) 延迟到「尾帧来源裁决」后再调用——因为 hasLastFrame
+ * 取决于客户端跨镜尾帧或镜内尾帧任一是否存在，而镜内尾帧的裁决又依赖导演产出的
+ * variationType。故本函数先拿到 direction，把 prompt 组装做成闭包由主流程回调。
+ */
+interface DirectedVideoResult {
+  /** 导演产出（含 variationType / endFrameDesc，供尾帧裁决） */
+  direction: VideoDirection;
+  /** 项目风格（镜内尾帧生成用来保持画风一致） */
+  style?: string | null;
+  /**
+   * 用最终裁决的 hasLastFrame 重建并过内容安全的 finalPrompt。
+   * 不安全时返回 null（调用方沿用客户端 prompt）。
+   */
+  buildPrompt: (hasLastFrame: boolean) => Promise<string | null>;
+}
+
+/**
+ * 生成时视频导演增强：LLM 导演一次「运动 + 镜内变化幅度」（Deliverable 2 + 包 B）。
  *
  * 有 sceneId + projectId 时：查分镜（全镜头字段 + actionBeat）、项目（风格 +
  * 系列前情提要）、相邻镜（order±1，仅 description+actionBeat）、出场角色
- * （name + description 作身份锚），调 directVideoScene 导演一次「运动」，再用
- * buildVideoScenePrompt 服务端重建 finalPrompt（导演产出优先，缺失回落 DB 值）。
+ * （name + description 作身份锚），调 directVideoScene 导演一次「运动」，返回
+ * direction + prompt 重建闭包（buildPrompt 由主流程在尾帧裁决后回调）。
  *
  * 重建后的 prompt 含 LLM 输出（actionBeat）必须过内容安全；不安全或链路任一步
  * 失败（无 LLM 配置 / 导演 null / 查库异常）→ 返回 null，调用方沿用客户端已
  * 安全校验过的 prompt（不改 202/task/billing 流程）。
  *
- * @returns { prompt, reason } —— prompt 为重建后已安全校验的 finalPrompt；
- *   返回 null 表示应沿用客户端 prompt（reason 供日志排障）。
+ * @returns DirectedVideoResult；返回 null 表示应沿用客户端 prompt 且不生成镜内尾帧。
  */
 async function buildDirectedVideoPrompt(params: {
   userId: string;
   projectId?: string;
   sceneId?: string;
-  hasLastFrame: boolean;
   duration: number;
-}): Promise<{ prompt: string; reason: string } | null> {
-  const { userId, projectId, sceneId, hasLastFrame, duration } = params;
+}): Promise<DirectedVideoResult | null> {
+  const { userId, projectId, sceneId, duration } = params;
   if (!projectId || !sceneId) return null;
 
   try {
@@ -144,30 +168,35 @@ async function buildDirectedVideoPrompt(params: {
     );
     if (!direction) return null;
 
-    // 服务端重建：导演产出优先，缺失回落 DB 值；氛围走 atmosphereOverride
-    const finalPrompt = buildVideoScenePrompt({
-      description: scene.description,
-      actionBeat: direction.actionBeat ?? scene.actionBeat,
-      style: project?.style,
-      shotType: scene.shotType,
-      cameraAngle: scene.cameraAngle,
-      cameraMovement: direction.cameraMovement ?? scene.cameraMovement,
-      lighting: scene.lighting,
-      emotion: scene.emotion,
-      atmosphereOverride: direction.atmosphere,
-      duration,
-      hasLastFrame,
-    });
+    // description 收窄为非空字符串（上方已校验），供闭包引用不丢类型
+    const sceneDescription = scene.description;
 
-    // 重建后的 prompt 含 LLM 输出（actionBeat），必须重新过内容安全
-    const safety = await contentSafetyMiddleware(finalPrompt, "video");
-    if (!safety.safe) {
-      return null;
-    }
-    return {
-      prompt: safety.sanitizedText || finalPrompt,
-      reason: "enhanced",
+    // prompt 重建闭包：延迟到尾帧裁决后由主流程回调，用最终 hasLastFrame 重建。
+    const buildPrompt = async (
+      hasLastFrame: boolean
+    ): Promise<string | null> => {
+      // 服务端重建：导演产出优先，缺失回落 DB 值；氛围走 atmosphereOverride
+      const finalPrompt = buildVideoScenePrompt({
+        description: sceneDescription,
+        actionBeat: direction.actionBeat ?? scene.actionBeat,
+        style: project?.style,
+        shotType: scene.shotType,
+        cameraAngle: scene.cameraAngle,
+        cameraMovement: direction.cameraMovement ?? scene.cameraMovement,
+        lighting: scene.lighting,
+        emotion: scene.emotion,
+        atmosphereOverride: direction.atmosphere,
+        duration,
+        hasLastFrame,
+      });
+
+      // 重建后的 prompt 含 LLM 输出（actionBeat），必须重新过内容安全
+      const safety = await contentSafetyMiddleware(finalPrompt, "video");
+      if (!safety.safe) return null;
+      return safety.sanitizedText || finalPrompt;
     };
+
+    return { direction, style: project?.style, buildPrompt };
   } catch (err) {
     log.warn("视频导演增强链路失败，沿用客户端 prompt", {
       sceneId,
@@ -380,6 +409,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 创建生成任务记录（input.userId 供轮询端点做归属校验，同 script/parse 模式）
+    // tailFrameSource 初始为 client（有客户端跨镜尾帧）或 null；后台裁决出镜内尾帧
+    // 后回填 "intra_shot"（见 run() 内的 patch）。
     const task = await prisma.generationTask.create({
       data: {
         type: "VIDEO_GENERATE",
@@ -392,6 +423,8 @@ export async function POST(request: NextRequest) {
           // 排障留痕：尾帧衔接与身份前缀是否生效（identityPrompt ≤200 字）
           lastFrameImage: safeLastFrame ?? null,
           identityPrompt: safeIdentityPrompt ?? null,
+          // 尾帧来源：client=客户端跨镜尾帧 / intra_shot=镜内尾帧 / null=无
+          tailFrameSource: safeLastFrame ? "client" : null,
         },
         projectId,
         sceneId,
@@ -405,20 +438,93 @@ export async function POST(request: NextRequest) {
     // 页面刷新也不丢任务。扣费语义不变：成功后事务内扣费。
     const run = async () => {
       try {
-        // LLM 导演增强（Deliverable 2）：服务端重建带「运动 + 记忆」的 prompt。
-        // 成功返回已安全校验的 finalPrompt；任一步失败/不安全返回 null，沿用
-        // 客户端已安全校验过的 safePrompt。不改 202/task/billing 流程。
+        // LLM 导演增强（Deliverable 2 + 镜内首尾帧分解 · 包 B）：服务端导演一次
+        // 「运动 + 镜内变化幅度」，拿到 direction（含 variationType/endFrameDesc）与
+        // prompt 重建闭包。任一步失败/无导演返回 null，沿用客户端 safePrompt。
         const directed = await buildDirectedVideoPrompt({
           userId,
           projectId,
           sceneId,
-          hasLastFrame: !!safeLastFrame,
           duration,
         });
-        const finalPrompt = directed?.prompt ?? safePrompt;
+
+        // 镜内尾帧裁决 + 生成（包 B）：variationType==="large" 且无客户端跨镜尾帧
+        // 且模型支持 FL 且有首帧图时，为本镜生成一张专属尾帧图走 FL 首尾帧插值，
+        // 锁死大动作终态。任何失败返回 null 走原路径，绝不阻断视频生成。
+        let intraShotLastFrame: string | undefined;
+        let tailFrameSource: "client" | "intra_shot" | null = safeLastFrame
+          ? "client"
+          : null;
+        if (
+          directed &&
+          shouldGenerateTailFrame({
+            variationType: directed.direction.variationType,
+            hasClientLastFrame: !!safeLastFrame,
+            supportsLastFrame: capability.supportsFirstLastFrame,
+            hasSceneImage: !!imageUrl,
+          }) &&
+          directed.direction.endFrameDesc
+        ) {
+          const imageConfig = await getUserImageConfig(userId);
+          if (imageConfig) {
+            const tail = await generateIntraShotTailFrame({
+              endFrameDesc: directed.direction.endFrameDesc,
+              sceneImageUrl: imageUrl,
+              style: directed.style,
+              aspectRatio,
+              imageConfig,
+              userId,
+              projectId,
+              sceneId,
+            });
+            if (tail) {
+              intraShotLastFrame = tail;
+              tailFrameSource = "intra_shot";
+            }
+          }
+        }
+
+        // 尾帧来源裁决：客户端跨镜尾帧优先，否则用镜内尾帧（二者互斥，不会同存）
+        const effectiveLastFrame = safeLastFrame ?? intraShotLastFrame;
+        // hasLastFrame：客户端或镜内尾帧任一存在即 true，让 prompt 用 FL 文案。
+        const hasLastFrame = !!effectiveLastFrame;
+
+        // 用最终裁决的 hasLastFrame 重建 prompt（闭包内做内容安全）；重建失败/不安全
+        // 或无导演 → 沿用客户端已安全校验过的 safePrompt。
+        const enhancedPrompt = directed
+          ? await directed.buildPrompt(hasLastFrame)
+          : null;
+        const finalPrompt = enhancedPrompt ?? safePrompt;
+
+        // 排障留痕：把尾帧来源回填 GenerationTask.input（不阻塞生成，失败忽略）
+        if (tailFrameSource === "intra_shot") {
+          try {
+            await prisma.generationTask.update({
+              where: { id: task.id },
+              data: {
+                input: {
+                  userId,
+                  imageUrl,
+                  prompt,
+                  duration,
+                  lastFrameImage: effectiveLastFrame ?? null,
+                  identityPrompt: safeIdentityPrompt ?? null,
+                  tailFrameSource,
+                },
+              },
+            });
+          } catch (patchErr) {
+            log.warn("回填 tailFrameSource 失败（不影响生成）", {
+              sceneId,
+              error: patchErr instanceof Error ? patchErr.message : patchErr,
+            });
+          }
+        }
+
         log.info("视频 prompt 路径", {
           sceneId,
-          path: directed ? "enhanced" : "client_fallback",
+          path: enhancedPrompt ? "enhanced" : "client_fallback",
+          tailFrameSource,
           segments: plan.segments.length,
         });
 
@@ -433,7 +539,7 @@ export async function POST(request: NextRequest) {
           aspectRatio,
           referenceImages,
           identityPrompt: safeIdentityPrompt,
-          lastFrameImage: safeLastFrame,
+          lastFrameImage: effectiveLastFrame,
           config: videoConfig ?? undefined,
           userId,
           projectId,

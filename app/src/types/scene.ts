@@ -43,6 +43,8 @@ export interface Scene {
   cameraMovement?: string | null;
   /** 运动节拍：这一镜内"什么在动"（LLM 解析产出，喂视频 prompt） */
   actionBeat?: string | null;
+  /** 地点标签：同一物理地点的分镜共用同一短标签（LLM 解析产出，供场景锚定图分组） */
+  locationKey?: string | null;
   imageUrl: string | null;
   videoUrl: string | null;
   audioUrl: string | null;
@@ -93,6 +95,8 @@ export interface SceneScript {
   cameraMovement?: string;
   /** 运动节拍：这一镜内"什么在动"（中文，喂视频 prompt） */
   actionBeat?: string;
+  /** 地点标签：同一物理地点的分镜共用同一短标签（≤12 字），供场景锚定图分组 */
+  locationKey?: string;
 }
 
 /** 剧本解析完整结果 */

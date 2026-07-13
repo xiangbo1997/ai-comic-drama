@@ -29,7 +29,20 @@ export interface SceneDraft {
   emotion: string;
   duration: number;
   characters: string[];
+  /** 地点标签：供场景锚定图（环境一致性）分组 */
+  locationKey: string | null;
   [key: string]: unknown;
+}
+
+/**
+ * 从短剧场景标题规整地点标签：短剧脚本 scene.title 本就是地点/场景名
+ * （如 "天幕之下"、"删除程序启动"）。裁掉常见修饰后缀、限长 12 字，作为 locationKey。
+ * 空标题回落 null（场景锚定分组自然退化为无约束）。
+ */
+function deriveLocationKey(title: string | null | undefined): string | null {
+  const trimmed = title?.trim();
+  if (!trimmed) return null;
+  return trimmed.length > 12 ? trimmed.slice(0, 12) : trimmed;
 }
 
 /** 场景文本中出现的项目角色名（确定性子串匹配，供后端挂 selectedCharacterId） */
@@ -88,6 +101,8 @@ export function dramaScriptToScenes(
         dialogue,
         scene.narration
       ),
+      // 地点标签：短剧场景标题即地点/场景名，规整为 locationKey 供场景锚定分组
+      locationKey: deriveLocationKey(scene.title),
     };
   });
 }

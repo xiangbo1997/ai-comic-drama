@@ -206,6 +206,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         cameraMovement: scene.cameraMovement || null,
         // 运动节拍：LLM 导演产出，喂视频 prompt 的 Action 段
         actionBeat: scene.actionBeat || null,
+        // 地点标签：LLM 解析产出，供场景锚定图（环境一致性）分组
+        locationKey: scene.locationKey || null,
       };
     });
 

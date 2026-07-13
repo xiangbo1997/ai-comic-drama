@@ -93,6 +93,13 @@ export class ImageConsistencyAgent implements Agent<
             llmConfig: ctx.config.llm,
             userId: ctx.userId,
             negativePrompt: input.negativePrompt,
+            // 朝向感知三视图选择：分镜画面线索透传，orchestrator 据此挑对应朝向参考图。
+            // SceneArtifact 有 description/cameraAngle/composition 字段。
+            sceneFacingHints: {
+              description: input.scene.description,
+              cameraAngle: input.scene.cameraAngle,
+              composition: input.scene.composition,
+            },
             maxRetries: 1,
           });
           return { imageUrl: result.imageUrl, strategy: result.strategy };

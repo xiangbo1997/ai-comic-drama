@@ -26,6 +26,11 @@ export interface SceneCharacterInfo extends CharacterInfo {
    * 提供时 strategy-resolver 优先消费本字段，缺失时回退单张 canonicalImageUrl。
    */
   referenceImageUrls?: string[];
+  /**
+   * 三视图参考资产（含 pose：front|side|back|3quarter）。
+   * 朝向感知选择用它按分镜里角色朝向挑代表图；缺省时回退 canonicalImageUrl 逻辑（零回归）。
+   */
+  referenceAssets?: Array<{ url: string; pose?: string | null }>;
   appearance?: CharacterAppearance | null;
   faceEmbedding?: number[];
 }
@@ -62,6 +67,16 @@ export interface OrchestratorRequest {
    * 与用户「改外貌类指令」冲突。
    */
   iterate?: boolean;
+  /**
+   * 朝向线索：分镜画面描述 / 镜头角度 / 构图。
+   * orchestrator 据此推断角色朝向，从三视图 referenceAssets 里挑对应朝向的代表图
+   * （朝向感知三视图选择）。缺省时朝向按默认 front 处理（零回归）。
+   */
+  sceneFacingHints?: {
+    description?: string | null;
+    cameraAngle?: string | null;
+    composition?: string | null;
+  };
 }
 
 /** 策略决策结果 */

@@ -162,3 +162,101 @@ describe("parseDirectorResponse — 非法值处理", () => {
     expect(out.actionBeat).toBe("泪水在眼眶里打转，将落未落");
   });
 });
+
+describe("parseDirectorResponse — 镜内首尾帧分解字段（包 B）", () => {
+  it("large + endFrameDesc → 两者都保留", () => {
+    const out = parseDirectorResponse(
+      JSON.stringify({
+        cameraMovement: "dolly_in",
+        actionBeat: "由全景快速推进到人物特写",
+        variationType: "large",
+        endFrameDesc: "林萧的脸占满画面，双眼直视镜头，背景虚化",
+      })
+    );
+    expect(out.variationType).toBe("large");
+    expect(out.endFrameDesc).toBe("林萧的脸占满画面，双眼直视镜头，背景虚化");
+  });
+
+  it("medium + endFrameDesc → 两者都保留", () => {
+    const out = parseDirectorResponse(
+      JSON.stringify({
+        actionBeat: "陈默从画面左侧走入，转身面对林萧",
+        variationType: "medium",
+        endFrameDesc: "陈默站在画面中央，正面朝向镜头，林萧在其右侧",
+      })
+    );
+    expect(out.variationType).toBe("medium");
+    expect(out.endFrameDesc).toBe(
+      "陈默站在画面中央，正面朝向镜头，林萧在其右侧"
+    );
+  });
+
+  it("small → endFrameDesc 被丢弃（语义自洽：不生成尾帧无需尾帧描述）", () => {
+    const out = parseDirectorResponse(
+      JSON.stringify({
+        actionBeat: "林萧微微皱眉",
+        variationType: "small",
+        endFrameDesc: "这段描述应被丢弃",
+      })
+    );
+    expect(out.variationType).toBe("small");
+    expect(out.endFrameDesc).toBeUndefined();
+  });
+
+  it("variationType 缺失 → endFrameDesc 被丢弃（缺失等价不生成尾帧）", () => {
+    const out = parseDirectorResponse(
+      JSON.stringify({
+        actionBeat: "林萧转身",
+        endFrameDesc: "缺 variationType 时这段应被丢弃",
+      })
+    );
+    expect(out.variationType).toBeUndefined();
+    expect(out.endFrameDesc).toBeUndefined();
+  });
+
+  it("非法 variationType → 丢弃（连带丢弃 endFrameDesc）", () => {
+    const out = parseDirectorResponse(
+      JSON.stringify({
+        actionBeat: "林萧转身",
+        variationType: "huge",
+        endFrameDesc: "非法枚举，尾帧描述也应被丢弃",
+      })
+    );
+    expect(out.variationType).toBeUndefined();
+    expect(out.endFrameDesc).toBeUndefined();
+    // actionBeat 不受影响（非法值不整条失败）
+    expect(out.actionBeat).toBe("林萧转身");
+  });
+
+  it("超长 endFrameDesc（>160 字）→ 截断到 160 字（保留终态描述，不整条丢）", () => {
+    const long = "终".repeat(300);
+    const out = parseDirectorResponse(
+      JSON.stringify({
+        actionBeat: "大幅推进",
+        variationType: "large",
+        endFrameDesc: long,
+      })
+    );
+    expect(out.endFrameDesc?.length).toBe(160);
+  });
+
+  it("large 但 endFrameDesc 为空串 → variationType 保留、endFrameDesc undefined", () => {
+    const out = parseDirectorResponse(
+      JSON.stringify({
+        actionBeat: "大幅推进",
+        variationType: "large",
+        endFrameDesc: "   ",
+      })
+    );
+    expect(out.variationType).toBe("large");
+    expect(out.endFrameDesc).toBeUndefined();
+  });
+
+  it("完全无这两个字段（老缓存/旧响应）→ 二者 undefined，零回归", () => {
+    const out = parseDirectorResponse(
+      '{"cameraMovement": "static", "actionBeat": "静止呼吸"}'
+    );
+    expect(out.variationType).toBeUndefined();
+    expect(out.endFrameDesc).toBeUndefined();
+  });
+});

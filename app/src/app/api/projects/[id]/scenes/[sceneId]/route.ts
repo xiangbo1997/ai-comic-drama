@@ -42,6 +42,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       videoLinkNext,
       cameraMovement,
       actionBeat,
+      locationKey,
       imageUrl,
       videoUrl,
       audioUrl,
@@ -78,6 +79,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           cameraMovement: cameraMovement || null,
         }),
         ...(actionBeat !== undefined && { actionBeat: actionBeat || null }),
+        // 地点标签：LLM 解析产出，编辑器可手改（供场景锚定图分组）
+        ...(locationKey !== undefined && { locationKey: locationKey || null }),
         ...(imageUrl !== undefined && { imageUrl }),
         ...(videoUrl !== undefined && { videoUrl }),
         ...(audioUrl !== undefined && { audioUrl }),
