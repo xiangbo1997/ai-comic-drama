@@ -437,6 +437,15 @@ export default function EditorPage() {
           mediaConfig={mediaConfig}
           queryClient={editor.queryClient}
           projectId={projectId}
+          onIterateScene={(sceneId, scene, note) =>
+            generation.generateImageMutation.mutate({
+              sceneId,
+              scene,
+              imageConfigId: selectedImageConfig,
+              iterate: true,
+              note,
+            })
+          }
         />
 
         <SceneEditor

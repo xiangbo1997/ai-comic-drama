@@ -208,6 +208,76 @@ export async function generateLocationPlate(
   throw new Error("生成超时，任务可能仍在后台执行，请稍后重新打开查看");
 }
 
+/** 连贯性体检报告（对应 continuity-check 路由 output.report，计划 §5 · 2.3） */
+export type ContinuityGrade = "A" | "B" | "C" | "D";
+
+export interface ContinuityReportIssue {
+  /** 修复目标分镜 id（后镜） */
+  sceneId: string;
+  /** 后镜序号（1 起） */
+  sceneOrder: number;
+  dimension: string;
+  severity: "严重" | "中等" | "轻微";
+  description: string;
+  /** 可直接喂给迭代重生成的中文修复指令 */
+  fixNote: string;
+}
+
+export interface ContinuityReport {
+  grade: ContinuityGrade;
+  summary: string;
+  issues: ContinuityReportIssue[];
+}
+
+/**
+ * 触发连贯性体检并轮询到终态（计划 §5 · 2.3）。
+ *
+ * 异步化（对齐 generateLocationPlate）：POST 拿 taskId → 轮询专用状态接口直至终态。
+ * COMPLETED → 返回 report；前置条件不满足（<2 出图 / 视觉不支持）由 POST 直接抛中文 Error。
+ * 不扣积分。
+ */
+export async function runContinuityCheck(
+  projectId: string
+): Promise<ContinuityReport> {
+  const base = `/api/projects/${projectId}/continuity-check`;
+  const startRes = await fetch(base, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!startRes.ok) {
+    const error = await startRes.json().catch(() => null);
+    throw new Error(formatApiError(error, "连贯性体检失败"));
+  }
+  const { taskId } = (await startRes.json()) as { taskId: string };
+
+  // 逐对 VLM 调用，镜多时耗时长；给足 8 分钟（240 × 2s）
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_POLLS = 240;
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    const pollRes = await fetch(`${base}/${taskId}`);
+    if (!pollRes.ok) {
+      // 5xx 视为瞬时故障继续轮询；4xx 立即失败
+      if (pollRes.status >= 500) continue;
+      const error = await pollRes.json().catch(() => null);
+      throw new Error(formatApiError(error, "轮询体检状态失败"));
+    }
+    const data = (await pollRes.json()) as {
+      status: string;
+      result?: { report: ContinuityReport };
+      error?: string;
+    };
+    if (data.status === "COMPLETED" && data.result?.report) {
+      return data.result.report;
+    }
+    if (data.status === "FAILED") {
+      throw new Error(data.error || "连贯性体检失败");
+    }
+  }
+  throw new Error("体检超时，任务可能仍在后台执行，请稍后重试");
+}
+
 export type PromptSuggestContext = "character_reference" | "scene_iterate";
 
 /** 提示词 AI 建议：返回 2~3 条中文短句 */

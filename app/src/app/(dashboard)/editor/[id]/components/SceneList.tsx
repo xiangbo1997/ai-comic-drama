@@ -15,6 +15,7 @@ import {
   Film,
   Link2,
   MapPin,
+  Stethoscope,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import { useToast } from "@/components/ui/toast";
@@ -38,6 +39,7 @@ import { SceneCard, type ChainState } from "./SceneCard";
 import { SceneVideoDialog } from "./SceneVideoDialog";
 import { SuggestLinksDialog } from "./SuggestLinksDialog";
 import { LocationsDialog } from "./LocationsDialog";
+import { ContinuityCheckDialog } from "./ContinuityCheckDialog";
 
 /** 单个媒体类型（图/视/音）的配置控制三元组 */
 export interface MediaConfigControl {
@@ -105,6 +107,11 @@ interface SceneListProps {
   mediaConfig: MediaConfigControls;
   queryClient: { invalidateQueries: (opts: { queryKey: string[] }) => void };
   projectId: string;
+  /**
+   * 按建议重生成（AI 场记体检用，计划 §5 · 2.3）：走编辑器同一 iterate+note
+   * 迭代生成 mutation。上层在 page.tsx 用 generateImageMutation.mutate({iterate:true,note}) 实现。
+   */
+  onIterateScene: (sceneId: string, scene: Scene, note: string) => void;
 }
 
 function SceneListImpl({
@@ -125,6 +132,7 @@ function SceneListImpl({
   mediaConfig,
   queryClient,
   projectId,
+  onIterateScene,
 }: SceneListProps) {
   const toast = useToast();
   // 任一批量在跑时禁用全部批量入口：串行批量互斥，避免图/视/音批量叠加
@@ -146,6 +154,8 @@ function SceneListImpl({
   const [showSuggestLinks, setShowSuggestLinks] = useState(false);
   // 场景地点弹窗开合（计划 §5 · 2.2 · 地点空景板）
   const [showLocations, setShowLocations] = useState(false);
+  // AI 场记连贯性体检弹窗开合（计划 §5 · 2.3）
+  const [showContinuityCheck, setShowContinuityCheck] = useState(false);
 
   // 每个分镜的衔接链条状态：开了 videoLinkNext 时，下一镜是否已出图。
   // 已衔接=下一镜有图（生成时 FL 尾帧生效）；衔接待出图=下一镜缺图（会回落普通生成）。
@@ -410,6 +420,22 @@ function SceneListImpl({
             >
               <MapPin size={12} />
               场景地点
+            </button>
+          )}
+          {/* AI 场记（计划 §5 · 2.3）：VLM 逐对比对相邻已出图分镜，检查服装/发型/
+              环境/光线/色调跳变，给可一键重生成的建议。需 ≥2 张已出图才有意义。 */}
+          {project.scenes.filter((s) => s.imageUrl).length >= 2 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowContinuityCheck(true);
+              }}
+              disabled={anyBatchPending}
+              className="bg-secondary hover:bg-secondary/80 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
+              title="AI 场记：逐对比对相邻分镜图片的连贯性，给出可一键修复的建议"
+            >
+              <Stethoscope size={12} />
+              AI 场记
             </button>
           )}
           {/* 仅补失败镜：workflow 部分成功或批量后有失败时的一键重试入口，
@@ -691,6 +717,15 @@ function SceneListImpl({
         onClose={() => setShowLocations(false)}
         projectId={projectId}
         imageConfigId={mediaConfig.image.selected}
+      />
+
+      {/* AI 场记连贯性体检弹窗 */}
+      <ContinuityCheckDialog
+        open={showContinuityCheck}
+        onClose={() => setShowContinuityCheck(false)}
+        projectId={projectId}
+        scenes={project.scenes}
+        onIterateScene={onIterateScene}
       />
     </div>
   );
