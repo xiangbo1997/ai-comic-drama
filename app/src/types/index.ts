@@ -9,6 +9,8 @@ export type {
   ProjectListItem,
   ProjectStatus,
   GenerationParams,
+  ProducerReview,
+  ProducerReviewConfirmed,
 } from "./project";
 
 // 系列（多集漫剧）

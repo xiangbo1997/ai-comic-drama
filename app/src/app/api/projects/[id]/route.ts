@@ -6,6 +6,7 @@ import { deleteFile } from "@/services/storage";
 
 import { createLogger } from "@/lib/logger";
 import { normalizeSubtitleStyle } from "@/lib/subtitle-style-normalize";
+import { normalizeProducerReview } from "@/lib/producer-review";
 import { parseStoryBible, isBibleEmpty } from "@/types/series-bible";
 const log = createLogger("api:projects:[id]");
 
@@ -505,6 +506,12 @@ function normalizeGenerationParams(
       loop: bm.loop !== false,
       ducking: bm.ducking === true,
     };
+  }
+  // 制片人审阅态（一键 AI 制片人 3.1）：白名单归一化后整体放行 —— 不加这段则
+  // 前端逐项确认怎么存都进不了 DB，审阅进度静默丢失（同 subtitleStyle 白存教训）。
+  const normalizedProducerReview = normalizeProducerReview(src.producerReview);
+  if (normalizedProducerReview) {
+    out.producerReview = normalizedProducerReview;
   }
   return out;
 }

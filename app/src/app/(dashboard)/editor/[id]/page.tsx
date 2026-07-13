@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import type { Scene } from "@/types";
 import type { SubtitleStyle } from "@/types/export-style";
 import { TimelineDialogs } from "./components/TimelineDialogs";
@@ -35,9 +35,15 @@ import { useMultiGenerate } from "./hooks/use-multi-generate";
 import { EditorSkeleton } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
 import { collectUnfinalizedCharacterNames } from "@/lib/character-finalized";
+import { ProducerReviewDialog } from "./components/ProducerReviewDialog";
+import {
+  isProducerReviewComplete,
+  countProducerReviewProgress,
+} from "@/lib/producer-review";
 
 export default function EditorPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
   const projectId = params.id as string;
   const toast = useToast();
 
@@ -83,6 +89,10 @@ export default function EditorPage() {
     string | undefined
   >();
   const [showCharacterPanel, setShowCharacterPanel] = useState(true);
+  // 一键 AI 制片人审阅弹窗（3.1）：用「手动开」+「已关」两个显式意图组合出可见性，
+  // 避免用 effect+setState 同步 URL（React 19 会告警 cascading renders）。
+  const [reviewManuallyOpened, setReviewManuallyOpened] = useState(false);
+  const [reviewDismissed, setReviewDismissed] = useState(false);
 
   // 导出状态机 + 进度轮询（下沉到 use-export.ts）
   const { exportStatus, handleExport, resetExport, stopExportPoll } =
@@ -309,6 +319,15 @@ export default function EditorPage() {
     onCloseAudio: closeMultiAudio,
   });
 
+  // 制片人审阅弹窗可见性（3.1，纯派生，无 effect）：
+  // - 首进：URL 带 ?review=1 且项目由向导创建 → 自动打开（除非用户已手动关掉）；
+  // - 之后：横幅「继续审阅」手动打开。
+  const producerReview = editor.project?.generationParams?.producerReview;
+  const isProducerProject = producerReview?.createdByProducer === true;
+  const shouldAutoOpenReview =
+    isProducerProject && searchParams.get("review") === "1" && !reviewDismissed;
+  const showReviewDialog = reviewManuallyOpened || shouldAutoOpenReview;
+
   // Loading / Error states：三栏骨架替代整屏白转圈，
   // 新建项目跳转后的冷加载可感知布局（ux-onboarding P1-5）
   if (projectId === "new" || editor.isLoading) {
@@ -375,6 +394,37 @@ export default function EditorPage() {
 
       {/* 管线进度总览条 */}
       <PipelineProgress project={project} />
+
+      {/* 制片人审阅横幅（3.1）：向导项目仍有未确认项时提示，点开审阅弹窗。
+          常规项目（无 producerReview）此横幅完全不出现，零 UI 变化。 */}
+      {isProducerProject &&
+        (() => {
+          const gate = countProducerReviewProgress(
+            producerReview,
+            project.characters.map((c) => c.character.id),
+            project.scenes.map((s) => s.id)
+          );
+          const complete = isProducerReviewComplete(
+            producerReview,
+            project.characters.map((c) => c.character.id),
+            project.scenes.map((s) => s.id)
+          );
+          if (complete) return null;
+          return (
+            <div className="border-agent/30 bg-agent/10 text-agent flex items-center justify-between gap-3 border-b px-4 py-2 text-sm">
+              <span>
+                AI 制片人草稿待审阅：已确认 {gate.confirmed}/{gate.total}
+              </span>
+              <button
+                type="button"
+                onClick={() => setReviewManuallyOpened(true)}
+                className="border-agent/40 hover:bg-agent/20 shrink-0 rounded-md border px-3 py-1 text-xs font-medium transition"
+              >
+                继续审阅
+              </button>
+            </div>
+          );
+        })()}
 
       {/* Settings Panel — Stage 3.8 抽出到独立组件 */}
       {showSettings && (
@@ -625,6 +675,26 @@ export default function EditorPage() {
         }
         onClose={() => editor.setShowCharacterManager(false)}
       />
+
+      {/* 一键 AI 制片人审阅弹窗（3.1）：仅向导项目会打开 */}
+      {isProducerProject && (
+        <ProducerReviewDialog
+          isOpen={showReviewDialog}
+          project={project}
+          updateProject={editor.updateProject}
+          invalidateProject={editor.invalidateProject}
+          onJumpToScene={(sceneId) => {
+            editor.setSelectedSceneId(sceneId);
+            setReviewManuallyOpened(false);
+            setReviewDismissed(true);
+          }}
+          onClose={() => {
+            // 关闭即记为「已处理」：手动开的关掉、自动开的也不再自动重开
+            setReviewManuallyOpened(false);
+            setReviewDismissed(true);
+          }}
+        />
+      )}
     </div>
   );
 }

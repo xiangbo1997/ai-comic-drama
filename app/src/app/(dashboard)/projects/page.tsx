@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Loader2, Clapperboard } from "lucide-react";
+import { Plus, Loader2, Clapperboard, Wand2 } from "lucide-react";
 import { useState } from "react";
 import type { ProjectListItem, SeriesSummary } from "@/types";
 import { CardGridSkeleton, ErrorState } from "@/components/ui/query-state";
@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { ProjectCard } from "./components/ProjectCard";
 import { SeriesSection } from "./components/SeriesSection";
 import { CreateSeriesDialog } from "./components/CreateSeriesDialog";
+import { ProducerWizardDialog } from "./components/ProducerWizardDialog";
 
 async function fetchProjects(): Promise<ProjectListItem[]> {
   const res = await fetch("/api/projects");
@@ -66,6 +67,7 @@ export default function ProjectsPage() {
   const toast = useToast();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showCreateSeries, setShowCreateSeries] = useState(false);
+  const [showProducerWizard, setShowProducerWizard] = useState(false);
   const [creatingEpisodeSeriesId, setCreatingEpisodeSeriesId] = useState<
     string | null
   >(null);
@@ -197,6 +199,14 @@ export default function ProjectsPage() {
           <p className="text-muted-foreground mt-1">创建和管理你的漫剧项目</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* 一键 AI 制片人（3.1）：一句话点子 → 完整草稿 → 审阅 → 出图 */}
+          <button
+            onClick={() => setShowProducerWizard(true)}
+            className="border-agent/50 text-agent hover:bg-agent/10 flex items-center gap-2 rounded-lg border px-4 py-2 font-medium transition"
+          >
+            <Wand2 size={18} />
+            一键 AI 制片人
+          </button>
           <button
             onClick={() => setShowCreateSeries(true)}
             className="border-primary/50 text-primary hover:bg-primary/10 flex items-center gap-2 rounded-lg border px-4 py-2 font-medium transition"
@@ -355,6 +365,10 @@ export default function ProjectsPage() {
           onClose={() => setShowCreateSeries(false)}
           onCreated={() => setShowCreateSeries(false)}
         />
+      )}
+
+      {showProducerWizard && (
+        <ProducerWizardDialog onClose={() => setShowProducerWizard(false)} />
       )}
     </div>
   );

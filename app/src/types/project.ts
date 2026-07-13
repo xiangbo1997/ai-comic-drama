@@ -45,6 +45,27 @@ export interface GenerationParams {
   sceneEffects?: SceneEffect[];
   /** 全片背景音乐（BGM）配置 */
   backgroundMusic?: BackgroundMusic;
+  /** 一键 AI 制片人审阅态（仅向导创建的项目有此字段；常规项目缺省） */
+  producerReview?: ProducerReview;
+}
+
+/** 一键 AI 制片人审阅确认集（计划 §6 · 3.1） */
+export interface ProducerReviewConfirmed {
+  /** 世界观分区已确认 */
+  worldview: boolean;
+  /** 脚本分区已确认 */
+  script: boolean;
+  /** 已确认的角色 id 列表 */
+  characters: string[];
+  /** 已确认的分镜 id 列表 */
+  scenes: string[];
+}
+
+/** 一键 AI 制片人审阅态（落 generationParams.producerReview） */
+export interface ProducerReview {
+  /** 标记本项目由制片人向导创建——常规项目无此字段 */
+  createdByProducer: true;
+  confirmed: ProducerReviewConfirmed;
 }
 
 /** 项目基础信息 */
