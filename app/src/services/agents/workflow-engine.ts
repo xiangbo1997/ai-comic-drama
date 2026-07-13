@@ -570,10 +570,23 @@ async function resolveProjectCharacters(
       canonicalImageUrl: canonicalImageUrl ?? undefined,
       referenceImageUrls:
         referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
-      // 带 pose 的参考资产：供朝向感知选图（背影镜取背视图等），与手动路径对等
+      // 带 pose 的参考资产：供朝向感知选图（背影镜取背视图等）。排序与手动路径
+      // sortReferenceAssets 同规则（定妆优先→质量分降序→创建早优先），保证同 pose
+      // 多张资产时两条出图路径挑到同一张（对等性）。
       referenceAssets:
         c.referenceAssets.length > 0
-          ? c.referenceAssets.map((a) => ({ url: a.url, pose: a.pose }))
+          ? [...c.referenceAssets]
+              .sort(
+                (a, b) =>
+                  (a.isCanonical === b.isCanonical
+                    ? 0
+                    : a.isCanonical
+                      ? -1
+                      : 1) ||
+                  (b.qualityScore ?? -1) - (a.qualityScore ?? -1) ||
+                  a.createdAt.getTime() - b.createdAt.getTime()
+              )
+              .map((a) => ({ url: a.url, pose: a.pose }))
           : undefined,
       appearance: c.appearance as SceneCharacterInfo["appearance"],
     });
