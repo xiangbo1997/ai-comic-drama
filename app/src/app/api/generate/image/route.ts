@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { contentSafetyMiddleware } from "@/lib/content-safety";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { chatCompletion } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { getUserImageConfig, getUserLLMConfig } from "@/lib/ai-config";
@@ -13,8 +14,18 @@ import {
   buildSceneAnalysisPrompt,
   parseSceneAnalysisResponse,
 } from "@/lib/prompt-builder";
-import { orchestrateImageGeneration } from "@/services/generation";
-import type { SceneCharacterInfo, CharacterRole } from "@/services/generation";
+import {
+  orchestrateImageGeneration,
+  normalizeCandidateCount,
+  pickRecommendedIndex,
+  mergeSimilarityScores,
+  scoreCandidate,
+} from "@/services/generation";
+import type {
+  SceneCharacterInfo,
+  CharacterRole,
+  CandidateScore,
+} from "@/services/generation";
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 import { getAnalysisCache, setAnalysisCache } from "@/lib/cache/analysis-cache";
@@ -71,7 +82,13 @@ export async function POST(request: NextRequest) {
       // iterate 透传给 orchestrator 切换 reference_edit 措辞。
       note,
       iterate,
+      // 多候选抽卡档位（批次 2 · 1.4A）：1 / 2 / 4，缺省 1。
+      // count=1 时行为与单发生成完全一致（零回归）；2/4 张并行生成后 VLM 择优。
+      count,
     } = await request.json();
+
+    // 档位合法化：仅放行 1 / 2 / 4，非法值回落 1（零回归基石）
+    const candidateCount = normalizeCandidateCount(count);
 
     if (!prompt) {
       return NextResponse.json(
@@ -116,9 +133,13 @@ export async function POST(request: NextRequest) {
       referenceImage ||
       (Array.isArray(referenceImages) && referenceImages.length > 0)
     );
-    const cost = hasExplicitRef ? IMAGE_COST.withRef : IMAGE_COST.normal;
+    // 单张预估成本；多候选按 candidateCount × 单价做前置余额校验（实际按成功张数扣费）
+    const perImageCost = hasExplicitRef
+      ? IMAGE_COST.withRef
+      : IMAGE_COST.normal;
+    const cost = perImageCost * candidateCount;
 
-    // 检查积分
+    // 检查积分（多候选需 ≥ count × 单张预估）
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { credits: true },
@@ -170,6 +191,8 @@ export async function POST(request: NextRequest) {
           // 迭代式生成：留痕用户追加指令与迭代标记，便于排查
           note: note ?? null,
           iterate: iterate ?? false,
+          // 多候选档位（便于排查抽卡请求）
+          count: candidateCount,
         },
         projectId,
         sceneId,
@@ -205,6 +228,10 @@ export async function POST(request: NextRequest) {
           composition?: string | null;
           colorPalette?: string | null;
         } | null = null;
+        // VLM 择优评审上下文（块内从 scene 取，块外传给 scoreCandidate）。
+        // 无 sceneId 时回落到用户 prompt / 中性情绪，仍可打分（角色维度亦复用）。
+        let sceneDescriptionForReview = safePrompt;
+        let sceneEmotionForReview: string | undefined;
 
         if (sceneId) {
           const scene = await prisma.scene.findUnique({
@@ -244,6 +271,9 @@ export async function POST(request: NextRequest) {
                 colorPalette: scene.colorPalette,
               }
             : null;
+          // VLM 择优评审上下文（真实分镜的画面描述 + 情绪，比 prompt 更贴合评审语义）
+          if (scene?.description) sceneDescriptionForReview = scene.description;
+          sceneEmotionForReview = scene?.emotion || undefined;
 
           // 获取角色信息并构建 SceneCharacterInfo
           const buildSceneChar = (
@@ -416,94 +446,156 @@ export async function POST(request: NextRequest) {
           ? `User instruction (highest priority, must follow): ${iterationNote}. ${composedPrompt}`
           : composedPrompt;
 
-        // 通过编排器生成图像（统一策略选择 + 验证 + 重试）
+        // 通过编排器生成【一张】候选图（统一策略选择 + 验证 + 重试 + 上传）。
         // Stage 1.4：把客户端传入的 negativePrompt 与 referenceImage 透传给 orchestrator。
         // 客户端显式指定的 referenceImage 作为 referenceImages 列表第一项优先生效。
-        const result = await orchestrateImageGeneration({
-          prompt: finalPrompt,
-          sceneId,
-          projectId,
-          characters: sceneCharacters,
-          shotType,
-          style,
-          aspectRatio,
-          imageConfig: imageConfig || {
-            apiKey: "",
-            baseUrl: "",
-            model: "",
-            protocol: "openai",
-          },
-          llmConfig: llmConfig || undefined,
-          userId: userId,
-          negativePrompt: negativePrompt || undefined,
-          referenceImages:
-            Array.isArray(referenceImages) && referenceImages.length > 0
-              ? referenceImages
-              : referenceImage
-                ? [referenceImage]
-                : undefined,
-          // 迭代模式：参考图是上一版整图，切换 reference_edit 为迭代友好措辞
-          iterate: iterate === true,
-        });
+        const explicitRefs =
+          Array.isArray(referenceImages) && referenceImages.length > 0
+            ? referenceImages
+            : referenceImage
+              ? [referenceImage]
+              : undefined;
 
-        let imageUrl = result.imageUrl;
-
-        // 保存到存储服务（R2 或本地）
-        if (isStorageConfigured()) {
-          try {
-            const fileName = `scene_${sceneId || "unknown"}_${Date.now()}.webp`;
-            imageUrl = await uploadFileFromUrl(imageUrl, {
-              fileName,
-              contentType: "image/webp",
-              fileType: "image",
-              userId: userId,
-              projectId,
-            });
-            log.info("Image saved to storage:", imageUrl);
-          } catch (uploadError) {
-            log.error("Failed to save image, using external URL:", uploadError);
-            // 降级：继续使用外部 URL
-          }
-        }
-
-        // 实际成本：编排器使用了参考图则成本更高
-        const actualCost =
-          result.strategy === "reference_edit"
-            ? IMAGE_COST.withRef
-            : IMAGE_COST.normal;
-
-        // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
-        // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
-        // 余额不足会抛错并自动回滚 task/scene 的本次写入。
-        // R2：扣费时机为「生成成功后」，失败路径（catch）下用户从未被扣，无需退款。
-        await prisma.$transaction(async (tx) => {
-          // 更新任务状态
-          await tx.generationTask.update({
-            where: { id: task.id },
-            data: {
-              status: "COMPLETED",
-              // output 即轮询端点透传给客户端的 result，保持与原同步响应同形
-              output: {
-                imageUrl,
-                cost: actualCost,
-                strategy: result.strategy,
-                attemptCount: result.attemptCount,
-              },
-              completedAt: new Date(),
-              cost: actualCost,
+        const generateOneCandidate = async () => {
+          const result = await orchestrateImageGeneration({
+            prompt: finalPrompt,
+            sceneId,
+            projectId,
+            characters: sceneCharacters,
+            shotType,
+            style,
+            aspectRatio,
+            imageConfig: imageConfig || {
+              apiKey: "",
+              baseUrl: "",
+              model: "",
+              protocol: "openai",
             },
+            llmConfig: llmConfig || undefined,
+            userId: userId,
+            negativePrompt: negativePrompt || undefined,
+            referenceImages: explicitRefs,
+            // 迭代模式：参考图是上一版整图，切换 reference_edit 为迭代友好措辞
+            iterate: iterate === true,
           });
 
-          // 如果有场景ID，更新场景
+          let candidateUrl = result.imageUrl;
+          // 保存到存储服务（R2 或本地）
+          if (isStorageConfigured()) {
+            try {
+              const fileName = `scene_${sceneId || "unknown"}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.webp`;
+              candidateUrl = await uploadFileFromUrl(candidateUrl, {
+                fileName,
+                contentType: "image/webp",
+                fileType: "image",
+                userId: userId,
+                projectId,
+              });
+            } catch (uploadError) {
+              log.error(
+                "Failed to save candidate, using external URL:",
+                uploadError
+              );
+              // 降级：继续使用外部 URL
+            }
+          }
+          return { imageUrl: candidateUrl, result };
+        };
+
+        // 多候选并行度：串行或最多 2 并发（防 provider 限流）。candidateCount=1
+        // 时就是单发（零回归）。整个 run 仍占一个生成 slot，不每张单开 slot。
+        type Candidate = Awaited<ReturnType<typeof generateOneCandidate>>;
+        const settled: PromiseSettledResult<Candidate>[] = [];
+        const CONCURRENCY = candidateCount >= 4 ? 2 : 1;
+        for (let i = 0; i < candidateCount; i += CONCURRENCY) {
+          const batch = Array.from(
+            { length: Math.min(CONCURRENCY, candidateCount - i) },
+            () => generateOneCandidate()
+          );
+          const batchResults = await Promise.allSettled(batch);
+          settled.push(...batchResults);
+        }
+
+        const successes = settled
+          .filter(
+            (s): s is PromiseFulfilledResult<Candidate> =>
+              s.status === "fulfilled"
+          )
+          .map((s) => s.value);
+
+        // 全部失败：整单 FAILED（单张失败跳过不整单失败）
+        if (successes.length === 0) {
+          const firstReason = settled.find(
+            (s): s is PromiseRejectedResult => s.status === "rejected"
+          )?.reason;
+          throw firstReason instanceof Error
+            ? firstReason
+            : new Error("所有候选图生成失败");
+        }
+
+        // VLM 择优：对每张成功候选打分（视觉不可用 / 打分失败静默降级为无分数）。
+        // 打分上下文用分镜维度（画面描述 + 情绪 + 景别）。
+        const characterDescriptions =
+          sceneCharacters.length > 0
+            ? sceneCharacters
+                .map((c) => `${c.name}: ${c.description ?? ""}`)
+                .join("\n")
+            : "无角色信息";
+        const scores: CandidateScore[] = await Promise.all(
+          successes.map((c) =>
+            scoreCandidate(
+              {
+                imageUrl: c.imageUrl,
+                sceneDescription: sceneDescriptionForReview,
+                characterDescriptions,
+                expectedEmotion: sceneEmotionForReview ?? "neutral",
+                expectedShotType: shotType ?? "medium shot",
+              },
+              llmConfig
+            )
+          )
+        );
+
+        // 推荐张：分数最高（无分数回落第一张）
+        const recommendedIdx = pickRecommendedIndex(scores);
+        const chosen = successes[recommendedIdx];
+        const chosenResult = chosen.result;
+        const imageUrl = chosen.imageUrl;
+
+        // 实际成本：按【成功张数 × 单张实际成本】。单张成本沿用原逻辑
+        // （编排器用了参考图则更高）；失败张天然不计（无退款路径）。
+        const actualCost = successes.reduce(
+          (sum, c) =>
+            sum +
+            (c.result.strategy === "reference_edit"
+              ? IMAGE_COST.withRef
+              : IMAGE_COST.normal),
+          0
+        );
+
+        // R1：将「任务完成 + 场景更新 + N 条 attempt + 扣费」包进同一事务，保证原子性。
+        // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
+        // 余额不足会抛错并自动回滚本次写入。
+        // R2：扣费时机为「生成成功后」，失败张从未被扣（按成功张数计），无需退款。
+        const candidatesOutput = await prisma.$transaction(async (tx) => {
+          const candidates: Array<{
+            attemptId: string;
+            imageUrl: string;
+            vlmScore: number | null;
+            recommended: boolean;
+          }> = [];
+
+          // 如果有场景ID，更新场景为选中张 + 为每张候选落一条 GenerationAttempt。
+          // 无 sceneId（罕见的无分镜生成）时不落 attempt（无版本历史意义），
+          // 但仍返回候选（此时 attemptId 为空字符串占位，前端点选走 sceneId 分支）。
           if (projectId && sceneId) {
             await tx.scene.updateMany({
               where: { id: sceneId },
               data: { imageUrl, imageStatus: "COMPLETED" },
             });
 
-            // 迭代式生成：把本次结果落成一条版本记录（GenerationAttempt），
-            // 供分镜版本历史 UI 对比/切换回退。attemptNumber=该分镜已有版本数+1，
-            // 新版本成为当前版本，同分镜旧版本取消 isCurrent。
+            // 多候选：同分镜旧版本先取消 isCurrent；本次 N 张按顺序 attemptNumber 递增，
+            // 仅「推荐张」置为当前版本（写 Scene.imageUrl 的那张）。
             const priorCount = await tx.generationAttempt.count({
               where: { sceneId },
             });
@@ -511,26 +603,73 @@ export async function POST(request: NextRequest) {
               where: { sceneId, isCurrent: true },
               data: { isCurrent: false },
             });
-            await tx.generationAttempt.create({
-              data: {
-                taskId: task.id,
-                sceneId,
-                attemptNumber: priorCount + 1,
-                provider: imageConfig?.protocol ?? "unknown",
-                model: imageConfig?.model ?? "",
-                strategy: result.strategy,
-                referenceAssetIds: [],
-                note: iterationNote || null,
-                outputUrl: imageUrl,
-                passedValidation: result.validation?.passed ?? null,
-                faceCount: result.validation?.faceCount ?? null,
-                failureReason: result.validation?.reason || null,
-                isCurrent: true,
-              },
-            });
+
+            for (let i = 0; i < successes.length; i++) {
+              const c = successes[i];
+              const isRecommended = i === recommendedIdx;
+              // VLM 分数合并进 similarityScores（保留人脸校验等既有键，不整字段覆盖）
+              const mergedScores = mergeSimilarityScores(
+                {
+                  faceCount: c.result.validation?.faceCount ?? undefined,
+                },
+                scores[i]
+              );
+              const attempt = await tx.generationAttempt.create({
+                data: {
+                  taskId: task.id,
+                  sceneId,
+                  attemptNumber: priorCount + 1 + i,
+                  provider: imageConfig?.protocol ?? "unknown",
+                  model: imageConfig?.model ?? "",
+                  strategy: c.result.strategy,
+                  referenceAssetIds: [],
+                  note: iterationNote || null,
+                  outputUrl: c.imageUrl,
+                  similarityScores: mergedScores as Prisma.InputJsonValue,
+                  passedValidation: c.result.validation?.passed ?? null,
+                  faceCount: c.result.validation?.faceCount ?? null,
+                  failureReason: c.result.validation?.reason || null,
+                  // 推荐张即当前版本（写 Scene.imageUrl 的那张）
+                  isCurrent: isRecommended,
+                },
+              });
+              candidates.push({
+                attemptId: attempt.id,
+                imageUrl: c.imageUrl,
+                vlmScore: scores[i].vlmScore,
+                recommended: isRecommended,
+              });
+            }
+          } else {
+            // 无分镜：仅回传候选列表（无 attempt 落库）
+            for (let i = 0; i < successes.length; i++) {
+              candidates.push({
+                attemptId: "",
+                imageUrl: successes[i].imageUrl,
+                vlmScore: scores[i].vlmScore,
+                recommended: i === recommendedIdx,
+              });
+            }
           }
 
-          // 扣减积分（使用实际成本，事务内扣费+记流水+余额校验）
+          // 更新任务状态：output 保持向后兼容形状 + 追加 candidates
+          await tx.generationTask.update({
+            where: { id: task.id },
+            data: {
+              status: "COMPLETED",
+              output: {
+                imageUrl,
+                cost: actualCost,
+                strategy: chosenResult.strategy,
+                attemptCount: chosenResult.attemptCount,
+                candidates,
+              },
+              completedAt: new Date(),
+              cost: actualCost,
+            },
+          });
+
+          // 扣减积分（按成功张数 × 单张成本，事务内扣费+记流水+余额校验）
           await chargeCredits(tx, {
             userId,
             amount: actualCost,
@@ -538,9 +677,19 @@ export async function POST(request: NextRequest) {
             source: "generate:image",
             sourceId: task.id,
             note: sceneId
-              ? `场景 ${sceneId} 图像生成（策略 ${result.strategy}）`
-              : `图像生成（策略 ${result.strategy}）`,
+              ? `场景 ${sceneId} 图像生成（${successes.length} 张，策略 ${chosenResult.strategy}）`
+              : `图像生成（${successes.length} 张，策略 ${chosenResult.strategy}）`,
           });
+
+          return candidates;
+        });
+
+        log.info("Image candidates generated", {
+          sceneId,
+          count: candidateCount,
+          success: successes.length,
+          recommendedIdx,
+          candidateCount: candidatesOutput.length,
         });
       } catch (error) {
         // 更新任务状态为失败（后台任务不再向 HTTP 层抛错，落库供轮询读取）

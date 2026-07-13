@@ -15,11 +15,21 @@ import {
 } from "@/lib/generation-task-client";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
+/** 单张候选（多候选抽卡回传，批次 2 · 1.4A） */
+export interface ImageCandidate {
+  attemptId: string;
+  imageUrl: string;
+  vlmScore?: number | null;
+  recommended: boolean;
+}
+
 export interface GenerateImageResult {
   imageUrl: string;
   strategy?: string;
   attemptCount?: number;
   cost?: number;
+  /** 多候选抽卡：本次生成的所有候选（含推荐张标记）；单张时长度为 1 */
+  candidates?: ImageCandidate[];
 }
 
 interface GenerateSceneImageOptions {
@@ -42,6 +52,8 @@ interface GenerateSceneImageOptions {
   note?: string;
   /** 迭代基准图 URL（通常是 scene.imageUrl，即上一版结果） */
   baseImageUrl?: string;
+  /** 多候选抽卡档位（1 / 2 / 4，缺省 1）批次 2 · 1.4A */
+  count?: 1 | 2 | 4;
 }
 
 async function generateSceneImage(
@@ -72,6 +84,8 @@ async function generateSceneImage(
       aspectRatio: options?.aspectRatio,
       note: options?.note,
       iterate: options?.iterate,
+      // 多候选档位（缺省 1，零回归）；迭代模式强制单张
+      count: options?.iterate ? 1 : options?.count,
     },
     { timeoutMs: GENERATION_TIMEOUTS.image, fallbackError: "图片生成失败" }
   );
@@ -429,6 +443,7 @@ export function useGenerationActions(
       imageConfigId,
       iterate,
       note,
+      count,
     }: {
       sceneId: string;
       scene: Scene;
@@ -437,6 +452,8 @@ export function useGenerationActions(
       iterate?: boolean;
       /** 迭代追加指令 */
       note?: string;
+      /** 多候选档位（1 / 2 / 4，缺省 1）批次 2 · 1.4A */
+      count?: 1 | 2 | 4;
     }) => {
       await apiUpdateScene(projectId, sceneId, { imageStatus: "PROCESSING" });
       // 精确置「生成中」，不整 project 重拉（此前 invalidateProject 会重新 GET
@@ -457,6 +474,8 @@ export function useGenerationActions(
         iterate,
         note,
         baseImageUrl: iterate ? (scene.imageUrl ?? undefined) : undefined,
+        // 多候选抽卡（迭代模式强制单张，在 generateSceneImage 内部再兜一次）
+        count,
       });
     },
     // 权威数据（imageUrl + COMPLETED）已在手，精确写回缓存即可，无需整页重拉

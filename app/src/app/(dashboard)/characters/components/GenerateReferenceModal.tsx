@@ -112,7 +112,10 @@ export function GenerateReferenceModal({
     staleTime: 30000,
   });
   const balance = creditsData?.credits;
-  const cost = generateOptions.source === "none" ? 3 : 5;
+  // 多候选档位（1 / 2 / 4，缺省 1）：成本 = 单张 × N
+  const candidateCount = generateOptions.count ?? 1;
+  const perImageCost = generateOptions.source === "none" ? 3 : 5;
+  const cost = perImageCost * candidateCount;
   const insufficient = typeof balance === "number" && balance < cost;
   const threeViewsInsufficient =
     typeof balance === "number" && balance < THREE_VIEWS_COST;
@@ -183,6 +186,41 @@ export function GenerateReferenceModal({
               </Link>
             </p>
           )}
+
+          {/* 多候选抽卡档位（批次 2 · 1.4B）：一次生成 N 张，AI 择优后点选定稿 */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-muted-foreground text-sm">生成张数</label>
+              <span className="text-muted-foreground text-xs">
+                本次消耗 {cost} 积分
+              </span>
+            </div>
+            <div className="bg-secondary flex rounded-lg p-0.5">
+              {([1, 2, 4] as const).map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() =>
+                    onOptionsChange({ ...generateOptions, count: n })
+                  }
+                  disabled={generatePending}
+                  className={`flex-1 rounded-md py-1.5 text-sm transition-colors disabled:opacity-50 ${
+                    candidateCount === n
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {n} 张
+                </button>
+              ))}
+            </div>
+            {candidateCount > 1 && (
+              <p className="text-muted-foreground text-[11px]">
+                一次抽 {candidateCount} 张，AI 自动择优，生成后你挑一张定稿
+              </p>
+            )}
+          </div>
+
           <div className="space-y-2">
             <label className="text-muted-foreground text-sm">图片供应商</label>
             <div className="flex items-center gap-2">
@@ -500,7 +538,8 @@ export function GenerateReferenceModal({
             ) : (
               <>
                 <Wand2 size={16} />
-                生成（{generateOptions.source === "none" ? 3 : 5} 积分）
+                生成{candidateCount > 1 ? ` ${candidateCount} 张` : ""}（{cost}{" "}
+                积分）
               </>
             )}
           </button>

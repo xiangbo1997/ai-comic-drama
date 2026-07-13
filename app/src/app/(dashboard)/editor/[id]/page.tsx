@@ -34,6 +34,7 @@ import { useExport } from "./hooks/use-export";
 import { useMultiGenerate } from "./hooks/use-multi-generate";
 import { EditorSkeleton } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
+import { collectUnfinalizedCharacterNames } from "@/lib/character-finalized";
 
 export default function EditorPage() {
   const params = useParams();
@@ -145,6 +146,19 @@ export default function EditorPage() {
     if (!(await confirmSceneRebuild("重新解析"))) return;
     editor.parseMutation.mutate();
   }, [confirmSceneRebuild, editor.parseMutation]);
+
+  // 角色定稿关口（批次 2 · 1.5）：批量出图 / 一键 workflow 前检查项目关联角色，
+  // 存在未定稿（无 canonicalImageUrl）时提示，可跳过不硬阻断（toast.confirm）。
+  // 返回 true 放行、false 取消。全部已定稿 / 无角色时直接放行不打扰。
+  const editorProjectCharacters = editor.project?.characters;
+  const confirmCharacterFinalization = useCallback(async () => {
+    const names = collectUnfinalizedCharacterNames(editorProjectCharacters);
+    if (names.length === 0) return true;
+    return toast.confirm(
+      `角色 ${names.join("、")} 尚未定稿定妆照，跨镜头一致性可能受影响，` +
+        `建议先到角色页生成三视图。仍要继续吗？`
+    );
+  }, [editorProjectCharacters, toast]);
 
   // 短剧脚本「直接生成分镜列表」：结构化直转（含九宫格镜头语言），
   // 零 LLM 调用零积分；与重新解析共用防丢确认。
@@ -388,9 +402,11 @@ export default function EditorPage() {
             setShowCharacterPanel(!showCharacterPanel)
           }
           onManageCharacters={() => editor.setShowCharacterManager(true)}
-          onStartWorkflow={() =>
-            workflow.start(editor.inputText, { style: project.style })
-          }
+          onStartWorkflow={async () => {
+            // 定稿关口（批次 2 · 1.5）：一键全自动前提示未定稿角色，可跳过
+            if (!(await confirmCharacterFinalization())) return;
+            workflow.start(editor.inputText, { style: project.style });
+          }}
           isWorkflowRunning={workflow.isRunning}
           dramaScriptSlot={
             <DramaScriptPanel
@@ -416,6 +432,7 @@ export default function EditorPage() {
           batchGenerateAudiosMutation={generation.batchGenerateAudiosMutation}
           batchProgress={generation.batchProgress}
           onCancelBatch={generation.cancelBatch}
+          onBeforeBatchImages={confirmCharacterFinalization}
           updateScene={handleUpdateSceneFromList}
           mediaConfig={mediaConfig}
           queryClient={editor.queryClient}
@@ -439,11 +456,12 @@ export default function EditorPage() {
           onUpdateScene={(sceneId, data) =>
             editor.updateSceneMutation.mutate({ sceneId, data })
           }
-          onGenerateImage={(sceneId, scene) =>
+          onGenerateImage={(sceneId, scene, count) =>
             generation.generateImageMutation.mutate({
               sceneId,
               scene,
               imageConfigId: selectedImageConfig,
+              count,
             })
           }
           onIterateImage={(sceneId, scene, note) =>

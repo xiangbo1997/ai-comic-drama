@@ -10,10 +10,12 @@ import {
   Upload,
   X,
   Check,
+  BadgeCheck,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import type { CharacterListItem, Tag } from "@/types";
+import { isCharacterFinalized } from "@/lib/character-finalized";
 import { extractThreeViews, type ThreeViewPose } from "@/lib/three-views";
 import { AppearanceEditor } from "@/components/appearance-editor";
 import type { AppearanceFormData } from "@/components/appearance-editor";
@@ -449,7 +451,19 @@ function CharacterViewInfo({
   return (
     <>
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-lg font-semibold">{character.name}</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-lg font-semibold">{character.name}</h3>
+          {/* 已定稿徽标（批次 2 · 1.5）：canonicalImageUrl 非空即已确认定妆照 */}
+          {isCharacterFinalized(character) && (
+            <span
+              className="text-agent flex items-center gap-0.5 text-[10px] font-medium"
+              title="已定稿：已确认定妆照，可放心用于跨镜头出图"
+            >
+              <BadgeCheck size={13} />
+              已定稿
+            </span>
+          )}
+        </div>
         <div className="flex gap-1">
           <button
             onClick={onStartEdit}

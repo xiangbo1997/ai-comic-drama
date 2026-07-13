@@ -44,3 +44,14 @@ export type {
   CharacterRole,
   StrategyDecision,
 } from "./types";
+
+// 多候选抽卡 · 择优（批次 2 · 1.4）
+export {
+  ALLOWED_CANDIDATE_COUNTS,
+  normalizeCandidateCount,
+  pickRecommendedIndex,
+  mergeSimilarityScores,
+} from "./candidate-selection";
+export type { CandidateCount, CandidateScore } from "./candidate-selection";
+export { scoreCandidate } from "./candidate-scorer";
+export type { CandidateScoreContext } from "./candidate-scorer";

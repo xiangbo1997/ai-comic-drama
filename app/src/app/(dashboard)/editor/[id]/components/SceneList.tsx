@@ -91,6 +91,11 @@ interface SceneListProps {
   batchProgress?: BatchProgress | null;
   /** 停止批量的后续排队（已发出的请求会继续完成） */
   onCancelBatch?: () => void;
+  /**
+   * 批量出图前的关口（批次 2 · 1.5）：返回 Promise<false> 表示用户取消（不启动批量）。
+   * 用于提示存在未定稿角色，可跳过不硬阻断。缺省时视为放行。
+   */
+  onBeforeBatchImages?: () => Promise<boolean>;
   updateScene: (sceneId: string, data: Partial<Scene>) => void;
   /** 图/视/音三类媒体配置控制（收口原先 9 个分散 props） */
   mediaConfig: MediaConfigControls;
@@ -111,6 +116,7 @@ function SceneListImpl({
   batchGenerateAudiosMutation,
   batchProgress,
   onCancelBatch,
+  onBeforeBatchImages,
   updateScene,
   mediaConfig,
   queryClient,
@@ -318,6 +324,9 @@ function SceneListImpl({
             <button
               onClick={async (e) => {
                 e.stopPropagation();
+                // 定稿关口（批次 2 · 1.5）：存在未定稿角色时提示，可跳过不硬阻断
+                if (onBeforeBatchImages && !(await onBeforeBatchImages()))
+                  return;
                 const scenesWithoutImage = project.scenes.filter(
                   (s) => !s.imageUrl && s.imageStatus !== "PROCESSING"
                 );

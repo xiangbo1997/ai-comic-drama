@@ -126,5 +126,7 @@ export interface SceneVersion {
   isCurrent: boolean;
   /** 人脸一致性是否通过（无验证时 null） */
   passedValidation: boolean | null;
+  /** VLM 择优分数（0–100）；多候选抽卡时有值，视觉不可用 / 单发时 null（批次 2 · 1.4） */
+  vlmScore: number | null;
   createdAt: string;
 }

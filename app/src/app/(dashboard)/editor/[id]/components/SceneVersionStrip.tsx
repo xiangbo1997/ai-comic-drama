@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, History, Loader2 } from "lucide-react";
+import { Check, History, Loader2, Sparkles } from "lucide-react";
 import { useSceneVersions } from "../hooks/use-scene-versions";
 import { useToast } from "@/components/ui/toast";
 
@@ -30,6 +30,16 @@ export function SceneVersionStrip({
   if (versions.length <= 1) return null;
 
   const switching = setCurrentVersion.isPending;
+
+  // 推荐张：VLM 分数最高的版本（多候选抽卡的择优张）。全部无分数时不标推荐。
+  const topScore = versions.reduce<number | null>((max, v) => {
+    if (typeof v.vlmScore !== "number") return max;
+    return max === null || v.vlmScore > max ? v.vlmScore : max;
+  }, null);
+  const recommendedId =
+    topScore === null
+      ? null
+      : versions.find((v) => v.vlmScore === topScore)?.id;
 
   const handleSetCurrent = (attemptId: string) => {
     setCurrentVersion.mutate(
@@ -80,6 +90,24 @@ export function SceneVersionStrip({
                 <span className="bg-background/80 text-foreground absolute bottom-0.5 left-0.5 rounded px-1 text-[9px] leading-tight">
                   #{v.attemptNumber}
                 </span>
+                {/* VLM 分数徽章（多候选抽卡时有值） */}
+                {typeof v.vlmScore === "number" && (
+                  <span
+                    className={`absolute right-0.5 bottom-0.5 flex items-center gap-0.5 rounded px-1 text-[9px] leading-tight ${
+                      v.id === recommendedId
+                        ? "bg-agent text-agent-foreground"
+                        : "bg-background/80 text-foreground"
+                    }`}
+                    title={
+                      v.id === recommendedId
+                        ? "AI 择优推荐张"
+                        : `AI 评分 ${v.vlmScore}`
+                    }
+                  >
+                    <Sparkles size={8} />
+                    {v.vlmScore}
+                  </span>
+                )}
                 {/* 当前版本对勾 */}
                 {active && (
                   <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full">

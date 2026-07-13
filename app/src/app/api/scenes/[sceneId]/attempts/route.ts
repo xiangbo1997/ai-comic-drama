@@ -52,11 +52,22 @@ export async function GET(
         outputUrl: true,
         isCurrent: true,
         passedValidation: true,
+        // VLM 择优分数（批次 2 · 1.4）：similarityScores.vlmScore 有值时前端显示徽章
+        similarityScores: true,
         createdAt: true,
       },
     });
 
-    return NextResponse.json({ attempts });
+    // 从 similarityScores 抽出 vlmScore 拍平给前端（避免前端解析 Json 形状）
+    const shaped = attempts.map((a) => {
+      const scores = a.similarityScores as { vlmScore?: unknown } | null;
+      const vlmScore =
+        scores && typeof scores.vlmScore === "number" ? scores.vlmScore : null;
+      const { similarityScores: _omit, ...rest } = a;
+      return { ...rest, vlmScore };
+    });
+
+    return NextResponse.json({ attempts: shaped });
   } catch (error) {
     log.error("List scene attempts error:", error);
     return NextResponse.json({ error: "获取版本历史失败" }, { status: 500 });

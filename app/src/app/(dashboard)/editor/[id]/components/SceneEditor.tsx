@@ -54,7 +54,8 @@ interface SceneEditorProps {
   onImageConfigChange: (id: string | undefined) => void;
   onOpenMultiImageDialog: () => void;
   onUpdateScene: (sceneId: string, data: Partial<Scene>) => void;
-  onGenerateImage: (sceneId: string, scene: Scene) => void;
+  /** 生成分镜图：count 为多候选档位（1 / 2 / 4，缺省 1）批次 2 · 1.4A */
+  onGenerateImage: (sceneId: string, scene: Scene, count?: 1 | 2 | 4) => void;
   /** 迭代生成：基于上一版整图 + 追加指令 note 重生成 */
   onIterateImage: (sceneId: string, scene: Scene, note: string) => void;
   isGeneratingImage: boolean;
@@ -88,6 +89,8 @@ export function SceneEditor({
   const [mediaTab, setMediaTab] = useState<"image" | "video">("image");
   // 迭代追加指令草稿（本地态，不落库；点「基于此图迭代」后清空）
   const [iterateNote, setIterateNote] = useState("");
+  // 多候选抽卡档位（本地态，1 / 2 / 4，缺省 1）批次 2 · 1.4A
+  const [imageCount, setImageCount] = useState<1 | 2 | 4>(1);
   // 迭代提示词 AI 建议（批次 1 · 1.3）：基于分镜上下文给 2~3 条可点选短句
   const [iterateSuggesting, setIterateSuggesting] = useState(false);
   const [iterateSuggestions, setIterateSuggestions] = useState<string[]>([]);
@@ -201,6 +204,14 @@ export function SceneEditor({
           .map((pc) => pc.character)
           .filter((c) => sceneCharacterIds.has(c.id))
       : [];
+
+  // 单张成本预估（批次 2 · 1.4A 成本预览用）：带参考图（场景有角色且有参考图）
+  // 走 withRef=3，否则 normal=1。与服务端 IMAGE_COST 对齐，仅用于展示。
+  const imageCost = sceneCharacters.some(
+    (c) => (c.referenceImages?.length ?? 0) > 0
+  )
+    ? 3
+    : 1;
 
   return (
     <div className="border-border flex w-[30%] min-w-[320px] flex-col border-l">
@@ -628,6 +639,40 @@ export function SceneEditor({
 
           {/* Generate Button */}
           <div className="space-y-3 pt-4">
+            {/* 多候选抽卡档位（批次 2 · 1.4A）：一次生成 N 张，AI 择优后进版本历史点选定稿 */}
+            <div className="border-border bg-card/50 space-y-2 rounded-lg border p-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground text-xs">生成张数</span>
+                <span className="text-muted-foreground text-xs">
+                  本次消耗 {imageCost * imageCount} 积分
+                </span>
+              </div>
+              <div className="bg-secondary flex rounded-md p-0.5">
+                {([1, 2, 4] as const).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setImageCount(n)}
+                    disabled={
+                      scene.imageStatus === "PROCESSING" || isGeneratingImage
+                    }
+                    className={`flex-1 rounded py-1 text-xs transition-colors disabled:opacity-50 ${
+                      imageCount === n
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {n} 张
+                  </button>
+                ))}
+              </div>
+              {imageCount > 1 && (
+                <p className="text-muted-foreground text-[10px]">
+                  一次抽 {imageCount} 张，AI
+                  自动择优选中最佳张，其余存入版本历史可切换
+                </p>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <ModelSelector
                 category="IMAGE"
@@ -639,7 +684,7 @@ export function SceneEditor({
                 disabled={scene.imageStatus === "PROCESSING"}
               />
               <button
-                onClick={() => onGenerateImage(scene.id, scene)}
+                onClick={() => onGenerateImage(scene.id, scene, imageCount)}
                 disabled={
                   scene.imageStatus === "PROCESSING" || isGeneratingImage
                 }

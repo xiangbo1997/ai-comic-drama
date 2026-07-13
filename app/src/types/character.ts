@@ -11,6 +11,11 @@ export interface Character {
   description: string | null;
   voiceId: string | null;
   referenceImages: string[];
+  /**
+   * 定妆锚（已定稿判定的权威字段，批次 2 · 1.5）：非空即角色已确认定妆照。
+   * 由三视图 / 首张参考图入库时写入；出图编排器优先消费此字段做跨镜头一致性。
+   */
+  canonicalImageUrl?: string | null;
   /** 参考图资产（含三视图 pose），生视频多参考用；老数据为 undefined */
   referenceAssets?: CharacterReferenceAsset[];
 }

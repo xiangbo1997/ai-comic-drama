@@ -1,11 +1,17 @@
 import { auth } from "@/lib/auth";
-import { getUserImageConfig } from "@/lib/ai-config";
+import { getUserImageConfig, getUserLLMConfig } from "@/lib/ai-config";
 import { prisma } from "@/lib/prisma";
 import { generateImage } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { createLogger } from "@/lib/logger";
 import { chargeCredits } from "@/lib/credits";
 import { buildCharacterPromptWithCustom } from "@/lib/prompts/character-reference";
+import {
+  normalizeCandidateCount,
+  pickRecommendedIndex,
+  scoreCandidate,
+  type CandidateScore,
+} from "@/services/generation";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -15,49 +21,19 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-function isReferenceAssetSchemaMismatch(error: unknown): boolean {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    return error.code === "P2021" || error.code === "P2022";
-  }
-
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  const message = error.message.toLowerCase();
-  return (
-    message.includes("characterreferenceasset") ||
-    (message.includes("relation") && message.includes("does not exist")) ||
-    (message.includes("column") && message.includes("does not exist"))
-  );
+/** 单张参考图成本（无参考图 3 / 带参考图 5），多候选按成功张数计 */
+function perImageCost(hasReferenceImage: boolean): number {
+  return hasReferenceImage ? 5 : 3;
 }
 
-function toClientErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "生成角色参考图失败，请稍后重试";
-  }
-
-  const message = error.message;
-
-  if (message.includes("one_hub_error") && message.includes("dall-e-3")) {
-    return "当前图像配置默认使用 dall-e-3，但该中转通道没有可用渠道。请到“设置 > AI 模型配置 > 图像生成”里切换可用模型。";
-  }
-
-  if (
-    message.includes("Unauthenticated") ||
-    message.includes("401 Unauthorized")
-  ) {
-    return "备用 Replicate 图像通道认证失败，请检查 .env 中的 REPLICATE_API_TOKEN 是否有效。";
-  }
-
-  if (message.includes("fetch failed")) {
-    return "图像服务连接失败，请检查当前图像提供商的 Base URL、网络连通性或服务可用性。";
-  }
-
-  return message;
-}
-
-// 为角色生成参考图
+/**
+ * 为角色生成参考图（批次 2 · 1.4B：多候选抽卡 + VLM 择优）。
+ *
+ * 契约变更：POST 立即返回 { taskId }（异步化，绕开平台超时）；候选**不直接入库**，
+ * 上传存储后放进 task.output 返回给前端，用户在候选画廊点选一张后走
+ * POST /api/characters/[id]/reference-assets 提交入库。扣费按成功生成张数计
+ * （用户点没点选不影响——生成即消耗了上游 API）。count=1 时仍走同一路径（前端可自动点选）。
+ */
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const session = await auth();
@@ -67,10 +43,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 在事务闭包内 TS 会丢失对 session.user.id 的收窄，提前固化为局部常量
     const userId = session.user.id;
 
-    // 解析请求体，获取可选参数
     const body = await request.json().catch(() => ({}));
     const {
       baseImage, // 上传的垫图（base64）
@@ -78,24 +52,23 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       useExistingImage, // 是否使用角色现有图片作为参考
       existingImageIndex, // 使用哪张现有图片（默认 0）
       imageConfigId,
+      // 多候选档位（1 / 2 / 4，缺省 1）
+      count,
     } = body as {
       baseImage?: string;
       customPrompt?: string;
       useExistingImage?: boolean;
       existingImageIndex?: number;
       imageConfigId?: string;
+      count?: number;
     };
+
+    const candidateCount = normalizeCandidateCount(count);
 
     // 验证角色归属
     const character = await prisma.character.findFirst({
-      where: { id, userId: session.user.id },
-      include: {
-        tags: {
-          include: {
-            tag: true,
-          },
-        },
-      },
+      where: { id, userId },
+      include: { tags: { include: { tag: true } } },
     });
 
     if (!character) {
@@ -105,72 +78,52 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 检查积分（使用垫图或现有图片时消耗更多积分）
-    const hasReferenceImage = baseImage || useExistingImage;
-    const creditCost = hasReferenceImage ? 5 : 3;
+    // 前置余额校验：按 candidateCount × 单张预估
+    const hasReferenceImage = Boolean(baseImage || useExistingImage);
+    const cost = perImageCost(hasReferenceImage) * candidateCount;
     const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
+      where: { id: userId },
       select: { credits: true },
     });
 
-    if (!user || user.credits < creditCost) {
+    if (!user || user.credits < cost) {
       return NextResponse.json(
         {
           error: "Insufficient credits",
-          required: creditCost,
+          required: cost,
           current: user?.credits ?? 0,
         },
         { status: 400 }
       );
     }
 
-    // 构建提示词：用户自定义提示词「提权」到最前面并声明最高优先级，
-    // 避免被 base prompt 的几十个基础关键词淹没（提示词不生效根因）。
-    const basePromptParts = [
-      buildCharacterPromptWithCustom(character, customPrompt),
-    ];
-
-    // 如果有参考图，添加参考图说明
-    if (hasReferenceImage) {
-      basePromptParts.push(
-        "based on the reference image style, maintain similar art style and character features"
-      );
-    }
-
-    const prompt = basePromptParts.join(", ");
-
-    log.info("Generating reference image", {
-      characterName: character.name,
-      hasCustomPrompt: !!customPrompt,
-      useExistingImage,
-      hasBaseImage: !!baseImage,
-    });
-
-    // 获取用户图像生成配置
-    const imageConfig = await getUserImageConfig(
-      session.user.id,
-      imageConfigId
-    );
-
+    // 获取用户图像 / LLM 配置（LLM 供 VLM 择优；缺失时降级不打分）
+    const imageConfig = await getUserImageConfig(userId, imageConfigId);
     if (imageConfigId && !imageConfig) {
       return NextResponse.json(
         { error: "所选图片供应商不可用，请重新选择已测试成功的图像模型配置。" },
         { status: 400 }
       );
     }
+    const llmConfig = await getUserLLMConfig(userId);
+
+    // 构建提示词：自定义提示词「提权」到最前并声明最高优先级
+    const basePromptParts = [
+      buildCharacterPromptWithCustom(character, customPrompt),
+    ];
+    if (hasReferenceImage) {
+      basePromptParts.push(
+        "based on the reference image style, maintain similar art style and character features"
+      );
+    }
+    const prompt = basePromptParts.join(", ");
 
     // 确定参考图片
     let referenceImage: string | undefined = baseImage;
-
-    // 如果使用现有图片作为参考
     if (useExistingImage && character.referenceImages.length > 0) {
       const imageIndex = existingImageIndex ?? 0;
       if (imageIndex >= 0 && imageIndex < character.referenceImages.length) {
-        // 获取现有图片的 URL
         const existingImageUrl = character.referenceImages[imageIndex];
-        log.info("Using existing image as reference:", existingImageUrl);
-
-        // 下载图片并转换为 base64
         try {
           const imageResponse = await fetch(existingImageUrl);
           if (imageResponse.ok) {
@@ -187,102 +140,203 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // 生成图像
-    let imageUrl = await generateImage({
-      prompt,
-      referenceImage,
-      aspectRatio: "1:1",
-      config: imageConfig || undefined,
-    });
-
-    // 保存到存储服务（R2 或本地）
-    if (isStorageConfigured()) {
-      try {
-        const fileName = `character_${id}_${Date.now()}.webp`;
-        imageUrl = await uploadFileFromUrl(imageUrl, {
-          fileName,
-          contentType: "image/webp",
-          fileType: "image",
-          userId: session.user.id,
-        });
-        log.info("Image saved to storage:", imageUrl);
-      } catch (uploadError) {
-        log.error("Failed to save image, using external URL:", uploadError);
-        // 降级：继续使用外部 URL
-      }
-    }
-
-    // 写入新的 CharacterReferenceAsset（不覆盖 canonical 定妆照）
-    const isFirstImage = character.referenceImages.length === 0;
-    try {
-      await prisma.characterReferenceAsset.create({
-        data: {
+    // 建任务，立即返回 taskId（后台生成 N 张候选，绕开平台超时）
+    const task = await prisma.generationTask.create({
+      data: {
+        type: "IMAGE_GENERATE",
+        status: "PROCESSING",
+        input: {
+          kind: "character_reference",
           characterId: id,
-          url: imageUrl,
-          sourceType: isFirstImage ? "canonical" : "ai_generated",
-          isCanonical: isFirstImage,
-          pose: isFirstImage ? "front" : null,
+          userId,
+          count: candidateCount,
         },
-      });
-    } catch (assetError) {
-      // 兼容未执行新迁移的本地环境，避免生成成功后因新表缺失而整体 500。
-      if (!isReferenceAssetSchemaMismatch(assetError)) {
-        throw assetError;
-      }
-      log.warn(
-        "CharacterReferenceAsset schema missing, fallback to legacy referenceImages only",
-        assetError
-      );
-    }
-
-    // R1：将「角色 referenceImages 更新 + 扣费」包进同一事务，保证原子性。
-    // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
-    // 余额不足会抛错并自动回滚本次 character 更新。
-    // R2：扣费时机为「生成成功后」，失败路径（外层 catch）下用户从未被扣，无需退款。
-    // 同步更新旧 referenceImages 数组（兼容遗留代码）
-    // 新图片追加到末尾，保持 [0] 为定妆照不变
-    const updatedCharacter = await prisma.$transaction(async (tx) => {
-      const updated = await tx.character.update({
-        where: { id },
-        data: {
-          referenceImages: isFirstImage
-            ? [imageUrl]
-            : [...character.referenceImages, imageUrl],
-        },
-      });
-
-      // 扣减积分（事务内扣费+记流水+余额校验）
-      await chargeCredits(tx, {
-        userId,
-        amount: creditCost,
-        type: "GENERATE_REFERENCE",
-        source: "characters:generate-reference",
-        sourceId: id,
-        note: `角色 ${character.name} 参考图生成`,
-      });
-
-      return updated;
-    });
-
-    return NextResponse.json({
-      imageUrl,
-      character: updatedCharacter,
-      debug: {
-        prompt, // 返回实际使用的提示词
-        characterData: {
-          name: character.name,
-          gender: character.gender,
-          age: character.age,
-          description: character.description,
-          tags: character.tags?.map((ct) => ct.tag.name) ?? [],
-        },
+        cost,
+        startedAt: new Date(),
       },
     });
+
+    void runReferenceCandidatesTask({
+      taskId: task.id,
+      characterId: id,
+      characterName: character.name,
+      characterDescription: character.description,
+      userId,
+      prompt,
+      referenceImage,
+      hasReferenceImage,
+      candidateCount,
+      imageConfig,
+      llmConfig,
+    }).catch((err) => {
+      log.error(`Background reference candidates task ${task.id} failed:`, err);
+    });
+
+    return NextResponse.json({ taskId: task.id, status: "PROCESSING" });
   } catch (error) {
     log.error("Generate reference image error:", error);
     return NextResponse.json(
-      { error: toClientErrorMessage(error) },
+      { error: "生成角色参考图失败，请稍后重试" },
       { status: 500 }
     );
+  }
+}
+
+/** 候选（回传给前端画廊；attemptId 无意义，角色域走 referenceImages 保存） */
+interface ReferenceCandidate {
+  imageUrl: string;
+  vlmScore: number | null;
+  recommended: boolean;
+}
+
+/**
+ * 后台生成 N 张候选参考图，逐张上传 + VLM 择优，成功后事务扣费（按成功张数）。
+ * 候选**不入库**，仅写进 task.output 供前端点选。不抛错（失败落库供轮询读取）。
+ */
+async function runReferenceCandidatesTask(args: {
+  taskId: string;
+  characterId: string;
+  characterName: string;
+  characterDescription: string | null;
+  userId: string;
+  prompt: string;
+  referenceImage: string | undefined;
+  hasReferenceImage: boolean;
+  candidateCount: number;
+  imageConfig: Awaited<ReturnType<typeof getUserImageConfig>>;
+  llmConfig: Awaited<ReturnType<typeof getUserLLMConfig>>;
+}): Promise<void> {
+  const {
+    taskId,
+    characterId,
+    characterName,
+    characterDescription,
+    userId,
+    prompt,
+    referenceImage,
+    hasReferenceImage,
+    candidateCount,
+    imageConfig,
+    llmConfig,
+  } = args;
+
+  try {
+    // 生成一张候选：出图 → 上传存储。失败向上抛（由 allSettled 收集）。
+    const generateOne = async (): Promise<string> => {
+      let url = await generateImage({
+        prompt,
+        referenceImage,
+        aspectRatio: "1:1",
+        config: imageConfig || undefined,
+      });
+      if (isStorageConfigured()) {
+        try {
+          const fileName = `character_${characterId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.webp`;
+          url = await uploadFileFromUrl(url, {
+            fileName,
+            contentType: "image/webp",
+            fileType: "image",
+            userId,
+          });
+        } catch (uploadError) {
+          log.error(
+            "Failed to save candidate, using external URL:",
+            uploadError
+          );
+        }
+      }
+      return url;
+    };
+
+    // 并行度：串行或最多 2 并发（防限流）。count=1 即单发。
+    const CONCURRENCY = candidateCount >= 4 ? 2 : 1;
+    const settled: PromiseSettledResult<string>[] = [];
+    for (let i = 0; i < candidateCount; i += CONCURRENCY) {
+      const batch = Array.from(
+        { length: Math.min(CONCURRENCY, candidateCount - i) },
+        () => generateOne()
+      );
+      settled.push(...(await Promise.allSettled(batch)));
+    }
+
+    const urls = settled
+      .filter(
+        (s): s is PromiseFulfilledResult<string> => s.status === "fulfilled"
+      )
+      .map((s) => s.value);
+
+    if (urls.length === 0) {
+      const firstReason = settled.find(
+        (s): s is PromiseRejectedResult => s.status === "rejected"
+      )?.reason;
+      throw firstReason instanceof Error
+        ? firstReason
+        : new Error("所有候选参考图生成失败");
+    }
+
+    // VLM 择优：角色维度（与角色描述的符合度、人脸质量、单主体）。降级不阻断。
+    const characterDescriptions = `${characterName}: ${characterDescription ?? ""}`;
+    const scores: CandidateScore[] = await Promise.all(
+      urls.map((url) =>
+        scoreCandidate(
+          {
+            imageUrl: url,
+            sceneDescription: characterDescriptions,
+            characterDescriptions,
+            expectedEmotion: "neutral",
+            expectedShotType: "character portrait, single subject, full body",
+          },
+          llmConfig
+        )
+      )
+    );
+    const recommendedIdx = pickRecommendedIndex(scores);
+
+    const candidates: ReferenceCandidate[] = urls.map((url, i) => ({
+      imageUrl: url,
+      vlmScore: scores[i].vlmScore,
+      recommended: i === recommendedIdx,
+    }));
+
+    // 扣费按成功张数 × 单张成本（事务内扣费+记流水+余额校验）
+    const actualCost = perImageCost(hasReferenceImage) * urls.length;
+    await prisma.$transaction(async (tx) => {
+      await chargeCredits(tx, {
+        userId,
+        amount: actualCost,
+        type: "GENERATE_REFERENCE",
+        source: "characters:generate-reference",
+        sourceId: taskId,
+        note: `角色 ${characterName} 参考图生成（${urls.length} 张候选）`,
+      });
+      await tx.generationTask.update({
+        where: { id: taskId },
+        data: {
+          status: "COMPLETED",
+          output: {
+            candidates,
+            cost: actualCost,
+          } as unknown as Prisma.InputJsonValue,
+          completedAt: new Date(),
+          cost: actualCost,
+        },
+      });
+    });
+
+    log.info(`Reference candidates task ${taskId} completed`, {
+      requested: candidateCount,
+      success: urls.length,
+      recommendedIdx,
+    });
+  } catch (err) {
+    await prisma.generationTask.update({
+      where: { id: taskId },
+      data: {
+        status: "FAILED",
+        error: err instanceof Error ? err.message : "Unknown error",
+        completedAt: new Date(),
+      },
+    });
+    log.error(`Reference candidates task ${taskId} failed:`, err);
   }
 }

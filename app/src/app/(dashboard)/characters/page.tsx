@@ -15,11 +15,13 @@ import {
   deleteCharacter,
   fetchCharacterUsage,
   generateReference,
+  selectReference,
   generateThreeViews,
   fetchTags,
   generateDescription,
   type CharacterFormData,
   type GenerateOptions,
+  type ReferenceCandidate,
 } from "./components/constants";
 import { toFriendlyError } from "@/lib/error-copy";
 import { ErrorState, LoadingState } from "@/components/ui/query-state";
@@ -28,6 +30,7 @@ import { CharacterCard } from "./components/CharacterCard";
 import { CreateCharacterModal } from "./components/CreateCharacterModal";
 import { TagManagerModal } from "./components/TagManagerModal";
 import { GenerateReferenceModal } from "./components/GenerateReferenceModal";
+import { ReferenceCandidateGallery } from "./components/ReferenceCandidateGallery";
 import { useToast } from "@/components/ui/toast";
 
 export default function CharactersPage() {
@@ -51,7 +54,16 @@ export default function CharactersPage() {
     customPrompt: "",
     uploadedImage: null,
     imageConfigId: undefined,
+    count: 1,
   });
+
+  // 多候选画廊（批次 2 · 1.4B）：生成完成弹候选，点选一张入库。
+  // gallery 与 generateModal 独立，用生成的角色 ID 定位入库目标。
+  const [candidateGallery, setCandidateGallery] = useState<{
+    characterId: string;
+    candidates: ReferenceCandidate[];
+  } | null>(null);
+  const [selectingUrl, setSelectingUrl] = useState<string | null>(null);
 
   const [currentImageIndices, setCurrentImageIndices] = useState<
     Record<string, number>
@@ -129,6 +141,7 @@ export default function CharactersPage() {
         customPrompt: "",
         uploadedImage: null,
         imageConfigId: undefined,
+        count: 1,
       });
       setShowGenerateModal(true);
     },
@@ -143,6 +156,7 @@ export default function CharactersPage() {
       customPrompt: "",
       uploadedImage: null,
       imageConfigId: undefined,
+      count: 1,
     });
   };
 
@@ -154,6 +168,7 @@ export default function CharactersPage() {
       useExistingImage?: boolean;
       existingImageIndex?: number;
       imageConfigId?: string;
+      count?: number;
     } = {};
     if (generateOptions.customPrompt.trim()) {
       options.customPrompt = generateOptions.customPrompt.trim();
@@ -168,6 +183,8 @@ export default function CharactersPage() {
       options.existingImageIndex =
         currentImageIndices[generateModalCharacterId] || 0;
     }
+    // 多候选档位（缺省 1，零回归）
+    options.count = generateOptions.count ?? 1;
     generateMutation.mutate({ id: generateModalCharacterId, options });
     closeGenerateModal();
   };
@@ -268,6 +285,23 @@ export default function CharactersPage() {
     },
   });
 
+  // 点选一张候选入库（批次 2 · 1.4B）：不扣费，成功后刷新角色列表
+  const selectMutation = useMutation({
+    mutationFn: ({ id, imageUrl }: { id: string; imageUrl: string }) =>
+      selectReference(id, imageUrl),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["characters"] });
+      setCandidateGallery(null);
+      toast.success("参考图已保存");
+    },
+    onError: (error) => {
+      toast.error(toFriendlyError(error, "保存参考图失败").message);
+    },
+    onSettled: () => {
+      setSelectingUrl(null);
+    },
+  });
+
   const generateMutation = useMutation({
     mutationFn: ({
       id,
@@ -279,27 +313,24 @@ export default function CharactersPage() {
         customPrompt?: string;
         useExistingImage?: boolean;
         existingImageIndex?: number;
+        imageConfigId?: string;
+        count?: number;
       };
     }) => generateReference(id, options || {}),
-    onSuccess: (data: unknown) => {
-      queryClient.invalidateQueries({ queryKey: ["characters"] });
-      // 生成可见：把后端实际发给模型的 prompt 展示出来，
-      // 让用户能确认自定义提示词确实进了 prompt（此前 API 返回却从不展示）
-      const usedPrompt =
-        typeof data === "object" &&
-        data !== null &&
-        "debug" in data &&
-        typeof (data as { debug?: { prompt?: unknown } }).debug?.prompt ===
-          "string"
-          ? (data as { debug: { prompt: string } }).debug.prompt
-          : null;
-      if (usedPrompt) {
-        const shown =
-          usedPrompt.length > 120 ? `${usedPrompt.slice(0, 120)}…` : usedPrompt;
-        toast.success(`参考图生成成功 · 实际提示词：${shown}`);
-      } else {
-        toast.success("参考图生成成功");
+    onSuccess: (data, { id }) => {
+      const candidates = data.candidates ?? [];
+      if (candidates.length === 0) {
+        toast.error("未生成任何候选参考图，请重试");
+        return;
       }
+      // 单张（count=1，零回归）：自动入库，不弹画廊
+      if (candidates.length === 1) {
+        setSelectingUrl(candidates[0].imageUrl);
+        selectMutation.mutate({ id, imageUrl: candidates[0].imageUrl });
+        return;
+      }
+      // 多张：弹候选画廊供点选
+      setCandidateGallery({ characterId: id, candidates });
     },
     onError: (error) => {
       // 积分不足附「去充值」出口（消息已含差额），不足时不再是死胡同
@@ -556,6 +587,22 @@ export default function CharactersPage() {
             })
           }
           threeViewsPending={generateThreeViewsMutation.isPending}
+        />
+      )}
+
+      {/* 多候选画廊（批次 2 · 1.4B）：≥2 张时点选一张入库 */}
+      {candidateGallery && (
+        <ReferenceCandidateGallery
+          candidates={candidateGallery.candidates}
+          selectingUrl={selectingUrl}
+          onSelect={(imageUrl) => {
+            setSelectingUrl(imageUrl);
+            selectMutation.mutate({
+              id: candidateGallery.characterId,
+              imageUrl,
+            });
+          }}
+          onClose={() => setCandidateGallery(null)}
         />
       )}
     </div>
