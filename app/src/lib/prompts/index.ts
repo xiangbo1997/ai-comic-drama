@@ -5,6 +5,7 @@
 export {
   SCRIPT_PARSE_SYSTEM,
   buildScriptParseUserPrompt,
+  buildEventMapBlock,
 } from "./script-parse";
 export {
   getStylePrefix,
@@ -29,6 +30,7 @@ export {
   EPISODE_HOOK_RULES,
   EPISODE_PACING_RULES,
   EPISODE_ENDING_RULES,
+  EPISODE_CONFLICT_RULES,
   SHOT_RHYTHM_RULES,
   buildEpisodeStructureBlock,
 } from "./episode-structure";

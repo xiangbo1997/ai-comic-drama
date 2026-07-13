@@ -2,17 +2,21 @@
  * ScriptParserAgent Prompt 模板
  * 多轮解析 + 自修复
  *
- * 爆款方法论增强：与 script-parse.ts 共享 episode-structure.ts 的四块规则
- * （开场钩子 / 节奏骨架 / 结尾钩子 / 单镜节奏），两条解析路径行为一致。
+ * 爆款方法论增强：与 script-parse.ts 共享 episode-structure.ts 的五块规则
+ * （开场钩子 / 节奏骨架 / 结尾钩子 / 冲突升级 / 单镜节奏），两条解析路径行为一致。
  *
  * 外化转换增强：与 script-parse.ts 共享 adaptation-rules.ts 的两块规则
  * （内心戏外化 / 旁白纪律），两条解析路径行为一致。
+ *
+ * 全书事件地图增强：与 script-parse.ts 对齐，user prompt 第三入参 eventMap
+ * （由 buildEventMapBlock 拼好）注入到小说正文之前，指导节奏与删减。
  */
 
 import {
   EPISODE_HOOK_RULES,
   EPISODE_PACING_RULES,
   EPISODE_ENDING_RULES,
+  EPISODE_CONFLICT_RULES,
   SHOT_RHYTHM_RULES,
 } from "../episode-structure";
 import {
@@ -49,6 +53,8 @@ ${EPISODE_PACING_RULES}
 
 ${EPISODE_ENDING_RULES}
 
+${EPISODE_CONFLICT_RULES}
+
 ${SHOT_RHYTHM_RULES}
 
 ${EXTERNALIZATION_RULES}
@@ -59,7 +65,8 @@ ${NARRATION_DISCIPLINE_RULES}
 
 export function buildScriptParserUserPrompt(
   text: string,
-  seriesContext?: string
+  seriesContext?: string,
+  eventMap?: string
 ): string {
   // 系列续集：注入既定设定（世界观/人物状态/伏笔），解析时不得与之矛盾
   const seriesBlock = seriesContext?.trim()
@@ -69,7 +76,10 @@ ${seriesContext.trim()}
 `
     : "";
 
-  return `${seriesBlock}请将以下小说文本拆解为分镜脚本：
+  // 全书事件地图：非空时注入到小说正文之前，作为全局故事地图指导节奏与删减
+  const eventMapBlock = eventMap?.trim() ? `${eventMap.trim()}\n\n` : "";
+
+  return `${seriesBlock}${eventMapBlock}请将以下小说文本拆解为分镜脚本：
 
 ${text}
 

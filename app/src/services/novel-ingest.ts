@@ -5,6 +5,9 @@
  * 长篇小说/长章节喂给剧本解析前，先做「分块 → 并行 LLM 压缩（保情节保对白）→ 聚合去重叠」，
  * 把体量压到解析可承受的范围，同时保住主线情节与关键对白。
  *
+ * 事件卡增强（借鉴 Toonflow 事件表）：每块压缩时同一次 LLM 调用另出一行「事件卡」，
+ * 汇总为全书事件地图，给长篇解析一份压缩正文本身给不出的全局故事地图（主线关系/时长/情绪分布）。
+ *
  * 分层：本文件调用 services/ai 的 chatCompletion，按 services→lib 单向依赖约定放在
  * services 层（不放 lib，避免 lib 反向依赖 services）。
  */
@@ -45,6 +48,11 @@ export interface CompressNovelResult {
   originalLength: number;
   /** 产出字符数（未压缩时等于原始） */
   compressedLength: number;
+  /**
+   * 全书事件卡（按原文分块顺序）。每条格式：`第N段：<事件卡正文>`，
+   * 仅收录产出了事件卡的块。短文本未压缩路径返回 []。
+   */
+  eventCards: string[];
 }
 
 export interface CompressNovelOptions {
@@ -183,6 +191,17 @@ function hardSplitBySentence(text: string, chunkSize: number): string[] {
  */
 const COMPRESS_SYSTEM_PROMPT = `你是专业的小说浓缩编辑，为「小说转漫剧」流水线预处理长文。请对用户提供的小说片段做无损情节的浓缩改写。
 
+【输出结构（最高优先级，严格遵守顺序）】
+1. 第一行必须是一张【事件卡】，以 \`【事件卡】\` 五字开头，只占一行，行内不得换行；
+2. 事件卡下方空一行；
+3. 空行之后才是浓缩后的正文。
+事件卡之前不许有任何字符（没有引导语、没有解释），正文不得混入事件卡的字段标记。
+
+【事件卡格式】用 \`｜\` 分隔以下 6 个字段，全部写在一行：
+涉及角色（顿号分隔）｜核心事件（30-60字，含动作+结果）｜主线关系:强/中/弱｜信息密度:高/中/低｜预估成片时长:约X秒｜情绪强度:标签（从 冲突/恐怖/情感/转折/高潮/平铺/喜剧/悬疑 选 1-2 个，+ 连接）
+示例：
+【事件卡】林逸、白有容｜林逸因解密打假事业崩塌，颓废中许愿触发魔法系统绑定｜主线关系:强｜信息密度:高｜预估成片时长:约50秒｜情绪强度:转折+悬疑
+
 【必须保留】
 - 全部主线情节、关键转折、因果链，以及每一处推动剧情的角色行为与决定；
 - 所有出场角色及其在本片段中的关键动作；
@@ -198,8 +217,8 @@ const COMPRESS_SYSTEM_PROMPT = `你是专业的小说浓缩编辑，为「小说
 - 作者注、求关注、求订阅、章节预告等非正文内容。
 
 【输出要求】
-- 输出连贯的叙述段落，不要加章节标题、小标题或任何标记；
-- 不要输出任何解释、前言或"以下是浓缩版"之类的话，直接给浓缩后的正文；
+- 事件卡之后的正文输出连贯的叙述段落，不要加章节标题、小标题或任何标记；
+- 不要输出任何解释、前言或"以下是浓缩版"之类的话，事件卡与空行之后直接给浓缩后的正文；
 - 语言与原文保持一致（中文原文输出中文）；
 - 目标篇幅：压到原文的三分之一左右（对白部分不计入压缩，据实保留）。`;
 
@@ -213,14 +232,48 @@ const AGGREGATE_SYSTEM_PROMPT = `你是小说浓缩稿的拼接校对。用户�
 - 引号内的人物台词绝对不动；
 - 输出连贯正文，不加任何标题或说明文字。`;
 
+/** 事件卡行前缀标记（与 COMPRESS_SYSTEM_PROMPT 约定一致） */
+const EVENT_CARD_PREFIX = "【事件卡】";
+
+/**
+ * 从压缩产物里剥离首行事件卡。
+ *
+ * 规则：
+ * - 容忍开头的空白 / BOM；找到以【事件卡】开头的首行，剥离前缀取该行为 card，其余为 prose；
+ * - 卡后若紧跟空行，一并吃掉，正文从第一段非空内容开始；
+ * - 未出现事件卡（LLM 未遵格式）→ card 为 null，prose 为 raw 原样（不动一字，保情节优先）。
+ *
+ * 纯函数、无副作用，供压缩管线与单测引用。
+ */
+export function extractEventCard(raw: string): {
+  card: string | null;
+  prose: string;
+} {
+  // 去掉 BOM 与开头空白后再判首行，但 prose 的降级分支要返回未动过的 raw。
+  const withoutBom = raw.replace(/^﻿/, "");
+  const leadingTrimmed = withoutBom.replace(/^\s+/, "");
+  if (!leadingTrimmed.startsWith(EVENT_CARD_PREFIX)) {
+    return { card: null, prose: raw };
+  }
+  const newlineIdx = leadingTrimmed.indexOf("\n");
+  const firstLine =
+    newlineIdx === -1 ? leadingTrimmed : leadingTrimmed.slice(0, newlineIdx);
+  const card = firstLine.slice(EVENT_CARD_PREFIX.length).trim();
+  const rest = newlineIdx === -1 ? "" : leadingTrimmed.slice(newlineIdx + 1);
+  // 卡后紧跟的空行一并吃掉，正文从首段实际内容开始。
+  const prose = rest.replace(/^\s+/, "");
+  return { card: card.length > 0 ? card : null, prose };
+}
+
 /**
  * 压缩单个文本块：失败重试 CHUNK_RETRY 次，仍失败则原文降级（保情节优先）。
+ * 返回 { text, card }：text 为浓缩正文（降级时为原文），card 为剥离出的事件卡（降级或缺失时 null）。
  */
 async function compressChunk(
   chunk: string,
   index: number,
   llmConfig: AIServiceConfig
-): Promise<string> {
+): Promise<{ text: string; card: string | null }> {
   for (let attempt = 0; attempt <= CHUNK_RETRY; attempt++) {
     try {
       const compressed = await chatCompletion(
@@ -240,7 +293,13 @@ async function compressChunk(
       if (result.length === 0) {
         throw new Error("压缩结果为空");
       }
-      return result;
+      // 剥离首行事件卡，正文进后续拼接；事件卡只喂给全书事件地图，不进正文。
+      const { card, prose } = extractEventCard(result);
+      // 极端：LLM 只回了事件卡没有正文——视为失败走降级，避免丢情节。
+      if (prose.length === 0) {
+        throw new Error("压缩结果仅有事件卡无正文");
+      }
+      return { text: prose, card };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (attempt < CHUNK_RETRY) {
@@ -249,13 +308,13 @@ async function compressChunk(
         );
         continue;
       }
-      // 仍失败：宁可保留原文也不丢情节
+      // 仍失败：宁可保留原文也不丢情节；降级块无事件卡。
       log.warn(`块 ${index} 压缩最终失败，原文降级保留：${message}`);
-      return chunk;
+      return { text: chunk, card: null };
     }
   }
   // 理论不可达（循环内必 return）；保守兜底返回原文
-  return chunk;
+  return { text: chunk, card: null };
 }
 
 /**
@@ -294,6 +353,7 @@ async function runWithConcurrency<T>(
  * - 否则分块 → 并发压缩（限 COMPRESS_CONCURRENCY，单块失败重试 1 次仍失败则原文降级）；
  * - 聚合：按序拼接。仅当拼接后总长 > AGGREGATE_THRESHOLD 时，做一次轻量 LLM 聚合去重叠；
  *   否则直接拼接——overlap 仅 400 字，相邻块重复代价很小，为省一次 LLM 往返直接跳过聚合。
+ * - 事件卡：每块压缩同一次调用另出一行事件卡，汇总为 eventCards（不进正文/聚合），供解析层拼全书事件地图。
  *
  * 任何异常都不抛给上层：整体失败时原文降级，保证解析链路不中断。
  */
@@ -310,6 +370,7 @@ export async function compressNovel(
       compressed: false,
       originalLength,
       compressedLength: originalLength,
+      eventCards: [],
     };
   }
 
@@ -329,7 +390,12 @@ export async function compressNovel(
     }
   );
 
-  let joined = compressedChunks.join("\n\n");
+  // 事件卡按块序汇总为「第N段：卡正文」，仅收录产出了卡的块；卡不进正文拼接与聚合。
+  const eventCards = compressedChunks
+    .map((c, idx) => (c.card ? `第${idx + 1}段：${c.card}` : null))
+    .filter((line): line is string => line !== null);
+
+  let joined = compressedChunks.map((c) => c.text).join("\n\n");
 
   // 聚合去重叠：只在拼接后仍较长时做一次，权衡「一次额外 LLM 往返」vs「400 字重叠冗余」。
   if (joined.length > AGGREGATE_THRESHOLD) {
@@ -367,5 +433,6 @@ export async function compressNovel(
     compressed: true,
     originalLength,
     compressedLength,
+    eventCards,
   };
 }

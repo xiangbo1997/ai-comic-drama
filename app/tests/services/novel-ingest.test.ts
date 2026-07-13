@@ -105,17 +105,18 @@ describe("compressNovel", () => {
     chatCompletionMock.mockReset();
   });
 
-  it("短文本（≤阈值）原样返回，不调用 LLM", async () => {
+  it("短文本（≤阈值）原样返回，不调用 LLM，事件卡为空", async () => {
     const text = "短文本".repeat(10); // 远小于阈值
     const result = await compressNovel(text, llmConfig);
     expect(result.compressed).toBe(false);
     expect(result.text).toBe(text);
     expect(result.originalLength).toBe(text.length);
     expect(result.compressedLength).toBe(text.length);
+    expect(result.eventCards).toEqual([]);
     expect(chatCompletionMock).not.toHaveBeenCalled();
   });
 
-  it("长文本触发压缩：并行压缩每块并拼接", async () => {
+  it("长文本触发压缩：并行压缩每块并拼接（无事件卡时 eventCards 为空）", async () => {
     // 每块压缩返回固定短串，拼接后小于聚合阈值 → 不触发聚合
     chatCompletionMock.mockResolvedValue("压缩块");
     const para = "情".repeat(CHUNK_SIZE - 200);
@@ -125,7 +126,30 @@ describe("compressNovel", () => {
     expect(result.originalLength).toBe(text.length);
     // 每块一次调用（拼接结果远小于聚合阈值，无聚合调用）
     expect(chatCompletionMock).toHaveBeenCalledTimes(2);
+    // 事件卡只进 eventCards，不进正文拼接；无卡时正文原样、eventCards 为空
     expect(result.text).toBe("压缩块\n\n压缩块");
+    expect(result.eventCards).toEqual([]);
+  });
+
+  it("压缩产物带事件卡：卡剥离进 eventCards（按块序），正文不含卡", async () => {
+    // 每块返回「事件卡 + 空行 + 正文」；正文拼接不含卡，卡汇总为「第N段：...」
+    chatCompletionMock.mockResolvedValue(
+      "【事件卡】林逸｜事业崩塌触发系统｜主线关系:强\n\n林逸颓废地瘫在椅子上。"
+    );
+    const para = "情".repeat(CHUNK_SIZE - 200);
+    const text = `${para}\n\n${para}`; // 两块
+    const result = await compressNovel(text, llmConfig);
+    expect(result.compressed).toBe(true);
+    // 正文只有浓缩正文，事件卡不进正文
+    expect(result.text).toBe(
+      "林逸颓废地瘫在椅子上。\n\n林逸颓废地瘫在椅子上。"
+    );
+    expect(result.text).not.toContain("【事件卡】");
+    // 事件卡按块序汇总
+    expect(result.eventCards).toEqual([
+      "第1段：林逸｜事业崩塌触发系统｜主线关系:强",
+      "第2段：林逸｜事业崩塌触发系统｜主线关系:强",
+    ]);
   });
 
   it("单块压缩失败：重试后仍失败则原文降级保留（不丢块）", async () => {

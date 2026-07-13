@@ -201,6 +201,11 @@ export interface ScriptParserInput {
    * 见 lib/series.ts#buildSeriesMemoryDigest（stage 'script'）。非系列项目不传。
    */
   seriesContext?: string;
+  /**
+   * 全书事件地图块（调用方已用 buildEventMapBlock 拼好）。
+   * 若调用方在压缩阶段已产出并传入，则 Agent 内部不再重复构建；非长篇/无事件卡时不传。
+   */
+  eventMap?: string;
 }
 
 /** ScriptParserAgent 输出 — 复用已有 ParsedScript 并扩展 */

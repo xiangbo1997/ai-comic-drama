@@ -12,18 +12,24 @@
  *   相邻镜头不要重复同一运镜，运镜服务于叙事节奏。
  *
  * 爆款方法论增强：
- * - 追加开场钩子 / 节奏骨架 / 结尾钩子 / 单镜节奏四块规则（episode-structure.ts 单一真源），
- *   把「留存生死线」「爽点密度」「禁止凑时长」灌进解析层。
+ * - 追加开场钩子 / 节奏骨架 / 结尾钩子 / 冲突升级 / 单镜节奏五块规则（episode-structure.ts 单一真源），
+ *   把「留存生死线」「爽点密度」「矛盾阶梯 + 反转预埋」「禁止凑时长」灌进解析层。
  *
  * 外化转换增强：
  * - 追加内心戏外化 / 旁白纪律两块规则（adaptation-rules.ts 单一真源），
  *   把小说的内心独白路由到「可见动作 / 对白潜台词 / 旁白」，禁止说教式旁白与 telling。
+ *
+ * 全书事件地图增强（借鉴 Toonflow 事件表）：
+ * - buildEventMapBlock 把分块压缩产出的事件卡拼成一份「全书故事地图」，作为 user prompt
+ *   的第三入参注入到小说正文之前，让解析层拿到压缩正文本身给不出的主线关系/时长/情绪分布，
+ *   据此分配节奏、镜头密度与删减取舍。事件卡由 services/novel-ingest.ts 产出（保持 lib 不反向依赖 services）。
  */
 
 import {
   EPISODE_HOOK_RULES,
   EPISODE_PACING_RULES,
   EPISODE_ENDING_RULES,
+  EPISODE_CONFLICT_RULES,
   SHOT_RHYTHM_RULES,
 } from "./episode-structure";
 import {
@@ -64,6 +70,8 @@ ${EPISODE_HOOK_RULES}
 ${EPISODE_PACING_RULES}
 
 ${EPISODE_ENDING_RULES}
+
+${EPISODE_CONFLICT_RULES}
 
 ${SHOT_RHYTHM_RULES}
 
@@ -121,9 +129,24 @@ ${NARRATION_DISCIPLINE_RULES}
 
 只输出合法 JSON，不要 markdown 围栏以外的任何文字。`;
 
+/**
+ * 把分块压缩产出的事件卡拼成「全书事件地图」块，供 user prompt 注入。
+ * 入参为事件卡数组（`第N段：...` 形式，由 services/novel-ingest.ts 产出）；空数组返回 ""。
+ * 纯函数、无副作用，供路由/Agent 与单测引用。
+ */
+export function buildEventMapBlock(eventCards: string[]): string {
+  const lines = eventCards.map((c) => c.trim()).filter((c) => c.length > 0);
+  if (lines.length === 0) return "";
+
+  return `【全书事件地图（按原文顺序，来自分块压缩）】
+${lines.join("\n")}
+【地图使用规则】主线关系「弱」的情节大胆压缩或删除，「强」的必须完整呈现；按预估时长分配节奏与分镜密度；情绪强度高的段落用更密的短镜头；改编只沿主线，支线服务主线才保留。`;
+}
+
 export function buildScriptParseUserPrompt(
   text: string,
-  seriesContext?: string
+  seriesContext?: string,
+  eventMap?: string
 ): string {
   // 系列续集：注入既定设定（世界观/人物状态/伏笔），解析时不得与之矛盾
   const seriesBlock = seriesContext?.trim()
@@ -133,7 +156,10 @@ ${seriesContext.trim()}
 `
     : "";
 
-  return `${seriesBlock}请将以下小说文本拆解为分镜脚本：
+  // 全书事件地图：非空时注入到小说正文之前，作为全局故事地图指导节奏与删减
+  const eventMapBlock = eventMap?.trim() ? `${eventMap.trim()}\n\n` : "";
+
+  return `${seriesBlock}${eventMapBlock}请将以下小说文本拆解为分镜脚本：
 
 ${text}
 

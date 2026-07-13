@@ -18,6 +18,7 @@ import {
   compressNovel,
   NOVEL_COMPRESS_THRESHOLD,
 } from "@/services/novel-ingest";
+import { buildEventMapBlock } from "@/lib/prompts";
 import { CameraMovementSchema } from "./schemas";
 import type {
   Agent,
@@ -97,12 +98,19 @@ export class ScriptParserAgent implements Agent<
     // 长篇小说摄取：与手动解析路径对等——超阈值先分块压缩再解析。
     // llmConfig 缺失（保持现状行为）或压缩内部降级时，原文继续，不阻断解析。
     let parseText = input.text;
+    // 全书事件地图：调用方（如 parse 路由）已在压缩阶段构建并传入时优先沿用，
+    // 避免本 Agent 对已压缩正文二次压缩时把它覆盖为空。
+    let eventMap = input.eventMap;
     const llmConfig = ctx.config.llm;
     if (llmConfig && input.text.length > NOVEL_COMPRESS_THRESHOLD) {
       try {
         const compressed = await compressNovel(input.text, llmConfig);
         if (compressed.compressed) {
           parseText = compressed.text;
+          // 仅在调用方未提供事件地图时，用本次压缩产出的事件卡构建（避免覆盖上游地图）。
+          if (!eventMap?.trim() && compressed.eventCards.length > 0) {
+            eventMap = buildEventMapBlock(compressed.eventCards);
+          }
           log.info(
             `剧本压缩：${compressed.originalLength} → ${compressed.compressedLength} 字`
           );
@@ -112,8 +120,8 @@ export class ScriptParserAgent implements Agent<
         log.warn(`剧本压缩失败，原文继续解析：${message}`);
       }
     }
-    // 用压缩后的文本替换后续所有引用，保持 input 语义单一入口
-    input = { ...input, text: parseText };
+    // 用压缩后的文本与事件地图替换后续所有引用，保持 input 语义单一入口
+    input = { ...input, text: parseText, eventMap };
 
     let totalTokens = 0;
     let lastRawOutput = "";
@@ -148,7 +156,8 @@ export class ScriptParserAgent implements Agent<
                 role: "user" as const,
                 content: buildScriptParserUserPrompt(
                   input.text,
-                  input.seriesContext
+                  input.seriesContext,
+                  input.eventMap
                 ),
               },
             ]
@@ -158,7 +167,8 @@ export class ScriptParserAgent implements Agent<
                 role: "user" as const,
                 content: buildScriptParserUserPrompt(
                   input.text,
-                  input.seriesContext
+                  input.seriesContext,
+                  input.eventMap
                 ),
               },
               {

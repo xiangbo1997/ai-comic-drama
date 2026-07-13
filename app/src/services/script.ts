@@ -81,7 +81,8 @@ export function generateImagePrompt(
 export async function parseScriptWithAgent(
   text: string,
   config?: AIServiceConfig,
-  seriesContext?: string
+  seriesContext?: string,
+  eventMap?: string
 ): Promise<ParsedScript> {
   const agent = new ScriptParserAgent();
 
@@ -105,7 +106,7 @@ export async function parseScriptWithAgent(
     emit: noop,
   };
 
-  const result = await agent.run({ text, seriesContext }, minimalCtx);
+  const result = await agent.run({ text, seriesContext, eventMap }, minimalCtx);
 
   if (!result.success || !result.data) {
     throw new Error(result.error ?? "Agent 剧本解析失败");

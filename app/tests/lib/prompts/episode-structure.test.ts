@@ -12,6 +12,7 @@ import {
   EPISODE_HOOK_RULES,
   EPISODE_PACING_RULES,
   EPISODE_ENDING_RULES,
+  EPISODE_CONFLICT_RULES,
   SHOT_RHYTHM_RULES,
   buildEpisodeStructureBlock,
 } from "@/lib/prompts/episode-structure";
@@ -35,15 +36,31 @@ import { STORYBOARD_REVIEW_SYSTEM } from "@/lib/prompts/agent-prompts/narrative-
 import type { DramaScriptArtifact } from "@/types/drama";
 
 describe("episode-structure 规则块", () => {
-  it("四块规则均非空", () => {
+  it("五块规则均非空", () => {
     for (const block of [
       EPISODE_HOOK_RULES,
       EPISODE_PACING_RULES,
       EPISODE_ENDING_RULES,
+      EPISODE_CONFLICT_RULES,
       SHOT_RHYTHM_RULES,
     ]) {
       expect(block.trim().length).toBeGreaterThan(50);
     }
+  });
+
+  it("冲突升级块含矛盾四级阶梯 / 反转三式 / 反同质化关键短语", () => {
+    // 矛盾四级阶梯
+    expect(EPISODE_CONFLICT_RULES).toContain("矛盾四级阶梯");
+    expect(EPISODE_CONFLICT_RULES).toContain("两个好人");
+    // 股价级反转三式
+    expect(EPISODE_CONFLICT_RULES).toContain("预期误导");
+    expect(EPISODE_CONFLICT_RULES).toContain("人设颠覆");
+    expect(EPISODE_CONFLICT_RULES).toContain("动机置换");
+    // 反转须预埋 + 反转≠钩子
+    expect(EPISODE_CONFLICT_RULES).toContain("预埋");
+    expect(EPISODE_CONFLICT_RULES).toContain("反转 ≠ 钩子");
+    // 反同质化
+    expect(EPISODE_CONFLICT_RULES).toContain("反同质化");
   });
 
   it("含爆款方法论关键短语", () => {
@@ -62,23 +79,32 @@ describe("episode-structure 规则块", () => {
     expect(EPISODE_PACING_RULES).toContain("打脸");
   });
 
-  it("buildEpisodeStructureBlock 默认不含分镜层，includeShotRhythm 时追加", () => {
+  it("buildEpisodeStructureBlock 默认含冲突升级、不含分镜层，includeShotRhythm 时追加", () => {
     const base = buildEpisodeStructureBlock();
     expect(base).toContain(EPISODE_HOOK_RULES);
     expect(base).toContain(EPISODE_ENDING_RULES);
+    // 冲突升级默认包含（剧本层通用方法论）
+    expect(base).toContain(EPISODE_CONFLICT_RULES);
     expect(base).not.toContain(SHOT_RHYTHM_RULES);
 
     const withRhythm = buildEpisodeStructureBlock({ includeShotRhythm: true });
     expect(withRhythm).toContain(SHOT_RHYTHM_RULES);
   });
+
+  it("buildEpisodeStructureBlock includeConflict:false 时排除冲突升级块", () => {
+    const noConflict = buildEpisodeStructureBlock({ includeConflict: false });
+    expect(noConflict).not.toContain(EPISODE_CONFLICT_RULES);
+    expect(noConflict).toContain(EPISODE_HOOK_RULES);
+  });
 });
 
 describe("小说解析路径：两条 system prompt 均注入方法论", () => {
-  it("script-parse.ts 与 script-parser.ts 都含四块规则", () => {
+  it("script-parse.ts 与 script-parser.ts 都含五块规则（含冲突升级）", () => {
     for (const sys of [SCRIPT_PARSE_SYSTEM, SCRIPT_PARSER_SYSTEM]) {
       expect(sys).toContain(EPISODE_HOOK_RULES);
       expect(sys).toContain(EPISODE_PACING_RULES);
       expect(sys).toContain(EPISODE_ENDING_RULES);
+      expect(sys).toContain(EPISODE_CONFLICT_RULES);
       expect(sys).toContain(SHOT_RHYTHM_RULES);
     }
   });
@@ -117,6 +143,10 @@ describe("短剧创作路径：凑时长根因已移除", () => {
     expect(DRAMA_SCRIPT_SYSTEM).toContain("hookType");
     const u = buildDramaScriptUserPrompt(baseInput);
     expect(u).toContain("hookType");
+  });
+
+  it("创作 system prompt 注入冲突升级方法论块", () => {
+    expect(DRAMA_SCRIPT_SYSTEM).toContain(EPISODE_CONFLICT_RULES);
   });
 });
 
@@ -179,5 +209,12 @@ describe("叙事评审：新增开场/结尾钩子维度", () => {
   it("STORYBOARD_REVIEW_SYSTEM 含 hook_strength 与 cliffhanger 维度", () => {
     expect(STORYBOARD_REVIEW_SYSTEM).toContain("hook_strength");
     expect(STORYBOARD_REVIEW_SYSTEM).toContain("cliffhanger");
+  });
+
+  it("STORYBOARD_REVIEW_SYSTEM 含三大密度总标尺（情绪/信息/情节密度）", () => {
+    expect(STORYBOARD_REVIEW_SYSTEM).toContain("三大密度");
+    expect(STORYBOARD_REVIEW_SYSTEM).toContain("情绪密度");
+    expect(STORYBOARD_REVIEW_SYSTEM).toContain("信息密度");
+    expect(STORYBOARD_REVIEW_SYSTEM).toContain("情节密度");
   });
 });

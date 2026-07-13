@@ -8,6 +8,7 @@ import {
   MAX_NOVEL_INPUT,
   NOVEL_COMPRESS_THRESHOLD,
 } from "@/services/novel-ingest";
+import { buildEventMapBlock } from "@/lib/prompts";
 import { prisma } from "@/lib/prisma";
 import { chargeCredits, InsufficientCreditsError } from "@/lib/credits";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
@@ -105,12 +106,16 @@ export async function POST(request: NextRequest) {
     // 兼容：?sync=true 走旧同步路径（仅留作调试或紧急回退用）
     const url = new URL(request.url);
     if (url.searchParams.get("sync") === "true") {
-      // 同步路径同样接入压缩：长文先浓缩再解析，与异步路径行为对齐。
-      const { text: parseText } = await compressForParse(text, llmConfig);
+      // 同步路径同样接入压缩：长文先浓缩再解析，事件地图随解析注入，与异步路径行为对齐。
+      const { text: parseText, eventMap } = await compressForParse(
+        text,
+        llmConfig
+      );
       const result = await parseScriptWithAgent(
         parseText,
         llmConfig,
-        seriesContext
+        seriesContext,
+        eventMap
       );
       return NextResponse.json(result);
     }
@@ -152,15 +157,17 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * 长文压缩前置：text 超过阈值时先经 compressNovel 浓缩，返回解析用文本及压缩元数据。
+ * 长文压缩前置：text 超过阈值时先经 compressNovel 浓缩，返回解析用文本、事件地图及压缩元数据。
  * llmConfig 缺失（理论不会，路由已校验）时直接原文透传，保持零回归。
  * 压缩内部已吞掉所有异常并原文降级，此处不再兜底。
+ * eventMap 由压缩阶段的事件卡拼成，非空时随解析注入，作为全书故事地图指导节奏与删减。
  */
 async function compressForParse(
   text: string,
   llmConfig: Parameters<typeof parseScriptWithAgent>[1]
 ): Promise<{
   text: string;
+  eventMap?: string;
   meta: {
     compressed: boolean;
     originalLength: number;
@@ -178,8 +185,13 @@ async function compressForParse(
     };
   }
   const result = await compressNovel(text, llmConfig);
+  const eventMap =
+    result.eventCards.length > 0
+      ? buildEventMapBlock(result.eventCards)
+      : undefined;
   return {
     text: result.text,
+    eventMap,
     meta: {
       compressed: result.compressed,
       originalLength: result.originalLength,
@@ -201,7 +213,12 @@ async function runScriptParseTask(
 ): Promise<void> {
   try {
     // 长篇小说摄取：解析前先分块压缩，用浓缩产物继续解析；压缩元数据留痕供排障。
-    const { text: parseText, meta } = await compressForParse(text, llmConfig);
+    // 压缩阶段另出全书事件地图，随解析注入指导节奏与删减。
+    const {
+      text: parseText,
+      eventMap,
+      meta,
+    } = await compressForParse(text, llmConfig);
     if (meta.compressed) {
       log.info(
         `[script compress] task ${taskId} 压缩 ${meta.originalLength} → ${meta.compressedLength} 字`
@@ -210,7 +227,8 @@ async function runScriptParseTask(
     const result = await parseScriptWithAgent(
       parseText,
       llmConfig,
-      seriesContext
+      seriesContext,
+      eventMap
     );
     await prisma.generationTask.update({
       where: { id: taskId },
