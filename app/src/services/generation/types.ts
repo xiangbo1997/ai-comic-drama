@@ -33,6 +33,16 @@ export interface SceneCharacterInfo extends CharacterInfo {
   referenceAssets?: Array<{ url: string; pose?: string | null }>;
   appearance?: CharacterAppearance | null;
   faceEmbedding?: number[];
+  /**
+   * 用户预设服装（外观编辑器手填 / AI 起草，来自 CharacterAppearance.clothingPresets）。
+   * 场景定妆照换装时按 name↔outfit 模糊匹配，命中且带 imageRef 时直接用用户手挑参考图；
+   * 缺省 undefined 时换装走缓存/自动衍生路径（零回归）。
+   */
+  clothingPresets?: Array<{
+    name: string;
+    description?: string;
+    imageRef?: string;
+  }> | null;
 }
 
 /** 编排器生成请求 */

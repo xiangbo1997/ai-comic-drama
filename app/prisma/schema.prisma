@@ -234,6 +234,11 @@ model Scene {
   // 不加索引：所有查询都带 projectId（走 @@index([projectId, order]) 已足够）。
   locationKey String?
 
+  // 分镜级换装标注 [{name:角色名, outfit:服装短语}]，LLM 解析产出，
+  // 仅剧情明确非默认着装（婚纱/战损/雨夜湿透/睡衣等）时出现；日常/默认着装省略。
+  // 出图时据此按角色换成场景定妆照（换装变体），锁服装正确性。
+  characterOutfits Json?
+
   // 生成结果
   imageUrl String? // 生成的图片URL
   videoUrl String? // 生成的视频URL
@@ -301,6 +306,7 @@ model Character {
   appearance      CharacterAppearance?
   referenceAssets CharacterReferenceAsset[]
   faceEmbeddings  CharacterFaceEmbedding[]
+  looks           CharacterLook[]
 
   @@index([userId]) // 角色库页按 userId 查询，无此索引则全表扫描
 }
@@ -343,6 +349,26 @@ model CharacterReferenceAsset {
 
   createdAt DateTime @default(now())
 
+  @@index([characterId])
+}
+
+// 角色换装定妆照缓存
+// 剧情换装（婚纱/战损/雨夜湿透/睡衣等）时，以角色定妆锚 canonicalImageUrl 为参考
+// 编辑式衍生出「同一角色穿指定服装」的场景定妆照，按 outfitKey 缓存复用，
+// 保证同角色同套衣服跨分镜只生成一次、且形象一致。
+model CharacterLook {
+  id          String    @id @default(cuid())
+  characterId String
+  character   Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  outfitKey  String // 服装规整键（outfit trim 后规整），@@unique 去重用
+  outfitDesc String  @db.Text // 原始服装描述（进出图 prompt 的服装短语）
+  imageUrl   String? // 衍生出的换装定妆照 URL；生成失败时为空
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([characterId, outfitKey])
   @@index([characterId])
 }
 

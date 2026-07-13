@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { createLogger } from "@/lib/logger";
@@ -81,6 +82,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           actionBeat: sourceScene.actionBeat,
           // 地点标签：副本沿用同一地点，与源分镜共享场景锚定分组
           locationKey: sourceScene.locationKey,
+          // 分镜级换装标注（Json）：副本沿用同一换装，与源分镜共享场景定妆照。
+          // 源为空时用 JsonNull（Prisma Json 空值语义）。
+          characterOutfits:
+            sourceScene.characterOutfits === null
+              ? Prisma.JsonNull
+              : (sourceScene.characterOutfits as Prisma.InputJsonValue),
           selectedCharacterId: sourceScene.selectedCharacterId,
           selectedCharacterIds: sourceScene.selectedCharacterIds,
           // 媒体 URL 和状态清空，副本需重新生成

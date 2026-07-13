@@ -14,6 +14,10 @@ import { createLogger } from "@/lib/logger";
 import { parseLooseJSON } from "@/lib/json-repair";
 import { resolveLLMParams } from "./llm-params";
 import { calibrateSceneDurations } from "@/lib/shot-timing";
+import {
+  compressNovel,
+  NOVEL_COMPRESS_THRESHOLD,
+} from "@/services/novel-ingest";
 import { CameraMovementSchema } from "./schemas";
 import type {
   Agent,
@@ -90,6 +94,27 @@ export class ScriptParserAgent implements Agent<
     input: ScriptParserInput,
     ctx: WorkflowContext
   ): Promise<AgentResult<ScriptArtifact>> {
+    // 长篇小说摄取：与手动解析路径对等——超阈值先分块压缩再解析。
+    // llmConfig 缺失（保持现状行为）或压缩内部降级时，原文继续，不阻断解析。
+    let parseText = input.text;
+    const llmConfig = ctx.config.llm;
+    if (llmConfig && input.text.length > NOVEL_COMPRESS_THRESHOLD) {
+      try {
+        const compressed = await compressNovel(input.text, llmConfig);
+        if (compressed.compressed) {
+          parseText = compressed.text;
+          log.info(
+            `剧本压缩：${compressed.originalLength} → ${compressed.compressedLength} 字`
+          );
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn(`剧本压缩失败，原文继续解析：${message}`);
+      }
+    }
+    // 用压缩后的文本替换后续所有引用，保持 input 语义单一入口
+    input = { ...input, text: parseText };
+
     let totalTokens = 0;
     let lastRawOutput = "";
     let lastZodError: z.ZodError | null = null;

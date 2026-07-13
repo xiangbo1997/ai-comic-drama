@@ -17,6 +17,7 @@ import {
 } from "./reference-composite";
 import { inferFacing, pickAssetUrlForFacing, type Facing } from "./facing";
 import { resolveEnvironmentAnchor } from "./environment-anchor";
+import { resolveSceneCharacterLooks } from "./scene-looks";
 import { getPromptCache, setPromptCache } from "@/lib/cache/prompt-cache";
 import { createLogger } from "@/lib/logger";
 import type { SceneCharacterInfo } from "./types";
@@ -40,6 +41,21 @@ export async function orchestrateImageGeneration(
   // 无 hints 时默认 front（零回归）。
   const facing: Facing = inferFacing(request.sceneFacingHints ?? {});
 
+  // 场景定妆照（换装变体）：非迭代且有 sceneId 时，据分镜换装标注 characterOutfits
+  // 把命中角色的参考图换成对应换装定妆照（服装正确性优先于身份三视图默认服装）。
+  // iterate 路径跳过（迭代基底已含服装）。lookOverrides 空时全链零回归。
+  const sceneLooks =
+    !request.iterate && request.sceneId
+      ? await resolveSceneCharacterLooks({
+          sceneId: request.sceneId,
+          characters: request.characters,
+          imageConfig: request.imageConfig,
+          userId: request.userId,
+          projectId: request.projectId,
+          style: request.style,
+        })
+      : { lookOverrides: new Map<string, string>(), promptClauses: [] };
+
   const decision = resolveStrategy(
     request.characters,
     request.prompt,
@@ -49,6 +65,7 @@ export async function orchestrateImageGeneration(
       referenceImagesOverride: request.referenceImages,
       iterateMode: request.iterate,
       facing,
+      lookOverrides: sceneLooks.lookOverrides,
     }
   );
 
@@ -67,10 +84,16 @@ export async function orchestrateImageGeneration(
   // （一处改动、全链一致 + 缓存正确）。
   let effectiveRefUrl = decision.referenceImageUrl;
   let effectiveRefUrls = decision.referenceImageUrls;
-  let effectivePrompt = decision.enhancedPrompt;
+  // 换装 prompt 子句前置（进 effectivePrompt→cacheKey）：多角色多条拼接，
+  // 声明本镜各角色服装，与参考图换装配套。无换装时 lookPrefix 为空（零回归）。
+  const lookPrefix =
+    sceneLooks.promptClauses.length > 0
+      ? sceneLooks.promptClauses.join(" ") + " "
+      : "";
+  let effectivePrompt = lookPrefix + decision.enhancedPrompt;
   const referenceCells = request.iterate
     ? []
-    : buildReferenceCells(request.characters, facing);
+    : buildReferenceCells(request.characters, facing, sceneLooks.lookOverrides);
 
   // 场景锚定图（环境一致性）：非迭代且有 sceneId 时，取同地点最早已出图的分镜作锚，
   // 锁背景/布局/光线。锚是增强项，为 null 时全部注入分支自然跳过，绝不阻断出图。
@@ -105,6 +128,7 @@ export async function orchestrateImageGeneration(
         ? `The last cell labeled SCENE is the established scene environment; the background, spatial layout and lighting must stay consistent with it; only follow the character cells and the text description for the characters' appearance — do NOT copy any character from the SCENE cell. `
         : "";
       effectivePrompt =
+        lookPrefix +
         `The reference image shows ${referenceCells.length} characters side by side` +
         (names ? ` (labeled: ${names})` : "") +
         `. Render each of them in the scene keeping their exact appearance and identity from the reference. ` +
@@ -146,7 +170,7 @@ export async function orchestrateImageGeneration(
       !currentRefs.includes(anchor.url)
     ) {
       effectiveRefUrls = [...currentRefs, anchor.url];
-      effectivePrompt = decision.enhancedPrompt + anchorClause;
+      effectivePrompt = lookPrefix + decision.enhancedPrompt + anchorClause;
       log.debug("场景锚定图注入参考列表（②多图余量）", {
         sceneId: request.sceneId,
         anchorSceneId: anchor.sourceSceneId,
@@ -159,7 +183,7 @@ export async function orchestrateImageGeneration(
       effectiveRefUrl = anchor.url;
       effectiveRefUrls = [anchor.url];
       decision.strategy = "reference_edit";
-      effectivePrompt = decision.enhancedPrompt + anchorClause;
+      effectivePrompt = lookPrefix + decision.enhancedPrompt + anchorClause;
       log.debug("场景锚定图作唯一参考（③纯环境镜）", {
         sceneId: request.sceneId,
         anchorSceneId: anchor.sourceSceneId,
@@ -280,16 +304,19 @@ export type {
  * 从场景角色列表构建合成参考图的格子：每个角色取【一张】最具代表性的参考图，
  * 配上角色名标签。
  *
- * 代表图挑选（朝向感知）：角色有三视图 referenceAssets 时按分镜朝向挑
- * （背影镜取背视图、侧面镜取侧视图，避免正脸参考把画面拉回正面）；
- * 无 referenceAssets 时回退既有 canonicalImageUrl || referenceImageUrls[0] 逻辑（零回归）。
+ * 代表图挑选优先级：
+ * ① 换装定妆照（lookOverrides 命中）：服装正确性优先，覆盖朝向感知/canonical 的选择。
+ * ② 朝向感知：角色有三视图 referenceAssets 时按分镜朝向挑（背影镜取背视图、侧面镜取
+ *    侧视图，避免正脸参考把画面拉回正面）。
+ * ③ 无 referenceAssets 时回退既有 canonicalImageUrl || referenceImageUrls[0] 逻辑（零回归）。
  *
  * 只取每角色一张（而非三视图全塞）：多角色 × 三视图会让合成图过宽、每格过小，
  * 稀释身份信息。按 role 排序（primary 在前）。
  */
 function buildReferenceCells(
   characters: SceneCharacterInfo[],
-  facing: Facing
+  facing: Facing,
+  lookOverrides?: Map<string, string>
 ): ReferenceCell[] {
   const ordered = [...characters].sort(
     (a, b) => roleRank(a.role) - roleRank(b.role)
@@ -297,10 +324,13 @@ function buildReferenceCells(
   const cells: ReferenceCell[] = [];
   const seen = new Set<string>();
   for (const c of ordered) {
+    // 换装定妆照优先：服装正确性优先于视角，覆盖朝向/canonical 的选择
+    const lookUrl = lookOverrides?.get(c.id);
     const facingUrl = c.referenceAssets?.length
       ? pickAssetUrlForFacing(c.referenceAssets, facing)
       : undefined;
-    const url = facingUrl || c.canonicalImageUrl || c.referenceImageUrls?.[0];
+    const url =
+      lookUrl || facingUrl || c.canonicalImageUrl || c.referenceImageUrls?.[0];
     if (!url || seen.has(url)) continue;
     seen.add(url);
     cells.push({ url, label: c.name });

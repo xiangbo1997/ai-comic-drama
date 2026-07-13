@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
@@ -43,6 +44,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       cameraMovement,
       actionBeat,
       locationKey,
+      characterOutfits,
       imageUrl,
       videoUrl,
       audioUrl,
@@ -81,6 +83,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(actionBeat !== undefined && { actionBeat: actionBeat || null }),
         // 地点标签：LLM 解析产出，编辑器可手改（供场景锚定图分组）
         ...(locationKey !== undefined && { locationKey: locationKey || null }),
+        // 分镜级换装标注（Json）：编辑器可手改。有数组用 InputJsonValue，
+        // 显式清空 / 空数组用 JsonNull（Prisma Json 空值语义）。
+        ...(characterOutfits !== undefined && {
+          characterOutfits:
+            Array.isArray(characterOutfits) && characterOutfits.length > 0
+              ? (characterOutfits as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+        }),
         ...(imageUrl !== undefined && { imageUrl }),
         ...(videoUrl !== undefined && { videoUrl }),
         ...(audioUrl !== undefined && { audioUrl }),

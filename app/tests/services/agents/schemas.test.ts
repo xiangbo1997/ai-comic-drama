@@ -167,6 +167,88 @@ describe("SceneScriptZ director fields (cameraMovement / actionBeat)", () => {
   });
 });
 
+describe("SceneScriptZ characterOutfits（分镜级换装标注）", () => {
+  const base = {
+    id: 1,
+    shotType: "全景",
+    description: "林萧身着婚纱缓步走向圣坛，宾客起立注视",
+    characters: ["林萧"],
+    dialogue: null,
+    narration: null,
+    emotion: "happy",
+    duration: 5,
+  };
+
+  it("接受合法的 characterOutfits 数组", () => {
+    const r = SceneScriptZ.safeParse({
+      ...base,
+      characterOutfits: [{ name: "林萧", outfit: "白色婚纱" }],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.characterOutfits).toEqual([
+        { name: "林萧", outfit: "白色婚纱" },
+      ]);
+    }
+  });
+
+  it("outfit 超 20 字被截断", () => {
+    const longOutfit = "一".repeat(30);
+    const r = SceneScriptZ.safeParse({
+      ...base,
+      characterOutfits: [{ name: "林萧", outfit: longOutfit }],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.characterOutfits?.[0].outfit).toHaveLength(20);
+    }
+  });
+
+  it("空数组归一为 undefined（不落无意义空值）", () => {
+    const r = SceneScriptZ.safeParse({ ...base, characterOutfits: [] });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.characterOutfits).toBeUndefined();
+    }
+  });
+
+  it("name/outfit 任一为空的条目被过滤", () => {
+    const r = SceneScriptZ.safeParse({
+      ...base,
+      characterOutfits: [
+        { name: "林萧", outfit: "白色婚纱" },
+        { name: "", outfit: "黑西装" },
+        { name: "路人", outfit: "  " },
+      ],
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.characterOutfits).toEqual([
+        { name: "林萧", outfit: "白色婚纱" },
+      ]);
+    }
+  });
+
+  it("非法（非数组）值 .catch 回落 undefined，不让整镜校验失败", () => {
+    const r = SceneScriptZ.safeParse({
+      ...base,
+      characterOutfits: "白色婚纱",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.characterOutfits).toBeUndefined();
+    }
+  });
+
+  it("缺省该字段时正常通过", () => {
+    const r = SceneScriptZ.safeParse({ ...base });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.characterOutfits).toBeUndefined();
+    }
+  });
+});
+
 describe("validateAgentOutput()", () => {
   it("throws readable error with agent name and issue paths on failure", () => {
     expect(() =>

@@ -27,6 +27,13 @@ export interface ResolveStrategyOptions {
    * 无 referenceAssets 时行为与现状完全一致（零回归）。
    */
   facing?: Facing;
+  /**
+   * 换装定妆照覆盖（场景定妆照）：characterId → 换装定妆照 URL。
+   * 命中的角色收集参考图时，把换装图置于该角色 URL 列表首位（服装正确性优先于视角）；
+   * 其余参考图保留在后。无 override 的角色行为与现状完全一致（零回归）。
+   * 仅在 referenceImagesOverride 缺省（走逐角色收集分支）时生效。
+   */
+  lookOverrides?: Map<string, string>;
 }
 
 export function resolveStrategy(
@@ -65,7 +72,14 @@ export function resolveStrategy(
       // 朝向感知：该角色有三视图资产且传入朝向时，把匹配朝向的资产 URL
       // 排到本角色 URL 列表首位（其余顺序不变），让参考图第一张就是对的朝向。
       // 无 referenceAssets / 无 facing 时 orderedUrls === urls（零回归）。
-      const orderedUrls = reorderByFacing(urls, c, options?.facing);
+      let orderedUrls = reorderByFacing(urls, c, options?.facing);
+
+      // 换装定妆照覆盖（场景定妆照）：该角色有换装图时，置于其 URL 列表首位
+      // （服装正确性优先于朝向视角），其余参考图保留在后并去重。
+      const lookUrl = options?.lookOverrides?.get(c.id);
+      if (lookUrl) {
+        orderedUrls = [lookUrl, ...orderedUrls.filter((u) => u !== lookUrl)];
+      }
 
       for (const url of orderedUrls) {
         if (!collectedUrls.includes(url)) collectedUrls.push(url);

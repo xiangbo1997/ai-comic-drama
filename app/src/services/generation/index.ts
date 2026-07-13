@@ -34,6 +34,29 @@ export {
 } from "./tail-frame";
 export type { GenerateTailFrameArgs } from "./tail-frame";
 
+// 场景定妆照（换装变体）：换装定妆照解析器 + 匹配/规整纯函数
+export {
+  resolveCharacterLookUrl,
+  matchClothingPreset,
+  normalizeOutfitKey,
+} from "./character-look";
+export type {
+  ResolveCharacterLookArgs,
+  LookClothingPreset,
+} from "./character-look";
+
+// 分镜换装接入层：编排器据分镜换装标注解析每角色换装定妆照 + 解析/匹配纯函数
+export {
+  resolveSceneCharacterLooks,
+  parseOutfitEntries,
+  matchOutfitToCharacter,
+} from "./scene-looks";
+export type {
+  SceneLookResult,
+  ResolveSceneLooksArgs,
+  OutfitEntry,
+} from "./scene-looks";
+
 export {
   planVideoSegments,
   estimateVideoCost,

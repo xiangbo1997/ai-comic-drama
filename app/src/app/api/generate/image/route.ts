@@ -364,6 +364,12 @@ export async function POST(request: NextRequest) {
             // 朝向感知三视图选择：按 isCanonical desc、qualityScore desc 排序后取 url+pose，
             // 供 orchestrator 按分镜朝向挑对应视图。不改变上面的 canonicalImageUrl 回退链。
             referenceAssets: sortReferenceAssets(c.referenceAssets),
+            // 场景定妆照换装：用户预设服装（来自 appearance.clothingPresets），
+            // 命中且带 imageRef 时换装走用户手挑参考图。老数据 appearance 缺省时为 undefined。
+            clothingPresets:
+              (c.appearance
+                ?.clothingPresets as SceneCharacterInfo["clothingPresets"]) ??
+              undefined,
           });
 
           if ((scene?.selectedCharacterIds?.length ?? 0) > 0) {

@@ -282,6 +282,11 @@ export interface SceneArtifact {
   actionBeat?: string;
   /** 地点标签：同一物理地点的分镜共用同一短标签（供场景锚定图分组） */
   locationKey?: string;
+  /**
+   * 分镜级换装标注：仅剧情非默认着装时出现，供场景定妆照换装。
+   * [{name:角色名, outfit:服装短语}]
+   */
+  characterOutfits?: Array<{ name: string; outfit: string }>;
   /** 转场效果 */
   transition?: string;
 }

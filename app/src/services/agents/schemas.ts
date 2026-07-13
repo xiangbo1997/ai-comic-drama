@@ -41,6 +41,32 @@ export const LocationKeySchema = z
   })
   .catch(undefined);
 
+/**
+ * 分镜级换装标注校验：LLM 产出的 [{name:角色名, outfit:服装短语}]。
+ * - 元素级：name 非空 trim；outfit 非空 trim，超 20 字截断（防 LLM 写成整段描述）。
+ * - 数组级：过滤掉 name/outfit 任一为空的条目；空数组归一为 undefined（不落无意义空值）。
+ * - 全程 .catch(undefined) 兜底：非数组等异常值不因它让整镜结构校验失败（绝大多数分镜没有它）。
+ */
+export const CharacterOutfitsSchema = z
+  .array(
+    // 元素级宽松 trim（不 min 校验）：把非法元素留到数组级过滤，
+    // 避免单个空条目让整数组 parse 失败后被外层 .catch 整体丢弃。
+    z.object({
+      name: z.string().trim(),
+      outfit: z
+        .string()
+        .trim()
+        .transform((v) => (v.length > 20 ? v.slice(0, 20) : v)),
+    })
+  )
+  .optional()
+  .transform((arr) => {
+    if (!arr) return undefined;
+    const cleaned = arr.filter((o) => o.name && o.outfit);
+    return cleaned.length > 0 ? cleaned : undefined;
+  })
+  .catch(undefined);
+
 // ============ ScriptArtifact ============
 
 export const SceneScriptZ = z.object({
@@ -62,6 +88,8 @@ export const SceneScriptZ = z.object({
   actionBeat: z.string().optional(),
   // 环境一致性：地点短标签（同地点共用同值，供场景锚定图分组）
   locationKey: LocationKeySchema,
+  // 分镜级换装标注（仅剧情非默认着装时出现，供场景定妆照换装）
+  characterOutfits: CharacterOutfitsSchema,
 });
 
 export const ScriptArtifactZ = z.object({
@@ -147,6 +175,8 @@ export const SceneArtifactZ = z.object({
   transition: z.string().nullable().optional(),
   // 环境一致性：地点短标签（供场景锚定图分组）
   locationKey: LocationKeySchema,
+  // 分镜级换装标注（仅剧情非默认着装时出现，供场景定妆照换装）
+  characterOutfits: CharacterOutfitsSchema,
 });
 
 export const StoryboardArtifactZ = z.object({

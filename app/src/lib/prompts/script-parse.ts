@@ -48,6 +48,7 @@ export const SCRIPT_PARSE_SYSTEM = `你是一个专业的漫剧分镜编剧，�
 6. 情感标签：neutral, happy, sad, angry, surprised, fear
 7. 时长单位为秒，单镜默认 2-4 秒；按叙事需要可填 1-60 秒（系统会按视频模型能力自动分段衔接），绝不为凑时长拉长单镜
 8. locationKey: 地点标签（中文短标签，≤12 字，如 "出租屋客厅"、"学校操场"）。同一物理地点的所有分镜必须用【完全相同】的标签，换地点才换值；禁止同一地点写出多个变体（如 "客厅" 与 "出租屋客厅" 混用）——它用于把同地点分镜的背景/空间锚定一致。
+9. characterOutfits: 分镜级换装标注（可选数组）。仅当剧情【明确要求】某角色穿非默认着装（婚纱、战损铠甲、雨夜湿透、睡衣、丧服等）时才输出 [{"name":"林萧","outfit":"白色婚纱"}]；服装短语 ≤10 字。同一套衣服跨分镜必须用【完全相同】的短语（同 locationKey 纪律，禁止变体）。绝大多数分镜是日常/默认着装，一律【省略】该字段，不要输出空数组。
 
 【环境与空间一致性（务必遵守）】
 - description 必须写明主体元素在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）。
@@ -89,6 +90,26 @@ ${NARRATION_DISCIPLINE_RULES}
   "locationKey": "出租屋客厅"
 }
 
+【少样本示例：带 characterOutfits 的换装分镜】
+{
+  "id": 12,
+  "shotType": "全景",
+  "description": "婚礼殿堂中央，林萧身着婚纱缓步走向圣坛，宾客起立注视",
+  "characters": ["林萧"],
+  "dialogue": null,
+  "narration": null,
+  "emotion": "happy",
+  "duration": 5,
+  "cameraAngle": "low-angle",
+  "lighting": "warm golden light through stained glass windows",
+  "composition": "centered symmetry, subject walking toward the altar",
+  "colorPalette": "warm ivory & gold with soft rose accents",
+  "cameraMovement": "dolly_in",
+  "actionBeat": "林萧提起裙摆缓步前行，目光坚定望向圣坛，纱裙随步伐轻摆",
+  "locationKey": "婚礼殿堂",
+  "characterOutfits": [{ "name": "林萧", "outfit": "白色婚纱" }]
+}
+
 【完整输出结构】
 {
   "title": "作品标题",
@@ -123,6 +144,7 @@ ${text}
 4. 镜头语言四字段（cameraAngle / lighting / composition / colorPalette）尽量补全
 5. 每个分镜必须给出 cameraMovement（13 值枚举之一）与 actionBeat（中文 ≤80 字，只写"动"的内容）；相邻镜头运镜不重复，运镜服务节奏
 6. 每个分镜必须给出 locationKey（中文短标签 ≤12 字）：同一物理地点用完全相同的标签，同地点禁止多个变体；每个地点首次出现尽量用全景/远景建立场景空间
-7. 保留原文的对话和旁白
-8. 输出纯JSON，不要其他内容`;
+7. 仅当剧情明确要求某角色穿非默认着装（婚纱/战损/雨夜湿透/睡衣等）时，给该分镜加 characterOutfits: [{"name":角色名,"outfit":服装短语≤10字}]；同一套衣服跨分镜用完全相同短语；日常着装省略此字段（绝大多数分镜没有它）
+8. 保留原文的对话和旁白
+9. 输出纯JSON，不要其他内容`;
 }

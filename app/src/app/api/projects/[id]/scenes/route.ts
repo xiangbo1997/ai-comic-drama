@@ -208,6 +208,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         actionBeat: scene.actionBeat || null,
         // 地点标签：LLM 解析产出，供场景锚定图（环境一致性）分组
         locationKey: scene.locationKey || null,
+        // 分镜级换装标注（Json）：LLM 解析产出，供场景定妆照换装。
+        // 有数组用 InputJsonValue，缺省用 JsonNull（Prisma Json 空值语义）。
+        characterOutfits:
+          Array.isArray(scene.characterOutfits) &&
+          scene.characterOutfits.length > 0
+            ? (scene.characterOutfits as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
       };
     });
 

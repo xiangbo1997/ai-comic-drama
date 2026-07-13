@@ -23,6 +23,25 @@ async function apiUpdateProject(id: string, data: Partial<ProjectDetail>) {
 }
 
 /**
+ * 解析轮询超时（毫秒）按提交文本长度自适应。
+ *
+ * 背景：长篇小说（≤20 万字）先分块压缩再解析，可能远超原 5 分钟。
+ * 公式：≤10000 字维持 5 分钟基线；每多 2 万字 +2 分钟；上限 20 分钟。
+ * 抽成纯函数便于单测。
+ */
+export function parsePollTimeoutMs(textLength: number): number {
+  const BASE_MS = 5 * 60 * 1000; // 5 分钟基线
+  const BASE_THRESHOLD = 10000; // 该长度内维持基线
+  const STEP_CHARS = 20000; // 每 2 万字
+  const STEP_MS = 2 * 60 * 1000; // 加 2 分钟
+  const MAX_MS = 20 * 60 * 1000; // 上限 20 分钟
+
+  if (textLength <= BASE_THRESHOLD) return BASE_MS;
+  const extraSteps = Math.ceil((textLength - BASE_THRESHOLD) / STEP_CHARS);
+  return Math.min(MAX_MS, BASE_MS + extraSteps * STEP_MS);
+}
+
+/**
  * Hotfix2 方案 B (2026-05-21)：剧本解析异步化 + 轮询
  *
  * 旧行为：单次 POST 等响应（30-120 秒）→ Cloudflare 100s 超时切断 → 用户看到 524
@@ -30,7 +49,7 @@ async function apiUpdateProject(id: string, data: Partial<ProjectDetail>) {
  *   1) POST 拿 taskId（< 100ms 完成）
  *   2) 每 2s GET /api/script/parse/[taskId] 轮询
  *   3) status === "COMPLETED" 返回 result；"FAILED" 抛错；"PROCESSING" 继续轮询
- *   4) 5 分钟超时兜底（按理 ScriptParserAgent 最多 3 × 45s = 135s 就该结束）
+ *   4) 超时按提交文本长度自适应（长篇小说压缩+解析可能远超 5 分钟）
  */
 async function parseScript(
   text: string,
@@ -60,7 +79,8 @@ async function parseScript(
   // 步骤 2：轮询任务状态
   const taskId = startData.taskId;
   const POLL_INTERVAL_MS = 2000;
-  const MAX_POLL_MS = 5 * 60 * 1000; // 5 分钟兜底（按理 3 × 45s = 135s 就该结束）
+  // 超时按提交文本长度自适应：短文 5 分钟，长篇小说最长 20 分钟
+  const MAX_POLL_MS = parsePollTimeoutMs(text.length);
   const deadline = Date.now() + MAX_POLL_MS;
 
   while (Date.now() < deadline) {
@@ -87,7 +107,8 @@ async function parseScript(
     // PENDING / PROCESSING → 继续等
   }
 
-  throw new Error("Script parse timed out after 5 minutes");
+  const waitedMinutes = Math.round(MAX_POLL_MS / 60000);
+  throw new Error(`剧本解析超时（已等待 ${waitedMinutes} 分钟）`);
 }
 
 async function saveScenes(

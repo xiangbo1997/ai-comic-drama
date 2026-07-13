@@ -45,6 +45,11 @@ export interface Scene {
   actionBeat?: string | null;
   /** 地点标签：同一物理地点的分镜共用同一短标签（LLM 解析产出，供场景锚定图分组） */
   locationKey?: string | null;
+  /**
+   * 分镜级换装标注（LLM 解析产出）：仅剧情明确非默认着装时出现。
+   * 出图时据此按角色换成场景定妆照（换装变体），锁服装正确性。
+   */
+  characterOutfits?: Array<{ name: string; outfit: string }>;
   imageUrl: string | null;
   videoUrl: string | null;
   audioUrl: string | null;
@@ -97,6 +102,11 @@ export interface SceneScript {
   actionBeat?: string;
   /** 地点标签：同一物理地点的分镜共用同一短标签（≤12 字），供场景锚定图分组 */
   locationKey?: string;
+  /**
+   * 分镜级换装标注：仅剧情明确要求某角色非默认着装（婚纱/战损/雨夜湿透/睡衣等）时出现。
+   * 同一套衣服跨分镜用完全相同的短语（同 locationKey 纪律）；日常/默认着装省略。
+   */
+  characterOutfits?: Array<{ name: string; outfit: string }>;
 }
 
 /** 剧本解析完整结果 */

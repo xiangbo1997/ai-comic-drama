@@ -570,6 +570,12 @@ async function resolveProjectCharacters(
       canonicalImageUrl: canonicalImageUrl ?? undefined,
       referenceImageUrls:
         referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
+      // 用户预设服装（外观编辑器手填/AI 起草）：供场景定妆照换装匹配，
+      // 命中且带 imageRef 时直接用用户手挑参考图（与手动路径对等）
+      clothingPresets:
+        (c.appearance
+          ?.clothingPresets as SceneCharacterInfo["clothingPresets"]) ??
+        undefined,
       // 带 pose 的参考资产：供朝向感知选图（背影镜取背视图等）。排序与手动路径
       // sortReferenceAssets 同规则（定妆优先→质量分降序→创建早优先），保证同 pose
       // 多张资产时两条出图路径挑到同一张（对等性）。
@@ -1379,6 +1385,11 @@ async function saveScenesToProject(
       actionBeat: s.actionBeat ?? null,
       // 地点标签：同一物理地点的分镜共用同一短标签，供场景锚定图分组（环境一致性）
       locationKey: s.locationKey ?? null,
+      // 分镜级换装标注（Json）：LLM 解析产出，供场景定妆照换装（与 scenes 路由同款空值语义）
+      characterOutfits:
+        Array.isArray(s.characterOutfits) && s.characterOutfits.length > 0
+          ? (s.characterOutfits as unknown as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
     };
 
     if (sceneId) {
