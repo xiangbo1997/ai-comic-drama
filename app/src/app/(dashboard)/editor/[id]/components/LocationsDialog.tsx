@@ -124,12 +124,23 @@ export function LocationsDialog({
     setDescribing(true);
     try {
       // labelMissing=true：先为未标注地点的分镜补地点标签，再补描述
-      const { labeled, described } = await describeLocations(projectId, true);
+      const { labeled, described, describeError } = await describeLocations(
+        projectId,
+        true
+      );
+      // 部分成功（打标已落库、描述生成失败）：仍需刷新展示已打标地点，
+      // 只是提示改为 warning「可重试」，不误报为整体失败（数据其实已入库）。
       await reload();
-      const parts: string[] = [];
-      if (labeled > 0) parts.push(`为 ${labeled} 个分镜标注了地点`);
-      if (described > 0) parts.push(`补全 ${described} 条地点描述`);
-      toast.success(parts.length > 0 ? parts.join("，") : "没有需要补全的内容");
+      if (describeError) {
+        toast.warning("地点已打标，描述生成失败，可重试");
+      } else {
+        const parts: string[] = [];
+        if (labeled > 0) parts.push(`为 ${labeled} 个分镜标注了地点`);
+        if (described > 0) parts.push(`补全 ${described} 条地点描述`);
+        toast.success(
+          parts.length > 0 ? parts.join("，") : "没有需要补全的内容"
+        );
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "补全地点/描述失败");
     } finally {

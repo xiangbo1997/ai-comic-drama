@@ -122,11 +122,19 @@ export async function fetchLocations(
   return data.locations;
 }
 
+/** AI 补全地点/描述的返回：部分成功时（打标成功但描述失败）带 describeError */
+export interface DescribeLocationsResult {
+  labeled: number;
+  described: number;
+  /** 部分成功标记：第 1 步打标已落库，第 2 步描述生成失败的中文提示 */
+  describeError?: string;
+}
+
 /** AI 补全地点/描述（labelMissing=true 时先为未标注分镜指派地点标签） */
 export async function describeLocations(
   projectId: string,
   labelMissing: boolean
-): Promise<{ labeled: number; described: number }> {
+): Promise<DescribeLocationsResult> {
   const res = await fetch(`/api/projects/${projectId}/locations/describe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

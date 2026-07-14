@@ -11,6 +11,9 @@
  *     upsert 到 ProjectLocation。
  *
  * 返回 { labeled, described }：本次打标的分镜数、写入描述的地点数，供 UI 提示。
+ * 部分成功：第 1 步（打标）已提交事务，第 2 步（描述）解析失败时，不再整体 502，
+ * 而是返回 200 + { labeled, described: 0, describeError }——labels 已落库，UI 应刷新
+ * 并提示「地点已打标，描述生成失败，可重试」，而非误报为整体失败（见 LocationsDialog）。
  */
 
 import { auth } from "@/lib/auth";
@@ -180,6 +183,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         descriptions = parseDescribeOutput(raw, targets);
       } catch (parseErr) {
         log.error("地点描述解析失败:", parseErr);
+        // 部分成功：第 1 步打标已提交事务，此处仅描述解析失败。若已打标则返回
+        // 200 + describeError（labels 已落库，UI 应刷新并提示可重试），否则整体 502。
+        if (labeled > 0) {
+          return NextResponse.json({
+            labeled,
+            described: 0,
+            describeError: "AI 返回格式异常，请重试",
+          });
+        }
         return NextResponse.json(
           { error: "AI 返回格式异常，请重试" },
           { status: 502 }
