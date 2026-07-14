@@ -10,7 +10,7 @@
  * 注意：下载后需重新 `pnpm build`——Next 生产模式只服务 build 时刻的
  *       public 快照，build 后新增到空目录的文件需重 build 才能被服务。
  */
-import { mkdir, writeFile, stat } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const BASE = "https://ia801509.us.archive.org/18/items/freepd/";
