@@ -38,7 +38,8 @@ export const grokImage: ImageProvider = {
           n: 1,
         }),
       },
-      "Grok 图像生成失败"
+      "Grok 图像生成失败",
+      "submit" // 非幂等图像生成提交：只重试 429/连接前失败，防重复出图浪费上游配额
     );
 
     const data = await response.json();

@@ -12,8 +12,14 @@
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-/** 可重试的 HTTP 状态码：限流 + 常见网关瞬时故障 */
-const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504, 522, 524, 525]);
+/**
+ * 可重试的 HTTP 状态码：限流 + 常见网关瞬时故障。
+ *
+ * 刻意**不含 500**：国内中转站普遍拿 500 兜内容安全/prompt 拒绝等确定性失败，
+ * 重试也不会好——只会白白多付 3× 延迟；对图像/视频还是 3× 上游配额浪费。
+ * 保留 502/503/504（网关抖动）与 Cloudflare 522/524/525（中转站常见）。
+ */
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504, 522, 524, 525]);
 
 /**
  * 判断 HTTP 状态码是否值得重试。
@@ -49,6 +55,32 @@ export function isTransientNetworkError(err: unknown): boolean {
     return true;
   }
   if (cause?.message?.includes("ECONNRESET")) return true;
+  return false;
+}
+
+/**
+ * 判断错误是否为**连接建立阶段**失败（DNS 解析失败 / 连接被拒 / 连接前超时）。
+ *
+ * 与 isTransientNetworkError 的关键区别：只认「还没建立连接、请求肯定没到后端」
+ * 的错误码，**排除** ECONNRESET/EPIPE 这类「连接已建立、可能已在传输中」的断流。
+ * 用于非幂等的生成提交请求（submit 模式）：连接前失败重试是安全的（后端未启动生成），
+ * 而中途断流重试会触发整段重新生成 → 双倍上游配额消耗。
+ *
+ * undici 无法可靠区分「响应字节前」与「响应字节后」的 socket reset，
+ * 故此处对无法确证发生在连接前的 reset 一律不重试（宁可失败也不重复扣配额）。
+ */
+export function isConnectionPhaseError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const connectCodes = new Set([
+    "ECONNREFUSED", // 连接被拒（后端未监听）
+    "ENOTFOUND", // DNS 解析失败
+    "EAI_AGAIN", // DNS 临时失败
+    "UND_ERR_CONNECT_TIMEOUT", // undici 连接握手超时（连接前）
+  ]);
+  const code = (err as { code?: string }).code;
+  if (code && connectCodes.has(code)) return true;
+  const cause = (err as { cause?: { code?: string } }).cause;
+  if (cause?.code && connectCodes.has(cause.code)) return true;
   return false;
 }
 

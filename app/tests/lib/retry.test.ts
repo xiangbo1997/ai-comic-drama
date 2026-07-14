@@ -2,18 +2,23 @@ import { describe, it, expect } from "vitest";
 import {
   isRetryableStatus,
   isTransientNetworkError,
+  isConnectionPhaseError,
   parseRetryAfter,
   withRetry,
 } from "@/lib/retry";
 
 describe("isRetryableStatus", () => {
-  it("429 限流与 5xx/52x 网关瞬时故障可重试", () => {
+  it("429 限流与网关瞬时故障（502/503/504/52x）可重试", () => {
     expect(isRetryableStatus(429)).toBe(true);
-    expect(isRetryableStatus(500)).toBe(true);
     expect(isRetryableStatus(502)).toBe(true);
     expect(isRetryableStatus(503)).toBe(true);
     expect(isRetryableStatus(504)).toBe(true);
+    expect(isRetryableStatus(522)).toBe(true);
     expect(isRetryableStatus(525)).toBe(true); // Cloudflare 中转常见
+  });
+
+  it("500 不再重试（中转站常拿 500 兜内容安全/prompt 拒绝等确定性失败）", () => {
+    expect(isRetryableStatus(500)).toBe(false);
   });
 
   it("认证/参数类错误不重试", () => {
@@ -48,6 +53,42 @@ describe("isTransientNetworkError", () => {
     expect(isTransientNetworkError(new Error("invalid api key"))).toBe(false);
     expect(isTransientNetworkError("not an error")).toBe(false);
     expect(isTransientNetworkError(null)).toBe(false);
+  });
+});
+
+describe("isConnectionPhaseError", () => {
+  it("识别连接建立阶段失败（拒连/DNS/连接前超时）", () => {
+    for (const code of [
+      "ECONNREFUSED",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "UND_ERR_CONNECT_TIMEOUT",
+    ]) {
+      const err = Object.assign(new Error("connect fail"), { code });
+      expect(isConnectionPhaseError(err)).toBe(true);
+    }
+  });
+
+  it("识别 cause 内嵌的连接前失败", () => {
+    const err = Object.assign(new Error("fetch failed"), {
+      cause: { code: "ECONNREFUSED" },
+    });
+    expect(isConnectionPhaseError(err)).toBe(true);
+  });
+
+  it("中途断流（ECONNRESET/EPIPE）不算连接前失败——请求可能已到后端", () => {
+    const reset = Object.assign(new Error("socket hang up"), {
+      code: "ECONNRESET",
+    });
+    expect(isConnectionPhaseError(reset)).toBe(false);
+    const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+    expect(isConnectionPhaseError(epipe)).toBe(false);
+  });
+
+  it("undici 'terminated' 与非 Error 输入不命中", () => {
+    expect(isConnectionPhaseError(new Error("terminated"))).toBe(false);
+    expect(isConnectionPhaseError("not an error")).toBe(false);
+    expect(isConnectionPhaseError(null)).toBe(false);
   });
 });
 

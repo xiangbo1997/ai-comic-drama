@@ -107,7 +107,8 @@ export const proxyUnifiedImage: ImageProvider = {
           ...(typeof seed === "number" ? { seed } : {}),
         }),
       },
-      "中转站图像生成失败"
+      "中转站图像生成失败",
+      "submit" // 非幂等图像生成提交：只重试 429/连接前失败，防重复出图浪费上游配额
     );
 
     const data = await response.json();
@@ -160,7 +161,8 @@ export const proxyUnifiedVideo: VideoProvider = {
           duration,
         }),
       },
-      "视频生成失败"
+      "视频生成失败",
+      "submit" // 非幂等视频生成提交（挂满整段生成）：只重试 429/连接前失败，防重复生成翻倍配额
     );
 
     const data = await response.json();

@@ -38,7 +38,8 @@ export const runwayVideo: VideoProvider = {
           ratio: "9:16",
         }),
       },
-      "Runway API error"
+      "Runway API error",
+      "submit" // 非幂等视频生成提交（提交后返回 taskId 再轮询）：只重试 429/连接前失败，防重复提交
     );
 
     const { id: taskId } = await response.json();
