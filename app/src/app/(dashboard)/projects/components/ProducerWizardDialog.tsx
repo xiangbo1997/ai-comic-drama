@@ -7,7 +7,9 @@
  * 出图（花积分）永远在「进入审阅并逐项确认」之后由用户主动触发。
  *
  * 编排为客户端串行五步，每步调「已有」端点（见 lib/producer-client）：
- *   ① AI 起草世界观 → ② 创建项目 → ③ 生成短剧脚本 → ④ 直转分镜 → ⑤ 角色建档+外貌预填
+ *   ① AI 起草世界观 → ② 创建项目 → ③ 生成短剧脚本 → ④ 角色建档+外貌预填 → ⑤ 直转分镜
+ * 角色步骤必须先于分镜步骤：分镜直转要把角色名写入各分镜 characters，分镜 POST
+ * 路由据此匹配 selectedCharacterId（出图角色一致性）——角色需先在库中建档。
  * 幂等：② 创建项目仅一次，projectId 存 state；任一步失败可「重试该步」，
  * 从失败步续跑而非从头（已完成步不重放，避免重复建项目/角色）。
  * 完成后 CTA「进入审阅」→ /editor/[projectId]?review=1。
@@ -49,23 +51,25 @@ const ASPECT_RATIOS: Array<{ value: string; label: string }> = [
 ];
 
 /** 向导五步的稳定标识（顺序即执行顺序） */
-type StepKey = "worldview" | "project" | "script" | "scenes" | "characters";
+type StepKey = "worldview" | "project" | "script" | "characters" | "scenes";
 type StepStatus = "pending" | "running" | "done" | "failed";
 
 const STEP_LABELS: Record<StepKey, string> = {
   worldview: "AI 起草世界观",
   project: "创建项目",
   script: "生成短剧脚本（约 1 分钟）",
-  scenes: "直转分镜列表",
   characters: "角色建档 + 外貌预填",
+  scenes: "直转分镜列表",
 };
 
+// 角色先于分镜：分镜直转要把角色名写入各分镜 characters，分镜 POST 路由据此
+// 匹配 selectedCharacterId——角色需先建档入库，否则匹配落空、出图缺参考图。
 const STEP_ORDER: StepKey[] = [
   "worldview",
   "project",
   "script",
-  "scenes",
   "characters",
+  "scenes",
 ];
 
 interface ProducerWizardDialogProps {
@@ -88,8 +92,8 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
     worldview: "pending",
     project: "pending",
     script: "pending",
-    scenes: "pending",
     characters: "pending",
+    scenes: "pending",
   });
   const [failedStep, setFailedStep] = useState<StepKey | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -165,12 +169,30 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
             });
             localArtifact = result.artifact;
             setScriptArtifact(result.artifact);
+          } else if (key === "characters") {
+            if (!localProjectId || !localArtifact) {
+              throw new Error("脚本缺失，无法建档角色");
+            }
+            const names = extractProducerCharacterNames(localArtifact);
+            // 串行建档（避免并发 N 次 LLM 触发限流）；单角色失败整步失败可重试。
+            // 幂等：已成功建档的角色名跳过，重试不重复建档。
+            for (const name of names) {
+              if (localCreatedNames.has(name)) continue;
+              await createAndLinkCharacter(localProjectId, name);
+              localCreatedNames.add(name);
+              setCreatedCharNames([...localCreatedNames]);
+              setCharCount(localCreatedNames.size);
+            }
           } else if (key === "scenes") {
             if (!localProjectId || !localArtifact) {
               throw new Error("脚本缺失，请重试生成脚本");
             }
+            // 角色名与角色步骤同源（extractProducerCharacterNames），不读 React
+            // state（setState 异步）。写入各分镜 characters，分镜 POST 路由据此
+            // 匹配 selectedCharacterId——角色已在上一步建档入库，匹配得中。
+            const names = extractProducerCharacterNames(localArtifact);
             // 零 LLM 结构化直转（含九宫格镜头语言若有）；新空项目无需重建确认
-            const scenes = dramaScriptToScenes(localArtifact, null, []);
+            const scenes = dramaScriptToScenes(localArtifact, null, names);
             const scenesRes = await fetch(
               `/api/projects/${localProjectId}/scenes`,
               {
@@ -193,21 +215,9 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
             }).catch(() => {
               // 回填失败不阻断（inputText 仅便于手动重解析，非必需）
             });
-          } else if (key === "characters") {
-            if (!localProjectId || !localArtifact) {
-              throw new Error("脚本缺失，无法建档角色");
-            }
-            const names = extractProducerCharacterNames(localArtifact);
-            // 串行建档（避免并发 N 次 LLM 触发限流）；单角色失败整步失败可重试。
-            // 幂等：已成功建档的角色名跳过，重试不重复建档。
-            for (const name of names) {
-              if (localCreatedNames.has(name)) continue;
-              await createAndLinkCharacter(localProjectId, name);
-              localCreatedNames.add(name);
-              setCreatedCharNames([...localCreatedNames]);
-              setCharCount(localCreatedNames.size);
-            }
-            // 写入审阅态标记：本项目由向导创建，编辑器据此显示审阅 UI
+            // 写入审阅态标记（末步收尾）：本项目由向导创建，编辑器据此显示审阅 UI。
+            // 置于最后一步末尾，确保角色与分镜两步都成功后才落标记；PATCH 失败则
+            // 末步标记失败，重试重跑分镜步骤（分镜 POST 幂等替换，不会重复建分镜）。
             const producerReview: ProducerReview = {
               createdByProducer: true,
               confirmed: {
