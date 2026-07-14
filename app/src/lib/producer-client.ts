@@ -104,17 +104,92 @@ export interface ProducerCharacterResult {
   appearance: AppearanceFormData | null;
 }
 
+/** 角色摘要（GET /api/characters、GET /api/projects/[id]/characters 共用最小形状） */
+interface CharacterSummary {
+  id: string;
+  name: string;
+}
+
+/**
+ * 在角色列表里按名精确查重（trim 后逐字比较）。
+ *
+ * GET 端点是 contains 模糊匹配，故拉取后须在客户端做精确同名匹配，避免把
+ * 「林烬」与「林烬阁下」混为一谈。非数组输入（GET 失败降级）安全返回 null。
+ */
+export function matchCharacterByName(
+  list: unknown,
+  name: string
+): CharacterSummary | null {
+  if (!Array.isArray(list)) return null;
+  const trimmed = name.trim();
+  const hit = (list as CharacterSummary[]).find(
+    (c) => c?.name?.trim() === trimmed
+  );
+  return hit ?? null;
+}
+
+/**
+ * 幂等护栏：查找该用户已存在的同名角色 id（先查项目已关联，再查用户角色库）。
+ *
+ * 背景：CREATE→LINK 两步中若 CREATE 成功而 LINK 失败，向导重试会重跑本函数所在
+ * 的 createAndLinkCharacter，若无此查重则再次 CREATE，因 characters POST 无同名唯一
+ * 约束而产生重复孤儿 Character（LINK 落空的那条）。故 CREATE 前先按名精确查重：
+ *  - 命中项目已关联：该名角色已就位，跳过 CREATE 直接返回（LINK 也已完成）。
+ *  - 命中用户角色库（可能是上次 LINK 失败遗留的孤儿）：复用其 id，跳过 CREATE 只补 LINK。
+ * GET /api/characters?search= 是 contains 模糊匹配，故拉取后在客户端做精确同名匹配。
+ */
+async function findExistingCharacterId(
+  projectId: string,
+  name: string
+): Promise<{ id: string; linked: boolean } | null> {
+  const trimmed = name.trim();
+
+  // 1) 项目已关联角色：命中即已就位（无需再 LINK）
+  const linkedRes = await fetch(`/api/projects/${projectId}/characters`);
+  if (linkedRes.ok) {
+    const linked = await linkedRes.json().catch(() => []);
+    const hit = matchCharacterByName(linked, trimmed);
+    if (hit) return { id: hit.id, linked: true };
+  }
+
+  // 2) 用户角色库：命中即复用其 id（可能是上次 LINK 失败遗留的孤儿），仅需补 LINK
+  const listRes = await fetch(
+    `/api/characters?search=${encodeURIComponent(trimmed)}`
+  );
+  if (listRes.ok) {
+    const list = await listRes.json().catch(() => []);
+    const hit = matchCharacterByName(list, trimmed);
+    if (hit) return { id: hit.id, linked: false };
+  }
+
+  return null;
+}
+
 /**
  * 为项目创建一个角色并预填外貌（计划 §4 · 1.2 复用）。
  *
  * 三步：建 Character（带外貌若预填成功）→ 关联到项目 → 返回摘要。
  * 外貌预填走 assist 的 appearance-draft（1 次 LLM/角色），失败不阻断——
  * 角色仍建档，仅外貌留空供用户手填（降级不阻断，交互原则 5）。
+ *
+ * 幂等：CREATE 前先查重（findExistingCharacterId）。若同名角色已存在（项目已关联或
+ * 用户角色库遗留），跳过 CREATE 只做 LINK（LINK 走 upsert，重复关联安全），避免重试
+ * 时重复建档产生孤儿 Character。
  */
 export async function createAndLinkCharacter(
   projectId: string,
   name: string
 ): Promise<ProducerCharacterResult> {
+  // 幂等护栏：命中同名已存在角色则复用，跳过 CREATE（详见 findExistingCharacterId）
+  const existing = await findExistingCharacterId(projectId, name);
+  if (existing) {
+    // 已在项目内则彻底完成；仅在用户库遗留（未关联）时补一次 LINK
+    if (!existing.linked) {
+      await linkCharacterToProject(projectId, existing.id, name);
+    }
+    return { id: existing.id, name, appearance: null };
+  }
+
   // 先尝试外貌预填（失败降级为空外貌，不阻断建档）
   let appearance: AppearanceFormData | null = null;
   try {
@@ -139,16 +214,25 @@ export async function createAndLinkCharacter(
   }
   const character = (await createRes.json()) as { id: string; name: string };
 
-  // 关联到项目
+  // 关联到项目（LINK 失败时角色已建档：下次重试走查重命中孤儿分支，不再重复 CREATE）
+  await linkCharacterToProject(projectId, character.id, name);
+
+  return { id: character.id, name: character.name, appearance };
+}
+
+/** 关联角色到项目（LINK 走 upsert，重复关联安全；失败抛中文提示） */
+async function linkCharacterToProject(
+  projectId: string,
+  characterId: string,
+  name: string
+): Promise<void> {
   const linkRes = await fetch(`/api/projects/${projectId}/characters`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ characterId: character.id }),
+    body: JSON.stringify({ characterId }),
   });
   if (!linkRes.ok) {
     const error = await linkRes.json().catch(() => null);
     throw new Error(formatApiError(error, `关联角色「${name}」到项目失败`));
   }
-
-  return { id: character.id, name: character.name, appearance };
 }
