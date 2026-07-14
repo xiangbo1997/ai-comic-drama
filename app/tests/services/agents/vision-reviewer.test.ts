@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mkdtemp, writeFile, rm } from "fs/promises";
+import { mkdir, mkdtemp, writeFile, rm } from "fs/promises";
 import path from "path";
 import {
   reviewImageWithVision,
@@ -175,6 +175,8 @@ describe("resolveImageUrlForVision() · 本地路径内联", () => {
       fileName: string,
       bytes: Buffer
     ): Promise<string> {
+      // CI 干净 checkout 无 public/uploads（不入 git），mkdtemp 前须先建基目录
+      await mkdir(uploadsDir, { recursive: true });
       tmpDir = await mkdtemp(path.join(uploadsDir, "vtest-"));
       subName = path.basename(tmpDir);
       const filePath = path.join(tmpDir, fileName);
@@ -192,7 +194,8 @@ describe("resolveImageUrlForVision() · 本地路径内联", () => {
     });
 
     it("文件不存在 → null（该对跳过）", async () => {
-      // 建目录但不写该文件
+      // 建目录但不写该文件（CI 无 public/uploads，先建基目录）
+      await mkdir(uploadsDir, { recursive: true });
       tmpDir = await mkdtemp(path.join(uploadsDir, "vtest-"));
       subName = path.basename(tmpDir);
       expect(
