@@ -11,7 +11,7 @@ import {
   ASPECT_RATIO_TO_SIZE,
 } from "./base";
 import { safeFetch, safeDownload } from "@/lib/url-guard";
-import { withRetry, isTransientNetworkError } from "@/lib/retry";
+import { withRetry, isConnectionPhaseError } from "@/lib/retry";
 
 // 支持的图像生成模型列表
 const SUPPORTED_IMAGE_MODELS = [
@@ -291,12 +291,15 @@ async function generateImageWithEdits(
     });
   };
 
-  // 步骤 B 续：仅对 TCP 断流重试（HTTP 状态码错误在下方 throwOpenAIImageError
-  // 单独处理，不在此重试）。收口到 lib/retry 的 withRetry：指数退避 + 抖动
+  // 步骤 B 续：/images/edits 是非幂等的生成提交请求——中途断流(ECONNRESET/EPIPE)
+  // 时后端可能已经开始改图，重试会触发整段重新生成 → 双倍上游配额消耗。
+  // 故只对「连接建立阶段」失败(拒连/DNS/连接前超时)重试（请求肯定没到后端，重试安全），
+  // 与 base.ts fetchWithError 的 submit 模式一致。HTTP 状态码错误在下方
+  // throwOpenAIImageError 单独处理，不在此重试。收口到 lib/retry：指数退避 + 抖动。
   const response = await withRetry(buildRequest, {
     maxRetries: 2,
     baseDelayMs: 1000,
-    shouldRetry: isTransientNetworkError,
+    shouldRetry: isConnectionPhaseError,
   });
 
   if (!response.ok) {

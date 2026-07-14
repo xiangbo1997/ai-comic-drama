@@ -154,8 +154,9 @@ function computeBackoff(
  *       ? { delayMs: e.retryAfterMs ?? 0 } : isTransientNetworkError(e),
  *   })
  *
- * 若 shouldRetry 返回带 delayMs 的对象且 delayMs>0，则用它替代指数退避
- * （尊重上游 Retry-After）；否则用指数退避 + 抖动。
+ * 若 shouldRetry 返回带有效 delayMs（>=0 的有限值）的对象，则用它替代指数退避
+ * （尊重上游 Retry-After，含 `Retry-After: 0` → 立即重试）；delayMs 为负/NaN
+ * 等无效值时回退到指数退避 + 抖动。
  */
 export async function withRetry<T>(
   fn: () => Promise<T>,
@@ -182,9 +183,13 @@ export async function withRetry<T>(
       const decision = shouldRetry(error);
       if (!decision) break;
 
-      // 上游给了明确等待时长就听它的（并夹在 maxDelayMs 内），否则指数退避
+      // 上游给了明确等待时长就听它的（并夹在 maxDelayMs 内），否则指数退避。
+      // delayMs === 0（上游 Retry-After: 0，要求立即重试）也是有效覆盖，须尊重；
+      // 仅当为负/NaN 等无效值时才回退到指数退避。
       const override =
-        typeof decision === "object" && decision.delayMs > 0
+        typeof decision === "object" &&
+        Number.isFinite(decision.delayMs) &&
+        decision.delayMs >= 0
           ? Math.min(decision.delayMs, maxDelayMs)
           : null;
       const delayMs =

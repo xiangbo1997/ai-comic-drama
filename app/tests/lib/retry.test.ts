@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   isRetryableStatus,
   isTransientNetworkError,
@@ -184,5 +184,64 @@ describe("withRetry", () => {
     );
     expect(result).toBe("done");
     expect(calls).toBe(2);
+  });
+
+  describe("delayMs override 边界（fake timers）", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("delayMs:0（上游 Retry-After: 0）立即重试，不走指数退避 sleep", async () => {
+      vi.useFakeTimers();
+      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+      let calls = 0;
+      const promise = withRetry(
+        async () => {
+          calls += 1;
+          if (calls < 2) throw new Error("retry now");
+          return "immediate";
+        },
+        // baseDelayMs 故意设大：若 delayMs:0 未被尊重会退回 ~1000ms 退避，
+        // 断言 sleep 时长为 0 即可暴露旧的 `> 0` 短路 bug
+        {
+          maxRetries: 2,
+          baseDelayMs: 1000,
+          shouldRetry: () => ({ delayMs: 0 }),
+        }
+      );
+      // 只推进 0ms：若真是立即重试，微任务队列跑完即可解析
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(promise).resolves.toBe("immediate");
+      expect(calls).toBe(2);
+      // sleep(0) 被调用，退避基数 1000 从未生效
+      expect(setTimeoutSpy).toHaveBeenCalledTimes(1);
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 0);
+    });
+
+    it("delayMs 为负值时回退到指数退避（不当作立即重试）", async () => {
+      vi.useFakeTimers();
+      const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+      let calls = 0;
+      const promise = withRetry(
+        async () => {
+          calls += 1;
+          if (calls < 2) throw new Error("retry backoff");
+          return "backed-off";
+        },
+        {
+          maxRetries: 2,
+          baseDelayMs: 1000,
+          shouldRetry: () => ({ delayMs: -5 }),
+        }
+      );
+      // 负值 → computeBackoff(1, 1000, ...)：full jitter 落在 [0,1000]，推进 1000ms 覆盖上界
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(promise).resolves.toBe("backed-off");
+      expect(calls).toBe(2);
+      // 退避 sleep 的时长必来自 computeBackoff（[0,1000]），绝不会是被夹的负值
+      const backoffDelay = setTimeoutSpy.mock.calls[0][1] as number;
+      expect(backoffDelay).toBeGreaterThanOrEqual(0);
+      expect(backoffDelay).toBeLessThanOrEqual(1000);
+    });
   });
 });
