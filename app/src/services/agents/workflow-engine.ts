@@ -1390,6 +1390,9 @@ async function saveScenesToProject(
       actionBeat: s.actionBeat ?? null,
       // 地点标签：同一物理地点的分镜共用同一短标签，供场景锚定图分组（环境一致性）
       locationKey: s.locationKey ?? null,
+      // 尾帧衔接下一镜：LLM 解析产出（linkNext），映射到 videoLinkNext，供视频生成走 FL 首尾帧插值。
+      // 与手动解析路径（scenes/route.ts）对齐——此前一键 workflow 丢弃该字段，导致同款输入两条路径行为不一致。
+      videoLinkNext: Boolean(s.linkNext),
       // 分镜级换装标注（Json）：LLM 解析产出，供场景定妆照换装（与 scenes 路由同款空值语义）
       characterOutfits:
         Array.isArray(s.characterOutfits) && s.characterOutfits.length > 0
