@@ -3,7 +3,7 @@
  */
 
 import type { VideoProvider } from "../types";
-import { fetchWithError } from "./base";
+import { fetchWithError, pluckPath } from "./base";
 import { pollUntilDone, type PollStep } from "./poll";
 import { nearestVideoDuration } from "@/services/generation/video-segmenter";
 
@@ -42,6 +42,12 @@ export const runwayVideo: VideoProvider = {
     );
 
     const { id: taskId } = await response.json();
+    // 防呆：提交失败时 id 为 undefined，会轮询 /tasks/undefined 静默走错
+    if (!taskId) {
+      throw new Error(
+        "Runway 视频生成提交失败：响应缺少任务 id（可能是 API Key 无效或上游拒绝请求）"
+      );
+    }
 
     // 轮询任务状态：间隔 5s，超时上限 10 分钟（防止上游卡死无限挂起）
     const step = async (): Promise<PollStep<string>> => {
@@ -54,7 +60,13 @@ export const runwayVideo: VideoProvider = {
       const result = await statusResponse.json();
 
       if (result.status === "SUCCEEDED") {
-        return { done: true, result: result.output[0] as string };
+        // 安全取值：标记 SUCCEEDED 但 output 缺失/为空（中转站非标准实现）时裸下标会崩
+        const output = pluckPath<string>(
+          result,
+          ["output", 0],
+          "Runway 视频结果"
+        );
+        return { done: true, result: output };
       }
       if (result.status === "FAILED") {
         const detail =

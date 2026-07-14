@@ -106,6 +106,13 @@ export const falImage: ImageProvider = {
     }
 
     const { request_id } = await response.json();
+    // 防呆：上游返回错误对象时 request_id 为 undefined，会导致轮询 /requests/undefined
+    // 静默超时 10 分钟难排查——这里立即抛可读错误
+    if (!request_id) {
+      throw new Error(
+        "Fal.ai 图像生成提交失败：响应缺少 request_id（可能是 API Key 无效或上游拒绝请求）"
+      );
+    }
     const result = await falPollResult(
       effectiveModel,
       request_id,
@@ -147,6 +154,12 @@ export const falVideo: VideoProvider = {
     }
 
     const { request_id } = await response.json();
+    // 防呆：request_id 缺失会导致轮询 /requests/undefined 静默超时（同图像路径）
+    if (!request_id) {
+      throw new Error(
+        "Fal.ai 视频生成提交失败：响应缺少 request_id（可能是 API Key 无效或上游拒绝请求）"
+      );
+    }
     // 视频生成更慢：轮询间隔 5s，超时上限 10 分钟
     const result = await falPollResult(model, request_id, config.apiKey, {
       intervalMs: 5000,

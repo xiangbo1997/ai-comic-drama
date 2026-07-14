@@ -4,8 +4,14 @@
  */
 
 import type { LLMProvider, ImageProvider } from "../types";
-import { trimUrl, fetchWithError, ASPECT_RATIO_TO_SIZE } from "./base";
+import {
+  trimUrl,
+  fetchWithError,
+  pluckPath,
+  ASPECT_RATIO_TO_SIZE,
+} from "./base";
 import { safeFetch, safeDownload } from "@/lib/url-guard";
+import { withRetry, isTransientNetworkError } from "@/lib/retry";
 
 // 支持的图像生成模型列表
 const SUPPORTED_IMAGE_MODELS = [
@@ -101,7 +107,13 @@ export const openaiCompatibleLLM: LLMProvider = {
     );
 
     const data = await response.json();
-    return data.choices[0].message.content;
+    // 安全取值：中转站返回错误对象/非标准结构（无 choices）时裸下标必崩；
+    // 这是全项目 LLM 主路径，pluckPath 在缺失处给可读错误（含响应片段）
+    return pluckPath<string>(
+      data,
+      ["choices", 0, "message", "content"],
+      "LLM 对话响应"
+    );
   },
 };
 
@@ -237,25 +249,6 @@ const FACE_ANCHOR_SUFFIX =
   "do not alter face shape, do not change eye color or hair style; " +
   "only the pose, expression, lighting and outfit may vary";
 
-/** 判断错误是否为对端 TCP 断流；这类错误重试通常能成功 */
-function isTransientNetworkError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  if (err.message.includes("terminated")) return true;
-  const code = (err as { code?: string }).code;
-  if (
-    code === "ECONNRESET" ||
-    code === "ETIMEDOUT" ||
-    code === "UND_ERR_SOCKET"
-  )
-    return true;
-  const cause = (err as { cause?: { code?: string; message?: string } }).cause;
-  if (cause?.code === "ECONNRESET" || cause?.code === "ETIMEDOUT") return true;
-  if (cause?.message?.includes("ECONNRESET")) return true;
-  return false;
-}
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 async function generateImageWithEdits(
   apiKey: string,
   baseUrl: string,
@@ -298,23 +291,13 @@ async function generateImageWithEdits(
     });
   };
 
-  const RETRY_DELAYS_MS = [1000, 3000];
-  let response: Response | undefined;
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
-    try {
-      response = await buildRequest();
-      break;
-    } catch (err) {
-      lastErr = err;
-      if (attempt < RETRY_DELAYS_MS.length && isTransientNetworkError(err)) {
-        await sleep(RETRY_DELAYS_MS[attempt]);
-        continue;
-      }
-      throw err;
-    }
-  }
-  if (!response) throw lastErr ?? new Error("edits 请求未发送");
+  // 步骤 B 续：仅对 TCP 断流重试（HTTP 状态码错误在下方 throwOpenAIImageError
+  // 单独处理，不在此重试）。收口到 lib/retry 的 withRetry：指数退避 + 抖动
+  const response = await withRetry(buildRequest, {
+    maxRetries: 2,
+    baseDelayMs: 1000,
+    shouldRetry: isTransientNetworkError,
+  });
 
   if (!response.ok) {
     await throwOpenAIImageError(

@@ -52,6 +52,11 @@ export const volcengineTTS: TTSProvider = {
       throw new Error(`TTS error: ${result.message}`);
     }
 
+    // 防呆：非标准中转可能返回 code:3000 却缺 data 字段，Buffer.from(undefined) 会崩
+    if (typeof result.data !== "string" || !result.data) {
+      throw new Error("火山引擎 TTS 返回成功码但缺少音频数据（data 字段为空）");
+    }
+
     return Buffer.from(result.data, "base64");
   },
 };

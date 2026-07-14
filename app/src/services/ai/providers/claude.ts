@@ -3,7 +3,7 @@
  */
 
 import type { LLMProvider } from "../types";
-import { trimUrl, fetchWithError } from "./base";
+import { trimUrl, fetchWithError, pluckPath } from "./base";
 
 export const claudeLLM: LLMProvider = {
   async chatCompletion(messages, config, options) {
@@ -37,6 +37,8 @@ export const claudeLLM: LLMProvider = {
     );
 
     const data = await response.json();
-    return data.content[0].text;
+    // 安全取值：Claude 触发 content_filter 或返回 error 对象时无 content 数组，
+    // 裸下标会崩；pluckPath 在缺失处给可读错误
+    return pluckPath<string>(data, ["content", 0, "text"], "Claude 对话响应");
   },
 };

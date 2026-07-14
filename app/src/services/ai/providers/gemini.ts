@@ -3,7 +3,7 @@
  */
 
 import type { LLMProvider } from "../types";
-import { trimUrl, fetchWithError } from "./base";
+import { trimUrl, fetchWithError, pluckPath } from "./base";
 
 export const geminiLLM: LLMProvider = {
   async chatCompletion(messages, config, options) {
@@ -38,6 +38,12 @@ export const geminiLLM: LLMProvider = {
     );
 
     const data = await response.json();
-    return data.candidates[0].content.parts[0].text;
+    // 安全取值：Gemini 命中 SAFETY/RECITATION 阻断时 candidates 常为空或缺 parts，
+    // 四层裸下标必崩；pluckPath 在缺失处给可读错误（含 finishReason 片段）
+    return pluckPath<string>(
+      data,
+      ["candidates", 0, "content", "parts", 0, "text"],
+      "Gemini 对话响应"
+    );
   },
 };
