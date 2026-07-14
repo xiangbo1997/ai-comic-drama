@@ -147,18 +147,24 @@ export function ContinuityCheckDialog({
             </div>
           ) : report ? (
             <div className="space-y-3">
-              {/* 评级 + 总结 */}
+              {/* 评级 + 总结（grade 为 null = 体检未完成，展示中性告警徽章，绝不绿 A） */}
               <div className="flex items-center gap-3">
-                <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-xl font-bold ${GRADE_STYLES[report.grade]}`}
-                >
-                  {report.grade}
-                </span>
+                {report.grade ? (
+                  <span
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border text-xl font-bold ${GRADE_STYLES[report.grade]}`}
+                  >
+                    {report.grade}
+                  </span>
+                ) : (
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/40 bg-amber-500/15 text-amber-600">
+                    <AlertTriangle size={20} />
+                  </span>
+                )}
                 <p className="text-foreground text-sm">{report.summary}</p>
               </div>
 
-              {/* 问题清单（按后镜序号分组） */}
-              {report.issues.length > 0 ? (
+              {/* 体检未完成（无一对成功检查）：不展示问题清单，只保留上方告警总结 */}
+              {report.grade === null ? null : report.issues.length > 0 ? (
                 <ul className="space-y-2">
                   {report.issues.map((issue, idx) => {
                     const rowKey = `${issue.sceneId}-${idx}`;

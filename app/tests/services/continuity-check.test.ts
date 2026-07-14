@@ -171,7 +171,7 @@ describe("assembleContinuityReport · issue 挂到后镜 + 跳过记账", () => 
     expect(report.issues[0].sceneOrder).toBe(5);
   });
 
-  it("跳过的对计数并写进 summary，不产出 issue", () => {
+  it("跳过的对计数并写进 summary，不产出 issue（部分跳过：仍出等级）", () => {
     const report = assembleContinuityReport([
       pairResult("b", 2, [issue("中等")]),
       pairResult("c", 3, [], true),
@@ -179,15 +179,44 @@ describe("assembleContinuityReport · issue 挂到后镜 + 跳过记账", () => 
     ]);
     expect(report.issues).toHaveLength(1);
     expect(report.summary).toContain("2 对因视觉调用失败未检查");
+    // 有成功检查的对 → 正常出等级
+    expect(report.grade).toBe("A");
+    expect(report.checkedPairs).toBe(1);
+    expect(report.skippedPairs).toBe(2);
   });
+});
 
-  it("全部跳过 → A 且总结含跳过记账", () => {
+describe("assembleContinuityReport · 全跳过 = 体检未完成（诚实报告，不伪装 A）", () => {
+  it("全部跳过 → grade=null、summary 明说未完成、无 issue", () => {
     const report = assembleContinuityReport([
       pairResult("b", 2, [], true),
       pairResult("c", 3, [], true),
     ]);
-    expect(report.grade).toBe("A");
+    // 关键：不再伪装成绿色 A —— 无一对成功检查即体检未完成
+    expect(report.grade).toBeNull();
     expect(report.issues).toEqual([]);
-    expect(report.summary).toContain("2 对因视觉调用失败未检查");
+    expect(report.checkedPairs).toBe(0);
+    expect(report.skippedPairs).toBe(2);
+    expect(report.summary).toContain("体检未完成");
+    expect(report.summary).not.toContain("连贯性良好");
+  });
+
+  it("空输入（无任何对）→ grade=null、体检未完成", () => {
+    const report = assembleContinuityReport([]);
+    expect(report.grade).toBeNull();
+    expect(report.checkedPairs).toBe(0);
+    expect(report.skippedPairs).toBe(0);
+    expect(report.summary).toContain("体检未完成");
+  });
+
+  it("有一对成功检查（哪怕 0 问题）→ 正常 A，不算未完成", () => {
+    const report = assembleContinuityReport([
+      pairResult("b", 2, []),
+      pairResult("c", 3, [], true),
+    ]);
+    expect(report.grade).toBe("A");
+    expect(report.checkedPairs).toBe(1);
+    expect(report.skippedPairs).toBe(1);
+    expect(report.summary).toContain("连贯性良好");
   });
 });

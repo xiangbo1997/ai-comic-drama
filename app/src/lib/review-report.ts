@@ -44,9 +44,12 @@ export interface ReviewScene {
 
 /** 2.3 连贯性体检摘要（复用最近一次已完成 continuity_check 任务的结果） */
 export interface ContinuitySummaryInput {
-  /** 综合评级 A/B/C/D */
-  grade: string;
-  /** 一句话总结（含跳过对记账） */
+  /**
+   * 综合评级 A/B/C/D；null = 体检未完成（视觉调用全部失败，无一对成功检查）。
+   * 未完成时不是「通过」也不是「尚未运行」——是「跑过但没查成」，须单独告警。
+   */
+  grade: string | null;
+  /** 一句话总结（含跳过对记账 / 未完成说明） */
   summary: string;
   /** 问题条数 */
   issueCount: number;
@@ -300,6 +303,22 @@ function buildContinuitySection(
       title: "连贯性",
       status: "warn",
       lines: ["尚未运行 AI 场记体检。"],
+    };
+  }
+
+  // 体检跑过但无一对成功检查（grade=null）：既非「通过」也非「尚未运行」，
+  // 而是「视觉调用全部失败」——单独告警，避免误判为已过审。
+  if (summary.grade === null) {
+    suggestions.push({
+      text: "AI 场记体检未完成（视觉调用全部失败）：请确认所用大模型支持图像识别（多模态），再重跑一次连贯性检查。",
+    });
+    return {
+      key: "continuity",
+      title: "连贯性",
+      status: "warn",
+      lines: [
+        summary.summary || "场记体检未完成：视觉调用全部失败，未能实际检查。",
+      ],
     };
   }
 

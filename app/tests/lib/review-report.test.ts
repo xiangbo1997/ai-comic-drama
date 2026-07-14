@@ -194,6 +194,27 @@ describe("assembleReviewReport · 连贯性", () => {
     });
     expect(findSection(report, "continuity").status).toBe("warn");
   });
+
+  it("体检未完成（grade=null）→ warn，区别于「尚未运行」，且不当作通过", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      hookType: "悬念",
+      continuitySummary: {
+        grade: null,
+        summary: "体检未完成：2 对相邻分镜的视觉调用全部失败，未能实际检查。",
+        issueCount: 0,
+      },
+    });
+    const cont = findSection(report, "continuity");
+    expect(cont.status).toBe("warn");
+    // 展示后端的「未完成」总结，而不是「尚未运行」
+    expect(cont.lines[0]).toContain("体检未完成");
+    expect(cont.lines[0]).not.toContain("尚未运行");
+    // 给出「视觉调用全部失败」的告警建议
+    expect(
+      report.suggestions.some((s) => s.text.includes("视觉调用全部失败"))
+    ).toBe(true);
+  });
 });
 
 describe("assembleReviewReport · 完整性", () => {

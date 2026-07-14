@@ -70,15 +70,24 @@ export interface ContinuityReportIssue {
   fixNote: string;
 }
 
-/** 综合等级（Toonflow 标尺） */
+/** 综合等级（Toonflow 标尺）；null = 未实际检查任何一对，不给等级 */
 export type ContinuityGrade = "A" | "B" | "C" | "D";
 
 /** 体检报告 */
 export interface ContinuityReport {
-  grade: ContinuityGrade;
-  /** 一句话总结（含跳过对数记账，若有） */
+  /**
+   * 综合等级 A/B/C/D；当【没有任何一对被成功检查】（全部 skipped）时为 null——
+   * 此时报告是「未完成」而非「通过」，前端必须以中性/告警态展示，绝不显示绿色 A。
+   * 老数据兼容：历史报告无 null 情形，读取方仍应容忍 grade 为字符串或缺失。
+   */
+  grade: ContinuityGrade | null;
+  /** 一句话总结（含跳过对数记账，若有；全跳过时明确说明体检未完成） */
   summary: string;
   issues: ContinuityReportIssue[];
+  /** 成功检查（未跳过）的对数——供前端区分「查过且干净」与「根本没查」 */
+  checkedPairs: number;
+  /** 因视觉调用失败/降级而跳过的对数 */
+  skippedPairs: number;
 }
 
 /**
@@ -130,6 +139,8 @@ function computeGrade(
  * - 每条 issue 挂到【后镜】的 sceneId/order（迭代重生成的修复目标）。
  * - 综合等级按严重/中等问题数量算（computeGrade）。
  * - 跳过的对（视觉调用失败）计数并写进 summary，不静默丢弃。
+ * - 诚实报告（核心修复）：若【没有任何一对被成功检查】（全部 skipped），
+ *   grade 置 null、summary 明说「体检未完成」，绝不把「0 问题」伪装成绿色 A。
  */
 export function assembleContinuityReport(
   pairResults: ContinuityPairResult[]
@@ -158,6 +169,20 @@ export function assembleContinuityReport(
     }
   }
 
+  const checkedPairs = pairResults.length - skippedCount;
+
+  // 没有任何一对被成功检查（全跳过或空输入）→ 体检未完成，不给等级。
+  // 「0 问题」在此不等于「连贯性良好」——是「根本没查」，必须诚实区分。
+  if (checkedPairs === 0) {
+    return {
+      grade: null,
+      summary: buildUncheckedSummary(skippedCount),
+      issues: [],
+      checkedPairs: 0,
+      skippedPairs: skippedCount,
+    };
+  }
+
   const grade = computeGrade(severeCount, moderateCount);
   const summary = buildSummary({
     grade,
@@ -167,7 +192,19 @@ export function assembleContinuityReport(
     skippedCount,
   });
 
-  return { grade, summary, issues };
+  return { grade, summary, issues, checkedPairs, skippedPairs: skippedCount };
+}
+
+/** 体检未完成（无一对成功检查）的一句话总结 */
+function buildUncheckedSummary(skippedCount: number): string {
+  if (skippedCount === 0) {
+    // 无对可比（理论上被路由 buildPairList 前置拦截，此处兜底）
+    return "体检未完成：没有可比对的相邻分镜。";
+  }
+  return (
+    `体检未完成：${skippedCount} 对相邻分镜的视觉调用全部失败，未能实际检查。` +
+    "请确认所用大模型支持图像识别（多模态），且分镜图片可被访问。"
+  );
 }
 
 /** 一句话总结：等级 + 问题数量 + 跳过对记账 */

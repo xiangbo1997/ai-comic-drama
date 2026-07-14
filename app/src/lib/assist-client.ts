@@ -224,9 +224,17 @@ export interface ContinuityReportIssue {
 }
 
 export interface ContinuityReport {
-  grade: ContinuityGrade;
+  /**
+   * A/B/C/D；全部对因视觉调用失败/降级而跳过时为 null（体检未完成，
+   * 前端须以中性/告警态展示，不显示绿色 A）。老数据可能无 null 情形。
+   */
+  grade: ContinuityGrade | null;
   summary: string;
   issues: ContinuityReportIssue[];
+  /** 成功检查（未跳过）的对数；老报告可能缺该字段 */
+  checkedPairs?: number;
+  /** 因视觉调用失败/降级跳过的对数；老报告可能缺该字段 */
+  skippedPairs?: number;
 }
 
 /**

@@ -15,6 +15,8 @@
  * - 任何失败都抛出，由调用方（observer-agent）降级到纯文本评审，保持可回滚。
  */
 
+import { readFile, stat } from "fs/promises";
+import path from "path";
 import type { AIServiceConfig } from "@/types";
 import type { ObserverVerdict } from "./types";
 import type {
@@ -26,6 +28,64 @@ import {
   OBSERVER_SYSTEM,
   buildImageReviewPrompt,
 } from "@/lib/prompts/agent-prompts";
+
+// 本地存储约定（与 services/storage.ts / uploads/[...path] 路由同源）
+const LOCAL_STORAGE_DIR = process.env.LOCAL_STORAGE_DIR || "public/uploads";
+const LOCAL_STORAGE_URL_PREFIX =
+  process.env.LOCAL_STORAGE_URL_PREFIX || "/uploads";
+
+/** 内联为 data URL 的单图上限（超过则跳过该对，不塞超大 payload） */
+const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
+
+const MIME_BY_EXT: Record<string, string> = {
+  ".webp": "image/webp",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+};
+
+/**
+ * 把一张分镜图 URL 解析成 VLM 可直接消费的形式：
+ * - http(s)://：外部可达，原样返回；
+ * - 以 / 开头的相对路径（本地存储降级模式下 Scene.imageUrl 形如 /uploads/...）：
+ *   外部 VLM 够不到，读磁盘内联成 base64 data URL（OpenAI 兼容多模态 image_url 接受
+ *   data: URL）；文件不存在 / 超过 4MB / 非图片扩展名 → 返回 null（该对跳过，不发垃圾）。
+ * - 其他（无法识别）→ null。
+ *
+ * 导出供单测覆盖（http 透传 / 缺失文件 / 超限）。
+ */
+export async function resolveImageUrlForVision(
+  url: string
+): Promise<string | null> {
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("data:")) return url;
+  if (!url.startsWith("/")) return null;
+
+  // 仅接受本地存储前缀（/uploads/...）；其余相对路径不猜测
+  if (!url.startsWith(LOCAL_STORAGE_URL_PREFIX)) return null;
+  const relative = url
+    .slice(LOCAL_STORAGE_URL_PREFIX.length)
+    .replace(/^\/+/, "");
+
+  const baseDir = path.resolve(process.cwd(), LOCAL_STORAGE_DIR);
+  const target = path.resolve(baseDir, relative);
+  // 路径穿越防护：解析后必须仍在存储根内
+  if (target !== baseDir && !target.startsWith(baseDir + path.sep)) return null;
+
+  const mime = MIME_BY_EXT[path.extname(target).toLowerCase()];
+  if (!mime) return null; // 非图片扩展名不内联
+
+  try {
+    const info = await stat(target);
+    if (!info.isFile() || info.size > MAX_INLINE_IMAGE_BYTES) return null;
+    const buffer = await readFile(target);
+    return `data:${mime};base64,${buffer.toString("base64")}`;
+  } catch {
+    // 文件缺失 / 读失败 → 跳过该对（返回 null，由调用方记 skipped）
+    return null;
+  }
+}
 
 export interface VisionReviewArgs {
   imageUrl: string;
@@ -130,13 +190,42 @@ function parseVerdict(text: string): ObserverVerdict {
 }
 
 /**
- * 视觉评审能力探测：当前 LLM 协议是否支持 OpenAI 兼容多模态端点。
+ * 已知【纯文本 / 无视觉】的模型关键词（保守 deny-list）。
+ *
+ * 背景（假绿 A 根因之一）：DeepSeek 走 openai 协议、model=deepseek-chat，能通过
+ * 「协议非 claude/gemini」的粗门禁，但其 chat API 根本不识别 image_url part——
+ * 每对比对必然失败被记为 skipped，最终 0 问题被 computeGrade 误判为 A。
+ * 这里对已确证无视觉的模型直接拒绝；未知的 openai 协议模型仍放行（由「诚实报告」
+ * 兜底：全跳过时 grade=null，不会伪装成通过）。
+ *
+ * 说明：gpt-4o / gpt-4.1 等虽含 "gpt-4" 也是多模态，不在此列；只列确证无视觉的。
+ */
+const TEXT_ONLY_MODEL_KEYWORDS = [
+  "deepseek", // deepseek-chat / deepseek-reasoner 均无视觉
+  "gpt-3.5", // 无视觉
+  "moonshot", // Kimi 文本档
+  "text-embedding", // 嵌入模型（防误配）
+];
+
+/**
+ * 视觉评审能力探测：当前 LLM 配置是否支持 OpenAI 兼容多模态端点。
  * 与 reviewImageWithVision / compareImagePairWithVision 的协议守卫同源
- * （claude / gemini 不支持）。路由用它在建任务前做硬门禁（不出假报告）。
+ * （claude / gemini 不支持），并额外用 deny-list 拒绝已知纯文本模型（DeepSeek 等）。
+ * 路由用它在建任务前做硬门禁（不出假报告）。
  */
 export function supportsVisionReview(config: AIServiceConfig): boolean {
   const protocol = config.protocol || "openai";
-  return protocol !== "claude" && protocol !== "gemini";
+  if (protocol === "claude" || protocol === "gemini") return false;
+
+  // 模型名带明确视觉标记（vision / -vl）时优先放行——避免 deny-list 关键词误伤
+  // 同厂多模态型号（如 moonshot-v1-8k-vision-preview、deepseek-vl 走中转站的情形）。
+  const model = (config.model || "").toLowerCase();
+  if (/vision|-vl\b|-vl-/.test(model)) return true;
+
+  // 已确证无视觉的模型直接拒绝（保守 deny-list；未知模型放行 + 诚实报告兜底）
+  if (TEXT_ONLY_MODEL_KEYWORDS.some((kw) => model.includes(kw))) return false;
+
+  return true;
 }
 
 // ============ 场记：相邻镜连贯性对比（计划 §5 · 2.3）============
@@ -216,6 +305,14 @@ export async function compareImagePairWithVision(
     return null;
   }
 
+  // 本地存储降级模式下 imageUrl 是 /uploads/... 相对路径，外部 VLM 够不到——
+  // 读盘内联成 data URL。任一图无法解析（缺失/超限/非图片）→ 跳过该对（返回 null）。
+  const [prevUrl, nextUrl] = await Promise.all([
+    resolveImageUrlForVision(args.prevImageUrl),
+    resolveImageUrlForVision(args.nextImageUrl),
+  ]);
+  if (!prevUrl || !nextUrl) return null;
+
   const baseUrl = llmConfig.baseUrl.replace(/\/+$/, "");
   const endpoint = `${baseUrl}/chat/completions`;
   const model = llmConfig.model || "gpt-4o";
@@ -230,8 +327,8 @@ export async function compareImagePairWithVision(
         role: "user",
         content: [
           { type: "text", text: buildComparePrompt(args) },
-          { type: "image_url", image_url: { url: args.prevImageUrl } },
-          { type: "image_url", image_url: { url: args.nextImageUrl } },
+          { type: "image_url", image_url: { url: prevUrl } },
+          { type: "image_url", image_url: { url: nextUrl } },
         ],
       },
     ],

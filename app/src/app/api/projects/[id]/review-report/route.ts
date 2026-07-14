@@ -119,39 +119,63 @@ async function loadLatestHookType(projectId: string): Promise<HookType | null> {
  * 取最近一次「已完成」的 AI 场记（continuity_check）任务摘要。
  *
  * continuity_check 任务落库为 type=IMAGE_GENERATE + input.kind="continuity_check"
- * （见 continuity-check/route.ts）；Prisma 对嵌套 JSON 过滤不便，故查项目近期
- * 已完成的 IMAGE_GENERATE 任务、按时间倒序，在 JS 里挑第一个 kind 匹配的。
+ * （见 continuity-check/route.ts）。用 Prisma PostgreSQL JSON path 过滤在 DB 层直接
+ * 命中 kind=continuity_check 的行（避免普通出图任务把这一行挤出取样窗口——旧实现
+ * take:20 后在 JS 里扫，一轮 20+ 次出图就会把场记结果冲掉，误报「尚未运行」）。
  * 从未运行 / 结果缺失 → 返回 null（对应节报「尚未运行 AI 场记体检」）。
+ *
+ * grade 兼容三态：
+ * - 字符串 A/B/C/D：正常评级；
+ * - null（新契约）：体检跑过但无一对成功检查（视觉调用全失败）→ 传 null 给报告，
+ *   报告节报「场记体检未完成」告警（不同于「尚未运行」，也不当作通过）；
+ * - 老数据无 checkedPairs 字段时按字符串 grade 走正常分支（向后兼容）。
  */
 async function loadLatestContinuitySummary(
   projectId: string,
   userId: string
 ): Promise<ContinuitySummaryInput | null> {
-  const tasks = await prisma.generationTask.findMany({
-    where: { projectId, type: "IMAGE_GENERATE", status: "COMPLETED" },
+  const task = await prisma.generationTask.findFirst({
+    where: {
+      projectId,
+      type: "IMAGE_GENERATE",
+      status: "COMPLETED",
+      // DB 层 JSON path 过滤：只命中场记任务，不被普通出图任务挤出窗口
+      input: { path: ["kind"], equals: "continuity_check" },
+    },
     orderBy: { completedAt: "desc" },
-    take: 20,
     select: { input: true, output: true },
   });
 
-  for (const task of tasks) {
-    const input = (task.input ?? {}) as { kind?: string; userId?: string };
-    if (input.kind !== "continuity_check") continue;
-    // 归属兜底：任务 input 记了 userId 时须与当前用户一致
-    if (input.userId && input.userId !== userId) continue;
+  if (!task) return null;
 
-    const output = (task.output ?? {}) as {
-      report?: { grade?: unknown; summary?: unknown; issues?: unknown };
+  const input = (task.input ?? {}) as { userId?: string };
+  // 归属兜底：任务 input 记了 userId 时须与当前用户一致
+  if (input.userId && input.userId !== userId) return null;
+
+  const output = (task.output ?? {}) as {
+    report?: {
+      grade?: unknown;
+      summary?: unknown;
+      issues?: unknown;
+      checkedPairs?: unknown;
     };
-    const report = output.report;
-    if (!report || typeof report !== "object") continue;
+  };
+  const report = output.report;
+  if (!report || typeof report !== "object") return null;
 
-    const grade = typeof report.grade === "string" ? report.grade : "";
-    const summary = typeof report.summary === "string" ? report.summary : "";
-    const issueCount = Array.isArray(report.issues) ? report.issues.length : 0;
-    if (!grade || !summary) continue;
+  const summary = typeof report.summary === "string" ? report.summary : "";
+  if (!summary) return null;
+  const issueCount = Array.isArray(report.issues) ? report.issues.length : 0;
 
-    return { grade, summary, issueCount };
+  // 体检未完成：grade 显式为 null，或新契约下 checkedPairs=0（无一对成功检查）。
+  const checkedPairs =
+    typeof report.checkedPairs === "number" ? report.checkedPairs : undefined;
+  if (report.grade === null || checkedPairs === 0) {
+    return { grade: null, summary, issueCount: 0 };
   }
-  return null;
+
+  // 正常评级（含老数据：无 checkedPairs 字段，按字符串 grade 走）
+  const grade = typeof report.grade === "string" ? report.grade : "";
+  if (!grade) return null;
+  return { grade, summary, issueCount };
 }
