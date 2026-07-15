@@ -103,6 +103,22 @@ describe("dramaScriptToScenes", () => {
     expect(scenes[1].characters).toEqual(["林烬"]);
   });
 
+  it("LLM 声明登场角色优先并与文本子串匹配取并集去重", () => {
+    const doc = makeDoc();
+    // 场景2 文本能匹配到"林烬"；LLM 额外声明"苏离"（文本里以代词出现）+ 重复的"林烬"
+    doc.scenes[1].characters = ["苏离", "林烬"];
+    const scenes = dramaScriptToScenes(doc, null, ["林烬", "苏离"]);
+    expect(scenes[1].characters).toEqual(["苏离", "林烬"]);
+  });
+
+  it("LLM 声明角色空白项被清洗，未声明时行为不变", () => {
+    const doc = makeDoc();
+    doc.scenes[0].characters = ["  ", ""];
+    const scenes = dramaScriptToScenes(doc, null, ["林烬"]);
+    expect(scenes[0].characters).toEqual([]);
+    expect(scenes[1].characters).toEqual(["林烬"]);
+  });
+
   it("时长校准：LLM 异常值被对白/旁白驱动的确定时长取代", () => {
     // 断裂 C 修复：durationSec 异常值不再简单 clamp，而是回落到对白/旁白朗读时长。
     const doc = makeDoc();

@@ -25,7 +25,8 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
 输出要求（严格遵守）：
 - 输出纯 JSON，不要 markdown 代码块，不要额外文字
 - 顶层字段：filmTitle、genre、durationSec、aspectRatio、style、protagonist、worldview、logline、hookType、scenes
-- scenes 是场景数组，每个场景含：index(从1起)、title、description、dialogue、narration、emotion、durationSec，以及可选镜头语言字段
+- scenes 是场景数组，每个场景含：index(从1起)、title、description、dialogue、narration、emotion、durationSec、characters，以及可选镜头语言字段
+- characters：本镜画面中实际登场的角色名数组；名字必须与"已有角色"列表完全一致（有列表时），不要写代词或身份描述；纯空镜/环境镜给 []；只列画面里出现的人，不要把全剧角色都塞进去
 - emotion 必须为：neutral、happy、sad、angry、surprised、fear 之一
 - hookType 为本集结尾钩子类型，必须是：悬念、反转、情绪、信息、危机 之一
 - 每镜时长按叙事需要 2-15 秒（长动作可更长，系统会按视频模型能力自动分段衔接），总时长与目标偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
@@ -109,6 +110,7 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
       "narration": "旁白" | null,
       "emotion": "neutral",
       "durationSec": 8,
+      "characters": ["本镜实际登场的角色名"],
       "cameraAngle": "低角度仰拍",
       "lighting": "冷调夜景",
       "composition": "三分法",

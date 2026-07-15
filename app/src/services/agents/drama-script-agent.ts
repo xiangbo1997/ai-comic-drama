@@ -30,6 +30,9 @@ const DramaSceneSchema = z.object({
   narration: z.string().nullable(),
   emotion: z.string(),
   durationSec: z.number().min(1).max(60),
+  // 登场角色名数组（可选 + .catch 兜底）：直转分镜时驱动角色自动选中与多角色一致性；
+  // LLM 漏填时直转层回落场景文本子串匹配（零回归）
+  characters: z.array(z.string()).optional().catch(undefined),
   // 镜头语言字段（全部可选 + .catch 兜底）：与手动小说解析路径对齐，制片人直转分镜时
   // 透传给出图/视频 prompt。LLM 漏填或写错任一字段都不阻断整脚本校验（零回归）。
   cameraAngle: z.string().optional().catch(undefined),

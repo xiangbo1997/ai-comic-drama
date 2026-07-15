@@ -48,3 +48,19 @@ export function resolveSelectedCharacterId(
   }
   return null;
 }
+
+/**
+ * 按分镜 characters 名单取全部命中的角色 id（去重保序，= selectedCharacterIds 落库值）。
+ * 首个元素即 selectedCharacterId（向后兼容单角色锚点）；出图侧 ≥2 个触发多角色参考图合成。
+ */
+export function resolveSelectedCharacterIds(
+  characters: MatchableCharacter[],
+  sceneCharacterNames: readonly string[] | null | undefined
+): string[] {
+  const ids: string[] = [];
+  for (const name of sceneCharacterNames ?? []) {
+    const matched = matchCharacterByName(characters, name);
+    if (matched && !ids.includes(matched)) ids.push(matched);
+  }
+  return ids;
+}

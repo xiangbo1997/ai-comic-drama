@@ -48,7 +48,7 @@ import {
 } from "@/lib/credits";
 import { InMemoryArtifactStore } from "./artifact-store";
 import { persistCharacterBible } from "./character-bible-persist";
-import { resolveSelectedCharacterId } from "./match-scene-character";
+import { resolveSelectedCharacterIds } from "./match-scene-character";
 import {
   subscribeWorkflowEvents as _subscribeWorkflowEvents,
   emitEvent,
@@ -1472,11 +1472,13 @@ async function saveScenesToProject(
           : Prisma.JsonNull,
     };
 
-    // C3：按分镜角色名单取首个命中角色 id 作 selectedCharacterId（与手动路径一致）
-    const selectedCharacterId = resolveSelectedCharacterId(
+    // C3：按分镜角色名单取全部命中角色 id（与手动路径一致）——复数驱动 UI 自动
+    // 高亮与多角色参考图合成，首个命中兼容单数锚点
+    const selectedCharacterIds = resolveSelectedCharacterIds(
       projectCharacters,
       s.characters
     );
+    const selectedCharacterId = selectedCharacterIds[0] ?? null;
 
     if (sceneId) {
       // 更新文本字段；不触碰 imageUrl/videoUrl/audioUrl 与三个 status
@@ -1490,6 +1492,7 @@ async function saveScenesToProject(
           emotion: s.emotion,
           duration: s.duration,
           selectedCharacterId,
+          selectedCharacterIds,
           ...cinematics,
         },
       });
@@ -1505,6 +1508,7 @@ async function saveScenesToProject(
           emotion: s.emotion,
           duration: s.duration,
           selectedCharacterId,
+          selectedCharacterIds,
           ...cinematics,
           imageStatus: "PENDING",
           videoStatus: "PENDING",
@@ -1540,9 +1544,13 @@ async function backfillSelectedCharacterIds(
   });
   if (projectCharacters.length === 0) return;
 
-  // 只取 selectedCharacterId 为空的分镜，避免覆盖已有值
+  // 只取单数与复数均为空的分镜，避免覆盖已有值（含用户手动勾选）
   const scenes = await prisma.scene.findMany({
-    where: { projectId, selectedCharacterId: null },
+    where: {
+      projectId,
+      selectedCharacterId: null,
+      selectedCharacterIds: { isEmpty: true },
+    },
     select: { id: true, order: true },
   });
   if (scenes.length === 0) return;
@@ -1551,14 +1559,17 @@ async function backfillSelectedCharacterIds(
     // saveScenesToProject 用 order = idx + 1，故 script.scenes[order - 1] 对齐
     const scriptScene = script.scenes[scene.order - 1];
     if (!scriptScene) continue;
-    const selectedCharacterId = resolveSelectedCharacterId(
+    const selectedCharacterIds = resolveSelectedCharacterIds(
       projectCharacters,
       scriptScene.characters
     );
-    if (!selectedCharacterId) continue;
+    if (selectedCharacterIds.length === 0) continue;
     await prisma.scene.update({
       where: { id: scene.id },
-      data: { selectedCharacterId },
+      data: {
+        selectedCharacterId: selectedCharacterIds[0],
+        selectedCharacterIds,
+      },
     });
   }
 }

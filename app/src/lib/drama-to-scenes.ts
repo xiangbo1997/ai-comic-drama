@@ -9,8 +9,9 @@
  * - 脚本场景逐一映射为 Scene（POST /api/projects/[id]/scenes 契约）
  * - 若九宫格分镜表已生成/打磨，按 index 对位把镜头语言合入对应分镜
  *   （shot → shotType；特写要点并入画面描述；格内对白兜底场景对白）
- * - 项目角色名出现在场景文本中时写入 characters，由后端匹配
- *   selectedCharacterId（出图角色一致性）
+ * - 登场角色写入 characters（LLM 场景声明 ∪ 项目角色名文本子串匹配），由后端
+ *   匹配落库 selectedCharacterIds（全量，驱动 UI 自动选中与多角色一致性）与
+ *   selectedCharacterId（首个，单角色锚点兼容）
  */
 
 import type {
@@ -89,6 +90,20 @@ export function dramaScriptToScenes(
     const dialogue = scene.dialogue ?? cell?.dialogue ?? null;
     const narration = scene.narration ?? null;
 
+    // 登场角色：LLM 显式声明优先（能覆盖代词指代"他/她"），场景文本子串匹配兜底，
+    // 去重保序（首个即单数锚点）。声明名与项目角色名不完全一致时，由 scenes 路由的
+    // 三级模糊匹配收敛，未命中即忽略，不会误挂。
+    const declaredCharacters = (scene.characters ?? [])
+      .map((name) => name.trim())
+      .filter(Boolean);
+    const matchedCharacters = matchCharacters(
+      characterNames,
+      scene.title,
+      scene.description,
+      dialogue,
+      scene.narration
+    );
+
     return {
       shotType: cell?.shot || null,
       description,
@@ -105,13 +120,7 @@ export function dramaScriptToScenes(
         emotion: scene.emotion ?? null,
         llmDuration: scene.durationSec ?? null,
       }),
-      characters: matchCharacters(
-        characterNames,
-        scene.title,
-        scene.description,
-        dialogue,
-        scene.narration
-      ),
+      characters: [...new Set([...declaredCharacters, ...matchedCharacters])],
       // 地点标签：短剧场景标题即地点/场景名，规整为 locationKey 供场景锚定分组
       locationKey: deriveLocationKey(scene.title),
       // 镜头语言透传：脚本携带则落库供出图/视频 prompt（scenes 路由按同名字段消费）。

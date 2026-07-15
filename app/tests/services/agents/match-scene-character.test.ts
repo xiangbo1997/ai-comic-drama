@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   matchCharacterByName,
   resolveSelectedCharacterId,
+  resolveSelectedCharacterIds,
 } from "@/services/agents/match-scene-character";
 
 const chars = [
@@ -62,5 +63,32 @@ describe("resolveSelectedCharacterId（C3：取首个命中）", () => {
 
   it("项目无角色时返回 null", () => {
     expect(resolveSelectedCharacterId([], ["林烬"])).toBeNull();
+  });
+});
+
+describe("resolveSelectedCharacterIds（全量命中去重保序）", () => {
+  it("按名单顺序返回全部命中 id，跳过未命中", () => {
+    expect(
+      resolveSelectedCharacterIds(chars, ["陌生人", "苏离", "林烬"])
+    ).toEqual(["c2", "c1"]);
+  });
+
+  it("重复命中同一角色只保留一次", () => {
+    expect(
+      resolveSelectedCharacterIds(chars, ["林烬", "林烬大人", "苏离"])
+    ).toEqual(["c1", "c2"]);
+  });
+
+  it("名单为空 / null / undefined 返回空数组", () => {
+    expect(resolveSelectedCharacterIds(chars, [])).toEqual([]);
+    expect(resolveSelectedCharacterIds(chars, null)).toEqual([]);
+    expect(resolveSelectedCharacterIds(chars, undefined)).toEqual([]);
+  });
+
+  it("首个元素与 resolveSelectedCharacterId 一致（单数锚点兼容）", () => {
+    const names = ["陌生人", "阿德", "苏离"];
+    expect(resolveSelectedCharacterIds(chars, names)[0]).toBe(
+      resolveSelectedCharacterId(chars, names)
+    );
   });
 });

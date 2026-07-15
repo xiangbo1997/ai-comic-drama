@@ -179,14 +179,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const scene = raw as any;
       const sceneCharacters: string[] = scene.characters || [];
-      let selectedCharacterId: string | null = null;
+      // 全量命中去重保序：复数 selectedCharacterIds 驱动 UI chips 自动高亮与
+      // 多角色参考图合成（≥2 触发）；首个命中兼容单数 selectedCharacterId 锚点
+      const matchedCharacterIds: string[] = [];
       for (const characterName of sceneCharacters) {
         const matched = matchCharacterByName(projectCharacters, characterName);
-        if (matched) {
-          selectedCharacterId = matched.id; // 第一个匹配的角色用于图像生成
-          break;
+        if (matched && !matchedCharacterIds.includes(matched.id)) {
+          matchedCharacterIds.push(matched.id);
         }
       }
+      const selectedCharacterId: string | null = matchedCharacterIds[0] ?? null;
       return {
         projectId: id,
         order: i,
@@ -198,6 +200,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         // 时长钳到 1–60 整数：分镜时长上限即视频分段上限，防越界值直达 DB/规划器
         duration: clampSceneDuration(scene.duration ?? 3),
         selectedCharacterId,
+        selectedCharacterIds: matchedCharacterIds,
         // 镜头语言：LLM 解析产出，此前落库被丢弃 → 出图缺电影感
         cameraAngle: scene.cameraAngle || null,
         lighting: scene.lighting || null,
