@@ -12,6 +12,7 @@ import {
   Edit3,
   Plus,
   AlertTriangle,
+  Power,
 } from "lucide-react";
 import type { AIProvider, UserConfig } from "./types";
 import { Badge } from "@/components/ui/badge";
@@ -75,6 +76,27 @@ export function ProviderCard({
     }
   };
 
+  const toggleEnabled = async () => {
+    if (!config) return;
+    const nextEnabled = !config.isEnabled;
+    try {
+      const res = await fetch(`/api/ai-models/configs/${config.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isEnabled: nextEnabled }),
+      });
+      if (!res.ok) throw new Error("操作失败");
+      onRefresh();
+      toast.success(
+        nextEnabled
+          ? "已启用：该配置将参与生成"
+          : "已停用：生成时不再选中该配置"
+      );
+    } catch {
+      toast.error("操作失败");
+    }
+  };
+
   const deleteConfig = async () => {
     if (!config) return;
     // 删默认配置单独告知后果：该分类将失去默认模型，后续生成可能失败
@@ -96,8 +118,15 @@ export function ProviderCard({
     }
   };
 
+  // 停用态整卡降灰（保留操作按钮可点，便于重新启用），传达「不参与生成」
+  const isDisabled = Boolean(config && !config.isEnabled);
+
   return (
-    <div className="border-border bg-card rounded-xl border p-5">
+    <div
+      className={`border-border bg-card rounded-xl border p-5 ${
+        isDisabled ? "opacity-60" : ""
+      }`}
+    >
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-3">
@@ -108,6 +137,7 @@ export function ProviderCard({
               // 状态徽章统一走 Badge 语义变体（走 token，替代裸色阶，a4 P1-4）
               <Badge variant="info">自定义</Badge>
             )}
+            {isDisabled && <Badge variant="secondary">已停用</Badge>}
             {config?.isDefault && (
               <Badge variant="warning">
                 <Star size={12} fill="currentColor" />
@@ -204,6 +234,21 @@ export function ProviderCard({
           )}
           {config && (
             <>
+              <button
+                onClick={toggleEnabled}
+                className={`hover:bg-secondary rounded-lg p-2 transition ${
+                  config.isEnabled
+                    ? "text-muted-foreground hover:text-foreground"
+                    : "text-red-400 hover:text-red-300"
+                }`}
+                title={
+                  config.isEnabled
+                    ? "停用（生成时不再选中该配置）"
+                    : "启用（让该配置参与生成）"
+                }
+              >
+                <Power size={18} />
+              </button>
               <button
                 onClick={testConnection}
                 disabled={testing}

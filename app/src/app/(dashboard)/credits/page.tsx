@@ -18,6 +18,7 @@ import {
 import { CurrentCreditsCard } from "./components/CurrentCreditsCard";
 import { CheckinCard } from "./components/CheckinCard";
 import { CreditTransactionsCard } from "./components/CreditTransactionsCard";
+import { RecentOrdersCard } from "./components/RecentOrdersCard";
 import { InviteCard } from "./components/InviteCard";
 import { PurchaseSection } from "./components/PurchaseSection";
 import { BenefitsFaq } from "./components/BenefitsFaq";
@@ -99,10 +100,11 @@ export default function CreditsPage() {
     pollCountRef.current = 0;
     const MAX_POLLS = 100; // 3s × 100 = 5 分钟确认上限
 
+    // OrderStatus enum 只有 PENDING/PAID/CANCELLED/REFUNDED/EXPIRED，后端从不写
+    // FAILED——原 FAILED 键是幽灵态，永远命中不到，故移除。轮询终态只判过期/取消。
     const TERMINAL_MESSAGES: Record<string, string> = {
       EXPIRED: "订单已过期，未扣款，请重新下单",
       CANCELLED: "订单已取消，如需购买请重新下单",
-      FAILED: "支付失败，请重新下单；若已扣款请联系客服",
     };
 
     const interval = setInterval(async () => {
@@ -116,6 +118,7 @@ export default function CreditsPage() {
           setSelectedProduct(null);
           queryClient.invalidateQueries({ queryKey: ["credits"] });
           queryClient.invalidateQueries({ queryKey: ["credit-transactions"] });
+          queryClient.invalidateQueries({ queryKey: ["recent-orders"] });
           toast.success(`支付成功！获得 ${order.credits} 积分`);
           return;
         }
@@ -133,9 +136,7 @@ export default function CreditsPage() {
       if (pollCountRef.current >= MAX_POLLS) {
         setPollingOrder(null);
         setPaymentResult(null);
-        setPaymentError(
-          "支付确认超时：若已完成支付，请稍后刷新页面查看余额；未支付可重新下单"
-        );
+        setPaymentError("未确认到支付结果，若已扣款请稍后刷新或联系客服");
       }
     }, 3000);
 
@@ -197,6 +198,9 @@ export default function CreditsPage() {
 
       {/* 积分明细 */}
       <CreditTransactionsCard />
+
+      {/* 最近订单 */}
+      <RecentOrdersCard />
 
       {/* Invite Friends */}
       <InviteCard inviteData={inviteData} />

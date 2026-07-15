@@ -251,6 +251,11 @@ export interface UserConfig {
   lastTestedAt: string | null;
   hasApiKey: boolean;
   apiKeyMasked: string | null;
+  /**
+   * provider 特有扩展字段（火山 appId/accessToken、SoVITS refAudioPath 等）。
+   * 列表接口出于安全不返回；仅单条接口 GET /configs/[id] 返回，供编辑弹窗回填。
+   */
+  extraConfig?: Record<string, string> | null;
 }
 
 // 各供应商支持的认证方式

@@ -36,6 +36,12 @@ interface SeedProvider {
     }>;
   };
   sortOrder: number;
+  /**
+   * 是否可用；缺省视为 true。可灵 / MiniMax / Luma / Fish Audio 的 provider
+   * 实现尚未接入（getVideoProvider/getTTSProvider 会显式抛「暂未接入」错误），
+   * 这里置 false 让前端从选择列表隐藏，避免用户配好却生成时才报错。
+   */
+  isActive?: boolean;
 }
 
 // AI 服务提供商预置数据
@@ -263,7 +269,7 @@ const providers: SeedProvider[] = [
     slug: "luma",
     name: "Luma AI",
     category: AICategory.VIDEO,
-    description: "Dream Machine，高质量视频生成",
+    description: "Dream Machine，高质量视频生成（暂未接入）",
     baseUrl: "https://api.lumalabs.ai",
     models: [{ id: "dream-machine", name: "Dream Machine", costPerUnit: 8 }],
     configSchema: {
@@ -272,12 +278,13 @@ const providers: SeedProvider[] = [
       ],
     },
     sortOrder: 2,
+    isActive: false,
   },
   {
     slug: "kling",
     name: "可灵 Kling",
     category: AICategory.VIDEO,
-    description: "快手可灵，国内顶级视频生成",
+    description: "快手可灵，国内顶级视频生成（暂未接入）",
     baseUrl: "https://api.klingai.com",
     models: [
       { id: "kling-v1", name: "可灵 1.0", costPerUnit: 5 },
@@ -300,12 +307,13 @@ const providers: SeedProvider[] = [
       ],
     },
     sortOrder: 3,
+    isActive: false,
   },
   {
     slug: "minimax",
     name: "MiniMax",
     category: AICategory.VIDEO,
-    description: "MiniMax 视频生成，有免费额度",
+    description: "MiniMax 视频生成，有免费额度（暂未接入）",
     baseUrl: "https://api.minimax.chat",
     models: [{ id: "video-01", name: "Video-01", costPerUnit: 5 }],
     configSchema: {
@@ -315,6 +323,7 @@ const providers: SeedProvider[] = [
       ],
     },
     sortOrder: 4,
+    isActive: false,
   },
 
   // ============ TTS ============
@@ -358,7 +367,7 @@ const providers: SeedProvider[] = [
     slug: "fish-audio",
     name: "Fish Audio",
     category: AICategory.TTS,
-    description: "高质量中文 TTS，支持声音克隆",
+    description: "高质量中文 TTS，支持声音克隆（暂未接入）",
     baseUrl: "https://api.fish.audio",
     models: [{ id: "default", name: "默认音色", costPerUnit: 1 }],
     configSchema: {
@@ -367,6 +376,7 @@ const providers: SeedProvider[] = [
       ],
     },
     sortOrder: 2,
+    isActive: false,
   },
   {
     slug: "elevenlabs",
@@ -485,6 +495,8 @@ async function main() {
         models: provider.models,
         configSchema: provider.configSchema,
         sortOrder: provider.sortOrder,
+        // 缺省视为可用；未接入的服务商显式置 false 从前端列表隐藏
+        isActive: provider.isActive ?? true,
       },
       create: {
         slug: provider.slug,
@@ -496,6 +508,7 @@ async function main() {
         models: provider.models,
         configSchema: provider.configSchema,
         sortOrder: provider.sortOrder,
+        isActive: provider.isActive ?? true,
       },
     });
     console.log(`  ✓ ${provider.name}`);

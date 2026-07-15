@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   X,
@@ -66,6 +66,30 @@ export function ConfigDialog({
   );
   const [extraConfig, setExtraConfig] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  // 编辑模式回填 extraConfig：列表接口出于安全不返回 extraConfig，
+  // 单条接口（GET /configs/[id]）已返回。不回填会导致「改一个字段保存后
+  // 其余 extraConfig 字段显示空白 + PUT 覆盖丢失」。这里进入编辑态时拉单条填表。
+  useEffect(() => {
+    if (!existingConfig) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/ai-models/configs/${existingConfig.id}`);
+        if (!res.ok) return;
+        const data: { extraConfig?: Record<string, string> | null } =
+          await res.json();
+        if (!cancelled && data.extraConfig) {
+          setExtraConfig(data.extraConfig);
+        }
+      } catch {
+        // 回填失败静默降级：用户仍可手动重填各字段（required 校验在编辑态放宽）
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [existingConfig]);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{
     success: boolean;

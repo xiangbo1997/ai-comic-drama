@@ -131,6 +131,42 @@ export async function fetchCreditTransactions(cursor: string | null): Promise<{
   return res.json();
 }
 
+/** 订单状态 → 中文文案（覆盖 OrderStatus enum 全部取值） */
+export const ORDER_STATUS_LABELS: Record<string, string> = {
+  PENDING: "待支付",
+  PAID: "已支付",
+  CANCELLED: "已取消",
+  REFUNDED: "已退款",
+  EXPIRED: "已过期",
+};
+
+/** 支付方式 → 中文文案 */
+export const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  WECHAT: "微信支付",
+  ALIPAY: "支付宝",
+  STRIPE: "Stripe",
+};
+
+/** 最近订单项（与 /api/orders 返回字段对齐；amount 为字符串化 Decimal） */
+export interface OrderItem {
+  id: string;
+  orderNo: string;
+  type: string;
+  productName: string;
+  amount: string;
+  credits: number;
+  status: string;
+  paymentMethod: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export async function fetchRecentOrders(): Promise<{ orders: OrderItem[] }> {
+  const res = await fetch("/api/orders");
+  if (!res.ok) throw new Error("获取订单列表失败");
+  return res.json();
+}
+
 export async function fetchPaymentMethods(): Promise<PaymentInfo> {
   const res = await fetch("/api/payment/create");
   if (!res.ok) throw new Error("Failed to fetch payment methods");

@@ -44,14 +44,10 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json();
-    const {
-      defaultLLM,
-      defaultImage,
-      defaultVideo,
-      defaultTTS,
-      concurrencyMode,
-      maxConcurrent,
-    } = body;
+    // 废弃字段 defaultLLM/defaultImage/defaultVideo/defaultTTS 不再接收：
+    // 无 UI、生成侧零消费（默认走 UserAIConfig.isDefault），此前透传只写死数据。
+    // schema 列暂保留（不动 schema），但路由停止读写，避免死字段被误当作有效配置。
+    const { concurrencyMode, maxConcurrent } = body;
 
     // 验证并发模式
     if (concurrencyMode && !["SERIAL", "PARALLEL"].includes(concurrencyMode)) {
@@ -72,19 +68,11 @@ export async function PUT(request: Request) {
     const preference = await prisma.userGenerationPreference.upsert({
       where: { userId: session.user.id },
       update: {
-        defaultLLM: defaultLLM !== undefined ? defaultLLM : undefined,
-        defaultImage: defaultImage !== undefined ? defaultImage : undefined,
-        defaultVideo: defaultVideo !== undefined ? defaultVideo : undefined,
-        defaultTTS: defaultTTS !== undefined ? defaultTTS : undefined,
         concurrencyMode: concurrencyMode || undefined,
         maxConcurrent: maxConcurrent || undefined,
       },
       create: {
         userId: session.user.id,
-        defaultLLM,
-        defaultImage,
-        defaultVideo,
-        defaultTTS,
         concurrencyMode: concurrencyMode || "PARALLEL",
         maxConcurrent: maxConcurrent || 3,
       },

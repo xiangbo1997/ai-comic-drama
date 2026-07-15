@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { Scene, ProjectDetail } from "@/types";
 import {
   generateSceneImage,
@@ -15,6 +16,15 @@ import {
 } from "@/lib/generation-task-client";
 import { buildVideoScenePrompt } from "@/lib/prompts";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
+import { runWithConcurrency } from "./run-with-concurrency";
+
+/** 偏好接口返回形状（仅取本 hook 需要的并发上限字段） */
+interface PreferenceResponse {
+  preference?: { maxConcurrent?: number };
+}
+
+/** 无偏好或加载失败时的并发上限兜底（与 schema/后端默认值一致） */
+const DEFAULT_MAX_CONCURRENT = 3;
 
 // MultiGenerateDialog.onGenerate 的入参形态（该组件未导出此类型，就近声明）
 type MultiGenerateConfig = { configId: string; modelId: string };
@@ -47,6 +57,20 @@ export function useMultiGenerate({
   onCloseVideo,
   onCloseAudio,
 }: UseMultiGenerateArgs) {
+  // 读取用户偏好的并发上限：PARALLEL 分支据此做有界并发（而非无界 allSettled）。
+  // MultiGenerateDialog 的 onGenerate 只透传 mode，不带 maxConcurrent，故在此
+  // 复用同一 React Query key（"ai-preferences"，与弹窗共享缓存，零额外请求）。
+  const { data: prefData } = useQuery<PreferenceResponse>({
+    queryKey: ["ai-preferences"],
+    queryFn: async () => {
+      const res = await fetch("/api/ai-models/preferences");
+      if (!res.ok) throw new Error("获取偏好失败");
+      return res.json();
+    },
+  });
+  const maxConcurrent =
+    prefData?.preference?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
+
   const handleGenerateImages = useCallback(
     async (configs: MultiGenerateConfig[], mode: GenerateMode) => {
       if (!selectedScene || !project) return;
@@ -69,8 +93,10 @@ export function useMultiGenerate({
         });
 
       if (mode === "PARALLEL") {
-        await Promise.allSettled(
-          configs.map((config) => generateOne(config.configId))
+        // 有界并发：同时最多 maxConcurrent 个在飞（此前无界 allSettled 无视偏好）
+        await runWithConcurrency(
+          configs.map((config) => () => generateOne(config.configId)),
+          maxConcurrent
         );
       } else {
         for (const config of configs) {
@@ -79,7 +105,14 @@ export function useMultiGenerate({
       }
       invalidateProject();
     },
-    [projectId, project, selectedScene, invalidateProject, onCloseImage]
+    [
+      projectId,
+      project,
+      selectedScene,
+      invalidateProject,
+      onCloseImage,
+      maxConcurrent,
+    ]
   );
 
   const handleGenerateVideos = useCallback(
@@ -128,8 +161,10 @@ export function useMultiGenerate({
         );
 
       if (mode === "PARALLEL") {
-        await Promise.allSettled(
-          configs.map((config) => generateOne(config.configId))
+        // 有界并发：同时最多 maxConcurrent 个在飞（此前无界 allSettled 无视偏好）
+        await runWithConcurrency(
+          configs.map((config) => () => generateOne(config.configId)),
+          maxConcurrent
         );
       } else {
         for (const config of configs) {
@@ -138,7 +173,14 @@ export function useMultiGenerate({
       }
       invalidateProject();
     },
-    [projectId, project, selectedScene, invalidateProject, onCloseVideo]
+    [
+      projectId,
+      project,
+      selectedScene,
+      invalidateProject,
+      onCloseVideo,
+      maxConcurrent,
+    ]
   );
 
   const handleGenerateAudios = useCallback(
@@ -172,8 +214,10 @@ export function useMultiGenerate({
         );
 
       if (mode === "PARALLEL") {
-        await Promise.allSettled(
-          configs.map((config) => generateOne(config.configId))
+        // 有界并发：同时最多 maxConcurrent 个在飞（此前无界 allSettled 无视偏好）
+        await runWithConcurrency(
+          configs.map((config) => () => generateOne(config.configId)),
+          maxConcurrent
         );
       } else {
         for (const config of configs) {
@@ -182,7 +226,7 @@ export function useMultiGenerate({
       }
       invalidateProject();
     },
-    [projectId, selectedScene, invalidateProject, onCloseAudio]
+    [projectId, selectedScene, invalidateProject, onCloseAudio, maxConcurrent]
   );
 
   return { handleGenerateImages, handleGenerateVideos, handleGenerateAudios };

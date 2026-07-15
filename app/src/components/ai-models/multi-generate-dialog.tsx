@@ -31,6 +31,7 @@ interface UserConfig {
   provider: AIProvider;
   selectedModel: string | null;
   isDefault: boolean;
+  isEnabled: boolean;
   testStatus: "SUCCESS" | "FAILED" | "PENDING" | null;
 }
 
@@ -88,10 +89,12 @@ export function MultiGenerateDialog({
     enabled: isOpen,
   });
 
-  // 过滤出当前分类的配置
+  // 过滤出当前分类的配置（已停用的配置与默认生成路径一致，不参与多路生成）
   const configs: UserConfig[] = (configsData?.configs || []).filter(
     (c: UserConfig) =>
-      c.provider.category === category && c.testStatus === "SUCCESS"
+      c.provider.category === category &&
+      c.testStatus === "SUCCESS" &&
+      c.isEnabled
   );
 
   const preference: Preference | undefined = prefData?.preference;

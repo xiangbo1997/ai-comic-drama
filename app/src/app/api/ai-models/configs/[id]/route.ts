@@ -113,7 +113,16 @@ export async function PUT(
     }
 
     if (extraConfig !== undefined) {
-      updateData.extraConfig = extraConfig;
+      // 浅合并：只覆盖本次提交的键，保留其余既有 extraConfig 字段。
+      // 前端表单只回填了部分字段就保存时，整体覆盖会抹掉未回填的键
+      // （如火山 appId/accessToken、SoVITS refAudioPath），故与现存对象 merge。
+      const existingExtra =
+        existingConfig.extraConfig &&
+        typeof existingConfig.extraConfig === "object" &&
+        !Array.isArray(existingConfig.extraConfig)
+          ? (existingConfig.extraConfig as Record<string, unknown>)
+          : {};
+      updateData.extraConfig = { ...existingExtra, ...extraConfig };
     }
 
     if (selectedModel !== undefined) {

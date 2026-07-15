@@ -3,6 +3,7 @@
  */
 
 import type { TTSProvider } from "../../types";
+import { resolveVolcengineCredentials } from "./volcengine-config";
 
 export const volcengineTTS: TTSProvider = {
   async synthesizeSpeech(options, config) {
@@ -11,7 +12,9 @@ export const volcengineTTS: TTSProvider = {
       voiceId = "zh_female_shuangkuaisisi_moon_bigtts",
       speed = 1.0,
     } = options;
-    const token = config.apiKey || process.env.VOLC_ACCESS_TOKEN;
+    // 凭证解析与连通性测试共用同一函数（volcengine-config），根治「测试过生成挂」：
+    // 用户在 extraConfig 填的 appId/accessToken 此前被生成路径忽略。
+    const { accessToken: token, appId } = resolveVolcengineCredentials(config);
 
     if (!token) {
       throw new Error("未配置 TTS 服务，请在 AI 模型配置页面添加配置");
@@ -27,7 +30,7 @@ export const volcengineTTS: TTSProvider = {
         },
         body: JSON.stringify({
           app: {
-            appid: process.env.VOLC_APP_ID,
+            appid: appId,
             token,
             cluster: "volcano_tts",
           },

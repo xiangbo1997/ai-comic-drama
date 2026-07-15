@@ -50,6 +50,7 @@ import {
   testElevenLabs,
   testGptSovits,
 } from "./connectivity-test-connection-probes";
+import { resolveVolcengineCredentials } from "./providers/tts/volcengine-config";
 
 const log = createLogger("services:ai:connectivity-test");
 
@@ -300,11 +301,15 @@ async function testProviderConnection(
       return testMinimax(apiKey, extraConfig?.groupId || "");
 
     // TTS 提供商
-    case "volcengine":
-      return testVolcengine(
-        extraConfig?.appId || "",
-        extraConfig?.accessToken || apiKey
-      );
+    case "volcengine": {
+      // 与生成路径共用同一凭证解析（volcengine-config），保证「测试通过 =
+      // 生成能跑」：两处对 appId/accessToken 的取值优先级严格一致。
+      const { appId, accessToken } = resolveVolcengineCredentials({
+        apiKey,
+        extraConfig: extraConfig ?? undefined,
+      });
+      return testVolcengine(appId, accessToken);
+    }
     case "fish-audio":
       return testFishAudio(apiKey);
     case "elevenlabs":

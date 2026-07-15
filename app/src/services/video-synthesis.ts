@@ -90,6 +90,11 @@ export interface ExportOptions {
   backgroundMusic?: BackgroundMusic;
 }
 
+/**
+ * 质量档位：以竖屏（9:16）为基准的短边尺寸 + 码率。
+ * 最终画幅由 resolveOutputDimensions 结合项目 aspectRatio 派生，
+ * 不再写死竖屏（此前 16:9/1:1 项目被强塞进竖屏画布）。
+ */
 const QUALITY_SETTINGS = {
   "480p": { width: 480, height: 854, bitrate: "1M" },
   "720p": { width: 720, height: 1280, bitrate: "2.5M" },
@@ -101,6 +106,62 @@ const ASPECT_RATIOS = {
   "16:9": { width: 1920, height: 1080 },
   "1:1": { width: 1080, height: 1080 },
 };
+
+/** 派生后的最终输出尺寸（含码率） */
+export interface OutputDimensions {
+  width: number;
+  height: number;
+  bitrate: string;
+}
+
+/** 转为不小于 2 的偶数（libx264 要求宽高均为偶数） */
+function toEvenDimension(value: number): number {
+  const rounded = Math.round(value);
+  const even = rounded % 2 === 0 ? rounded : rounded + 1;
+  return Math.max(2, even);
+}
+
+/**
+ * 由「质量档位 + 项目画幅」派生最终输出尺寸（纯函数）。
+ *
+ * 质量档位给出竖屏基准的短边（480/720/1080）与码率；画幅决定长短边如何摆放：
+ *   - 9:16（竖）：短边×长边 = base.width × base.height（保持现状）
+ *   - 16:9（横）：转置为 base.height × base.width
+ *   - 1:1（方）：边长取短边（base.width，即 480/720/1080）
+ * 所有尺寸收敛为偶数以满足编码器约束。
+ */
+export function resolveOutputDimensions(
+  quality: keyof typeof QUALITY_SETTINGS,
+  aspectRatio: ExportOptions["aspectRatio"]
+): OutputDimensions {
+  const base = QUALITY_SETTINGS[quality];
+  const short = Math.min(base.width, base.height); // 短边基准（480/720/1080）
+  const long = Math.max(base.width, base.height); // 长边基准（854/1280/1920）
+
+  let width: number;
+  let height: number;
+  switch (aspectRatio) {
+    case "16:9":
+      width = long;
+      height = short;
+      break;
+    case "1:1":
+      width = short;
+      height = short;
+      break;
+    case "9:16":
+    default:
+      width = short;
+      height = long;
+      break;
+  }
+
+  return {
+    width: toEvenDimension(width),
+    height: toEvenDimension(height),
+    bitrate: base.bitrate,
+  };
+}
 
 /**
  * 按输出容器格式返回正确的编解码器参数。
@@ -1170,8 +1231,13 @@ export async function synthesizeVideo(
     onProgress?.(70);
 
     // 5. 生成字幕（ASS：时轴随变速对齐 + 逐分镜 \pos 精确定位）
-    // quality 提前解析（纯查表无副作用）：ASS 的 PlayResX/Y 与 \pos 像素需画面宽高。
-    const quality = QUALITY_SETTINGS[options.quality];
+    // quality 提前解析（纯函数无副作用）：ASS 的 PlayResX/Y 与 \pos 像素需画面宽高。
+    // 最终画幅按「质量档位 + 项目画幅」派生（含 bitrate），下游 scale/pad/字幕定位
+    // 全部读 quality.width/height/bitrate，故只需在此改绑定，其余消费点自动对齐。
+    const quality = resolveOutputDimensions(
+      options.quality,
+      options.aspectRatio
+    );
     let subtitlePath: string | null = null;
     if (options.includeSubtitles) {
       subtitlePath = await generateSubtitleFile(
