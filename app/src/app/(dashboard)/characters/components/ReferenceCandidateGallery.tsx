@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/dialog";
 
 interface ReferenceCandidateGalleryProps {
+  /** 候选所属角色名——并发生成时多个画廊依次弹出，需标明归属 */
+  characterName: string;
   candidates: ReferenceCandidate[];
   /** 正在提交某张（其 imageUrl）时的加载态；null 表示无提交进行中 */
   selectingUrl: string | null;
@@ -25,6 +27,7 @@ interface ReferenceCandidateGalleryProps {
  * 候选生成阶段已扣费（按成功张数），点选只是选择入库哪张，不产生额外扣费。
  */
 export function ReferenceCandidateGallery({
+  characterName,
   candidates,
   selectingUrl,
   onSelect,
@@ -42,7 +45,7 @@ export function ReferenceCandidateGallery({
     >
       <DialogContent className="flex max-h-[90vh] max-w-lg flex-col p-0">
         <DialogHeader className="border-border shrink-0 border-b p-4 text-left">
-          <DialogTitle>挑选参考图</DialogTitle>
+          <DialogTitle>挑选参考图 · {characterName}</DialogTitle>
           <DialogDescription>
             共生成 {candidates.length} 张候选，点选一张作为角色参考图入库
             {candidates.some((c) => c.vlmScore !== null) &&

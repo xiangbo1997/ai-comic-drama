@@ -43,7 +43,8 @@ interface CharacterCardProps {
     source: "none" | "upload" | "existing"
   ) => void;
   uploadingBaseImageId: string | null;
-  generateMutationPending: boolean;
+  /** 仅本角色的参考图生成中（并发生成互不阻塞，不再是全局 pending） */
+  isGenerating: boolean;
   updateMutationPending: boolean;
   generateDescriptionMutation: UseMutationResult<
     { description: string },
@@ -70,7 +71,7 @@ function CharacterCardImpl({
   onDelete,
   onOpenGenerateModal,
   uploadingBaseImageId,
-  generateMutationPending,
+  isGenerating,
   updateMutationPending,
   generateDescriptionMutation,
 }: CharacterCardProps) {
@@ -130,7 +131,7 @@ function CharacterCardImpl({
         <div className="absolute right-2 bottom-2 flex gap-2">
           <button
             onClick={() => onOpenGenerateModal(character.id, "upload")}
-            disabled={generateMutationPending}
+            disabled={isGenerating}
             className="hover:bg-accent rounded-lg bg-black/50 p-2 transition"
             title="上传垫图生成（基于参考图生成）"
             aria-label="上传垫图生成参考图"
@@ -143,13 +144,12 @@ function CharacterCardImpl({
           </button>
           <button
             onClick={() => onOpenGenerateModal(character.id, "none")}
-            disabled={generateMutationPending}
+            disabled={isGenerating}
             className="hover:bg-primary rounded-lg bg-black/50 p-2 transition"
             title="AI 生成参考图"
             aria-label="AI 生成参考图"
           >
-            {generateMutationPending &&
-            uploadingBaseImageId !== character.id ? (
+            {isGenerating ? (
               <Loader2 size={18} className="animate-spin" />
             ) : (
               <Wand2 size={18} />
@@ -205,7 +205,8 @@ function CharacterCardImpl({
  * 始终参与比较（两种状态下都影响渲染）：character（按引用——React Query 缓存
  * 只为变化的角色创建新对象，其余引用保持稳定）、currentImageIndex、isEditing、
  * 以及图片浮层上一直渲染的按钮所依赖的 uploadingBaseImageId /
- * generateMutationPending / onNextImage / onPrevImage / onDeleteImage /
+ * isGenerating（仅本卡生成态，页面按角色 ID 派生，并发时只有对应卡片变化）/
+ * onNextImage / onPrevImage / onDeleteImage /
  * onOpenGenerateModal / onDelete（onDelete 在编辑态不渲染，但为简洁一律比较其
  * 稳定引用，页面已 useCallback 固定，不会误触发）。
  */
@@ -219,7 +220,7 @@ function arePropsEqual(
     prev.currentImageIndex !== next.currentImageIndex ||
     prev.isEditing !== next.isEditing ||
     prev.uploadingBaseImageId !== next.uploadingBaseImageId ||
-    prev.generateMutationPending !== next.generateMutationPending ||
+    prev.isGenerating !== next.isGenerating ||
     prev.onNextImage !== next.onNextImage ||
     prev.onPrevImage !== next.onPrevImage ||
     prev.onDeleteImage !== next.onDeleteImage ||

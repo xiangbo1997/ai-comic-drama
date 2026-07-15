@@ -59,11 +59,22 @@ export default function CharactersPage() {
 
   // 多候选画廊（批次 2 · 1.4B）：生成完成弹候选，点选一张入库。
   // gallery 与 generateModal 独立，用生成的角色 ID 定位入库目标。
-  const [candidateGallery, setCandidateGallery] = useState<{
-    characterId: string;
-    candidates: ReferenceCandidate[];
-  } | null>(null);
+  // 并发生成后多个角色可能先后出候选，改用队列依次弹出，避免后到者覆盖前者丢掉已扣费候选。
+  const [candidateQueue, setCandidateQueue] = useState<
+    {
+      characterId: string;
+      characterName: string;
+      candidates: ReferenceCandidate[];
+    }[]
+  >([]);
   const [selectingUrl, setSelectingUrl] = useState<string | null>(null);
+
+  // 按角色 ID 记录进行中的生成任务，多路并发互不阻塞
+  //（此前全局 isPending 一人生成、整个角色库按钮全禁用）
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+  const [threeViewsGeneratingIds, setThreeViewsGeneratingIds] = useState<
+    Set<string>
+  >(new Set());
 
   const [currentImageIndices, setCurrentImageIndices] = useState<
     Record<string, number>
@@ -291,7 +302,7 @@ export default function CharactersPage() {
       selectReference(id, imageUrl),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
-      setCandidateGallery(null);
+      setCandidateQueue((prev) => prev.slice(1));
       toast.success("参考图已保存");
     },
     onError: (error) => {
@@ -317,6 +328,9 @@ export default function CharactersPage() {
         count?: number;
       };
     }) => generateReference(id, options || {}),
+    onMutate: ({ id }) => {
+      setGeneratingIds((prev) => new Set(prev).add(id));
+    },
     onSuccess: (data, { id }) => {
       const candidates = data.candidates ?? [];
       if (candidates.length === 0) {
@@ -329,15 +343,25 @@ export default function CharactersPage() {
         selectMutation.mutate({ id, imageUrl: candidates[0].imageUrl });
         return;
       }
-      // 多张：弹候选画廊供点选
-      setCandidateGallery({ characterId: id, candidates });
+      // 多张：入队候选画廊供点选（并发时依次弹出）
+      const characterName =
+        characters?.find((c) => c.id === id)?.name ?? "角色";
+      setCandidateQueue((prev) => [
+        ...prev,
+        { characterId: id, characterName, candidates },
+      ]);
     },
     onError: (error) => {
       // 积分不足附「去充值」出口（消息已含差额），不足时不再是死胡同
       const fe = toFriendlyError(error, "生成参考图失败");
       toast.error(fe.message, fe.cta);
     },
-    onSettled: () => {
+    onSettled: (_data, _error, { id }) => {
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       setUploadingBaseImageId(null);
     },
   });
@@ -351,6 +375,9 @@ export default function CharactersPage() {
       id: string;
       imageConfigId?: string;
     }) => generateThreeViews(id, { imageConfigId }),
+    onMutate: ({ id }) => {
+      setThreeViewsGeneratingIds((prev) => new Set(prev).add(id));
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
       toast.success("三视图生成成功");
@@ -358,6 +385,13 @@ export default function CharactersPage() {
     onError: (error) => {
       const fe = toFriendlyError(error, "生成三视图失败");
       toast.error(fe.message, fe.cta);
+    },
+    onSettled: (_data, _error, { id }) => {
+      setThreeViewsGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     },
   });
 
@@ -529,7 +563,7 @@ export default function CharactersPage() {
               onDelete={handleDelete}
               onOpenGenerateModal={openGenerateModal}
               uploadingBaseImageId={uploadingBaseImageId}
-              generateMutationPending={generateMutation.isPending}
+              isGenerating={generatingIds.has(character.id)}
               updateMutationPending={updateMutation.isPending}
               generateDescriptionMutation={generateDescriptionMutation}
             />
@@ -579,30 +613,33 @@ export default function CharactersPage() {
           currentImageIndex={currentImageIndices[generateModalCharacterId] || 0}
           onClose={closeGenerateModal}
           onGenerate={handleGenerate}
-          generatePending={generateMutation.isPending}
+          generatePending={generatingIds.has(generateModalCharacterId)}
           onGenerateThreeViews={() =>
             generateThreeViewsMutation.mutate({
               id: generateModalCharacterId,
               imageConfigId: generateOptions.imageConfigId,
             })
           }
-          threeViewsPending={generateThreeViewsMutation.isPending}
+          threeViewsPending={threeViewsGeneratingIds.has(
+            generateModalCharacterId
+          )}
         />
       )}
 
-      {/* 多候选画廊（批次 2 · 1.4B）：≥2 张时点选一张入库 */}
-      {candidateGallery && (
+      {/* 多候选画廊（批次 2 · 1.4B）：≥2 张时点选一张入库；并发生成时按队列依次弹出 */}
+      {candidateQueue.length > 0 && (
         <ReferenceCandidateGallery
-          candidates={candidateGallery.candidates}
+          characterName={candidateQueue[0].characterName}
+          candidates={candidateQueue[0].candidates}
           selectingUrl={selectingUrl}
           onSelect={(imageUrl) => {
             setSelectingUrl(imageUrl);
             selectMutation.mutate({
-              id: candidateGallery.characterId,
+              id: candidateQueue[0].characterId,
               imageUrl,
             });
           }}
-          onClose={() => setCandidateGallery(null)}
+          onClose={() => setCandidateQueue((prev) => prev.slice(1))}
         />
       )}
     </div>
