@@ -53,6 +53,36 @@ export async function draftAppearance(body: {
   return res.json();
 }
 
+/** 角色画像 roster 单条结果（对齐 character-roster 路由返回，gender 已归一） */
+export interface RosterProfile {
+  name: string;
+  gender: string;
+  age: string;
+  description: string;
+}
+
+/**
+ * 角色画像 roster：一批角色名 + 脚本文本 → 每个角色的 gender/age/一句话身份。
+ * 制片人向导建档前调一次，把画像全链路透传（建档 + 外貌预填）。
+ */
+export async function draftCharacterRoster(body: {
+  names: string[];
+  worldview: string;
+  protagonist?: string;
+  scenesDigest?: string;
+}): Promise<{ characters: RosterProfile[] }> {
+  const res = await fetch("/api/assist/character-roster", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    throw new Error(formatApiError(error, "角色画像起草失败"));
+  }
+  return res.json();
+}
+
 /** 尾帧衔接建议结果（对应 suggest-links 路由 POST 返回） */
 export interface LinkSuggestion {
   sceneId: string;

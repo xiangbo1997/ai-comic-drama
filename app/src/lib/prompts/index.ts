@@ -59,6 +59,17 @@ export {
 } from "./appearance-draft";
 export type { AppearanceDraftInput } from "./appearance-draft";
 export {
+  MAX_ROSTER_CHARACTERS,
+  CHARACTER_ROSTER_SYSTEM,
+  buildCharacterRosterPrompt,
+  normalizeRosterGender,
+  filterRosterByNames,
+} from "./character-roster";
+export type {
+  CharacterRosterInput,
+  RosterProfileRaw,
+} from "./character-roster";
+export {
   PROMPT_SUGGEST_SYSTEM,
   buildPromptSuggestPrompt,
 } from "./prompt-suggest";

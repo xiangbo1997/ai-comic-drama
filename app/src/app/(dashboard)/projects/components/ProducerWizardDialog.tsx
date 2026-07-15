@@ -34,7 +34,11 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { STYLE_PACK_OPTIONS } from "@/lib/prompts/style-packs";
-import { draftWorldview } from "@/lib/assist-client";
+import {
+  draftWorldview,
+  draftCharacterRoster,
+  type RosterProfile,
+} from "@/lib/assist-client";
 import {
   createProducerProject,
   runDramaScript,
@@ -174,11 +178,37 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
               throw new Error("脚本缺失，无法建档角色");
             }
             const names = extractProducerCharacterNames(localArtifact);
+            // 场景摘要：每场「标题：description」+ 对白（有则带），作为 roster 推断证据。
+            const scenesDigest = localArtifact.scenes
+              .map((s) => {
+                const head = `${s.title}：${s.description}`;
+                return s.dialogue ? `${head}\n${s.dialogue}` : head;
+              })
+              .join("\n");
+            // 建档前一次性推断每个角色的 gender/age/身份（1 次 LLM）。降级不阻断：
+            // roster 失败则用空 Map，角色仍照常建档（性别/年龄留空，交互原则 5）。
+            let rosterMap = new Map<string, RosterProfile>();
+            try {
+              const roster = await draftCharacterRoster({
+                names,
+                worldview: localArtifact.worldview ?? "",
+                protagonist: localArtifact.protagonist || undefined,
+                scenesDigest,
+              });
+              rosterMap = new Map(roster.characters.map((c) => [c.name, c]));
+            } catch {
+              rosterMap = new Map();
+            }
             // 串行建档（避免并发 N 次 LLM 触发限流）；单角色失败整步失败可重试。
-            // 幂等：已成功建档的角色名跳过，重试不重复建档。
+            // 幂等：已成功建档的角色名跳过，重试不重复建档。重试整步会重打一次
+            // roster LLM（可接受，1 次调用），无需持久化。
             for (const name of names) {
               if (localCreatedNames.has(name)) continue;
-              await createAndLinkCharacter(localProjectId, name);
+              await createAndLinkCharacter(
+                localProjectId,
+                name,
+                rosterMap.get(name)
+              );
               localCreatedNames.add(name);
               setCreatedCharNames([...localCreatedNames]);
               setCharCount(localCreatedNames.size);

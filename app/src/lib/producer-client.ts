@@ -5,8 +5,9 @@
  * - createProducerProject：POST /api/projects（复用项目创建）
  * - runDramaScript：POST /api/projects/[id]/drama-script（异步）→ 轮询
  *   /api/script/parse/[id] 至终态，返回脚本产物 + scriptId
- * - createAndLinkCharacter：POST /api/characters 建档 → POST
- *   /api/projects/[id]/characters 关联 → POST /api/assist/appearance-draft 预填外貌
+ * - createAndLinkCharacter：POST /api/characters 建档（带画像 gender/age/description
+ *   + 预填外貌）→ POST /api/projects/[id]/characters 关联。画像（profile）由向导在
+ *   建档前一次性 roster 推断后透传，修复原先只传名字导致性别/年龄/人设落 null。
  *
  * 与 assist-client 同风格：读服务端 { error } 转中文提示（formatApiError）。
  */
@@ -166,19 +167,22 @@ async function findExistingCharacterId(
 }
 
 /**
- * 为项目创建一个角色并预填外貌（计划 §4 · 1.2 复用）。
+ * 为项目创建一个角色并预填画像 + 外貌（计划 §4 · 1.2 复用）。
  *
- * 三步：建 Character（带外貌若预填成功）→ 关联到项目 → 返回摘要。
+ * 三步：建 Character（带画像 gender/age/description + 外貌若预填成功）→ 关联到项目
+ * → 返回摘要。画像（profile）由向导在建档前一次性 roster 推断后透传，据此让外貌预填
+ * 的性别/年龄/身份有据可依（修复原先只传名字导致外貌预填瞎猜性别）。
  * 外貌预填走 assist 的 appearance-draft（1 次 LLM/角色），失败不阻断——
  * 角色仍建档，仅外貌留空供用户手填（降级不阻断，交互原则 5）。
  *
  * 幂等：CREATE 前先查重（findExistingCharacterId）。若同名角色已存在（项目已关联或
  * 用户角色库遗留），跳过 CREATE 只做 LINK（LINK 走 upsert，重复关联安全），避免重试
- * 时重复建档产生孤儿 Character。
+ * 时重复建档产生孤儿 Character。命中已存在分支**不回填画像**，避免覆盖用户手改。
  */
 export async function createAndLinkCharacter(
   projectId: string,
-  name: string
+  name: string,
+  profile?: { gender?: string; age?: string; description?: string }
 ): Promise<ProducerCharacterResult> {
   // 幂等护栏：命中同名已存在角色则复用，跳过 CREATE（详见 findExistingCharacterId）
   const existing = await findExistingCharacterId(projectId, name);
@@ -190,21 +194,35 @@ export async function createAndLinkCharacter(
     return { id: existing.id, name, appearance: null };
   }
 
-  // 先尝试外貌预填（失败降级为空外貌，不阻断建档）
+  // 画像三字段：空串不下传（characters 路由 `|| null` 会兜底，但空串会污染语义）
+  const gender = profile?.gender?.trim();
+  const age = profile?.age?.trim();
+  const description = profile?.description?.trim();
+
+  // 先尝试外貌预填（带上画像三字段让性别/年龄/人设有据；失败降级为空外貌，不阻断建档）
   let appearance: AppearanceFormData | null = null;
   try {
-    appearance = await draftAppearance({ name });
+    appearance = await draftAppearance({
+      name,
+      ...(gender ? { gender } : {}),
+      ...(age ? { age } : {}),
+      ...(description ? { description } : {}),
+    });
   } catch {
     appearance = null;
   }
 
-  // 建档：把预填外貌一并落库（appearance 的 clothingPresets 不进 CharacterAppearance
-  // 结构化表，仅 10 字段中的 9 个文本字段落库，与 characters 路由消费一致）
+  // 建档：把画像 gender/age/description + 预填外貌一并落库（appearance 的
+  // clothingPresets 不进 CharacterAppearance 结构化表，仅 10 字段中的 9 个文本字段
+  // 落库，与 characters 路由消费一致）
   const createRes = await fetch("/api/characters", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name,
+      ...(gender ? { gender } : {}),
+      ...(age ? { age } : {}),
+      ...(description ? { description } : {}),
       ...(appearance ? { appearance } : {}),
     }),
   });
