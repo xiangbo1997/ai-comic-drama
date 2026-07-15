@@ -371,10 +371,12 @@ export default function CharactersPage() {
     mutationFn: ({
       id,
       imageConfigId,
+      customPrompt,
     }: {
       id: string;
       imageConfigId?: string;
-    }) => generateThreeViews(id, { imageConfigId }),
+      customPrompt?: string;
+    }) => generateThreeViews(id, { imageConfigId, customPrompt }),
     onMutate: ({ id }) => {
       setThreeViewsGeneratingIds((prev) => new Set(prev).add(id));
     },
@@ -618,6 +620,8 @@ export default function CharactersPage() {
             generateThreeViewsMutation.mutate({
               id: generateModalCharacterId,
               imageConfigId: generateOptions.imageConfigId,
+              // 同屏自定义提示词一并透传给三视图（此前被忽略，A3）
+              customPrompt: generateOptions.customPrompt.trim() || undefined,
             })
           }
           threeViewsPending={threeViewsGeneratingIds.has(

@@ -129,6 +129,13 @@ export async function POST(request: NextRequest) {
               skinTone: appearance.skinTone || null,
               accessories: appearance.accessories || null,
               freeText: appearance.freeText || null,
+              // 换装预设：前端 appearance-editor 收集、下游出图/换装消费，
+              // 此前漏写导致用户手填/AI 起草的服装预设静默丢失（A1 根因）。
+              // 空数组存 []（非 JsonNull），与消费侧 toAppearanceFormData / character-look
+              // 统一按空数组处理，避免 null/[] 语义分裂。
+              clothingPresets: Array.isArray(appearance.clothingPresets)
+                ? appearance.clothingPresets
+                : [],
             },
           },
         }),

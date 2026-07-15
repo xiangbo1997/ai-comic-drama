@@ -14,6 +14,28 @@ const log = createLogger("api:generate:tts");
 // TTS 成本：每100字 2积分
 const TTS_COST_PER_100_CHARS = 2;
 
+/**
+ * 把「厂商标识」归一到 TTS 声线家族，用于判定角色声线与激活配置是否同源。
+ *
+ * 背景：Character.voiceProvider 前端存 "volcano"，而激活 TTS 配置的 protocol
+ * 走 provider-factory 的 "volcengine" / "elevenlabs" / "gpt-sovits"。二者字面不同
+ * 但同属火山家族，需归一后比较。
+ *
+ * 归一规则（大小写不敏感，容忍 baseUrl 关键字）：
+ *   volcano / volcengine / bytedance → "volcano"
+ *   elevenlabs                       → "elevenlabs"
+ *   gpt-sovits / gptsovits / sovits  → "gpt-sovits"
+ *   其余                             → "" （未知家族，判定时按不匹配处理）
+ */
+function normalizeVoiceFamily(raw?: string | null): string {
+  const v = (raw ?? "").trim().toLowerCase();
+  if (!v) return "";
+  if (v.includes("volc") || v.includes("bytedance")) return "volcano";
+  if (v.includes("elevenlabs")) return "elevenlabs";
+  if (v.includes("sovits")) return "gpt-sovits";
+  return "";
+}
+
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
@@ -49,20 +71,47 @@ export async function POST(request: NextRequest) {
       ttsConfigId,
     } = await request.json();
 
+    // 提前解析激活 TTS 配置：既供下方角色声线跨厂商防污染判定（A4），也直接
+    // 复用到后台 run，避免二次查询。缺失时 protocol 视为空家族。
+    const ttsConfig = await getUserTTSConfig(userId, ttsConfigId);
+    const activeFamily = normalizeVoiceFamily(ttsConfig?.protocol);
+
     /*
      * voiceId 解析顺序：
      *   1) 请求显式传入的 voiceId（最高优先级，向后兼容）；
-     *   2) 根据 characterId 查 Character.voiceId（让同一角色跨场景音色稳定）；
+     *   2) 根据 characterId 查 Character.voiceId（让同一角色跨场景音色稳定），
+     *      但须与激活 TTS 配置同厂商——见下方跨厂商防污染（A4）；
      *   3) 兜底 "default"（由 provider 适配器各自映射到默认音色）。
      */
     let voiceId: string | undefined = voiceIdFromBody;
     if (!voiceId && typeof characterId === "string" && characterId) {
       const character = await prisma.character.findUnique({
         where: { id: characterId },
-        select: { voiceId: true, userId: true },
+        select: { voiceId: true, voiceProvider: true, userId: true },
       });
       if (character && character.userId === userId && character.voiceId) {
-        voiceId = character.voiceId;
+        // 跨厂商防污染（A4）：VOICE_PRESETS 的 voiceId 全是火山专用串，若激活
+        // TTS 是 ElevenLabs / GPT-SoVITS，原样传火山 voiceId 会被目标 provider
+        // 当作未知声线（报错或跑偏）。仅当角色声线家族与激活配置家族匹配时才采用；
+        // 不匹配（或家族无法判定）则忽略角色 voiceId，回落该 provider 默认声线。
+        const charFamily = normalizeVoiceFamily(character.voiceProvider);
+        const familyMatches =
+          activeFamily !== "" &&
+          charFamily !== "" &&
+          charFamily === activeFamily;
+        if (familyMatches) {
+          voiceId = character.voiceId;
+        } else {
+          log.warn(
+            "角色声线与激活 TTS 配置厂商不一致，忽略角色 voiceId 回落默认声线",
+            {
+              characterId,
+              charFamily: charFamily || "(unknown)",
+              activeFamily: activeFamily || "(unknown)",
+              droppedVoiceId: character.voiceId,
+            }
+          );
+        }
       }
     }
     if (!voiceId) {
@@ -140,9 +189,7 @@ export async function POST(request: NextRequest) {
     // 扣费语义不变：成功后事务内扣费。
     const run = async () => {
       try {
-        // 获取用户 TTS 配置
-        const ttsConfig = await getUserTTSConfig(userId, ttsConfigId);
-
+        // TTS 配置已在上方解析并用于跨厂商防污染判定，此处直接复用（避免二次查询）
         // 调用 TTS 服务
         const audioBuffer = await synthesizeSpeech({
           text,

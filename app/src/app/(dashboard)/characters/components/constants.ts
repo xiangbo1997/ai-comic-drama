@@ -214,7 +214,7 @@ export async function selectReference(id: string, imageUrl: string) {
  */
 export async function generateThreeViews(
   id: string,
-  options: { imageConfigId?: string } = {}
+  options: { imageConfigId?: string; customPrompt?: string } = {}
 ): Promise<{ views: { pose: string; url: string }[]; cost: number }> {
   const startRes = await fetch(`/api/characters/${id}/generate-three-views`, {
     method: "POST",

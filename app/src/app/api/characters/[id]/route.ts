@@ -108,6 +108,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           where: { characterId: id },
         });
       } else {
+        // 换装预设：空数组统一存 []（非 JsonNull），与消费侧 toAppearanceFormData /
+        // character-look 一致按空数组处理，避免 null/[] 语义分裂（A1）。
+        const clothingPresets = Array.isArray(appearance.clothingPresets)
+          ? appearance.clothingPresets
+          : [];
         await prisma.characterAppearance.upsert({
           where: { characterId: id },
           create: {
@@ -121,6 +126,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             skinTone: appearance.skinTone || null,
             accessories: appearance.accessories || null,
             freeText: appearance.freeText || null,
+            clothingPresets,
           },
           update: {
             hairStyle: appearance.hairStyle || null,
@@ -132,6 +138,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             skinTone: appearance.skinTone || null,
             accessories: appearance.accessories || null,
             freeText: appearance.freeText || null,
+            clothingPresets,
           },
         });
       }

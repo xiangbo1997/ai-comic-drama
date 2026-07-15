@@ -3,7 +3,10 @@ import {
   buildCharacterBasePrompt,
   buildCharacterStyleBaseline,
   buildCharacterPromptWithCustom,
+  buildAppearanceFeatures,
+  buildCustomInstructionPrefix,
   type CharacterPromptInput,
+  type CharacterAppearanceInput,
 } from "@/lib/prompts/character-reference";
 
 function makeCharacter(
@@ -103,5 +106,116 @@ describe("buildCharacterBasePrompt（画风基线透传）", () => {
     // 未知 id 回落到 anime（完整包），故仍注入基线——与出图 prompt 层一致
     const baseline = buildCharacterStyleBaseline("__unknown__");
     expect(baseline.length).toBeGreaterThan(0);
+  });
+});
+
+describe("buildAppearanceFeatures（结构化外貌拼接）", () => {
+  const fullAppearance: CharacterAppearanceInput = {
+    hairStyle: "long straight hair",
+    hairColor: "silver",
+    faceShape: "oval face",
+    eyeColor: "amber",
+    bodyType: "slender",
+    height: "170cm tall",
+    skinTone: "fair",
+    accessories: "silver hairpin",
+    freeText: "calm expression",
+  };
+
+  it("缺省 / null / 空对象：返回空串（零回归基石）", () => {
+    expect(buildAppearanceFeatures(undefined)).toBe("");
+    expect(buildAppearanceFeatures(null)).toBe("");
+    expect(buildAppearanceFeatures({})).toBe("");
+  });
+
+  it("发色 + 发型合并、瞳色加 eyes、肤色加 skin（对齐分镜出图拼接）", () => {
+    const text = buildAppearanceFeatures(fullAppearance);
+    expect(text).toContain("silver long straight hair");
+    expect(text).toContain("amber eyes");
+    expect(text).toContain("fair skin");
+    expect(text).toContain("silver hairpin");
+    expect(text).toContain("calm expression");
+  });
+
+  it("只填发型无发色：发型单独出现，不产生悬空前缀", () => {
+    const text = buildAppearanceFeatures({ hairStyle: "short hair" });
+    expect(text).toBe("short hair");
+  });
+});
+
+describe("buildCharacterBasePrompt（结构化外貌注入 · A2 零回归）", () => {
+  function makeCharacter(
+    overrides: Partial<CharacterPromptInput> = {}
+  ): CharacterPromptInput {
+    return {
+      name: "苏晚",
+      gender: "female",
+      age: "22",
+      description: "冷静克制的剑客",
+      tags: [{ tag: { name: "剑客" } }],
+      ...overrides,
+    };
+  }
+
+  it("appearance 缺省时 prompt 与不传 appearance 完全一致（零回归）", () => {
+    const withUndefined = buildCharacterBasePrompt(makeCharacter());
+    const withNull = buildCharacterBasePrompt(
+      makeCharacter({ appearance: null })
+    );
+    // 两者都不含外貌片段，且彼此逐字相等
+    expect(withUndefined).toBe(withNull);
+    expect(withUndefined).not.toContain("eyes");
+    expect(withUndefined).toContain("苏晚");
+    expect(withUndefined).toContain("冷静克制的剑客");
+  });
+
+  it("appearance 非空时：9 字段特征被拼入，且 description / 标签仍保留", () => {
+    const prompt = buildCharacterBasePrompt(
+      makeCharacter({
+        appearance: {
+          hairColor: "black",
+          hairStyle: "ponytail",
+          eyeColor: "dark brown",
+          skinTone: "fair",
+        },
+      })
+    );
+    expect(prompt).toContain("black ponytail");
+    expect(prompt).toContain("dark brown eyes");
+    expect(prompt).toContain("fair skin");
+    // 身份/描述/标签不丢
+    expect(prompt).toContain("苏晚");
+    expect(prompt).toContain("冷静克制的剑客");
+    expect(prompt).toContain("剑客");
+  });
+});
+
+describe("buildCustomInstructionPrefix（自定义指令提权前缀单一真源 · A3）", () => {
+  it("空 / null / 纯空白：返回空串（调用方按无自定义处理，零回归）", () => {
+    expect(buildCustomInstructionPrefix(undefined)).toBe("");
+    expect(buildCustomInstructionPrefix(null)).toBe("");
+    expect(buildCustomInstructionPrefix("   ")).toBe("");
+  });
+
+  it("非空：用最高优先级英文声明包裹并裁剪首尾空白", () => {
+    const prefix = buildCustomInstructionPrefix("  换成短发  ");
+    expect(prefix).toBe(
+      "User instruction (highest priority, must follow): 换成短发"
+    );
+  });
+
+  it("与 buildCharacterPromptWithCustom 同源：参考图路径复用同一前缀", () => {
+    const custom = "微笑，眼神温柔";
+    const prefix = buildCustomInstructionPrefix(custom);
+    const full = buildCharacterPromptWithCustom(
+      {
+        name: "苏晚",
+        gender: "female",
+        tags: [],
+      },
+      custom
+    );
+    // 参考图路径的自定义段就是该前缀（保证三视图与参考图加权格式一致）
+    expect(full.startsWith(prefix)).toBe(true);
   });
 });

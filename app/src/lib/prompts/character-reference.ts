@@ -7,8 +7,26 @@
 import { getStylePack } from "./style-packs";
 
 /**
+ * 结构化外貌字段（与 Prisma CharacterAppearance 的 9 个文本字段对齐；
+ * clothingPresets 属换装数据，不进定妆照 / 三视图 prompt，故此处不含）。
+ * 全部可选可空，缺省时按「无该字段」处理（拼接时被过滤掉）。
+ */
+export interface CharacterAppearanceInput {
+  hairStyle?: string | null;
+  hairColor?: string | null;
+  faceShape?: string | null;
+  eyeColor?: string | null;
+  bodyType?: string | null;
+  height?: string | null;
+  skinTone?: string | null;
+  accessories?: string | null;
+  freeText?: string | null;
+}
+
+/**
  * 构建角色 prompt 所需的最小字段（与 Prisma Character + tags 结构兼容）。
  * tags 元素的 tag 用 name 字段 + 索引签名，兼容 Prisma tag 的多余字段。
+ * appearance 为可选结构化外貌；缺省（旧数据 / 未填）时 prompt 与原逻辑等价（零回归）。
  */
 export interface CharacterPromptInput {
   name: string;
@@ -16,6 +34,32 @@ export interface CharacterPromptInput {
   age?: string | null;
   description?: string | null;
   tags?: { tag: { name: string } }[];
+  appearance?: CharacterAppearanceInput | null;
+}
+
+/**
+ * 把结构化外貌的 9 个文本字段拼成一段英文/中文混排的外貌特征描述。
+ * 拼接风格对齐分镜出图路径 strategy-resolver.ts#buildCharacterFeatures：
+ * 发色 + 发型合并、眼睛加 "eyes"、肤色加 "skin" 后缀，其余字段原样。
+ * 全部为空时返回空串，调用方按「无外貌」处理（零回归）。
+ */
+export function buildAppearanceFeatures(
+  appearance?: CharacterAppearanceInput | null
+): string {
+  if (!appearance) return "";
+  const fields = [
+    appearance.hairColor && appearance.hairStyle
+      ? `${appearance.hairColor} ${appearance.hairStyle}`
+      : appearance.hairStyle || appearance.hairColor || null,
+    appearance.faceShape,
+    appearance.eyeColor ? `${appearance.eyeColor} eyes` : null,
+    appearance.bodyType,
+    appearance.skinTone ? `${appearance.skinTone} skin` : null,
+    appearance.height,
+    appearance.accessories,
+    appearance.freeText,
+  ];
+  return fields.filter(Boolean).join(", ");
 }
 
 /**
@@ -58,6 +102,10 @@ export function buildCharacterBasePrompt(
 
   const ageText = character.age ? `${character.age} years old` : "";
 
+  // 结构化外貌特征（9 文本字段）：与分镜出图路径同源拼接，让定妆照/三视图
+  // 吃到发色/发型/瞳色/身形等细节，而非仅靠 description。缺省时为空串（零回归）。
+  const appearanceText = buildAppearanceFeatures(character.appearance);
+
   // 提取标签名称（排除性别标签，避免重复）
   const tagNames =
     character.tags
@@ -76,6 +124,7 @@ export function buildCharacterBasePrompt(
     character.name,
     ageText,
     character.description || "",
+    appearanceText,
     tagsText,
     styleBaseline ? `画风基线：${styleBaseline}` : "",
     "detailed face, clean background, masterpiece",
@@ -116,9 +165,26 @@ export function buildCharacterPromptWithCustom(
 
   // 用户指令前置 + 优先级声明包裹；base 作为身份锚点跟在后面。
   return [
-    `User instruction (highest priority, must follow): ${custom}`,
+    buildCustomInstructionPrefix(custom),
     `character identity reference: ${base}`,
   ].join(". ");
+}
+
+/**
+ * 用户自定义指令的「提权前缀」单一真源。
+ *
+ * 三视图与参考图两条路径共用同一套加权格式（"highest priority, must follow"），
+ * 避免各造一套导致模型遵循度不一致。空/纯空白返回空串（调用方按无自定义处理）。
+ *
+ * @param customPrompt 用户输入（可空/可含中文）
+ * @returns 形如 `User instruction (highest priority, must follow): <trimmed>`；空输入返回 ""
+ */
+export function buildCustomInstructionPrefix(
+  customPrompt?: string | null
+): string {
+  const custom = customPrompt?.trim();
+  if (!custom) return "";
+  return `User instruction (highest priority, must follow): ${custom}`;
 }
 
 /**

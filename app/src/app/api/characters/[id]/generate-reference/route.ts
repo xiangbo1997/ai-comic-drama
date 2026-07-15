@@ -68,10 +68,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const candidateCount = normalizeCandidateCount(count);
 
-    // 验证角色归属
+    // 验证角色归属（include appearance：让参考图 prompt 吃到结构化外貌 9 字段，
+    // 与分镜出图路径对等；缺省时 buildCharacterBasePrompt 按无外貌处理，零回归）
     const character = await prisma.character.findFirst({
       where: { id, userId },
-      include: { tags: { include: { tag: true } } },
+      include: { tags: { include: { tag: true } }, appearance: true },
     });
 
     if (!character) {

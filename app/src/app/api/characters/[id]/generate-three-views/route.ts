@@ -7,6 +7,7 @@ import { createLogger } from "@/lib/logger";
 import { chargeCredits } from "@/lib/credits";
 import {
   buildCharacterBasePrompt,
+  buildCustomInstructionPrefix,
   POSE_CONSTRAINTS,
   IDENTITY_LOCK,
   SINGLE_SUBJECT,
@@ -32,6 +33,9 @@ const BodySchema = z.object({
   // 可选项目画风：命中完整画风包时给定妆照锚定画风基线（角色定妆规则 + 色彩系统）。
   // 独立角色页（无项目上下文）不传，行为不变。
   style: z.string().max(50).optional(),
+  // 用户自定义提示词：与参考图路径同源，用最高优先级前缀提权后注入每面 prompt。
+  // 此前三视图完全忽略此字段，用户在同屏输入框填了被静默丢弃（A3 根因）。
+  customPrompt: z.string().max(2000).optional(),
 });
 
 function isReferenceAssetSchemaMismatch(error: unknown): boolean {
@@ -71,11 +75,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       ? parsed.data.imageConfigId
       : undefined;
     const style = parsed.success ? parsed.data.style : undefined;
+    const customPrompt = parsed.success ? parsed.data.customPrompt : undefined;
 
-    // 角色归属
+    // 角色归属（include appearance：让三视图 prompt 吃到结构化外貌 9 字段，
+    // 与分镜出图路径对等；缺省时 buildCharacterBasePrompt 按无外貌处理，零回归）
     const character = await prisma.character.findFirst({
       where: { id, userId },
-      include: { tags: { include: { tag: true } } },
+      include: { tags: { include: { tag: true } }, appearance: true },
     });
     if (!character) {
       return NextResponse.json(
@@ -132,7 +138,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       character,
       imageConfig,
       anchorImageUrl,
-      style
+      style,
+      customPrompt
     ).catch((err) => {
       log.error(`Background three-views task ${task.id} unhandled:`, err);
     });
@@ -157,11 +164,16 @@ async function runThreeViewsTask(
   character: Parameters<typeof buildCharacterBasePrompt>[0],
   imageConfig: Awaited<ReturnType<typeof getUserImageConfig>>,
   anchorImageUrl: string | undefined,
-  style: string | undefined
+  style: string | undefined,
+  customPrompt: string | undefined
 ): Promise<void> {
   try {
     // style 命中完整画风包时，basePrompt 尾部会带上「画风基线」块（定妆规则 + 色彩系统）
     const basePrompt = buildCharacterBasePrompt(character, style);
+
+    // 自定义指令提权前缀（与参考图路径同源格式）：非空时置于每面 prompt 最前，
+    // 让「换成短发 / 微笑」等用户要求以最高优先级压过 base 关键词。空则为空串（零回归）。
+    const customPrefix = buildCustomInstructionPrefix(customPrompt);
 
     // 角色一致性闭环：同一角色用同一 seed；三视图**全部以主图 i2i 锚定身份**，
     // 确保转出的是「角色卡上这只角色」而非照文字重画的新角色。
@@ -178,12 +190,21 @@ async function runThreeViewsTask(
     const anchor = anchorImageUrl; // 全程只读，不被覆盖
     for (const pose of POSES) {
       // Prompt 排布（权重递增，末尾最重）：
-      //   构图硬约束(单角度+单主体，防九宫格) → 角色内容(basePrompt)
+      //   用户自定义指令(customPrefix，最高优先级前置，位置提权)
+      //   → 构图硬约束(单角度+单主体，防九宫格) → 角色内容(basePrompt)
       //   → 身份+画风锁定(IDENTITY_LOCK 放最末，紧邻 provider 追加的
       //     FACE_ANCHOR_SUFFIX，用最高权重压住"2D→3D/换装/换光"漂移)。
-      const prompt = anchor
-        ? `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${basePrompt}, ${IDENTITY_LOCK}`
-        : `${POSE_CONSTRAINTS[pose]}, ${SINGLE_SUBJECT}, ${basePrompt}`;
+      // customPrefix 为空时被 filter 掉，prompt 与原逻辑逐字一致（零回归）。
+      const promptParts = anchor
+        ? [
+            customPrefix,
+            POSE_CONSTRAINTS[pose],
+            SINGLE_SUBJECT,
+            basePrompt,
+            IDENTITY_LOCK,
+          ]
+        : [customPrefix, POSE_CONSTRAINTS[pose], SINGLE_SUBJECT, basePrompt];
+      const prompt = promptParts.filter(Boolean).join(", ");
       let imageUrl = await generateImage({
         prompt,
         aspectRatio: "1:1",

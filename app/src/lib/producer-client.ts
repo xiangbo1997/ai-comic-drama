@@ -212,9 +212,9 @@ export async function createAndLinkCharacter(
     appearance = null;
   }
 
-  // 建档：把画像 gender/age/description + 预填外貌一并落库（appearance 的
-  // clothingPresets 不进 CharacterAppearance 结构化表，仅 10 字段中的 9 个文本字段
-  // 落库，与 characters 路由消费一致）
+  // 建档：把画像 gender/age/description + 预填外貌一并落库。appearance 的
+  // 全部 10 字段（9 文本 + clothingPresets）都会由 characters 路由持久化到
+  // CharacterAppearance 表（clothingPresets 存 JSON 列，空则存 []）。
   const createRes = await fetch("/api/characters", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
