@@ -127,6 +127,34 @@ describe("dramaScriptToScenes", () => {
       []
     );
   });
+
+  it("C4：镜头语言字段携带时透传到分镜草稿", () => {
+    const doc = makeDoc();
+    doc.scenes[0].cameraAngle = "低角度仰拍";
+    doc.scenes[0].lighting = "冷调夜景";
+    doc.scenes[0].composition = "三分法";
+    doc.scenes[0].colorPalette = "冷蓝调";
+    doc.scenes[0].actionBeat = "雨滴砸落，霓虹明灭";
+    doc.scenes[0].cameraMovement = "dolly_in";
+    const scenes = dramaScriptToScenes(doc, null);
+    expect(scenes[0]).toMatchObject({
+      cameraAngle: "低角度仰拍",
+      lighting: "冷调夜景",
+      composition: "三分法",
+      colorPalette: "冷蓝调",
+      actionBeat: "雨滴砸落，霓虹明灭",
+      cameraMovement: "dolly_in",
+    });
+  });
+
+  it("C4：镜头语言字段缺省时不出现在分镜草稿（向后兼容）", () => {
+    // 未携带镜头语言的老脚本：这些键根本不该出现，保持产出对象干净
+    const scenes = dramaScriptToScenes(makeDoc(), null);
+    expect(scenes[0]).not.toHaveProperty("cameraAngle");
+    expect(scenes[0]).not.toHaveProperty("lighting");
+    expect(scenes[0]).not.toHaveProperty("cameraMovement");
+    expect(scenes[0]).not.toHaveProperty("actionBeat");
+  });
 });
 
 describe("scriptToInputText", () => {

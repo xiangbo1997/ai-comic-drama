@@ -18,6 +18,7 @@ import { resolveLLMParams } from "./llm-params";
 import type { Agent, AgentResult, WorkflowContext } from "./types";
 import type { DramaScriptInput, DramaScriptArtifact } from "@/types/drama";
 import { HOOK_TYPES } from "@/types/series-bible";
+import { CAMERA_MOVEMENTS } from "@/lib/prompts";
 
 const log = createLogger("agent:drama-script");
 
@@ -29,6 +30,15 @@ const DramaSceneSchema = z.object({
   narration: z.string().nullable(),
   emotion: z.string(),
   durationSec: z.number().min(1).max(60),
+  // 镜头语言字段（全部可选 + .catch 兜底）：与手动小说解析路径对齐，制片人直转分镜时
+  // 透传给出图/视频 prompt。LLM 漏填或写错任一字段都不阻断整脚本校验（零回归）。
+  cameraAngle: z.string().optional().catch(undefined),
+  lighting: z.string().optional().catch(undefined),
+  composition: z.string().optional().catch(undefined),
+  colorPalette: z.string().optional().catch(undefined),
+  actionBeat: z.string().optional().catch(undefined),
+  // 运镜收窄到 13 值枚举（与解析层唯一真源 CAMERA_MOVEMENTS 对齐）；非法值回落 undefined
+  cameraMovement: z.enum(CAMERA_MOVEMENTS).optional().catch(undefined),
 });
 
 const DramaScriptSchema = z.object({

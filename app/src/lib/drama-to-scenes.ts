@@ -31,6 +31,17 @@ export interface SceneDraft {
   characters: string[];
   /** 地点标签：供场景锚定图（环境一致性）分组 */
   locationKey: string | null;
+  /**
+   * 镜头语言字段（全部可选）：短剧脚本 LLM 产出时透传，供出图/视频 prompt 增强电影感。
+   * 与手动小说解析路径对齐（scenes 路由按同名字段落库）。脚本未产出时缺席即回落无约束。
+   * 向后兼容：这些字段仅在 doc.scenes 携带时才出现，ProducerWizardDialog 等既有调用不受影响。
+   */
+  cameraAngle?: string;
+  lighting?: string;
+  composition?: string;
+  colorPalette?: string;
+  actionBeat?: string;
+  cameraMovement?: string;
   [key: string]: unknown;
 }
 
@@ -103,6 +114,14 @@ export function dramaScriptToScenes(
       ),
       // 地点标签：短剧场景标题即地点/场景名，规整为 locationKey 供场景锚定分组
       locationKey: deriveLocationKey(scene.title),
+      // 镜头语言透传：脚本携带则落库供出图/视频 prompt（scenes 路由按同名字段消费）。
+      // 缺省字段不下传（`|| null` 兜底在 route 侧），保持产出对象干净且向后兼容。
+      ...(scene.cameraAngle ? { cameraAngle: scene.cameraAngle } : {}),
+      ...(scene.lighting ? { lighting: scene.lighting } : {}),
+      ...(scene.composition ? { composition: scene.composition } : {}),
+      ...(scene.colorPalette ? { colorPalette: scene.colorPalette } : {}),
+      ...(scene.actionBeat ? { actionBeat: scene.actionBeat } : {}),
+      ...(scene.cameraMovement ? { cameraMovement: scene.cameraMovement } : {}),
     };
   });
 }

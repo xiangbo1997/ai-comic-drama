@@ -3,7 +3,11 @@ import {
   mergeBible,
   type ChronicleExtraction,
 } from "@/services/series/bible-merge";
-import { emptyBible, type SeriesStoryBible } from "@/types/series-bible";
+import {
+  emptyBible,
+  type SeriesStoryBible,
+  type ColorScript,
+} from "@/types/series-bible";
 
 /** 构造最小抽取（只填需要的字段，其余给空） */
 function extraction(
@@ -64,6 +68,32 @@ describe("mergeBible — 分集功能表", () => {
     const before = emptyBible();
     mergeBible(before, extraction(), 1);
     expect(before.episodes).toHaveLength(0);
+  });
+});
+
+describe("mergeBible — colorScript 保留（C2）", () => {
+  const colorScript: ColorScript = {
+    keyColors: ["warm amber", "deep teal shadow"],
+    overallTone: "desaturated cinematic teal-and-orange",
+  };
+
+  it("用户锁定的 colorScript 归档后原样保留（史官不产出该字段，不得抹掉）", () => {
+    const current: SeriesStoryBible = { ...emptyBible(), colorScript };
+    const next = mergeBible(current, extraction(), 1);
+    expect(next.colorScript).toEqual(colorScript);
+  });
+
+  it("多集连续归档不丢失 colorScript", () => {
+    let b: SeriesStoryBible = { ...emptyBible(), colorScript };
+    b = mergeBible(b, extraction(), 1);
+    b = mergeBible(b, extraction(), 2);
+    b = mergeBible(b, extraction(), 3);
+    expect(b.colorScript).toEqual(colorScript);
+  });
+
+  it("无 colorScript 时归档后仍为 undefined（不凭空造）", () => {
+    const next = mergeBible(emptyBible(), extraction(), 1);
+    expect(next.colorScript).toBeUndefined();
   });
 });
 

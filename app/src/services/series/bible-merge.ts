@@ -269,6 +269,9 @@ export function mergeBible(
     version: 1,
     theme,
     worldSetting,
+    // 色彩指定（color script）：史官不产出该字段，属用户在圣经里手动锁定的全片主色板。
+    // 归档时必须原样保留，否则每集归档整体覆盖 storyBible 会把用户锁的色板抹掉。
+    colorScript: current.colorScript,
     locations,
     props,
     characters,

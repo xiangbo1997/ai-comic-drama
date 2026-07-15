@@ -47,6 +47,8 @@ import {
   type ChargeType,
 } from "@/lib/credits";
 import { InMemoryArtifactStore } from "./artifact-store";
+import { persistCharacterBible } from "./character-bible-persist";
+import { resolveSelectedCharacterId } from "./match-scene-character";
 import {
   subscribeWorkflowEvents as _subscribeWorkflowEvents,
   emitEvent,
@@ -63,6 +65,7 @@ import type {
   StoryboardArtifact,
   SceneArtifact,
   ImageArtifact,
+  ReviewArtifactData,
 } from "./types";
 import type {
   SceneCharacterInfo,
@@ -252,6 +255,17 @@ async function executeWorkflow(
       createdBy: "character_bible",
       createdAt: new Date(),
     });
+
+    // 角色圣经回写 Character 表（C1）：纯自动项目（用户未手建角色）此前只有 bible
+    // artifact，出图阶段的 resolveProjectCharacters 从 DB 读角色读回空 → 画像/外貌全丢。
+    // 这里把 bible 画像"只补空字段"地落库（命中已有角色不覆盖用户手改；未命中则建档 +
+    // 关联），让自动路径出图能拿到真实角色数据。静默失败，绝不阻断后续步骤。
+    await persistCharacterBible(ctx.projectId, characterBible);
+
+    // C3 回填：saveScenesToProject 在 Step 1 已按当时项目角色算过 selectedCharacterId，
+    // 但纯自动项目那时角色尚未建档（C1 在本步才回写），故对 selectedCharacterId 仍为空的
+    // 分镜再匹配一次刚建档的角色补上。已有值的分镜不动（尊重手动路径/用户选择）。
+    await backfillSelectedCharacterIds(ctx.projectId, script);
 
     // ===== Step 3: 分镜补全 =====
     const storyboardResult = await executeAgentStep(
@@ -1259,11 +1273,40 @@ async function reviewAndRefineCharacterBible(
     timestamp: new Date(),
   });
 
+  // C6：评审结果持久化到 artifacts（随 WorkflowRun.artifacts 序列化，SSE 事件会随流丢失）。
+  // WorkflowPanel 读到 review:* artifact 时渲染「质量评审」小节。
+  setReviewArtifact(ctx, "characterBible", {
+    label: "角色圣经",
+    score: result.bestScore,
+    pass: result.passed,
+    passThreshold: policy.passThreshold,
+    suggestions: [],
+  });
+
   log.info(
     `Character bible review: score=${result.bestScore}, passed=${result.passed}, rounds=${result.rounds}`
   );
 
   return result.best ?? bible;
+}
+
+/**
+ * C6：把评审结果写入 artifacts（key = review:<id>），随 WorkflowRun.artifacts 持久化。
+ * 与 emitEvent 并行——事件走 SSE 实时推送但不落库，artifact 落库供刷新后仍可展示。
+ */
+function setReviewArtifact(
+  ctx: WorkflowContext,
+  id: "characterBible" | "storyboard" | "videoCoherence",
+  data: ReviewArtifactData
+): void {
+  ctx.artifacts.set({
+    id,
+    type: "review",
+    version: 1,
+    data,
+    createdBy: "closed_loop_review",
+    createdAt: new Date(),
+  });
 }
 
 async function reviewStoryboardCoherence(
@@ -1296,6 +1339,16 @@ async function reviewStoryboardCoherence(
       suggestions: verdict.suggestions,
     },
     timestamp: new Date(),
+  });
+
+  // C6：评审结果持久化到 artifacts
+  setReviewArtifact(ctx, "storyboard", {
+    label: "分镜连贯",
+    score: verdict.score.overall,
+    pass: verdict.pass,
+    passThreshold: policy.passThreshold,
+    suggestions: verdict.suggestions,
+    feedback: verdict.score.feedback,
   });
 
   log.info(
@@ -1344,6 +1397,16 @@ async function reviewVideoCoherence(
     timestamp: new Date(),
   });
 
+  // C6：评审结果持久化到 artifacts
+  setReviewArtifact(ctx, "videoCoherence", {
+    label: "视频连贯",
+    score: verdict.score.overall,
+    pass: verdict.pass,
+    passThreshold: policy.passThreshold,
+    suggestions: verdict.suggestions,
+    feedback: verdict.score.feedback,
+  });
+
   log.info(
     `Video coherence review: score=${verdict.score.overall}, pass=${verdict.pass}`
   );
@@ -1373,6 +1436,15 @@ async function saveScenesToProject(
   const existingByOrder = new Map(existing.map((s) => [s.order, s.id]));
   const newOrders = new Set<number>();
 
+  // C3：一次性预加载项目角色，按分镜 characters 名单匹配 selectedCharacterId（出图角色锚点）。
+  // 与手动路径 scenes/route.ts 同语义——此前一键 workflow 漏写该字段，导致自动项目所有
+  // 分镜 selectedCharacterId 恒 null，出图丢失角色一致性。角色回写（C1）已在本步之前执行，
+  // 故这里能匹配到刚建档的角色。
+  const projectCharacters = await prisma.character.findMany({
+    where: { projects: { some: { projectId } } },
+    select: { id: true, name: true },
+  });
+
   for (let idx = 0; idx < script.scenes.length; idx++) {
     const s = script.scenes[idx];
     const order = idx + 1;
@@ -1400,6 +1472,12 @@ async function saveScenesToProject(
           : Prisma.JsonNull,
     };
 
+    // C3：按分镜角色名单取首个命中角色 id 作 selectedCharacterId（与手动路径一致）
+    const selectedCharacterId = resolveSelectedCharacterId(
+      projectCharacters,
+      s.characters
+    );
+
     if (sceneId) {
       // 更新文本字段；不触碰 imageUrl/videoUrl/audioUrl 与三个 status
       await prisma.scene.update({
@@ -1411,6 +1489,7 @@ async function saveScenesToProject(
           narration: s.narration,
           emotion: s.emotion,
           duration: s.duration,
+          selectedCharacterId,
           ...cinematics,
         },
       });
@@ -1425,6 +1504,7 @@ async function saveScenesToProject(
           narration: s.narration,
           emotion: s.emotion,
           duration: s.duration,
+          selectedCharacterId,
           ...cinematics,
           imageStatus: "PENDING",
           videoStatus: "PENDING",
@@ -1440,6 +1520,46 @@ async function saveScenesToProject(
     .map((s) => s.id);
   if (stale.length > 0) {
     await prisma.scene.deleteMany({ where: { id: { in: stale } } });
+  }
+}
+
+/**
+ * C3 回填：为 selectedCharacterId 仍为空的分镜补匹配角色（角色圣经回写 C1 之后调用）。
+ *
+ * saveScenesToProject 在 Step 1 已尝试匹配，但纯自动项目那时角色尚未建档（C1 在 Step 2
+ * 回写）→ 恒 null。此处对空值分镜再匹配一次刚建档的角色补上；已有值的分镜绝不覆盖
+ * （尊重手动路径落库 / 用户在编辑器的选择）。按 order 对齐 script.scenes 的角色名单。
+ */
+async function backfillSelectedCharacterIds(
+  projectId: string,
+  script: ScriptArtifact
+): Promise<void> {
+  const projectCharacters = await prisma.character.findMany({
+    where: { projects: { some: { projectId } } },
+    select: { id: true, name: true },
+  });
+  if (projectCharacters.length === 0) return;
+
+  // 只取 selectedCharacterId 为空的分镜，避免覆盖已有值
+  const scenes = await prisma.scene.findMany({
+    where: { projectId, selectedCharacterId: null },
+    select: { id: true, order: true },
+  });
+  if (scenes.length === 0) return;
+
+  for (const scene of scenes) {
+    // saveScenesToProject 用 order = idx + 1，故 script.scenes[order - 1] 对齐
+    const scriptScene = script.scenes[scene.order - 1];
+    if (!scriptScene) continue;
+    const selectedCharacterId = resolveSelectedCharacterId(
+      projectCharacters,
+      scriptScene.characters
+    );
+    if (!selectedCharacterId) continue;
+    await prisma.scene.update({
+      where: { id: scene.id },
+      data: { selectedCharacterId },
+    });
   }
 }
 

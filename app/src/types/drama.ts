@@ -48,6 +48,23 @@ export interface DramaSceneScript {
   emotion: string;
   /** 本场景预估时长（秒） */
   durationSec: number;
+  /**
+   * 镜头语言字段（全部可选）：对齐手动小说解析路径（scenes 路由已支持落库）。
+   * 制片人直转分镜时透传，让一键制片走 LLM 出图/视频 prompt 增强电影感。
+   * LLM 漏填时缺省 —— 下游一律容错，缺省即回落无约束（零回归）。
+   */
+  /** 镜头角度（如"低角度仰拍""俯视"） */
+  cameraAngle?: string;
+  /** 光线（如"逆光""柔和侧光"） */
+  lighting?: string;
+  /** 构图（如"三分法""中心对称"） */
+  composition?: string;
+  /** 色调（如"冷蓝调""暖橙调"） */
+  colorPalette?: string;
+  /** 运动节拍：这一镜里"什么在动"（角色动作/表情/环境动态） */
+  actionBeat?: string;
+  /** 运镜（13 值枚举之一，与解析层 CAMERA_MOVEMENTS 对齐；非法值下游回落） */
+  cameraMovement?: string;
 }
 
 /**

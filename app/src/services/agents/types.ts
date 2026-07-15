@@ -90,7 +90,29 @@ export type ArtifactType =
   | "scene_image"
   | "scene_video"
   | "scene_audio"
-  | "export";
+  | "export"
+  // 闭环评审结果（C6）：随 WorkflowRun.artifacts 持久化，供 WorkflowPanel 展示质量评审。
+  // key 形如 review:characterBible / review:storyboard / review:videoCoherence。
+  | "review";
+
+/**
+ * 闭环评审结果（C6）——持久化到 artifacts 供前端展示的最小形状。
+ * 三处评审（角色圣经 / 分镜连贯 / 视频连贯）统一用此结构，避免各自发散。
+ */
+export interface ReviewArtifactData {
+  /** 评审对象人类可读标签（如"角色圣经"） */
+  label: string;
+  /** 0-100 综合评分 */
+  score: number;
+  /** 是否达标 */
+  pass: boolean;
+  /** 通过阈值 */
+  passThreshold: number;
+  /** 改进建议列表（可空） */
+  suggestions: string[];
+  /** 评审反馈文案（可空） */
+  feedback?: string;
+}
 
 export interface Artifact<T = unknown> {
   id: string;

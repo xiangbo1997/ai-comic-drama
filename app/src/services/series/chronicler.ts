@@ -19,7 +19,7 @@ import { createLogger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { parseStoryBible, HOOK_TYPES } from "@/types/series-bible";
-import type { SeriesStoryBible } from "@/types/series-bible";
+import type { SeriesStoryBible, HookType } from "@/types/series-bible";
 import { mergeBible, type ChronicleExtraction } from "./bible-merge";
 
 const log = createLogger("services:series:chronicler");
@@ -102,6 +102,12 @@ const ExtractionSchema = z.object({
 interface EpisodeContent {
   title: string;
   digest: string;
+  /**
+   * 本集结尾钩子类型：DramaScriptAgent 产出时已随 scriptDoc 落库。
+   * 存在则直接采纳（跳过 LLM 重推）；缺失（老数据 / 分镜兜底路径）时为 undefined，
+   * 交由史官 LLM 从内容推断兜底。
+   */
+  hookType?: HookType;
 }
 
 /** 解析史官响应（纯函数、可测）；失败返回 null（调用方静默降级） */
@@ -137,6 +143,7 @@ async function loadEpisodeContent(
   const doc = script?.scriptDoc as
     | {
         logline?: unknown;
+        hookType?: unknown;
         scenes?: Array<{
           title?: string;
           description?: string;
@@ -146,6 +153,12 @@ async function loadEpisodeContent(
       }
     | null
     | undefined;
+
+  // DramaScriptAgent 产出的钩子类型随 scriptDoc 落库；命中五分类枚举才采纳，
+  // 否则（老数据 / 非法值）留 undefined 交由史官 LLM 推断兜底。
+  const storedHookType = HOOK_TYPES.includes(doc?.hookType as HookType)
+    ? (doc?.hookType as HookType)
+    : undefined;
 
   if (doc?.scenes && doc.scenes.length > 0) {
     const lines: string[] = [];
@@ -163,6 +176,7 @@ async function loadEpisodeContent(
     return {
       title: script?.filmTitle ?? project.title,
       digest: lines.join("\n").slice(0, EPISODE_DIGEST_MAX_CHARS),
+      hookType: storedHookType,
     };
   }
 
@@ -283,7 +297,23 @@ export async function chronicleEpisode(args: {
       return null;
     }
 
-    const nextBible = mergeBible(currentBible, extraction, episodeNumber);
+    // 钩子类型直读：DramaScriptAgent 已产出并落库的 hookType 是权威值，直接采纳，
+    // 覆盖史官 LLM 从内容重推的结果（缺失时保留 LLM 推断兜底，不清空）。
+    const resolvedExtraction: ChronicleExtraction = content.hookType
+      ? {
+          ...extraction,
+          episodeEntry: {
+            ...extraction.episodeEntry,
+            hookType: content.hookType,
+          },
+        }
+      : extraction;
+
+    const nextBible = mergeBible(
+      currentBible,
+      resolvedExtraction,
+      episodeNumber
+    );
     await prisma.series.update({
       where: { id: seriesId },
       data: {
