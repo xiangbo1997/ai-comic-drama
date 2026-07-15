@@ -44,6 +44,15 @@ import {
 // 剪映式拖角改字号的纯函数（与时间轴字幕样式面板共用同一实现，保证两处手感一致）
 import { resizeFontFromDistance } from "@/lib/subtitle-resize";
 import { SceneFilterDefs, sceneFilterCss } from "./scene-filters";
+// 转场进度→样式映射 + 黑/白覆盖层（纯函数，与导出端 xfade 语义同源，抽出便于单测）
+import {
+  transitionCurrentLayerStyle,
+  transitionOverlay,
+} from "./preview-transitions";
+// 贴图时间窗判定（纯函数，与导出端 prepareStickers 同源，左闭右开）
+import { isStickerVisibleAt } from "./preview-sticker-window";
+// BGM 音量包络（纯函数，近似导出端 buildBgmFilter 的 fadeIn/fadeOut/ducking）
+import { bgmVolumeAt } from "./preview-bgm-envelope";
 
 interface PreviewPlayerProps {
   scenes: ScenePreview[];
@@ -321,9 +330,10 @@ export function PreviewPlayer({
         audioRef.current.play().catch(() => {});
       }
 
-      // 播放背景音乐（循环，让用户在预览里听到导出后的 BGM）
+      // 播放背景音乐（循环，让用户在预览里听到导出后的 BGM）。
+      // 音量不在此写死——由下方「BGM 包络」effect 按整片进度做 fadeIn/fadeOut/
+      // ducking，起播瞬时音量也由该 effect 立即算好（避免首帧突然满音量）。
       if (bgmRef.current && backgroundMusic?.enabled && backgroundMusic.url) {
-        bgmRef.current.volume = backgroundMusic.volume ?? 0.25;
         bgmRef.current.play().catch(() => {});
       }
     } else {
@@ -454,6 +464,39 @@ export function PreviewPlayer({
     if (bgmRef.current) bgmRef.current.muted = isMuted;
   }, [currentIndex, isMuted, currentScene, nextScene]);
 
+  // BGM 音量包络：按整片已播时刻做 fadeIn / fadeOut / ducking（近似导出端
+  // buildBgmFilter）。progress 每 30ms 更新驱动本 effect 平滑 ramp <audio>.volume。
+  // 静音由上方 muted effect 独立管理（bgmRef.muted），此处只算 .volume，两者正交。
+  // 整片已播时刻 = 前缀和(已完成镜) + 当前镜有效时长 × progress，与整体进度条同源。
+  useEffect(() => {
+    const bgm = backgroundMusic;
+    if (!bgmRef.current || !bgm?.enabled || !bgm.url) return;
+    const elapsedBefore = prefixDurations[currentIndex] ?? 0;
+    const elapsed = elapsedBefore + (effDurs[currentIndex] ?? 0) * progress;
+    // 对白/旁白配音正在播 → ducking 压低（当前镜有配音音轨且正在播放）
+    const voiceActive = !!currentScene?.audioUrl && isPlaying;
+    bgmRef.current.volume = bgmVolumeAt(
+      {
+        volume: bgm.volume ?? 0.25,
+        fadeIn: bgm.fadeIn ?? 0,
+        fadeOut: bgm.fadeOut ?? 0,
+        ducking: bgm.ducking ?? false,
+      },
+      elapsed,
+      totalDuration,
+      voiceActive
+    );
+  }, [
+    backgroundMusic,
+    progress,
+    currentIndex,
+    isPlaying,
+    currentScene,
+    prefixDurations,
+    effDurs,
+    totalDuration,
+  ]);
+
   const togglePlay = () => {
     setIsPlaying(!isPlaying);
   };
@@ -491,34 +534,16 @@ export function PreviewPlayer({
 
   /**
    * 计算转场叠化时「当前镜（上层）」的视觉样式。
-   * transitionT: 0→1 表示叠化进度。按转场类型映射为透明度/位移/裁切。
+   * 委托给 preview-transitions 纯函数——覆盖全部 17 种 xfade 类型（fade、dissolve、
+   * slide 四向、wipe 四向、circleopen、circleclose、radial、smooth 双向），
+   * fadeblack/fadewhite 的中间黑/白场由下方独立覆盖层（transitionOverlay）承接。
    */
-  const transitionLayerStyle = (): React.CSSProperties => {
-    const t = transitionT;
-    if (t <= 0) return {};
-    const type = curTransition.type;
-    // fade 系：当前镜淡出
-    if (
-      type === "fade" ||
-      type === "dissolve" ||
-      type === "fadeblack" ||
-      type === "fadewhite"
-    ) {
-      return { opacity: 1 - t };
-    }
-    // slide 系：当前镜被推走
-    if (type === "slideleft") return { transform: `translateX(-${t * 100}%)` };
-    if (type === "slideright") return { transform: `translateX(${t * 100}%)` };
-    if (type === "slideup") return { transform: `translateY(-${t * 100}%)` };
-    if (type === "slidedown") return { transform: `translateY(${t * 100}%)` };
-    // wipe 系：当前镜逐渐被裁掉
-    if (type === "wipeleft") return { clipPath: `inset(0 ${t * 100}% 0 0)` };
-    if (type === "wiperight") return { clipPath: `inset(0 0 0 ${t * 100}%)` };
-    if (type === "wipeup") return { clipPath: `inset(0 0 ${t * 100}% 0)` };
-    if (type === "wipedown") return { clipPath: `inset(${t * 100}% 0 0 0)` };
-    // 圆形/径向/平滑：用透明度近似（双层叠化）
-    return { opacity: 1 - t };
-  };
+  const transitionLayerStyle = (): React.CSSProperties =>
+    transitionCurrentLayerStyle(curTransition.type, transitionT);
+
+  // 转场黑/白覆盖层：仅 fadeblack/fadewhite 有值——前半程画面淡入纯色，后半程
+  // 纯色淡出露新画面（两段式）。z-10 契约：必须显式高于媒体层（zIndex 1/2）。
+  const overlay = transitionOverlay(curTransition.type, transitionT);
 
   // ── 字幕位置：拖拽与快捷选择 ──────────────────────────────────────────
   // 是否允许编辑字幕位置（提供回调才开放；只读预览不可拖）
@@ -950,6 +975,18 @@ export function PreviewPlayer({
             );
           })}
 
+          {/* 转场黑/白覆盖层（仅 fadeblack/fadewhite）——两段式：画面先淡到纯色，
+              再由纯色淡出露新画面。z-10 高于媒体层（zIndex 1/2），不吃指针。 */}
+          {overlay && (
+            <div
+              className="pointer-events-none absolute inset-0 z-10"
+              style={{
+                backgroundColor: overlay.color,
+                opacity: overlay.opacity,
+              }}
+            />
+          )}
+
           {/* Audio */}
           {currentScene?.audioUrl && (
             <audio ref={audioRef} src={currentScene.audioUrl} />
@@ -993,10 +1030,22 @@ export function PreviewPlayer({
             </div>
           )}
 
-          {/* Stickers — 当前分镜的贴图预览（与导出 overlay 位置一致） */}
+          {/* Stickers — 当前分镜的贴图预览（与导出 overlay 位置一致）。
+              时间窗判定与导出端 prepareStickers 同源：仅当「当前镜内播放时刻」
+              落在贴图 [startOffset, startOffset+duration) 内才显示（duration 缺省=到
+              镜尾）。tInScene = progress × 该镜有效时长，与画面/字幕/配音同一时钟。 */}
           {currentScene &&
             stickers
-              ?.filter((st) => st.sceneId === currentScene.id && st.imageUrl)
+              ?.filter(
+                (st) =>
+                  st.sceneId === currentScene.id &&
+                  st.imageUrl &&
+                  isStickerVisibleAt(
+                    st,
+                    progress * (effDurs[currentIndex] ?? 0),
+                    effDurs[currentIndex] ?? 0
+                  )
+              )
               .map((st) => (
                 <img
                   key={st.id}

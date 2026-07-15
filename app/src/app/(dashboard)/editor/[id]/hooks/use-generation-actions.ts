@@ -389,6 +389,10 @@ export function useGenerationActions(
         // 身份前缀由 provider 单独 prepend（identityPrompt），此处不内联。
         prompt: buildVideoScenePrompt({
           description: scene.description,
+          // 运动节拍：与 cameraMovement 同款透传。服务端有 LLM 导演时会重建覆盖，
+          // 但用户无 LLM 配置 / 导演失败时回落此客户端 prompt，缺失 actionBeat
+          // 会让「这一镜什么在动」的运动指令静默丢失（画面偏静止）。
+          actionBeat: scene.actionBeat,
           style: project?.style,
           shotType: scene.shotType,
           cameraAngle: scene.cameraAngle,
