@@ -64,6 +64,8 @@ export interface ContinuityPairResult {
 export interface ContinuityReportIssue {
   sceneId: string;
   sceneOrder: number;
+  /** 前镜 id（连贯性基准）——修复后镜时作为一致性锚图来源 */
+  prevSceneId: string;
   dimension: ContinuityDimension;
   severity: ContinuitySeverity;
   description: string;
@@ -159,6 +161,7 @@ export function assembleContinuityReport(
       issues.push({
         sceneId: pair.nextSceneId,
         sceneOrder: pair.nextSceneOrder,
+        prevSceneId: pair.prevSceneId,
         dimension: issue.dimension,
         severity: issue.severity,
         description: issue.description,

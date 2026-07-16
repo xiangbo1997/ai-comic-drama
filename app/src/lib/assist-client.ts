@@ -254,6 +254,8 @@ export interface ContinuityReportIssue {
   sceneId: string;
   /** 后镜序号（1 起） */
   sceneOrder: number;
+  /** 前镜 id（一致性锚图来源）；老报告可能缺该字段 */
+  prevSceneId?: string;
   dimension: string;
   severity: "严重" | "中等" | "轻微";
   description: string;

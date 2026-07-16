@@ -110,6 +110,8 @@ export async function POST(request: NextRequest) {
       // iterate 透传给 orchestrator 切换 reference_edit 措辞。
       note,
       iterate,
+      // AI 场记修复：前镜当前图作迭代一致性锚图，orchestrator 按 provider 能力门控注入。
+      iterationAnchorUrl,
       // 多候选抽卡档位（批次 2 · 1.4A）：1 / 2 / 4，缺省 1。
       // count=1 时行为与单发生成完全一致（零回归）；2/4 张并行生成后 VLM 择优。
       count,
@@ -219,6 +221,9 @@ export async function POST(request: NextRequest) {
           // 迭代式生成：留痕用户追加指令与迭代标记，便于排查
           note: note ?? null,
           iterate: iterate ?? false,
+          // AI 场记修复：留痕迭代一致性锚图（审计留痕）
+          iterationAnchorUrl:
+            typeof iterationAnchorUrl === "string" ? iterationAnchorUrl : null,
           // 多候选档位（便于排查抽卡请求）
           count: candidateCount,
         },
@@ -556,6 +561,13 @@ export async function POST(request: NextRequest) {
             referenceImages: explicitRefs,
             // 迭代模式：参考图是上一版整图，切换 reference_edit 为迭代友好措辞
             iterate: iterate === true,
+            // 迭代一致性锚（AI 场记修复）：前镜当前图，orchestrator 按 provider 能力门控注入
+            iterationAnchorUrl:
+              iterate === true &&
+              typeof iterationAnchorUrl === "string" &&
+              iterationAnchorUrl.trim()
+                ? iterationAnchorUrl.trim()
+                : undefined,
             // 朝向感知三视图选择：分镜画面线索透传，orchestrator 据此挑对应朝向参考图
             sceneFacingHints: sceneFacingHints || undefined,
           });

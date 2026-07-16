@@ -49,11 +49,13 @@ interface ContinuityCheckDialogProps {
   /**
    * 按建议重生成：走编辑器同一 iterate+note 迭代生成 mutation。
    * 必须回传 mutation Promise（mutateAsync），弹窗据此逐行展示成功/失败终态。
+   * 第 4 参为前镜当前图（一致性锚），provider 支持多参考图时注入。
    */
   onIterateScene: (
     sceneId: string,
     scene: Scene,
-    note: string
+    note: string,
+    anchorImageUrl?: string
   ) => Promise<unknown>;
 }
 
@@ -74,6 +76,29 @@ const SEVERITY_STYLES: Record<ContinuityReportIssue["severity"], string> = {
   中等: "bg-amber-500/15 text-amber-600",
   轻微: "bg-secondary text-muted-foreground",
 };
+
+/**
+ * 解析一致性锚图：优先报告里的 prevSceneId；老报告缺字段时按 order 回退
+ * 找目标镜之前最近一张已出图的分镜（与 buildPairList 的配对规则一致）。
+ * 找不到返回 undefined —— 行为退化为原单图迭代，不阻断修复。
+ */
+function resolveAnchorImageUrl(
+  issue: ContinuityReportIssue,
+  scenes: Scene[]
+): string | undefined {
+  // 优先走报告里的前镜 id（连贯性基准）
+  if (issue.prevSceneId) {
+    const prev = scenes.find((s) => s.id === issue.prevSceneId);
+    return prev?.imageUrl ?? undefined;
+  }
+  // 老报告缺 prevSceneId：按 order 升序取已出图分镜中，目标镜前一张
+  const ordered = [...scenes]
+    .filter((s) => Boolean(s.imageUrl))
+    .sort((a, b) => a.order - b.order);
+  const targetIdx = ordered.findIndex((s) => s.id === issue.sceneId);
+  if (targetIdx <= 0) return undefined;
+  return ordered[targetIdx - 1]?.imageUrl ?? undefined;
+}
 
 export function ContinuityCheckDialog({
   open,
@@ -130,7 +155,9 @@ export function ContinuityCheckDialog({
       return;
     }
     setRowPhase(rowKey, "processing");
-    onIterateScene(issue.sceneId, scene, issue.fixNote)
+    // 一致性锚 = 前镜当前图（若前镜后来也被重生成，用的即是新版，链式对齐）
+    const anchorUrl = resolveAnchorImageUrl(issue, scenes);
+    onIterateScene(issue.sceneId, scene, issue.fixNote, anchorUrl)
       .then(() => {
         setRowPhase(rowKey, "success");
         toast.success(`镜 ${issue.sceneOrder} 已按建议重生成`);

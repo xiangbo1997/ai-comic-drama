@@ -77,6 +77,8 @@ export interface OrchestratorRequest {
    * 与用户「改外貌类指令」冲突。
    */
   iterate?: boolean;
+  /** 迭代一致性锚图（前镜当前图）；仅 iterate=true 时有效，provider 支持多参考图才注入 */
+  iterationAnchorUrl?: string;
   /**
    * 朝向线索：分镜画面描述 / 镜头角度 / 构图。
    * orchestrator 据此推断角色朝向，从三视图 referenceAssets 里挑对应朝向的代表图

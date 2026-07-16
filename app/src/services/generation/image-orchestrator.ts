@@ -197,6 +197,34 @@ export async function orchestrateImageGeneration(
     }
   }
 
+  // 迭代一致性锚（AI 场记修复链路）：iterate 且带前镜锚图时，仅当 provider
+  // 支持多参考图才把前镜图追加进参考列表（编辑型端点多张裸图会融合重画，
+  // 单参考 provider 保持现状 = 只喂迭代基底图，行为不劣化）。
+  // 追加的锚图与子句一并进 effectivePrompt/effectiveRefUrls → cacheKeyInput，缓存正确。
+  if (request.iterate && request.iterationAnchorUrl) {
+    const cap = decision.capability;
+    const currentRefs = effectiveRefUrls ?? [];
+    if (
+      cap.supportsMultipleReferences &&
+      currentRefs.length > 0 &&
+      currentRefs.length < cap.maxReferenceImages &&
+      !currentRefs.includes(request.iterationAnchorUrl)
+    ) {
+      effectiveRefUrls = [...currentRefs, request.iterationAnchorUrl];
+      effectivePrompt =
+        effectivePrompt +
+        " The last reference image is the immediately preceding shot in the sequence: strictly match its character costume, hairstyle, accessories, color grading and lighting for visual continuity. The first reference image is the current shot being fixed: keep its composition and framing, only correct the inconsistencies.";
+      log.info("迭代一致性锚图已注入参考列表", {
+        sceneId: request.sceneId,
+      });
+    } else {
+      log.debug("迭代一致性锚图跳过注入（provider 不支持多参考图或无余量）", {
+        sceneId: request.sceneId,
+        supportsMultipleReferences: cap.supportsMultipleReferences,
+      });
+    }
+  }
+
   const cacheKeyInput = {
     prompt: effectivePrompt,
     model: request.imageConfig.model,

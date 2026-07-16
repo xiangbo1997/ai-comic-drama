@@ -52,6 +52,8 @@ interface GenerateSceneImageOptions {
   note?: string;
   /** 迭代基准图 URL（通常是 scene.imageUrl，即上一版结果） */
   baseImageUrl?: string;
+  /** 迭代一致性锚图 URL（前镜当前图）；仅 iterate=true 时有意义 */
+  iterationAnchorUrl?: string;
   /** 多候选抽卡档位（1 / 2 / 4，缺省 1）批次 2 · 1.4A */
   count?: 1 | 2 | 4;
 }
@@ -84,6 +86,9 @@ async function generateSceneImage(
       aspectRatio: options?.aspectRatio,
       note: options?.note,
       iterate: options?.iterate,
+      iterationAnchorUrl: options?.iterate
+        ? options?.iterationAnchorUrl
+        : undefined,
       // 多候选档位（缺省 1，零回归）；迭代模式强制单张
       count: options?.iterate ? 1 : options?.count,
     },
@@ -447,6 +452,7 @@ export function useGenerationActions(
       imageConfigId,
       iterate,
       note,
+      iterationAnchorUrl,
       count,
     }: {
       sceneId: string;
@@ -456,6 +462,8 @@ export function useGenerationActions(
       iterate?: boolean;
       /** 迭代追加指令 */
       note?: string;
+      /** 迭代一致性锚图 URL（前镜当前图）；仅 iterate=true 时透传给服务端 */
+      iterationAnchorUrl?: string;
       /** 多候选档位（1 / 2 / 4，缺省 1）批次 2 · 1.4A */
       count?: 1 | 2 | 4;
     }) => {
@@ -477,6 +485,7 @@ export function useGenerationActions(
         // 迭代：把上一版整图作参考基准，note 提权重生成
         iterate,
         note,
+        iterationAnchorUrl,
         baseImageUrl: iterate ? (scene.imageUrl ?? undefined) : undefined,
         // 多候选抽卡（迭代模式强制单张，在 generateSceneImage 内部再兜一次）
         count,

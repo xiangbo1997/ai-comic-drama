@@ -111,11 +111,13 @@ interface SceneListProps {
    * 按建议重生成（AI 场记体检用，计划 §5 · 2.3）：走编辑器同一 iterate+note
    * 迭代生成 mutation。上层在 page.tsx 用 generateImageMutation.mutateAsync({iterate:true,note})
    * 实现，回传 Promise 供体检弹窗逐行展示成功/失败终态。
+   * 第 4 参为前镜当前图（一致性锚），provider 支持多参考图时注入。
    */
   onIterateScene: (
     sceneId: string,
     scene: Scene,
-    note: string
+    note: string,
+    anchorImageUrl?: string
   ) => Promise<unknown>;
 }
 

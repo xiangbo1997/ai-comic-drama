@@ -171,6 +171,16 @@ describe("assembleContinuityReport · issue 挂到后镜 + 跳过记账", () => 
     expect(report.issues[0].sceneOrder).toBe(5);
   });
 
+  it("每条 issue 携带前镜 prevSceneId（一致性锚图来源）", () => {
+    const report = assembleContinuityReport([
+      pairResult("b", 2, [issue("严重"), issue("中等")]),
+    ]);
+    // pairResult 的 prevSceneId 约定为 `${nextSceneId}-prev`
+    expect(report.issues).toHaveLength(2);
+    expect(report.issues[0].prevSceneId).toBe("b-prev");
+    expect(report.issues[1].prevSceneId).toBe("b-prev");
+  });
+
   it("跳过的对计数并写进 summary，不产出 issue（部分跳过：仍出等级）", () => {
     const report = assembleContinuityReport([
       pairResult("b", 2, [issue("中等")]),
