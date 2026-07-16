@@ -488,7 +488,9 @@ export default function EditorPage() {
           queryClient={editor.queryClient}
           projectId={projectId}
           onIterateScene={(sceneId, scene, note) =>
-            generation.generateImageMutation.mutate({
+            // mutateAsync：体检弹窗要拿到本次提交的 Promise 展示成功/失败终态
+            // （rejection 已在弹窗内 catch，全局 onError 照常弹错误 toast）
+            generation.generateImageMutation.mutateAsync({
               sceneId,
               scene,
               imageConfigId: selectedImageConfig,

@@ -6,7 +6,9 @@
  * 点「开始体检」→ POST continuity-check（建任务）→ 轮询直至终态 →
  * 展示综合评级（A/B/C/D 徽章）+ 一句话总结 + 逐条问题清单（按后镜分组）。
  * 每条问题带「按建议重生成」→ 走已有的 iterate+note 迭代生成机制
- * （onIterateScene，与编辑器「基于此图迭代」同一 mutation），触发后禁用该行按钮显示「已提交」。
+ * （onIterateScene 返回 mutation Promise，与编辑器「基于此图迭代」同一 mutation）。
+ * 行内状态机跟踪单次提交结果：生成中… → 已重生成 / 生成失败（可重试）。
+ * 不从 scene.imageStatus 反推：同一分镜可对应多条问题行，共享状态无法区分是哪次提交。
  *
  * 降级不阻断：视觉能力不可用 / <2 出图时，POST 直接返回 400，弹窗原样展示后端中文错误。
  */
@@ -18,6 +20,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   Wand2,
+  RefreshCw,
 } from "lucide-react";
 import {
   Dialog,
@@ -43,9 +46,19 @@ interface ContinuityCheckDialogProps {
   projectId: string;
   /** 分镜列表（用来把 sceneId 映射回 Scene 对象，喂给迭代重生成） */
   scenes: Scene[];
-  /** 按建议重生成：走编辑器同一 iterate+note 迭代生成 mutation */
-  onIterateScene: (sceneId: string, scene: Scene, note: string) => void;
+  /**
+   * 按建议重生成：走编辑器同一 iterate+note 迭代生成 mutation。
+   * 必须回传 mutation Promise（mutateAsync），弹窗据此逐行展示成功/失败终态。
+   */
+  onIterateScene: (
+    sceneId: string,
+    scene: Scene,
+    note: string
+  ) => Promise<unknown>;
 }
+
+/** 单条问题行的重生成状态：未提交（无记录）→ 生成中 → 成功 / 失败（可重试） */
+type RegenPhase = "processing" | "success" | "failed";
 
 /** 等级徽章配色（A 绿 / B 蓝 / C 橙 / D 红） */
 const GRADE_STYLES: Record<ContinuityGrade, string> = {
@@ -73,22 +86,28 @@ export function ContinuityCheckDialog({
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<ContinuityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // 已提交重生成的问题行（key = sceneId + index），禁用按钮 + 显示「已提交」
-  const [submitted, setSubmitted] = useState<Set<string>>(new Set());
+  // 每条问题行的重生成状态（key = sceneId + index），无记录 = 未提交
+  const [rowPhases, setRowPhases] = useState<Map<string, RegenPhase>>(
+    new Map()
+  );
 
   const sceneById = new Map(scenes.map((s) => [s.id, s]));
+
+  const setRowPhase = (rowKey: string, phase: RegenPhase) => {
+    setRowPhases((prev) => new Map(prev).set(rowKey, phase));
+  };
 
   const reset = () => {
     setReport(null);
     setError(null);
-    setSubmitted(new Set());
+    setRowPhases(new Map());
   };
 
   const handleStart = async () => {
     setLoading(true);
     setReport(null);
     setError(null);
-    setSubmitted(new Set());
+    setRowPhases(new Map());
     try {
       const result = await runContinuityCheck(projectId);
       setReport(result);
@@ -110,9 +129,17 @@ export function ContinuityCheckDialog({
       toast.error("该分镜尚无图片，无法基于原图迭代");
       return;
     }
-    onIterateScene(issue.sceneId, scene, issue.fixNote);
-    setSubmitted((prev) => new Set(prev).add(rowKey));
-    toast.success(`已提交重生成：镜 ${issue.sceneOrder}`);
+    setRowPhase(rowKey, "processing");
+    onIterateScene(issue.sceneId, scene, issue.fixNote)
+      .then(() => {
+        setRowPhase(rowKey, "success");
+        toast.success(`镜 ${issue.sceneOrder} 已按建议重生成`);
+      })
+      .catch(() => {
+        // 失败原因由 mutation 全局 onError 弹 toast（含去充值/去配置出口），
+        // 这里只把行状态置为失败并放开按钮允许重试
+        setRowPhase(rowKey, "failed");
+      });
   };
 
   return (
@@ -168,7 +195,7 @@ export function ContinuityCheckDialog({
                 <ul className="space-y-2">
                   {report.issues.map((issue, idx) => {
                     const rowKey = `${issue.sceneId}-${idx}`;
-                    const isSubmitted = submitted.has(rowKey);
+                    const phase = rowPhases.get(rowKey);
                     return (
                       <li
                         key={rowKey}
@@ -197,13 +224,31 @@ export function ContinuityCheckDialog({
                         <button
                           type="button"
                           onClick={() => handleRegenerate(issue, rowKey)}
-                          disabled={isSubmitted}
-                          className="bg-primary/10 text-primary hover:bg-primary/20 mt-2 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-50"
+                          disabled={
+                            phase === "processing" || phase === "success"
+                          }
+                          className={`mt-2 flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                            phase === "success"
+                              ? "bg-green-500/10 text-green-600"
+                              : phase === "failed"
+                                ? "bg-red-500/10 text-red-600 hover:bg-red-500/20"
+                                : "bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-70"
+                          }`}
                         >
-                          {isSubmitted ? (
+                          {phase === "processing" ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin" />
+                              生成中…
+                            </>
+                          ) : phase === "success" ? (
                             <>
                               <CheckCircle2 size={13} />
-                              已提交
+                              已重生成
+                            </>
+                          ) : phase === "failed" ? (
+                            <>
+                              <RefreshCw size={13} />
+                              生成失败 · 重试
                             </>
                           ) : (
                             <>
