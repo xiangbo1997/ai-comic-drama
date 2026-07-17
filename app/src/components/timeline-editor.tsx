@@ -17,6 +17,8 @@ import {
   Sticker,
   ArrowLeftRight,
   SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
 
@@ -64,6 +66,8 @@ function TimelineEditorImpl({
   const [currentTime, setCurrentTime] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [zoom, setZoom] = useState(1);
+  // 收起态：只留控制栏，轨道区/状态栏用 display:none 隐藏（保留内部状态，展开即恢复）
+  const [collapsed, setCollapsed] = useState(false);
   const [draggingScene, setDraggingScene] = useState<string | null>(null);
   const [dragStartX, setDragStartX] = useState(0);
   const [dragStartDuration, setDragStartDuration] = useState(0);
@@ -313,24 +317,34 @@ function TimelineEditorImpl({
           <span className="font-mono text-sm">
             {formatTime(currentTime)} / {formatTime(totalDuration)}
           </span>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground text-xs">缩放</span>
-            <input
-              type="range"
-              min="0.25"
-              max="2"
-              step="0.25"
-              value={zoom}
-              onChange={(e) => setZoom(parseFloat(e.target.value))}
-              className="w-20"
-            />
-            <span className="text-muted-foreground text-xs">{zoom}x</span>
-          </div>
+          {!collapsed && (
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground text-xs">缩放</span>
+              <input
+                type="range"
+                min="0.25"
+                max="2"
+                step="0.25"
+                value={zoom}
+                onChange={(e) => setZoom(parseFloat(e.target.value))}
+                className="w-20"
+              />
+              <span className="text-muted-foreground text-xs">{zoom}x</span>
+            </div>
+          )}
+          <button
+            onClick={() => setCollapsed((c) => !c)}
+            className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded p-1.5 transition"
+            title={collapsed ? "展开时间轴" : "收起时间轴"}
+            aria-label={collapsed ? "展开时间轴" : "收起时间轴"}
+          >
+            {collapsed ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
         </div>
       </div>
 
-      {/* 轨道区域 */}
-      <div className="flex">
+      {/* 轨道区域（收起时 display:none，保留滚动位置与拖拽状态） */}
+      <div className={collapsed ? "hidden" : "flex"}>
         {/* 轨道标签 */}
         <div className="border-border w-24 shrink-0 border-r">
           <div className="border-border h-6 border-b" />
@@ -536,8 +550,8 @@ function TimelineEditorImpl({
         </div>
       </div>
 
-      {/* 当前场景信息 */}
-      {currentScene && (
+      {/* 当前场景信息（收起时一并隐藏） */}
+      {!collapsed && currentScene && (
         <div className="border-border text-muted-foreground border-t px-4 py-2 text-sm">
           当前: 分镜 #{currentScene.order + 1} | 时长: {currentScene.duration}s
           {currentScene.dialogue &&
