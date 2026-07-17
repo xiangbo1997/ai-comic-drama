@@ -27,9 +27,12 @@ import {
 import {
   buildPairList,
   assembleContinuityReport,
+  diffContinuityReports,
   type ContinuityScene,
   type ContinuityPairResult,
+  type ContinuityReport,
 } from "@/services/continuity-check";
+import { parseOutfitEntries } from "@/services/generation/scene-looks-match";
 import type { AIServiceConfig } from "@/types";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
@@ -79,6 +82,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         order: true,
         imageUrl: true,
         locationKey: true,
+        description: true,
+        characterOutfits: true,
         sceneCharacters: {
           select: { character: { select: { name: true } } },
         },
@@ -91,6 +96,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       imageUrl: s.imageUrl,
       locationKey: s.locationKey,
       characterNames: s.sceneCharacters.map((c) => c.character.name),
+      description: s.description,
+      outfitNotes: parseOutfitEntries(s.characterOutfits).map(
+        (e) => `${e.name}：${e.outfit}`
+      ),
     }));
 
     // 前置条件：≥2 张已出图才有对可比
@@ -137,6 +146,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     void runContinuityCheckTask({
       taskId: task.id,
+      projectId: id,
       pairs,
       llmConfig,
       expectedPalette,
@@ -190,6 +200,7 @@ async function resolveExpectedPalette(
  */
 async function runContinuityCheckTask(p: {
   taskId: string;
+  projectId: string;
   pairs: ReturnType<typeof buildPairList>;
   llmConfig: AIServiceConfig;
   expectedPalette?: string;
@@ -212,6 +223,11 @@ async function runContinuityCheckTask(p: {
           nextLocationKey: pair.next.locationKey,
           characterNames,
           expectedPalette: p.expectedPalette,
+          // 剧情意图（画面描述 + 换装标注）：抑制剧情性换装/转场误报
+          prevDescription: pair.prev.description,
+          nextDescription: pair.next.description,
+          prevOutfitNotes: pair.prev.outfitNotes,
+          nextOutfitNotes: pair.next.outfitNotes,
           llmConfig: p.llmConfig,
         });
 
@@ -226,7 +242,12 @@ async function runContinuityCheckTask(p: {
     );
 
     const pairResults = await runWithConcurrency(tasks, PAIR_CONCURRENCY);
-    const report = assembleContinuityReport(pairResults);
+    const baseReport = assembleContinuityReport(pairResults);
+    // 与上一轮报告对比记账（增强项）：任何异常只丢日志，绝不阻断本轮报告落库
+    const report = diffContinuityReports(
+      baseReport,
+      await loadPreviousReport(p.projectId, p.taskId)
+    );
 
     await prisma.generationTask.update({
       where: { id: p.taskId },
@@ -251,6 +272,37 @@ async function runContinuityCheckTask(p: {
         },
       })
       .catch(() => {});
+  }
+}
+
+/**
+ * 取本项目上一轮已完成的体检报告（排除当前任务自身，按完成时间倒序取最近一份）。
+ * 任何异常 / 无历史 → null（对比是增强项，绝不阻断本轮体检）。
+ */
+async function loadPreviousReport(
+  projectId: string,
+  currentTaskId: string
+): Promise<ContinuityReport | null> {
+  try {
+    const prev = await prisma.generationTask.findFirst({
+      where: {
+        projectId,
+        status: "COMPLETED",
+        id: { not: currentTaskId },
+        input: { path: ["kind"], equals: "continuity_check" },
+      },
+      orderBy: { completedAt: "desc" },
+      select: { output: true },
+    });
+    const report = (prev?.output as { report?: ContinuityReport } | null)
+      ?.report;
+    return report && Array.isArray(report.issues) ? report : null;
+  } catch (err) {
+    log.warn(
+      "加载上一轮体检报告失败，跳过对比记账:",
+      err instanceof Error ? err.message : err
+    );
+    return null;
   }
 }
 

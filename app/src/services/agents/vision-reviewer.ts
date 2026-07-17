@@ -243,6 +243,12 @@ export interface ComparePairArgs {
   characterNames?: string[];
   /** 期望色板（来自系列圣经 colorScript / 画风基线），有值时评「色调」维度 */
   expectedPalette?: string;
+  /** 前/后镜画面描述（剧情意图）；供模型区分剧情性变化与意外跳变 */
+  prevDescription?: string | null;
+  nextDescription?: string | null;
+  /** 前/后镜换装标注（"角色名：服装"）；有标注的服装变化属剧情需要 */
+  prevOutfitNotes?: string[];
+  nextOutfitNotes?: string[];
   llmConfig: AIServiceConfig;
 }
 
@@ -253,13 +259,17 @@ const CONTINUITY_SYSTEM =
   "1. 「环境背景」维度——仅当两镜标注为【同一地点】时，背景不一致才算问题；异地点属正常切换，不报。\n" +
   "2. 「色调」维度——对照给定的期望色板判断整体色调是否偏离；未给期望色板时按两镜相互一致性判断。\n" +
   "3. 服装/发型——仅比对同一角色跨镜是否一致。\n" +
+  "4. 剧情性变化不算问题——若两镜的画面描述或换装标注明确显示角色换装、时间跳转、天气变化等剧情意图，对应维度的变化不要报；只报与剧情设定无关的意外跳变。\n" +
   "只输出通过检查【发现问题】的维度，连贯的维度不要输出（精简）。无任何问题时输出空数组。\n" +
   "严格只输出如下 JSON（不要任何解释或 markdown 代码块标记）：\n" +
   '{"issues":[{"dimension":"角色服装","severity":"严重","description":"问题描述≤60字","fixNote":"可直接喂给重生成的中文修复指令≤40字"}]}\n' +
   "dimension 只能取：角色服装 / 发型 / 环境背景 / 光线 / 色调；severity 只能取：严重 / 中等 / 轻微。";
 
-/** 构建相邻镜对比的用户 prompt（紧凑上下文 + 两图前后顺序说明） */
-function buildComparePrompt(args: ComparePairArgs): string {
+/**
+ * 构建相邻镜对比的用户 prompt（紧凑上下文 + 两图前后顺序说明）。
+ * 导出供单测覆盖（剧情意图行的有/无分支）。
+ */
+export function buildComparePrompt(args: ComparePairArgs): string {
   const sameLocation =
     Boolean(args.prevLocationKey) &&
     Boolean(args.nextLocationKey) &&
@@ -278,11 +288,33 @@ function buildComparePrompt(args: ComparePairArgs): string {
     ? `期望色板（全片统一）：${args.expectedPalette}`
     : "无指定色板——按两镜相互一致性评色调。";
 
+  // 剧情意图行（仅在有数据时拼入，保持精简）：画面描述截断到 150 字，防 prompt 膨胀
+  const intentLines: string[] = [];
+  if (args.prevDescription?.trim() || args.nextDescription?.trim()) {
+    intentLines.push(
+      "剧情设定（用于判断变化是否为剧情需要，剧情性变化不要报）："
+    );
+    if (args.prevDescription?.trim())
+      intentLines.push(`前镜描述：${clampText(args.prevDescription, 150)}`);
+    if (args.nextDescription?.trim())
+      intentLines.push(`后镜描述：${clampText(args.nextDescription, 150)}`);
+  }
+  const prevOutfits = args.prevOutfitNotes?.filter(Boolean) ?? [];
+  const nextOutfits = args.nextOutfitNotes?.filter(Boolean) ?? [];
+  if (prevOutfits.length > 0 || nextOutfits.length > 0) {
+    intentLines.push(
+      `换装标注（有标注的服装变化属剧情需要）：前镜 ${
+        prevOutfits.length > 0 ? prevOutfits.join("、") : "无"
+      }；后镜 ${nextOutfits.length > 0 ? nextOutfits.join("、") : "无"}`
+    );
+  }
+
   return [
     `以下是相邻的两个镜头画面：第一张为【前镜（镜${args.prevOrder}）】，第二张为【后镜（镜${args.nextOrder}）】。`,
     `出场角色：${chars}`,
     locationLine,
     paletteLine,
+    ...intentLines,
     "请比对两镜在 角色服装 / 发型 / 环境背景 / 光线 / 色调 上是否有跳变，按系统要求只输出发现问题的维度（JSON）。",
   ].join("\n");
 }

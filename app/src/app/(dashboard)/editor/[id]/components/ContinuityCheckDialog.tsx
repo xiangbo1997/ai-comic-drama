@@ -12,6 +12,7 @@
  * 卡片状态机跟踪单次提交结果：生成中… → 已重生成 / 生成失败（可重试）。
  *
  * 降级不阻断：视觉能力不可用 / <2 出图时，POST 直接返回 400，弹窗原样展示后端中文错误。
+ * 报告带前后轮对比记账（已解决/仍存在/新增）：重新体检时逐条标注 NEW/PERSISTING，顶部汇总变化。
  */
 
 import { useState } from "react";
@@ -246,6 +247,21 @@ export function ContinuityCheckDialog({
                 <p className="text-foreground text-sm">{report.summary}</p>
               </div>
 
+              {/* 前后轮对比记账（重新体检时才有）：一句话汇总已解决/仍存在/新增 */}
+              {report.previousComparison && (
+                <p className="text-muted-foreground text-xs">
+                  较上轮：
+                  <span className="text-green-600">
+                    已解决 {report.previousComparison.resolved} 处
+                  </span>
+                  {" · 仍存在 "}
+                  {report.previousComparison.persisting}
+                  {" 处 · 新增 "}
+                  {report.previousComparison.added}
+                  {" 处"}
+                </p>
+              )}
+
               {/* 体检未完成（无一对成功检查）：不展示问题清单，只保留上方告警总结 */}
               {report.grade === null ? null : report.issues.length > 0 ? (
                 <ul className="space-y-2">
@@ -279,6 +295,19 @@ export function ContinuityCheckDialog({
                                   >
                                     {issue.severity}
                                   </span>
+                                  {issue.changeStatus && (
+                                    <span
+                                      className={`rounded-full px-1.5 py-0.5 text-[10px] ${
+                                        issue.changeStatus === "NEW"
+                                          ? "bg-blue-500/15 text-blue-600"
+                                          : "bg-secondary text-muted-foreground"
+                                      }`}
+                                    >
+                                      {issue.changeStatus === "NEW"
+                                        ? "新增"
+                                        : "仍存在"}
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-muted-foreground mt-0.5 text-xs">
                                   {issue.description}

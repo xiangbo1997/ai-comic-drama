@@ -20,6 +20,10 @@ export interface ContinuityScene {
   locationKey?: string | null;
   /** 该镜出场角色名（供 VLM 对齐「服装/发型」维度的对象） */
   characterNames?: string[];
+  /** 分镜画面描述（剧情意图上下文）；供 VLM 区分剧情性变化与意外跳变 */
+  description?: string | null;
+  /** 换装标注（"角色名：服装" 格式化短句）；有值时对应服装变化属剧情需要 */
+  outfitNotes?: string[];
 }
 
 /** 一对相邻已出图分镜（前镜 prev、后镜 next） */
@@ -70,10 +74,25 @@ export interface ContinuityReportIssue {
   severity: ContinuitySeverity;
   description: string;
   fixNote: string;
+  /** 相对上一轮的变化状态；首轮体检 / 无可比上轮时缺省 */
+  changeStatus?: IssueChangeStatus;
 }
 
 /** 综合等级（Toonflow 标尺）；null = 未实际检查任何一对，不给等级 */
 export type ContinuityGrade = "A" | "B" | "C" | "D";
+
+/** 问题相对上一轮报告的变化状态：NEW = 新增；PERSISTING = 上轮已报本轮仍在 */
+export type IssueChangeStatus = "NEW" | "PERSISTING";
+
+/** 与上一轮报告的对比记账（重新体检时回答「修复到底有没有用」） */
+export interface PreviousComparison {
+  /** 上轮有、本轮没了（按 镜+维度 桶匹配）→ 视作已解决 */
+  resolved: number;
+  /** 上轮有、本轮仍在 */
+  persisting: number;
+  /** 本轮新出现 */
+  added: number;
+}
 
 /** 体检报告 */
 export interface ContinuityReport {
@@ -90,6 +109,8 @@ export interface ContinuityReport {
   checkedPairs: number;
   /** 因视觉调用失败/降级而跳过的对数 */
   skippedPairs: number;
+  /** 与上一轮报告的对比记账；首轮体检 / 上轮未完成时缺省 */
+  previousComparison?: PreviousComparison;
 }
 
 /**
@@ -234,4 +255,67 @@ function buildSummary(p: {
   if (lightCount > 0) parts.push(`${lightCount} 处轻微`);
 
   return `评级 ${p.grade}，共 ${p.total} 处连贯性问题（${parts.join("、")}）${skipTail}`;
+}
+
+/**
+ * 与上一轮报告做「前后轮对比记账」，回答重新体检时的核心疑问：修复到底有没有用。
+ *
+ * 规则：
+ * - 无 previous、previous.grade == null（上轮体检未完成）、或 previous.issues 非数组
+ *   → 原样返回 current（不加任何标注）。
+ * - current.grade == null（本轮体检未完成）→ 同样原样返回。
+ * - 匹配粒度 = `sceneId + dimension` 桶计数（同镜同维度可能多条，按数量配对）：
+ *   本轮每条落到对应桶，桶内还有余量 → 记 PERSISTING（上轮已报本轮仍在），
+ *   桶已耗尽 → 记 NEW（本轮新出现）；上轮桶里未被本轮消耗的余量计入 resolved（已解决）。
+ *   不比 description 文本——VLM 每轮措辞会漂移，按 镜+维度 桶最稳。
+ *
+ * 不可变：返回全新报告对象 + 全新 issues 数组（`{...issue, changeStatus}`），绝不改写入参。
+ */
+export function diffContinuityReports(
+  current: ContinuityReport,
+  previous: ContinuityReport | null | undefined
+): ContinuityReport {
+  // 无可比上轮 / 上轮未完成（grade=null）/ 上轮 issues 结构异常 → 原样返回，不加标注
+  if (!previous || previous.grade == null || !Array.isArray(previous.issues)) {
+    return current;
+  }
+  // 本轮体检未完成（无一对成功检查）→ 不做对比，原样返回
+  if (current.grade == null) {
+    return current;
+  }
+
+  // 上一轮的 镜+维度 桶计数（同镜同维度可能多条 → 记数量，按量配对）
+  const previousBuckets = new Map<string, number>();
+  for (const issue of previous.issues) {
+    const key = `${issue.sceneId}::${issue.dimension}`;
+    previousBuckets.set(key, (previousBuckets.get(key) ?? 0) + 1);
+  }
+
+  let persisting = 0;
+  let added = 0;
+  const issues: ContinuityReportIssue[] = current.issues.map((issue) => {
+    const key = `${issue.sceneId}::${issue.dimension}`;
+    const remaining = previousBuckets.get(key) ?? 0;
+    if (remaining > 0) {
+      // 桶内还有上轮余量 → 配对为「仍存在」，消耗一个
+      previousBuckets.set(key, remaining - 1);
+      persisting += 1;
+      return { ...issue, changeStatus: "PERSISTING" as const };
+    }
+    // 桶已耗尽 → 本轮新出现
+    added += 1;
+    return { ...issue, changeStatus: "NEW" as const };
+  });
+
+  // 上轮桶里未被本轮消耗的余量 = 已解决
+  let resolved = 0;
+  for (const remaining of previousBuckets.values()) {
+    resolved += remaining;
+  }
+
+  return {
+    ...current,
+    issues,
+    previousComparison: { resolved, persisting, added },
+  };
 }

@@ -2,9 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   buildPairList,
   assembleContinuityReport,
+  diffContinuityReports,
   type ContinuityScene,
   type ContinuityPairResult,
   type ContinuityPairIssue,
+  type ContinuityReport,
+  type ContinuityReportIssue,
+  type ContinuityDimension,
 } from "@/services/continuity-check";
 
 function scene(
@@ -228,5 +232,107 @@ describe("assembleContinuityReport · 全跳过 = 体检未完成（诚实报告
     expect(report.checkedPairs).toBe(1);
     expect(report.skippedPairs).toBe(1);
     expect(report.summary).toContain("连贯性良好");
+  });
+});
+
+describe("diffContinuityReports · 前后轮对比记账", () => {
+  /** 构造一条报告级 issue（挂到后镜 sceneId + 维度） */
+  function reportIssue(
+    sceneId: string,
+    dimension: ContinuityDimension
+  ): ContinuityReportIssue {
+    return {
+      sceneId,
+      sceneOrder: 1,
+      prevSceneId: `${sceneId}-prev`,
+      dimension,
+      severity: "中等",
+      description: `${dimension}跳变`,
+      fixNote: "修一下",
+    };
+  }
+
+  /** 构造最小报告（默认 grade C，供对比逻辑用） */
+  function report(
+    issues: ContinuityReportIssue[],
+    grade: ContinuityReport["grade"] = "C"
+  ): ContinuityReport {
+    return {
+      grade,
+      summary: "测试报告",
+      issues,
+      checkedPairs: 1,
+      skippedPairs: 0,
+    };
+  }
+
+  it("previous = null → 原样返回 current（无 changeStatus、无 previousComparison）", () => {
+    const current = report([reportIssue("s1", "角色服装")]);
+    const out = diffContinuityReports(current, null);
+    expect(out.previousComparison).toBeUndefined();
+    expect(out.issues[0].changeStatus).toBeUndefined();
+    expect(out).toBe(current);
+  });
+
+  it("previous.grade === null（上轮未完成）→ 原样返回 current", () => {
+    const current = report([reportIssue("s1", "角色服装")]);
+    const previous = report([], null);
+    const out = diffContinuityReports(current, previous);
+    expect(out.previousComparison).toBeUndefined();
+    expect(out.issues[0].changeStatus).toBeUndefined();
+    expect(out).toBe(current);
+  });
+
+  it("基础对比：PERSISTING / NEW 标注 + resolved/persisting/added 计数", () => {
+    const previous = report([
+      reportIssue("s1", "角色服装"),
+      reportIssue("s1", "色调"),
+      reportIssue("s2", "发型"),
+    ]);
+    const current = report([
+      reportIssue("s1", "角色服装"),
+      reportIssue("s3", "光线"),
+    ]);
+    const out = diffContinuityReports(current, previous);
+
+    // s1角色服装 上轮已报本轮仍在 → PERSISTING
+    expect(out.issues[0].changeStatus).toBe("PERSISTING");
+    // s3光线 本轮新出现 → NEW
+    expect(out.issues[1].changeStatus).toBe("NEW");
+    // s1色调 + s2发型 上轮有本轮无 → resolved=2
+    expect(out.previousComparison).toEqual({
+      resolved: 2,
+      persisting: 1,
+      added: 1,
+    });
+  });
+
+  it("同镜同维度多条 → 按数量配对：本轮 1 条 PERSISTING，上轮多出计入 resolved", () => {
+    const previous = report([
+      reportIssue("s1", "角色服装"),
+      reportIssue("s1", "角色服装"),
+    ]);
+    const current = report([reportIssue("s1", "角色服装")]);
+    const out = diffContinuityReports(current, previous);
+
+    expect(out.issues[0].changeStatus).toBe("PERSISTING");
+    expect(out.previousComparison).toEqual({
+      resolved: 1,
+      persisting: 1,
+      added: 0,
+    });
+  });
+
+  it("不可变：不改写入参 current 的 issues（返回全新对象）", () => {
+    const previous = report([reportIssue("s1", "角色服装")]);
+    const current = report([reportIssue("s1", "角色服装")]);
+    const out = diffContinuityReports(current, previous);
+
+    // 入参对象的 issue 依旧无 changeStatus（diff 返回的是新对象）
+    expect(current.issues[0].changeStatus).toBeUndefined();
+    expect(current.previousComparison).toBeUndefined();
+    // 返回值才带标注
+    expect(out.issues[0].changeStatus).toBe("PERSISTING");
+    expect(out).not.toBe(current);
   });
 });

@@ -261,6 +261,8 @@ export interface ContinuityReportIssue {
   description: string;
   /** 可直接喂给迭代重生成的中文修复指令 */
   fixNote: string;
+  /** 相对上一轮的变化状态；首轮/老报告缺省 */
+  changeStatus?: "NEW" | "PERSISTING";
 }
 
 export interface ContinuityReport {
@@ -275,6 +277,8 @@ export interface ContinuityReport {
   checkedPairs?: number;
   /** 因视觉调用失败/降级跳过的对数；老报告可能缺该字段 */
   skippedPairs?: number;
+  /** 与上一轮的对比记账；首轮/老报告缺省 */
+  previousComparison?: { resolved: number; persisting: number; added: number };
 }
 
 /**

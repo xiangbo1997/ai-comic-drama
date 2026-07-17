@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { parsePairIssues } from "@/services/agents/vision-reviewer";
+import {
+  parsePairIssues,
+  buildComparePrompt,
+  type ComparePairArgs,
+} from "@/services/agents/vision-reviewer";
+import type { AIServiceConfig } from "@/types";
 
 describe("parsePairIssues · VLM 相邻镜问题解析", () => {
   it("合法 JSON → 结构化问题清单", () => {
@@ -73,5 +78,51 @@ describe("parsePairIssues · VLM 相邻镜问题解析", () => {
     const out = parsePairIssues(raw);
     expect(out?.[0].description.length).toBe(60);
     expect(out?.[0].fixNote.length).toBe(40);
+  });
+});
+
+describe("buildComparePrompt · 剧情意图上下文", () => {
+  const llmConfig: AIServiceConfig = {
+    protocol: "openai",
+    baseUrl: "https://api.example.com/v1",
+    apiKey: "sk-test",
+    model: "gpt-4o",
+  };
+
+  function baseArgs(extra: Partial<ComparePairArgs> = {}): ComparePairArgs {
+    return {
+      prevImageUrl: "https://img/prev.png",
+      nextImageUrl: "https://img/next.png",
+      prevOrder: 1,
+      nextOrder: 2,
+      llmConfig,
+      ...extra,
+    };
+  }
+
+  it("有画面描述 + 换装标注 → 拼入剧情设定 / 换装标注（含前后镜）", () => {
+    const longDesc = "描".repeat(200);
+    const prompt = buildComparePrompt(
+      baseArgs({
+        prevDescription: "雨夜的巷口",
+        nextDescription: longDesc,
+        prevOutfitNotes: ["林悦：风衣"],
+        nextOutfitNotes: ["林悦：晚礼服"],
+      })
+    );
+    expect(prompt).toContain("剧情设定");
+    expect(prompt).toContain("前镜描述：雨夜的巷口");
+    // 后镜描述被截断到 150 字
+    expect(prompt).toContain(`后镜描述：${"描".repeat(150)}`);
+    expect(prompt).not.toContain("描".repeat(151));
+    expect(prompt).toContain("换装标注");
+    expect(prompt).toContain("前镜 林悦：风衣");
+    expect(prompt).toContain("后镜 林悦：晚礼服");
+  });
+
+  it("无任何剧情意图数据 → 既不含剧情设定也不含换装标注", () => {
+    const prompt = buildComparePrompt(baseArgs());
+    expect(prompt).not.toContain("剧情设定");
+    expect(prompt).not.toContain("换装标注");
   });
 });
