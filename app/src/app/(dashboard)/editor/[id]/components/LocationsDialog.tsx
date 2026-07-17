@@ -8,7 +8,8 @@
  *  - 编辑描述（本地草稿态，失焦或点保存才 PATCH——避免每次 onChange 都 PATCH+刷新
  *    把输入刷回，即本仓库记录的 PATCH-refresh-clobber 坑）；
  *  - 生成/重新生成空景板（task 轮询，进度期间禁用，显示成本 1 积分）；
- *  - 上传替换（复用 uploadFileViaApi → PATCH imageUrl 回填）。
+ *  - 上传替换（复用 uploadFileViaApi → PATCH imageUrl 回填）；
+ *  - 点缩略图放大预览锚图（嵌套 Dialog）。
  * 顶部「AI 补全地点/描述」：POST describe（含 labelMissing，为未标注分镜补地点标签），
  * 提示本次打标的分镜数与写描述的地点数。
  *
@@ -72,6 +73,10 @@ export function LocationsDialog({
   // 隐藏 file input（上传替换）；点按钮时记住目标地点
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<ProjectLocationView | null>(null);
+  // 锚图大图预览：点缩略图打开嵌套 Dialog（url + 地点名做标题）
+  const [preview, setPreview] = useState<{ url: string; key: string } | null>(
+    null
+  );
 
   // 打开即拉；竞态守卫（关闭/卸载后不再 setState）
   useEffect(() => {
@@ -311,8 +316,24 @@ export function LocationsDialog({
                     key={loc.locationKey}
                     className="border-border flex gap-3 rounded-lg border p-3"
                   >
-                    {/* 缩略图 / 占位 */}
-                    <div className="bg-secondary/50 relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md">
+                    {/* 缩略图 / 占位（有图时可点击放大预览） */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        loc.imageUrl &&
+                        setPreview({
+                          url: loc.imageUrl,
+                          key: loc.locationKey,
+                        })
+                      }
+                      disabled={!loc.imageUrl || isBusy}
+                      title={loc.imageUrl ? "点击预览大图" : undefined}
+                      className={`bg-secondary/50 relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md ${
+                        loc.imageUrl && !isBusy
+                          ? "hover:ring-primary/50 cursor-pointer transition hover:ring-2"
+                          : "cursor-default"
+                      }`}
+                    >
                       {loc.imageUrl ? (
                         <img
                           src={loc.imageUrl}
@@ -333,7 +354,7 @@ export function LocationsDialog({
                           />
                         </div>
                       )}
-                    </div>
+                    </button>
 
                     {/* 信息 + 操作 */}
                     <div className="min-w-0 flex-1">
@@ -401,6 +422,30 @@ export function LocationsDialog({
           className="hidden"
           onChange={handleFileChange}
         />
+
+        {/* 锚图大图预览（嵌套 Dialog，点缩略图打开） */}
+        <Dialog
+          open={Boolean(preview)}
+          onOpenChange={(next) => {
+            if (!next) setPreview(null);
+          }}
+        >
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MapPin size={16} className="text-primary" />
+                {preview?.key}
+              </DialogTitle>
+            </DialogHeader>
+            {preview && (
+              <img
+                src={preview.url}
+                alt={preview.key}
+                className="max-h-[75vh] w-full rounded-md bg-black object-contain"
+              />
+            )}
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
