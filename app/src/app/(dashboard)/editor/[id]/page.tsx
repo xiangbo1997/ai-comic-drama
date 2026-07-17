@@ -360,7 +360,10 @@ export default function EditorPage() {
       : null;
 
   return (
-    <div className="bg-background text-foreground flex min-h-screen flex-col">
+    // h-dvh 锁定视口高度（IDE 式布局）：三栏各自内部滚动（左栏根 / 中右栏
+    // flex-1 区域均已带 overflow-y-auto）。此前 min-h-screen 让页面随内容撑高、
+    // 整窗滚动，滚分镜列表会把左右栏信息一起滚走，内部滚动容器从未生效。
+    <div className="bg-background text-foreground flex h-dvh flex-col">
       <EditorHeader
         title={editor.editingTitle ? editor.title : project.title}
         editingTitle={editor.editingTitle}
