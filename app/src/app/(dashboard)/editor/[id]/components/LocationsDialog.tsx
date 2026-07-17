@@ -105,13 +105,25 @@ export function LocationsDialog({
   const reload = async () => {
     try {
       const res = await fetchLocations(projectId);
+      // 旧服务端值快照：用于判断草稿是否被用户改动过。
+      // 此前按「key 不存在才写入」合并——但打开弹窗时已为全部地点初始化草稿
+      // （含空串），AI 补全的新描述永远进不了草稿，文本框看起来"没更新"（数据
+      // 其实已落库）。正确守卫 = 草稿与旧服务端值相同（用户没编辑过）才吃新值。
+      const oldDescByKey = new Map(
+        locations.map((l) => [l.locationKey, l.description ?? ""])
+      );
       setLocations(res);
       setDrafts((prev) => {
         const next = { ...prev };
         for (const loc of res) {
-          // 仅补充新地点的草稿，不覆盖用户正在编辑的草稿
-          if (!(loc.locationKey in next))
-            next[loc.locationKey] = loc.description ?? "";
+          const key = loc.locationKey;
+          const fresh = loc.description ?? "";
+          const draft = next[key];
+          // 新地点（无草稿）或用户未编辑（草稿 == 旧服务端值）→ 吃进服务端新值；
+          // 草稿 ≠ 旧值说明用户正在编辑 → 保留草稿不覆盖
+          if (draft === undefined || draft === (oldDescByKey.get(key) ?? "")) {
+            next[key] = fresh;
+          }
         }
         return next;
       });
