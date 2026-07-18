@@ -82,6 +82,13 @@ interface PreviewPlayerProps {
   watermark?: Watermark;
   /** 贴图列表（预览时按当前分镜叠加） */
   stickers?: Sticker[];
+  /**
+   * 用户在预览里直接拖拽贴图时回调（归一化锚点坐标 x/y ∈ [0,1]）。
+   * 上层负责落库到 generationParams.stickers（按 stickerId upsert x/y）。
+   * 与导出端 overlay 锚点同构（left_px = x*(W-w)）。
+   * 缺省时贴图不可拖（纯预览只读，保持向后兼容，如导出弹窗内的预览）。
+   */
+  onStickerPositionChange?: (stickerId: string, x: number, y: number) => void;
   /** 分镜间转场（第 k 项 = 第 k 与 k+1 分镜之间），双层叠化预览 */
   transitions?: Transition[];
   /** 分镜滤镜 / 变速（按 sceneId），预览用 SVG filter 精确复现 */
@@ -140,6 +147,7 @@ export function PreviewPlayer({
   onSubtitleStyleChange,
   watermark,
   stickers,
+  onStickerPositionChange,
   transitions,
   sceneEffects,
   backgroundMusic,
@@ -153,6 +161,13 @@ export function PreviewPlayer({
   const [transitionT, setTransitionT] = useState(0);
   // 字幕拖拽态：拖拽中实时落点（归一化），用于无延迟跟手；松手时回调落库
   const [dragXY, setDragXY] = useState<{ x: number; y: number } | null>(null);
+  // 贴图拖拽态：拖拽中实时落点（归一化锚点 x/y），跟手渲染；松手落库后由
+  // effect 等 stickers prop 回流再清（同字幕 dragXY 防闪回模式）。
+  const [dragSticker, setDragSticker] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
   // 快捷位置浮层开关
   const [showQuickPos, setShowQuickPos] = useState(false);
   // 画面框实际像素高：用于把字号从 1080 基准缩放到当前预览尺寸，
@@ -411,6 +426,19 @@ export function PreviewPlayer({
     setDragXY(null);
   }, [currentScene?.id]);
 
+  // 贴图拖拽乐观值收尾：松手后 dragSticker「钉」住落点（防落库往返期间闪回）。
+  // 当 props.stickers 里该贴图坐标已回流确认（浮点容差）→ 清空，交还 props。
+  useEffect(() => {
+    if (!dragSticker) return;
+    const confirmed = stickers?.find((s) => s.id === dragSticker.id);
+    if (!confirmed) return;
+    const settled =
+      Math.abs(confirmed.x - dragSticker.x) < 0.001 &&
+      Math.abs(confirmed.y - dragSticker.y) < 0.001;
+    if (settled) setDragSticker(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stickers]);
+
   // 拖拽乐观值收尾：松手后 dragXY 暂时“钉”住落点（避免落库往返期间字幕闪回）。
   // 当 props.subtitlePositions 已回流确认该坐标（浮点容差比较）→ 清 dragXY，
   // 把控制权交还 props，避免乐观值永久滞留。
@@ -548,6 +576,8 @@ export function PreviewPlayer({
   // ── 字幕位置：拖拽与快捷选择 ──────────────────────────────────────────
   // 是否允许编辑字幕位置（提供回调才开放；只读预览不可拖）
   const subtitleEditable = !!onSubtitlePositionChange;
+  // 是否允许拖拽贴图位置（提供回调才开放；只读预览不可拖，保持向后兼容）
+  const stickerEditable = !!onStickerPositionChange;
   // 是否允许拖角改字号（提供回调才开放；与时间轴字幕样式弹窗同一数据源）
   const subtitleResizable = !!onSubtitleStyleChange;
   // 字号 UI 范围（与字幕样式面板的滑块/拖角一致；服务端另有 8-96 安全外壳）
@@ -805,6 +835,58 @@ export function PreviewPlayer({
     setShowQuickPos(false);
   };
 
+  // 开始拖拽贴图：pointer capture + 本地乐观 dragSticker 跟手，松手落库一次。
+  // 锚点公式与渲染一致：left_px = x*(W-w) → x = (left_px)/(W-w)，故位移换算
+  // dx/(W-w)、dy/(H-h)。W===w 或 H===h 时分母护 0，该轴保持原值不动。
+  const handleStickerDragStart = (
+    e: React.PointerEvent<HTMLImageElement>,
+    sticker: Sticker
+  ) => {
+    if (!stickerEditable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const stage = stageRef.current?.getBoundingClientRect();
+    const el = e.currentTarget;
+    const elRect = el.getBoundingClientRect();
+    if (!stage || stage.width === 0 || stage.height === 0) return;
+    // 起始指针坐标 + 贴图当前锚点 + 可移动像素跨度（stage 尺寸 - 贴图尺寸）
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origX = sticker.x;
+    const origY = sticker.y;
+    const spanW = stage.width - elRect.width;
+    const spanH = stage.height - elRect.height;
+    el.setPointerCapture(e.pointerId);
+    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      // 分母护 0：可移动跨度为 0（贴图与画面同宽/高）时该轴不动，保持原值
+      const nx = spanW > 0 ? clamp01(origX + dx / spanW) : origX;
+      const ny = spanH > 0 ? clamp01(origY + dy / spanH) : origY;
+      setDragSticker({ id: sticker.id, x: nx, y: ny });
+    };
+    const onUp = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      const nx = spanW > 0 ? clamp01(origX + dx / spanW) : origX;
+      const ny = spanH > 0 ? clamp01(origY + dy / spanH) : origY;
+      // 不立即清 dragSticker：落库是 HTTP 往返 + refetch 的长异步，立即清会让
+      // 这一帧回退到尚未更新的 props → 贴图闪回旧位。保留乐观值“钉”住落点，
+      // 待 effect 检测到 stickers prop 已回流确认该坐标后再清（同字幕 dragXY）。
+      setDragSticker({ id: sticker.id, x: nx, y: ny });
+      onStickerPositionChange?.(sticker.id, nx, ny);
+      el.releasePointerCapture(ev.pointerId);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+  };
+
   // 记录视频真实时长（onLoadedMetadata 触发）：仅接受有限正数，且与已存值相同时
   // 不重复 setState（避免无谓重渲）。当前镜与下一镜的 <video> 都会回调，越早读到
   // 下一镜真实时长，effDurs/计时器越早对齐。
@@ -1046,20 +1128,43 @@ export function PreviewPlayer({
                     effDurs[currentIndex] ?? 0
                   )
               )
-              .map((st) => (
-                <img
-                  key={st.id}
-                  src={st.imageUrl}
-                  alt=""
-                  className="pointer-events-none absolute z-10"
-                  style={{
-                    width: `${st.scale * 100}%`,
-                    left: `${st.x * 100}%`,
-                    top: `${st.y * 100}%`,
-                    transform: `translate(-${st.x * 100}%, -${st.y * 100}%)`,
-                  }}
-                />
-              ))}
+              .map((st) => {
+                // 拖拽中该贴图优先用本地乐观锚点（跟手 + 防落库往返闪回）
+                const posX = dragSticker?.id === st.id ? dragSticker.x : st.x;
+                const posY = dragSticker?.id === st.id ? dragSticker.y : st.y;
+                return (
+                  <img
+                    key={st.id}
+                    src={st.imageUrl}
+                    alt=""
+                    // 只读预览保持 pointer-events-none 原样；可编辑时开放拖拽交互
+                    className={`absolute z-10 ${
+                      stickerEditable
+                        ? "ring-primary/60 cursor-move hover:ring-1"
+                        : "pointer-events-none"
+                    }`}
+                    title={stickerEditable ? "拖拽调整贴图位置" : undefined}
+                    onPointerDown={
+                      stickerEditable
+                        ? // 起手坐标用当前生效锚点（乐观值优先）：落库往返未回流时
+                          // 立刻二次拖拽，若从 props 旧值起手会瞬间跳回旧位
+                          (e) =>
+                            handleStickerDragStart(e, {
+                              ...st,
+                              x: posX,
+                              y: posY,
+                            })
+                        : undefined
+                    }
+                    style={{
+                      width: `${st.scale * 100}%`,
+                      left: `${posX * 100}%`,
+                      top: `${posY * 100}%`,
+                      transform: `translate(-${posX * 100}%, -${posY * 100}%)`,
+                    }}
+                  />
+                );
+              })}
 
           {/* Subtitles — 绝对定位到归一化坐标（中心点），支持逐分镜拖拽。
             与导出 ASS \pos(x*W,y*H) 用同一坐标系，确保预览=成片。 */}

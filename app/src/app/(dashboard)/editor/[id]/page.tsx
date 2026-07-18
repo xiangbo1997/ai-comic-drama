@@ -231,6 +231,25 @@ export default function EditorPage() {
     [editorProject, editorUpdateProject]
   );
 
+  // 预览里直接拖拽贴图 → 按 stickerId 改写 generationParams.stickers 的 x/y。
+  // 与 StickerDialog 九宫格/滑块同一数据源（都写 stickers.x/y），immutable map 写回。
+  const handleStickerPositionChange = useCallback(
+    (stickerId: string, x: number, y: number) => {
+      if (!editorProject) return;
+      const prev = editorProject.generationParams?.stickers ?? [];
+      const next = prev.map((st) =>
+        st.id === stickerId ? { ...st, x, y } : st
+      );
+      editorUpdateProject({
+        generationParams: {
+          ...editorProject.generationParams,
+          stickers: next,
+        },
+      });
+    },
+    [editorProject, editorUpdateProject]
+  );
+
   // 预览里拖字幕四角改字号 → 写回全片统一 subtitleStyle（与时间轴字幕样式弹窗
   // 同一数据源，两处一致）。落库写法同其他 generationParams 配置。
   const handleSubtitleStyleChange = useCallback(
@@ -657,6 +676,7 @@ export default function EditorPage() {
               onSubtitleStyleChange={handleSubtitleStyleChange}
               watermark={project.generationParams?.watermark}
               stickers={project.generationParams?.stickers}
+              onStickerPositionChange={handleStickerPositionChange}
               transitions={project.generationParams?.transitions}
               sceneEffects={project.generationParams?.sceneEffects}
               backgroundMusic={project.generationParams?.backgroundMusic}
