@@ -80,6 +80,7 @@ function SceneCardImpl({
   isSelected,
   isExpanded,
   isMenuOpen,
+  viewMode,
   characters,
   onSelect,
   onToggleExpand,
@@ -96,311 +97,366 @@ function SceneCardImpl({
   registerItemRef,
   chainState,
 }: SceneCardProps) {
+  // 网格模式（grid2/grid3）走竖排紧凑卡；list 模式保持原横排结构一字不动。
+  const isGrid = viewMode !== "list";
+  // 操作行图标：网格模式收紧到 13，列表模式保持 14。
+  const iconSize = isGrid ? 13 : 14;
   return (
     <SortableItem id={scene.id}>
-      {({ attributes, listeners, isDragging }) => (
-        <div
-          ref={(el) => registerItemRef(scene.id, el)}
-          className={`bg-card relative cursor-pointer rounded-lg transition ${
-            isDragging ? "shadow-lg" : ""
-          } ${isSelected ? "ring-primary ring-2" : "hover:bg-secondary"}`}
-          onClick={() => onSelect(scene.id)}
-        >
-          {/* Scene Header — 大缩略图在左(16:9, 叠序号/景别/时长/三状态) + 描述在右 */}
-          <div className="flex items-start gap-3 p-3">
-            <button
-              type="button"
-              className="text-muted-foreground mt-1 shrink-0 cursor-grab touch-none active:cursor-grabbing"
-              title="拖拽调整顺序"
-              aria-label="拖拽调整分镜顺序"
-              onClick={(e) => e.stopPropagation()}
-              {...attributes}
-              {...listeners}
-            >
-              <GripVertical size={16} />
-            </button>
-            {/* 大缩略图 16:9 */}
-            <div className="bg-secondary relative aspect-video w-32 shrink-0 overflow-hidden rounded-md">
-              {/* 三状态角标：生成中 / 完成 / 失败 */}
-              <SceneStatusBadge
-                status={scene.imageStatus}
-                hasImage={!!scene.imageUrl}
-                videoStatus={scene.videoStatus}
-                audioStatus={scene.audioStatus}
-              />
-              {/* 左上角序号 */}
-              <span className="bg-background/70 absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium backdrop-blur-sm">
-                #{index + 1}
+      {({ attributes, listeners, isDragging }) => {
+        // 拖拽把手：list 模式吸在缩略图左侧，网格模式移到底部操作行最左。
+        // listeners/attributes 与 e.stopPropagation 两种模式共用，抽出复用。
+        const dragHandle = (
+          <button
+            type="button"
+            className="text-muted-foreground shrink-0 cursor-grab touch-none active:cursor-grabbing"
+            title="拖拽调整顺序"
+            aria-label="拖拽调整分镜顺序"
+            onClick={(e) => e.stopPropagation()}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical size={isGrid ? 14 : 16} />
+          </button>
+        );
+        // 缩略图内部内容（三状态渲染 + 序号/景别/时长/ChainChip 叠层），两种
+        // 布局共用，避免复制粘贴三态逻辑。仅容器尺寸/圆角在外层分支控制。
+        const thumbInner = (
+          <>
+            {/* 三状态角标：生成中 / 完成 / 失败 */}
+            <SceneStatusBadge
+              status={scene.imageStatus}
+              hasImage={!!scene.imageUrl}
+              videoStatus={scene.videoStatus}
+              audioStatus={scene.audioStatus}
+            />
+            {/* 左上角序号 */}
+            <span className="bg-background/70 absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] leading-none font-medium backdrop-blur-sm">
+              #{index + 1}
+            </span>
+            {/* 左下角景别 + 时长 + 衔接链条状态 */}
+            <div className="absolute bottom-1 left-1 z-10 flex items-center gap-1">
+              <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
+                {scene.shotType || "中景"}
               </span>
-              {/* 左下角景别 + 时长 + 衔接链条状态 */}
-              <div className="absolute bottom-1 left-1 z-10 flex items-center gap-1">
-                <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
-                  {scene.shotType || "中景"}
-                </span>
-                <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
-                  {scene.duration}s
-                </span>
-                {chainState && <ChainChip state={chainState} />}
-              </div>
-              {/* 图像内容 */}
-              <div className="flex h-full w-full items-center justify-center">
-                {scene.imageStatus === "PROCESSING" ? (
-                  <div className="bg-secondary h-full w-full animate-pulse" />
-                ) : scene.imageStatus === "FAILED" && !scene.imageUrl ? (
-                  <AlertCircle size={22} className="text-destructive" />
-                ) : scene.imageUrl ? (
-                  <Thumb src={scene.imageUrl} alt="" />
-                ) : (
-                  <ImageIcon size={22} className="text-muted-foreground" />
-                )}
-              </div>
+              <span className="bg-background/70 rounded px-1 py-0.5 text-[10px] leading-none backdrop-blur-sm">
+                {scene.duration}s
+              </span>
+              {chainState && <ChainChip state={chainState} />}
             </div>
-            {/* 右侧描述 + 标签 chips */}
-            <div className="min-w-0 flex-1">
-              <p className="text-foreground line-clamp-3 text-sm">
-                {scene.description}
-              </p>
-              {scene.emotion && (
-                <div className="mt-1.5 flex flex-wrap gap-1">
-                  <span className="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-[10px] leading-none">
-                    #{scene.emotion}
-                  </span>
-                </div>
+            {/* 图像内容 */}
+            <div className="flex h-full w-full items-center justify-center">
+              {scene.imageStatus === "PROCESSING" ? (
+                <div className="bg-secondary h-full w-full animate-pulse" />
+              ) : scene.imageStatus === "FAILED" && !scene.imageUrl ? (
+                <AlertCircle size={22} className="text-destructive" />
+              ) : scene.imageUrl ? (
+                <Thumb src={scene.imageUrl} alt="" />
+              ) : (
+                <ImageIcon size={22} className="text-muted-foreground" />
               )}
             </div>
-          </div>
+          </>
+        );
+        return (
+          <div
+            ref={(el) => registerItemRef(scene.id, el)}
+            className={`bg-card relative cursor-pointer rounded-lg transition ${
+              isDragging ? "shadow-lg" : ""
+            } ${isSelected ? "ring-primary ring-2" : "hover:bg-secondary"}`}
+            onClick={() => onSelect(scene.id)}
+          >
+            {isGrid ? (
+              /* 网格竖排：全宽缩略图置顶 + 描述在下 */
+              <>
+                <div className="bg-secondary relative aspect-video w-full overflow-hidden rounded-t-lg">
+                  {thumbInner}
+                </div>
+                <div className="px-3 pt-2">
+                  <p
+                    className={`text-foreground line-clamp-2 ${
+                      viewMode === "grid3" ? "text-xs" : "text-sm"
+                    }`}
+                  >
+                    {scene.description}
+                  </p>
+                  {/* 情绪 chip：grid3 隐藏（空间紧张），grid2 保留 */}
+                  {scene.emotion && viewMode === "grid2" && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <span className="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-[10px] leading-none">
+                        #{scene.emotion}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* 列表横排 — 大缩略图在左(16:9, 叠序号/景别/时长/三状态) + 描述在右 */
+              <div className="flex items-start gap-3 p-3">
+                <div className="mt-1">{dragHandle}</div>
+                {/* 大缩略图 16:9 */}
+                <div className="bg-secondary relative aspect-video w-32 shrink-0 overflow-hidden rounded-md">
+                  {thumbInner}
+                </div>
+                {/* 右侧描述 + 标签 chips */}
+                <div className="min-w-0 flex-1">
+                  <p className="text-foreground line-clamp-3 text-sm">
+                    {scene.description}
+                  </p>
+                  {scene.emotion && (
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <span className="bg-secondary text-muted-foreground rounded px-1.5 py-0.5 text-[10px] leading-none">
+                        #{scene.emotion}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
-          {/* Expanded Content */}
-          {isExpanded && (
-            <div className="border-border space-y-2 border-t px-3 pt-3 pb-3">
-              <div className="flex items-start gap-2 text-sm">
-                <User size={14} className="text-muted-foreground mt-1" />
-                <span className="text-muted-foreground mt-0.5">角色:</span>
-                {characters.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5">
-                    {characters.map(({ character }) => {
-                      const isCharSelected =
-                        scene.selectedCharacterIds?.includes(character.id);
-                      return (
-                        <button
-                          key={character.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const currentIds = scene.selectedCharacterIds || [];
-                            const newIds = isCharSelected
-                              ? currentIds.filter(
-                                  (id: string) => id !== character.id
-                                )
-                              : [...currentIds, character.id];
-                            updateScene(scene.id, {
-                              selectedCharacterIds: newIds,
-                            });
-                          }}
-                          className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition ${
-                            isCharSelected
-                              ? "bg-agent text-agent-foreground"
-                              : "bg-secondary text-foreground hover:bg-secondary/80"
-                          }`}
-                        >
-                          {character.referenceImages?.[0] && (
-                            <img
-                              src={character.referenceImages[0]}
-                              alt=""
-                              className="h-5 w-5 rounded-full object-cover"
-                            />
-                          )}
-                          {character.name}
-                        </button>
-                      );
-                    })}
+            {/* Expanded Content */}
+            {isExpanded && (
+              <div className="border-border space-y-2 border-t px-3 pt-3 pb-3">
+                <div className="flex items-start gap-2 text-sm">
+                  <User size={14} className="text-muted-foreground mt-1" />
+                  <span className="text-muted-foreground mt-0.5">角色:</span>
+                  {characters.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {characters.map(({ character }) => {
+                        const isCharSelected =
+                          scene.selectedCharacterIds?.includes(character.id);
+                        return (
+                          <button
+                            key={character.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const currentIds =
+                                scene.selectedCharacterIds || [];
+                              const newIds = isCharSelected
+                                ? currentIds.filter(
+                                    (id: string) => id !== character.id
+                                  )
+                                : [...currentIds, character.id];
+                              updateScene(scene.id, {
+                                selectedCharacterIds: newIds,
+                              });
+                            }}
+                            className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition ${
+                              isCharSelected
+                                ? "bg-agent text-agent-foreground"
+                                : "bg-secondary text-foreground hover:bg-secondary/80"
+                            }`}
+                          >
+                            {character.referenceImages?.[0] && (
+                              <img
+                                src={character.referenceImages[0]}
+                                alt=""
+                                className="h-5 w-5 rounded-full object-cover"
+                              />
+                            )}
+                            {character.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      请先
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onManageCharacters();
+                        }}
+                        className="text-primary mx-1 hover:underline"
+                      >
+                        添加项目角色
+                      </button>
+                    </span>
+                  )}
+                </div>
+                {scene.dialogue && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">对话: </span>
+                    <span className="text-foreground">{scene.dialogue}</span>
                   </div>
-                ) : (
-                  <span className="text-muted-foreground">
-                    请先
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onManageCharacters();
-                      }}
-                      className="text-primary mx-1 hover:underline"
-                    >
-                      添加项目角色
-                    </button>
-                  </span>
+                )}
+                {scene.narration && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">旁白: </span>
+                    <span className="text-foreground">{scene.narration}</span>
+                  </div>
                 )}
               </div>
-              {scene.dialogue && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">对话: </span>
-                  <span className="text-foreground">{scene.dialogue}</span>
-                </div>
-              )}
-              {scene.narration && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">旁白: </span>
-                  <span className="text-foreground">{scene.narration}</span>
-                </div>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 px-3 pb-3">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleExpand(scene.id);
-              }}
-              className="hover:bg-secondary rounded p-1"
+            {/* Actions — 网格模式收紧间距、图标降到 13；grip 挪到本行最左 */}
+            <div
+              className={`flex items-center ${
+                isGrid ? "gap-1 px-2 pb-2" : "gap-2 px-3 pb-3"
+              }`}
             >
-              {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-            {/* 三点菜单：复制 / 插入 / 删除 */}
-            <div className="relative">
+              {/* 网格模式：拖拽把手移到操作行最左侧（list 模式已在缩略图左侧） */}
+              {isGrid && dragHandle}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onMenuToggle(isMenuOpen ? null : scene.id);
+                  onToggleExpand(scene.id);
                 }}
                 className="hover:bg-secondary rounded p-1"
-                title="更多操作"
               >
-                <MoreVertical size={14} />
+                {isExpanded ? (
+                  <ChevronUp size={iconSize} />
+                ) : (
+                  <ChevronDown size={iconSize} />
+                )}
               </button>
-              {isMenuOpen && (
-                <>
-                  {/* 点击外部关闭 */}
-                  <div
-                    className="fixed inset-0 z-10"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMenuToggle(null);
-                    }}
-                  />
-                  <div className="bg-card border-border absolute top-7 left-0 z-20 w-32 overflow-hidden rounded-lg border shadow-lg">
-                    <button
+              {/* 三点菜单：复制 / 插入 / 删除 */}
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMenuToggle(isMenuOpen ? null : scene.id);
+                  }}
+                  className="hover:bg-secondary rounded p-1"
+                  title="更多操作"
+                >
+                  <MoreVertical size={iconSize} />
+                </button>
+                {isMenuOpen && (
+                  <>
+                    {/* 点击外部关闭 */}
+                    <div
+                      className="fixed inset-0 z-10"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onDuplicate(scene.id);
+                        onMenuToggle(null);
                       }}
-                      className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
-                    >
-                      <Copy size={13} />
-                      复制分镜
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onInsert(scene.id);
-                      }}
-                      className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
-                    >
-                      <Plus size={13} />
-                      下方插入
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDelete(scene.id);
-                      }}
-                      className="text-destructive flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-red-500/10"
-                    >
-                      <Trash2 size={13} />
-                      删除分镜
-                    </button>
-                  </div>
-                </>
-              )}
+                    />
+                    <div className="bg-card border-border absolute top-7 left-0 z-20 w-32 overflow-hidden rounded-lg border shadow-lg">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDuplicate(scene.id);
+                        }}
+                        className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
+                      >
+                        <Copy size={13} />
+                        复制分镜
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onInsert(scene.id);
+                        }}
+                        className="hover:bg-secondary flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
+                      >
+                        <Plus size={13} />
+                        下方插入
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(scene.id);
+                        }}
+                        className="text-destructive flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-red-500/10"
+                      >
+                        <Trash2 size={13} />
+                        删除分镜
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex-1" />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onGenerateImage(scene);
+                }}
+                disabled={scene.imageStatus === "PROCESSING"}
+                className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
+                title={
+                  scene.imageStatus === "FAILED"
+                    ? "图片生成失败，点击重试"
+                    : "生成图片"
+                }
+              >
+                {scene.imageStatus === "PROCESSING" ? (
+                  <Loader2 size={iconSize} className="animate-spin" />
+                ) : scene.imageStatus === "FAILED" ? (
+                  <RotateCw size={iconSize} className="text-destructive" />
+                ) : (
+                  <ImageIcon size={iconSize} />
+                )}
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onGenerateVideo(scene);
+                }}
+                disabled={!scene.imageUrl || scene.videoStatus === "PROCESSING"}
+                className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
+                title={
+                  !scene.imageUrl
+                    ? "请先生成图片"
+                    : scene.videoStatus === "FAILED"
+                      ? "视频生成失败，点击重试"
+                      : "生成视频"
+                }
+              >
+                {scene.videoStatus === "PROCESSING" ? (
+                  <Loader2 size={iconSize} className="animate-spin" />
+                ) : scene.videoStatus === "FAILED" ? (
+                  <RotateCw size={iconSize} className="text-destructive" />
+                ) : (
+                  <Video size={iconSize} />
+                )}
+              </button>
+              {/* 查看视频：该分镜已生成视频时可点，弹窗播放 */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewVideo(scene);
+                }}
+                disabled={!scene.videoUrl}
+                className="hover:bg-secondary rounded p-1.5 disabled:opacity-30"
+                title={scene.videoUrl ? "查看视频" : "尚未生成视频"}
+              >
+                <Play
+                  size={iconSize}
+                  className={scene.videoUrl ? "text-primary" : ""}
+                />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onGenerateAudio(scene);
+                }}
+                disabled={
+                  (!scene.dialogue && !scene.narration) ||
+                  scene.audioStatus === "PROCESSING"
+                }
+                className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
+                title={
+                  !scene.dialogue && !scene.narration
+                    ? "没有对话或旁白"
+                    : scene.audioStatus === "FAILED"
+                      ? "配音生成失败，点击重试"
+                      : "生成配音"
+                }
+              >
+                {scene.audioStatus === "PROCESSING" ? (
+                  <Loader2 size={iconSize} className="animate-spin" />
+                ) : scene.audioStatus === "FAILED" ? (
+                  <RotateCw size={iconSize} className="text-destructive" />
+                ) : (
+                  <Volume2 size={iconSize} />
+                )}
+              </button>
             </div>
-            <div className="flex-1" />
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onGenerateImage(scene);
-              }}
-              disabled={scene.imageStatus === "PROCESSING"}
-              className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-              title={
-                scene.imageStatus === "FAILED"
-                  ? "图片生成失败，点击重试"
-                  : "生成图片"
-              }
-            >
-              {scene.imageStatus === "PROCESSING" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : scene.imageStatus === "FAILED" ? (
-                <RotateCw size={14} className="text-destructive" />
-              ) : (
-                <ImageIcon size={14} />
-              )}
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onGenerateVideo(scene);
-              }}
-              disabled={!scene.imageUrl || scene.videoStatus === "PROCESSING"}
-              className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-              title={
-                !scene.imageUrl
-                  ? "请先生成图片"
-                  : scene.videoStatus === "FAILED"
-                    ? "视频生成失败，点击重试"
-                    : "生成视频"
-              }
-            >
-              {scene.videoStatus === "PROCESSING" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : scene.videoStatus === "FAILED" ? (
-                <RotateCw size={14} className="text-destructive" />
-              ) : (
-                <Video size={14} />
-              )}
-            </button>
-            {/* 查看视频：该分镜已生成视频时可点，弹窗播放 */}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewVideo(scene);
-              }}
-              disabled={!scene.videoUrl}
-              className="hover:bg-secondary rounded p-1.5 disabled:opacity-30"
-              title={scene.videoUrl ? "查看视频" : "尚未生成视频"}
-            >
-              <Play
-                size={14}
-                className={scene.videoUrl ? "text-primary" : ""}
-              />
-            </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onGenerateAudio(scene);
-              }}
-              disabled={
-                (!scene.dialogue && !scene.narration) ||
-                scene.audioStatus === "PROCESSING"
-              }
-              className="hover:bg-secondary rounded p-1.5 disabled:opacity-50"
-              title={
-                !scene.dialogue && !scene.narration
-                  ? "没有对话或旁白"
-                  : scene.audioStatus === "FAILED"
-                    ? "配音生成失败，点击重试"
-                    : "生成配音"
-              }
-            >
-              {scene.audioStatus === "PROCESSING" ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : scene.audioStatus === "FAILED" ? (
-                <RotateCw size={14} className="text-destructive" />
-              ) : (
-                <Volume2 size={14} />
-              )}
-            </button>
           </div>
-        </div>
-      )}
+        );
+      }}
     </SortableItem>
   );
 }
