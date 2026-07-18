@@ -50,6 +50,11 @@ interface SceneEditorProps {
   sceneSpeed?: number;
   /** 变更播放速度回调（落库到 sceneEffects，导出端消费做变速） */
   onSceneSpeedChange?: (sceneId: string, speed: number) => void;
+  /**
+   * 将当前分镜速度批量应用到全部分镜（落库同 sceneEffects，覆盖各分镜已单独
+   * 设置的速度）。缺省时不渲染「应用到全部」按钮。
+   */
+  onApplySpeedToAll?: (speed: number) => void;
   selectedImageConfig?: string;
   onImageConfigChange: (id: string | undefined) => void;
   onOpenMultiImageDialog: () => void;
@@ -72,6 +77,7 @@ export function SceneEditor({
   aspectRatio,
   sceneSpeed = 1,
   onSceneSpeedChange,
+  onApplySpeedToAll,
   selectedImageConfig,
   onImageConfigChange,
   onOpenMultiImageDialog,
@@ -320,13 +326,27 @@ export function SceneEditor({
         {/* 播放速度（变速）—— 落库到 sceneEffects，导出端做变速。快捷倍速 + 滑块微调 */}
         {onSceneSpeedChange && (
           <div className="border-border bg-card/50 mb-4 rounded-lg border p-3">
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-muted-foreground text-xs">
                 播放速度（导出生效）
               </span>
-              <span className="text-sm font-medium">
-                {sceneSpeed.toFixed(2)}×
-              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                {/* 应用到全部：把当前速度批量落库到所有分镜（覆盖各自单独速度） */}
+                {onApplySpeedToAll && (
+                  <button
+                    type="button"
+                    onClick={() => onApplySpeedToAll(sceneSpeed)}
+                    className="bg-secondary hover:bg-secondary/80 flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-xs whitespace-nowrap transition"
+                    title="将当前速度应用到全部分镜（覆盖各分镜已单独设置的速度）"
+                  >
+                    <Layers size={12} />
+                    应用到全部
+                  </button>
+                )}
+                <span className="text-sm font-medium">
+                  {sceneSpeed.toFixed(2)}×
+                </span>
+              </div>
             </div>
             <div className="mb-2 flex gap-1">
               {[0.5, 1, 1.5, 2].map((v) => (

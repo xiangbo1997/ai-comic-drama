@@ -270,6 +270,38 @@ export default function EditorPage() {
     [editorProject, editorUpdateProject]
   );
 
+  // 将当前分镜速度一键应用到全部分镜 → 批量 upsert sceneEffects.speed。
+  // 清理语义与单镜 handleSceneSpeedChange 完全同构（immutable）：保留悬垂条目，
+  // 逐分镜按 speed=1&&无 effect 则不产条目（回默认保持配置干净），否则产 speed 覆盖。
+  const handleApplySpeedToAllScenes = useCallback(
+    async (speed: number) => {
+      if (!editorProject) return;
+      const scenes = editorProject.scenes;
+      const ok = await toast.confirm(
+        `将 ${speed}× 应用到全部 ${scenes.length} 个分镜？各分镜已单独设置的速度将被覆盖。`
+      );
+      if (!ok) return;
+      const prev = editorProject.generationParams?.sceneEffects ?? [];
+      const sceneIds = new Set(scenes.map((s) => s.id));
+      // 保留 prev 中不属于当前分镜集合的悬垂条目（防御性，不动）
+      const dangling = prev.filter((e) => !sceneIds.has(e.sceneId));
+      const applied = scenes.flatMap((scene) => {
+        const existing = prev.find((e) => e.sceneId === scene.id);
+        // speed=1 且无滤镜 → 不产出该分镜条目（回默认）
+        if (speed === 1 && !existing?.effect) return [];
+        return [{ sceneId: scene.id, effect: existing?.effect ?? null, speed }];
+      });
+      editorUpdateProject({
+        generationParams: {
+          ...editorProject.generationParams,
+          sceneEffects: [...dangling, ...applied],
+        },
+      });
+      toast.success(`已将 ${speed}× 应用到全部分镜`);
+    },
+    [editorProject, editorUpdateProject, toast]
+  );
+
   // 稳定化 mediaConfig 引用：原为内联对象字面量（含 6 个内联箭头），
   // 每次渲染都是新引用 → 击穿 SceneList 的 React.memo，任一弹窗 state
   // 变化都全量重渲染 20-40 张分镜卡片（perf-frontend P0）。useMemo +
@@ -515,6 +547,7 @@ export default function EditorPage() {
             )?.speed ?? 1
           }
           onSceneSpeedChange={handleSceneSpeedChange}
+          onApplySpeedToAll={handleApplySpeedToAllScenes}
           selectedImageConfig={selectedImageConfig}
           onImageConfigChange={setSelectedImageConfig}
           onOpenMultiImageDialog={() => setShowMultiImageDialog(true)}
