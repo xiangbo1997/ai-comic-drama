@@ -2,9 +2,6 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import {
-  Image as ImageIcon,
-  Video,
-  Volume2,
   Loader2,
   RotateCw,
   Users,
@@ -16,8 +13,15 @@ import {
   Link2,
   MapPin,
   Stethoscope,
+  Sparkles,
+  ChevronDown,
 } from "lucide-react";
-import { ModelSelector } from "@/components/ai-models";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import type { BatchProgress } from "../hooks/use-generation-actions";
 import type { Scene, ProjectDetail } from "@/types";
@@ -40,6 +44,7 @@ import { SceneVideoDialog } from "./SceneVideoDialog";
 import { SuggestLinksDialog } from "./SuggestLinksDialog";
 import { LocationsDialog } from "./LocationsDialog";
 import { ContinuityCheckDialog } from "./ContinuityCheckDialog";
+import { BatchActionsBar } from "./BatchActionsBar";
 
 /** 单个媒体类型（图/视/音）的配置控制三元组 */
 export interface MediaConfigControl {
@@ -348,18 +353,20 @@ function SceneListImpl({
 
   return (
     <div className="border-border flex min-w-0 flex-1 flex-col border-r">
-      <div className="border-border flex items-center justify-between border-b p-4">
-        <div className="flex items-center gap-2">
-          <h2 className="font-semibold">分镜列表</h2>
+      <div className="border-border flex items-center justify-between gap-2 border-b p-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="truncate font-semibold whitespace-nowrap">
+            分镜列表 · {project.scenes.length}
+          </h2>
           <button
             onClick={onManageCharacters}
-            className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded p-1.5 transition"
+            className="text-muted-foreground hover:bg-secondary hover:text-foreground shrink-0 rounded p-1.5 transition"
             title="管理项目角色"
           >
             <Users size={16} />
           </button>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {batchGenerateImagesMutation && project.scenes.length > 0 && (
             <button
               onClick={async (e) => {
@@ -386,7 +393,7 @@ function SceneListImpl({
                 }
               }}
               disabled={anyBatchPending}
-              className="bg-primary hover:bg-primary/90 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
+              className="bg-primary hover:bg-primary/90 flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs whitespace-nowrap transition disabled:opacity-50"
               title="批量生成所有缺失图片的分镜"
             >
               {batchGenerateImagesMutation.isPending ? (
@@ -397,56 +404,80 @@ function SceneListImpl({
               批量生成
             </button>
           )}
-          {/* AI 建议衔接（计划 §5 · 2.1）：LLM 判断相邻镜是否同场景+动作连续，
-              一键批量开启 videoLinkNext。分镜 ≥2 才有意义。 */}
-          {project.scenes.length >= 2 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowSuggestLinks(true);
-              }}
-              disabled={anyBatchPending}
-              className="bg-secondary hover:bg-secondary/80 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
-              title="AI 判断相邻分镜是否适合尾帧衔接，一键批量开启"
-            >
-              <Link2 size={12} />
-              AI 建议衔接
-            </button>
-          )}
-          {/* 场景地点（计划 §5 · 2.2）：为每个地点沉淀无人物空景板作场景锚，
-              锁同地点多镜背景/布局/光线。有分镜即可入口。 */}
-          {project.scenes.length >= 1 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowLocations(true);
-              }}
-              disabled={anyBatchPending}
-              className="bg-secondary hover:bg-secondary/80 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
-              title="管理场景地点：生成/上传无人物空景板作为背景一致性锚"
-            >
-              <MapPin size={12} />
-              场景地点
-            </button>
-          )}
-          {/* AI 场记（计划 §5 · 2.3）：VLM 逐对比对相邻已出图分镜，检查服装/发型/
-              环境/光线/色调跳变，给可一键重生成的建议。需 ≥2 张已出图才有意义。 */}
-          {project.scenes.filter((s) => s.imageUrl).length >= 2 && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowContinuityCheck(true);
-              }}
-              disabled={anyBatchPending}
-              className="bg-secondary hover:bg-secondary/80 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
-              title="AI 场记：逐对比对相邻分镜图片的连贯性，给出可一键修复的建议"
-            >
-              <Stethoscope size={12} />
-              AI 场记
-            </button>
-          )}
+          {/* AI 工具下拉：收纳「AI 建议衔接 / 场景地点 / AI 场记」三个次级入口，
+              各自的显示条件保持原样，三项条件均不满足时整个下拉不渲染。 */}
+          {(() => {
+            const canSuggestLinks = project.scenes.length >= 2;
+            const canLocations = project.scenes.length >= 1;
+            const canContinuityCheck =
+              project.scenes.filter((s) => s.imageUrl).length >= 2;
+            if (!canSuggestLinks && !canLocations && !canContinuityCheck)
+              return null;
+            return (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    disabled={anyBatchPending}
+                    className="bg-secondary hover:bg-secondary/80 flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs whitespace-nowrap transition disabled:opacity-50"
+                    title="AI 一致性工具"
+                  >
+                    <Sparkles size={12} />
+                    AI 工具
+                    <ChevronDown size={12} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  {/* AI 建议衔接（计划 §5 · 2.1）：LLM 判断相邻镜是否同场景+动作连续 */}
+                  {canSuggestLinks && (
+                    <DropdownMenuItem
+                      onSelect={() => setShowSuggestLinks(true)}
+                      className="flex-col items-start gap-0.5"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Link2 size={14} />
+                        <span>AI 建议衔接</span>
+                      </div>
+                      <span className="text-muted-foreground pl-6 text-xs">
+                        判断相邻镜是否适合尾帧衔接
+                      </span>
+                    </DropdownMenuItem>
+                  )}
+                  {/* 场景地点（计划 §5 · 2.2）：无人物空景板作背景一致性锚 */}
+                  {canLocations && (
+                    <DropdownMenuItem
+                      onSelect={() => setShowLocations(true)}
+                      className="flex-col items-start gap-0.5"
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin size={14} />
+                        <span>场景地点</span>
+                      </div>
+                      <span className="text-muted-foreground pl-6 text-xs">
+                        空景板锚定背景一致性
+                      </span>
+                    </DropdownMenuItem>
+                  )}
+                  {/* AI 场记（计划 §5 · 2.3）：VLM 逐对比对相邻已出图分镜连贯性 */}
+                  {canContinuityCheck && (
+                    <DropdownMenuItem
+                      onSelect={() => setShowContinuityCheck(true)}
+                      className="flex-col items-start gap-0.5"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Stethoscope size={14} />
+                        <span>AI 场记</span>
+                      </div>
+                      <span className="text-muted-foreground pl-6 text-xs">
+                        逐对体检相邻镜连贯性
+                      </span>
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            );
+          })()}
           {/* 仅补失败镜：workflow 部分成功或批量后有失败时的一键重试入口，
-              避免逐张扫红角标手动点（历史遗留候选项） */}
+              避免逐张扫红角标手动点（历史遗留候选项）。高优先级入口，不进下拉。 */}
           {batchGenerateImagesMutation &&
             (() => {
               const failedScenes = project.scenes.filter(
@@ -462,7 +493,7 @@ function SceneListImpl({
                     })
                   }
                   disabled={anyBatchPending}
-                  className="bg-destructive/20 text-destructive hover:bg-destructive/30 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
+                  className="bg-destructive/20 text-destructive hover:bg-destructive/30 flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs whitespace-nowrap transition disabled:opacity-50"
                   title="仅重新生成图片失败的分镜"
                 >
                   <RotateCw size={12} />
@@ -471,7 +502,7 @@ function SceneListImpl({
               );
             })()}
           {/* 视图密度切换：列表 / 2 列 / 3 列 */}
-          <div className="bg-secondary flex items-center gap-0.5 rounded p-0.5">
+          <div className="bg-secondary flex shrink-0 items-center gap-0.5 rounded p-0.5">
             {(
               [
                 ["list", List],
@@ -495,9 +526,6 @@ function SceneListImpl({
               </button>
             ))}
           </div>
-          <span className="text-muted-foreground text-sm">
-            {project.scenes.length} 个分镜
-          </span>
         </div>
       </div>
       <div
@@ -570,134 +598,19 @@ function SceneListImpl({
       </div>
 
       {/* Batch Actions — 三类批量统一走串行 batch mutation（逐张生成 + 成败
-          汇总 + 可停止）。此前底部是并行 forEach 瞬间打出 N 个同步请求：
-          易触发限流、无汇总，且与顶部串行「批量生成」语义割裂（ux-editor P1-5） */}
+          汇总 + 可停止）。压成单行 split-button，逻辑抽到 BatchActionsBar。
+          底部图片批量不走 onBeforeBatchImages 关口（保持原语义）。 */}
       {project.scenes.length > 0 && (
-        <div className="border-border space-y-3 border-t p-4">
-          {batchProgress && (
-            <div className="bg-secondary/50 flex items-center justify-between rounded-lg px-3 py-2 text-xs">
-              <span className="text-muted-foreground flex items-center gap-2">
-                <Loader2 size={12} className="animate-spin" />
-                批量
-                {batchProgress.kind === "image"
-                  ? "图片"
-                  : batchProgress.kind === "video"
-                    ? "视频"
-                    : "配音"}
-                生成中 {batchProgress.done}/{batchProgress.total}
-              </span>
-              <button
-                onClick={onCancelBatch}
-                className="text-destructive hover:underline"
-                title="已发出的请求会继续完成，仅停止排队后续分镜"
-              >
-                停止后续
-              </button>
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <ModelSelector
-              category="IMAGE"
-              value={mediaConfig.image.selected}
-              onChange={mediaConfig.image.onChange}
-              onOpenMultiSelect={mediaConfig.image.onOpenMultiSelect}
-              showMultiSelectButton
-              size="sm"
-            />
-            <button
-              onClick={() => {
-                const targets = project.scenes.filter(
-                  (s) => !s.imageUrl && s.imageStatus !== "PROCESSING"
-                );
-                if (targets.length === 0 || !batchGenerateImagesMutation)
-                  return;
-                batchGenerateImagesMutation.mutate({
-                  scenes: targets,
-                  imageConfigId: mediaConfig.image.selected,
-                });
-              }}
-              disabled={anyBatchPending}
-              className="bg-secondary hover:bg-secondary/80 flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
-            >
-              <ImageIcon size={16} />
-              批量图片
-              <span className="text-muted-foreground ml-1 text-xs">
-                {project.scenes.filter((s) => s.imageUrl).length}/
-                {project.scenes.length}
-              </span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <ModelSelector
-              category="VIDEO"
-              value={mediaConfig.video.selected}
-              onChange={mediaConfig.video.onChange}
-              onOpenMultiSelect={mediaConfig.video.onOpenMultiSelect}
-              showMultiSelectButton
-              size="sm"
-            />
-            <button
-              onClick={() => {
-                const targets = project.scenes.filter(
-                  (s) =>
-                    s.imageUrl && !s.videoUrl && s.videoStatus !== "PROCESSING"
-                );
-                if (targets.length === 0 || !batchGenerateVideosMutation)
-                  return;
-                batchGenerateVideosMutation.mutate({
-                  scenes: targets,
-                  videoConfigId: mediaConfig.video.selected,
-                });
-              }}
-              disabled={anyBatchPending}
-              className="bg-secondary hover:bg-secondary/80 flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
-            >
-              <Video size={16} />
-              批量视频
-              <span className="text-muted-foreground ml-1 text-xs">
-                {project.scenes.filter((s) => s.videoUrl).length}/
-                {project.scenes.length}
-              </span>
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <ModelSelector
-              category="TTS"
-              value={mediaConfig.audio.selected}
-              onChange={mediaConfig.audio.onChange}
-              onOpenMultiSelect={mediaConfig.audio.onOpenMultiSelect}
-              showMultiSelectButton
-              size="sm"
-            />
-            <button
-              onClick={() => {
-                const targets = project.scenes.filter(
-                  (s) =>
-                    (s.dialogue || s.narration) &&
-                    !s.audioUrl &&
-                    s.audioStatus !== "PROCESSING"
-                );
-                if (targets.length === 0 || !batchGenerateAudiosMutation)
-                  return;
-                batchGenerateAudiosMutation.mutate({
-                  scenes: targets,
-                  ttsConfigId: mediaConfig.audio.selected,
-                });
-              }}
-              disabled={anyBatchPending}
-              className="bg-secondary hover:bg-secondary/80 flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm disabled:opacity-50"
-            >
-              <Volume2 size={16} />
-              批量配音
-              <span className="text-muted-foreground ml-1 text-xs">
-                {project.scenes.filter((s) => s.audioUrl).length}/
-                {project.scenes.filter((s) => s.dialogue || s.narration).length}
-              </span>
-            </button>
-          </div>
-        </div>
+        <BatchActionsBar
+          scenes={project.scenes}
+          batchGenerateImagesMutation={batchGenerateImagesMutation}
+          batchGenerateVideosMutation={batchGenerateVideosMutation}
+          batchGenerateAudiosMutation={batchGenerateAudiosMutation}
+          batchProgress={batchProgress}
+          onCancelBatch={onCancelBatch}
+          anyBatchPending={anyBatchPending}
+          mediaConfig={mediaConfig}
+        />
       )}
 
       {/* 单分镜视频查看弹窗 */}

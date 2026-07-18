@@ -1,11 +1,15 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   Wand2,
   Plus,
   Loader2,
   ChevronDown,
   ChevronUp,
+  ChevronsLeft,
+  ChevronsRight,
+  FileText,
   Settings,
   User,
   Users,
@@ -15,6 +19,9 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import type { ProjectDetail } from "@/types";
 import { toFriendlyError } from "@/lib/error-copy";
+
+/** 创作面板折叠态持久化 key */
+const COLLAPSE_STORAGE_KEY = "editor-script-panel-collapsed";
 
 /** 探测用户是否已配置可用的大语言模型（与 ModelSelector 共享 ["ai-configs"] 缓存） */
 function useHasLLMConfig() {
@@ -75,8 +82,73 @@ export function ScriptPanel({
     ? toFriendlyError(parseError, "解析失败，请重试")
     : null;
 
+  // 创作面板折叠态：服务端与首帧统一渲染展开态（collapsed=false），mounted 后
+  // 才从 localStorage 读回，避免 SSR hydration mismatch。此处在 effect 内读取
+  // 持久化 UI 状态是 React 官方允许的场景（首帧后同步外部持久化），故按规则例外处理。
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 首帧后读回持久化折叠态，避免 SSR mismatch
+    setCollapsed(localStorage.getItem(COLLAPSE_STORAGE_KEY) === "1");
+  }, []);
+  const toggleCollapsed = (next: boolean) => {
+    setCollapsed(next);
+    localStorage.setItem(COLLAPSE_STORAGE_KEY, next ? "1" : "0");
+  };
+
+  // 折叠态：窄竖条 icon 导航，点击任意 icon 都展开面板
+  if (collapsed) {
+    return (
+      <div className="border-border hidden w-12 flex-col items-center gap-1 border-r py-2 md:flex">
+        <button
+          onClick={() => toggleCollapsed(false)}
+          className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded p-2 transition"
+          title="展开创作面板"
+        >
+          <ChevronsRight size={16} />
+        </button>
+        <button
+          onClick={() => toggleCollapsed(false)}
+          className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded p-2 transition"
+          title="世界观创作"
+        >
+          <Wand2 size={16} />
+        </button>
+        <button
+          onClick={() => toggleCollapsed(false)}
+          className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded p-2 transition"
+          title="输入文本"
+        >
+          <FileText size={16} />
+        </button>
+        <button
+          onClick={() => toggleCollapsed(false)}
+          className="text-muted-foreground hover:bg-secondary hover:text-foreground relative rounded p-2 transition"
+          title="项目角色"
+        >
+          <Users size={16} />
+          {project.characters.length > 0 && (
+            <span className="bg-primary text-primary-foreground absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] leading-none">
+              {project.characters.length}
+            </span>
+          )}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="border-border hidden w-full flex-col overflow-y-auto border-r md:flex md:w-[24%] md:min-w-[200px] lg:w-[22%] lg:min-w-[256px]">
+      {/* slim 头部行：展示标题 + 收起按钮 */}
+      <div className="border-border flex h-8 items-center justify-between border-b px-3">
+        <span className="text-muted-foreground text-xs">创作面板</span>
+        <button
+          onClick={() => toggleCollapsed(true)}
+          className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded p-1 transition"
+          title="收起创作面板"
+        >
+          <ChevronsLeft size={16} />
+        </button>
+      </div>
       {/* AI 配置墙前置引导：平台默认无兜底 Key，未配 LLM 时任何解析都会失败。
           此前无任何主动提示，新用户必撞墙后才能从报错里摸索出路 */}
       {hasLLMConfig === false && (
