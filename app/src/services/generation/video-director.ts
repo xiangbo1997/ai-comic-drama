@@ -17,7 +17,9 @@
  *
  * 硬约束（与 video-prompt.ts 呼应）：
  * - 输出禁止外貌/服装描写——外貌由参考图和身份锚定，重描会画面漂移
- * - 禁止对白与口型指示——管线自己叠 TTS，Veo 口型会对不上
+ * - 禁止写对白台词与「音素级精确唇同步」指示（管线自叠 TTS，对不上具体词）；
+ *   但角色说话时的「自然口型开合（lip flap）」是漫剧行业标准，可写进 actionBeat
+ *   （如「边说边微微点头」），闭嘴人物 + 画外配音才是第一 AI 破绽
  * - actionBeat 是中文（走内容安全，不进 Avoid 段，故无需纯 ASCII）
  * - atmosphere 是英文短语（进 video-prompt 的 atmosphereOverride）
  * - endFrameDesc 是中文静态快照（走内容安全后进图像 prompt），只写终态、不写进行时
@@ -111,7 +113,7 @@ const DIRECTOR_SYSTEM = `你是一位资深动画分镜导演，只负责导演�
 1. 只导演运动：cameraMovement（镜头如何运动）、actionBeat（角色动作 / 表情变化 / 环境动态），不要重复画面里已有的静态构图。
 2. 角色一律用名字称呼，绝对禁止描述外貌 / 服装 / 发型 / 相貌——外貌由参考图和身份锚定，你重新描述会导致画面漂移。角色身份信息仅供你理解「谁在动」，禁止复述。
 3. 承接上一镜、铺垫下一镜：cameraMovement 不与相邻镜头重复；actionBeat 与前后剧情连贯；人物情绪 / 身体状态延续——就算相隔多镜也不能失忆（比如上一镜受伤了，这一镜就还是受伤状态；持着某物就还持着）。这靠 prevScene / nextScene 与角色信息的连续传递保证。
-4. 禁止对白和口型指示（管线自己叠加配音，口型会对不上）。
+4. 禁止写具体对白台词，也禁止「音素级精确唇同步」指示（管线自叠配音，对不上具体词）；但角色说话时可在 actionBeat 描述「自然口型开合 / 边说边动作」——闭嘴人物配画外音才是最大破绽，说话镜的嘴应当在动。
 5. 禁止引入画面外的新元素 / 新角色 / 新道具。
 6. cameraMovement 必须是以下之一：static、zoom_in、zoom_out、pan_left、pan_right、tilt_up、tilt_down、dolly_in、dolly_out、orbit、tracking、handheld、crane。
 7. actionBeat 用中文，≤120 字，只写「动」的内容。atmosphere 用英文短语，≤60 字符，概括氛围（可选）。

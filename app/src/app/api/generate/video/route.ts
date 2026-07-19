@@ -93,6 +93,7 @@ async function buildDirectedVideoPrompt(params: {
         lighting: true,
         emotion: true,
         duration: true,
+        dialogue: true,
         selectedCharacterId: true,
         selectedCharacterIds: true,
       },
@@ -189,6 +190,8 @@ async function buildDirectedVideoPrompt(params: {
         atmosphereOverride: direction.atmosphere,
         duration,
         hasLastFrame,
+        // 有对白 + 景别看得清嘴 → lip flap 口型指令（批3）
+        hasDialogue: !!scene.dialogue?.trim(),
       });
 
       // 重建后的 prompt 含 LLM 输出（actionBeat），必须重新过内容安全

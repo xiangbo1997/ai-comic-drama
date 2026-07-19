@@ -240,46 +240,65 @@ const MIN_WINDOW_DURATION = 0.8;
  * 分配语义（纯函数、确定性）：
  *   - 每句时长 ∝ 其视觉宽度（charWidth：CJK=1、ASCII=0.5），
  *     宽句显示更久、短句更快，节奏贴合朗读。
- *   - 最小窗保障：时长充裕（totalDuration ≥ 句数 × MIN_WINDOW_DURATION）时，
+ *   - 最小窗保障：时长充裕（span ≥ 句数 × MIN_WINDOW_DURATION）时，
  *     每句至少 MIN_WINDOW_DURATION 秒；把剩余时长按宽度比例再分给各句。
  *   - 兜底：时长过短（放不下所有最小窗）时退化为「纯比例分配」，
- *     不强行拉满最小窗（否则总和会超过 totalDuration）。
+ *     不强行拉满最小窗（否则总和会超过 span）。
  *   - 连续且闭合：窗口首尾相接（window[k].end === window[k+1].start），
  *     start 从 0 开始，最后一句 end 恰为 totalDuration（浮点累积由末句兜正）。
  *
+ * 配音时长对齐（批3）：若传入 voiceDuration（该镜配音的真实音频秒长）且它
+ * 短于 totalDuration，则「逐句朗读节奏」按 voiceDuration 分配（字幕随语音走完，
+ * 不再摊到语音结束后的静默画面里），但末句 end 停驻到 totalDuration（末句停驻，
+ * 让最后一句一直显示到分镜结束）。voiceDuration 缺省 / ≤0 / ≥totalDuration 时
+ * 退化为原「按 totalDuration 分配」，行为完全等价（零回归）。
+ *
  * @param segments      逐句短句数组（splitSubtitleSegments 的输出）
  * @param totalDuration 分镜总时长（秒），应为正数
+ * @param voiceDuration 该镜配音真实音频秒长（可选）；短于 totalDuration 时字幕节奏
+ *                      按它分配 + 末句停驻到分镜末
  * @returns 逐句时间窗数组；segments 为空时返回空数组
  */
 export function allocateSubtitleWindows(
   segments: string[],
-  totalDuration: number
+  totalDuration: number,
+  voiceDuration?: number
 ): SubtitleWindow[] {
   if (segments.length === 0) return [];
   const total = totalDuration > 0 ? totalDuration : 0;
+
+  // 逐句朗读节奏的分配跨度 span：有有效配音时长且短于总时长时用配音时长，
+  // 否则用总时长（原行为）。末句仍停驻到 total（见下方 end 计算）。
+  const span =
+    typeof voiceDuration === "number" &&
+    voiceDuration > 0 &&
+    voiceDuration < total
+      ? voiceDuration
+      : total;
 
   // 各句视觉宽度（最小 0.5 防止空句权重为 0 导致除零 / 分不到时长）
   const widths = segments.map((s) => Math.max(0.5, textVisualWidth(s)));
   const widthSum = widths.reduce((acc, w) => acc + w, 0);
 
-  // 决定是否启用「最小窗保障」：仅当总时长足以让每句都不低于最小窗
-  const canGuaranteeMin = total >= segments.length * MIN_WINDOW_DURATION;
+  // 决定是否启用「最小窗保障」：仅当 span 足以让每句都不低于最小窗
+  const canGuaranteeMin = span >= segments.length * MIN_WINDOW_DURATION;
 
-  // 计算每句时长
+  // 计算每句时长（按 span 分配）
   let durations: number[];
   if (canGuaranteeMin) {
     // 先给每句垫最小窗，剩余时长按宽度比例再分
     const reserved = segments.length * MIN_WINDOW_DURATION;
-    const remain = total - reserved;
+    const remain = span - reserved;
     durations = widths.map(
       (w) => MIN_WINDOW_DURATION + (remain * w) / widthSum
     );
   } else {
-    // 时长不够垫最小窗 → 纯比例分配（可能有句 < 最小窗，但总和守恒）
-    durations = widths.map((w) => (total * w) / widthSum);
+    // 时长不够垫最小窗 → 纯比例分配（可能有句 < 最小窗，但总和守恒到 span）
+    durations = widths.map((w) => (span * w) / widthSum);
   }
 
-  // 累加成连续闭合的时间窗；末句 end 兜正为 total 消除浮点累积误差
+  // 累加成连续闭合的时间窗；末句 end 停驻到 total（消除浮点累积误差，且实现
+  // 「末句停驻到分镜末」——span < total 时最后一句从语音结束一直显示到画面结束）。
   const windows: SubtitleWindow[] = [];
   let cursor = 0;
   for (let i = 0; i < segments.length; i += 1) {

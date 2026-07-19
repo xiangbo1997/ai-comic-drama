@@ -22,6 +22,12 @@ import { reviewStoryboard, reviewVideoSequence } from "./narrative-observer";
 import { reviewCharacterBible } from "./character-bible-observer";
 import { resolvePolicy, runClosedLoop } from "./closed-loop";
 import { synthesizeSpeech } from "@/services/ai";
+import { getUserTTSConfig } from "@/lib/ai-config";
+import {
+  normalizeVoiceFamily,
+  resolveDialogueVoiceId,
+  resolveNarratorVoiceId,
+} from "@/lib/tts-voice";
 import { getThreeViewUrls } from "@/lib/three-views";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
 import { parseStoryBible } from "@/types/series-bible";
@@ -40,7 +46,10 @@ import {
   uploadFileFromUrl,
   isStorageConfigured,
 } from "@/services/storage";
-import { probeMediaDurationFromUrl } from "@/services/video-synthesis";
+import {
+  probeMediaDurationFromUrl,
+  concatAudioBuffers,
+} from "@/services/video-synthesis";
 import {
   chargeCredits,
   InsufficientCreditsError,
@@ -71,6 +80,7 @@ import type {
   SceneCharacterInfo,
   CharacterRole,
 } from "@/services/generation/types";
+import type { AIServiceConfig } from "@/types";
 
 // Re-export 保持兼容
 export { subscribeWorkflowEvents } from "./event-bus";
@@ -858,6 +868,88 @@ function buildSceneCharacterContext(
   return { referenceImages, identityPrompt, seed };
 }
 
+/**
+ * 一键 workflow 的分镜配音合成（批3：声线断链 + 情绪透传 + 旁白独立声线）。
+ *
+ * 修复三处断裂：
+ *   1) 对白用角色声线：查主角色（sceneArtifact.characters[0]）的 Character.voiceId，
+ *      经 resolveDialogueVoiceId 跨厂商防污染后传入——此前 workflow 从不传 voiceId，
+ *      所有角色（含男性）都用默认「甜美女声」。
+ *   2) 旁白用独立说书人声线（narratorVoiceId），与角色对白听感分离。
+ *   3) 旁白 + 对白都在时不再二选一丢弃：旁白（铺垫）在前、对白在后，两段独立合成
+ *      后 concatAudioBuffers 拼成单条音轨。
+ *
+ * 情绪（sceneArtifact.emotion）透传给两段合成。任一段失败即抛错（由调用方置 FAILED），
+ * 但情绪/声线是增强项——provider 层已对情绪失败做无情绪重试，不会因情绪阻断。
+ *
+ * @returns 合成后的音频 Buffer 与计费字符数；无对白无旁白时返回 null（跳过配音）。
+ */
+async function synthesizeSceneAudio(params: {
+  sceneArtifact: SceneArtifact;
+  ttsSpeed: number;
+  ttsConfig: AIServiceConfig;
+  characterMap: ProjectCharacterMap;
+  ttsActiveFamily: string;
+  narratorVoiceId?: string;
+}): Promise<{ audioBuffer: Buffer; charCount: number } | null> {
+  const {
+    sceneArtifact,
+    ttsSpeed,
+    ttsConfig,
+    characterMap,
+    ttsActiveFamily,
+    narratorVoiceId,
+  } = params;
+
+  const narration = sceneArtifact.narration?.trim() || "";
+  const dialogue = sceneArtifact.dialogue?.trim() || "";
+  if (!narration && !dialogue) return null;
+
+  const emotion = sceneArtifact.emotion || undefined;
+
+  // 对白声线：主角色（characters[0]）的 voiceId，跨厂商防污染后使用；无匹配则 undefined
+  // 回落 provider 默认声线。
+  const primaryName = sceneArtifact.characters?.[0];
+  const primaryChar = primaryName ? characterMap.get(primaryName) : undefined;
+  const dialogueVoiceId = resolveDialogueVoiceId({
+    characterVoiceId: primaryChar?.voiceId,
+    characterVoiceProvider: primaryChar?.voiceProvider,
+    activeFamily: ttsActiveFamily,
+  });
+
+  // 分段合成：旁白（说书人声线，铺垫在前）→ 对白（角色声线，在后）。二者之一缺失
+  // 时只合成存在的那段（无需拼接）。
+  const segments: Buffer[] = [];
+  if (narration) {
+    segments.push(
+      await synthesizeSpeech({
+        text: narration,
+        voiceId: narratorVoiceId,
+        speed: ttsSpeed,
+        emotion,
+        config: ttsConfig,
+      })
+    );
+  }
+  if (dialogue) {
+    segments.push(
+      await synthesizeSpeech({
+        text: dialogue,
+        voiceId: dialogueVoiceId,
+        speed: ttsSpeed,
+        emotion,
+        config: ttsConfig,
+      })
+    );
+  }
+
+  const audioBuffer =
+    segments.length === 1 ? segments[0] : await concatAudioBuffers(segments);
+  // 计费字符数 = 旁白 + 对白总字数（与两段实际合成的文本量一致）
+  const charCount = narration.length + dialogue.length;
+  return { audioBuffer, charCount };
+}
+
 /** 视频 + 音频并行生成 */
 async function executeMediaGeneration(
   scenes: SceneArtifact[],
@@ -891,13 +983,23 @@ async function executeMediaGeneration(
     | "9:16"
     | "16:9";
 
-  // 循环前一次性查项目全部角色建查表（消除逐镜 N+1）
-  const characterList = ctx.config.video
-    ? await loadProjectCharacters(ctx.projectId)
-    : [];
+  // 循环前一次性查项目全部角色建查表（消除逐镜 N+1）。
+  // video 用它取参考图/身份锚；tts 用它取角色 voiceId 解析对白声线——故 video 或
+  // tts 任一开启都需要（此前只在 video 开启时加载，导致纯配音 workflow 拿不到声线）。
+  const characterList =
+    ctx.config.video || ctx.config.tts
+      ? await loadProjectCharacters(ctx.projectId)
+      : [];
   const characterMap: ProjectCharacterMap = new Map(
     characterList.map((c) => [c.name, c])
   );
+
+  // TTS 声线解析上下文（批3）：一次性解析激活 TTS 配置并归一其厂商家族，供逐镜
+  // 对白/旁白声线裁决共用（避免逐镜二次查询）。无 TTS 配置时 activeFamily 为空串，
+  // resolveDialogueVoiceId/resolveNarratorVoiceId 会退化为 provider 默认声线。
+  const ttsConfig = ctx.config.tts ? await getUserTTSConfig(ctx.userId) : null;
+  const ttsActiveFamily = normalizeVoiceFamily(ttsConfig?.protocol);
+  const narratorVoiceId = resolveNarratorVoiceId(ttsActiveFamily);
 
   for (const dbScene of dbScenes) {
     const sceneArtifact = scenes.find((s) => s.order === dbScene.order);
@@ -1018,6 +1120,8 @@ async function executeMediaGeneration(
         duration: sceneArtifact.duration,
         // 镜内尾帧存在时启用 FL 文案（视频精确结束于所给尾帧画面）
         hasLastFrame: !!intraShotLastFrame,
+        // 有对白 + 景别看得清嘴 → lip flap 口型指令（批3）
+        hasDialogue: !!sceneArtifact.dialogue?.trim(),
       });
       const videoCost = estimateVideoCost(
         sceneArtifact.duration,
@@ -1130,64 +1234,68 @@ async function executeMediaGeneration(
       );
     }
 
-    // TTS 生成
-    if (ctx.config.tts) {
-      const text = sceneArtifact.dialogue ?? sceneArtifact.narration;
-      if (text) {
-        tasks.push(
-          synthesizeSpeech({
-            text,
-            // 分镜级语速（重跑 workflow 时尊重用户在编辑器调过的值）
-            speed: dbScene.ttsSpeed ?? 1.0,
-            config: ctx.config.tts,
+    // TTS 生成（批3：对白角色声线 + 旁白独立声线 + 情绪透传 + 旁白对白拼接）
+    if (ctx.config.tts && (sceneArtifact.dialogue || sceneArtifact.narration)) {
+      const ttsConfigForScene = ctx.config.tts;
+      tasks.push(
+        synthesizeSceneAudio({
+          sceneArtifact,
+          // 分镜级语速（重跑 workflow 时尊重用户在编辑器调过的值）；
+          // ttsSpeed 有 DB 默认（1.1 漫剧节奏），恒为数字
+          ttsSpeed: dbScene.ttsSpeed,
+          ttsConfig: ttsConfigForScene,
+          characterMap,
+          ttsActiveFamily,
+          narratorVoiceId,
+        })
+          .then(async (result) => {
+            if (!result) return; // 无对白无旁白（防御，上方已过滤）
+            const { audioBuffer, charCount } = result;
+            // 修复哑片：synthesizeSpeech 返回音频 Buffer，必须落盘并写回
+            // scene.audioUrl，否则导出/预览取不到音轨 → 自动成片无配音。
+            // 走 uploadFile 统一门面（R2 已配走云存储 / 未配降级本地盘）。
+            const audioUrl = await uploadFile(audioBuffer, {
+              fileName: `scene_${dbScene.id}_audio_${Date.now()}.mp3`,
+              contentType: "audio/mpeg",
+              fileType: "audio",
+              userId: ctx.userId,
+              projectId: ctx.projectId,
+            });
+            await prisma.scene.update({
+              where: { id: dbScene.id },
+              data: { audioUrl, audioStatus: "COMPLETED" },
+            });
+            // 成功后扣费（2积分/100字，与手动路径一致；按旁白+对白总字数计）
+            await chargeWorkflowItem(ctx, {
+              sceneId: dbScene.id,
+              kind: "tts",
+              amount: Math.ceil(charCount / 100) * 2,
+              note: `场景 ${dbScene.id} 语音合成（${charCount}字）`,
+            });
           })
-            .then(async (audioBuffer) => {
-              // 修复哑片：synthesizeSpeech 返回音频 Buffer，必须落盘并写回
-              // scene.audioUrl，否则导出/预览取不到音轨 → 自动成片无配音。
-              // 走 uploadFile 统一门面（R2 已配走云存储 / 未配降级本地盘）。
-              const audioUrl = await uploadFile(audioBuffer, {
-                fileName: `scene_${dbScene.id}_audio_${Date.now()}.mp3`,
-                contentType: "audio/mpeg",
-                fileType: "audio",
-                userId: ctx.userId,
-                projectId: ctx.projectId,
-              });
-              await prisma.scene.update({
-                where: { id: dbScene.id },
-                data: { audioUrl, audioStatus: "COMPLETED" },
-              });
-              // 成功后扣费（2积分/100字，与手动路径一致）
-              await chargeWorkflowItem(ctx, {
+          .catch(async (err) => {
+            // 不再静默吞错
+            log.error(
+              `[workflow] 场景 ${dbScene.id} 配音生成失败`,
+              err instanceof Error ? err.message : err
+            );
+            await prisma.scene.update({
+              where: { id: dbScene.id },
+              data: { audioStatus: "FAILED" },
+            });
+            emitEvent({
+              type: "step:failed",
+              workflowRunId: ctx.workflowRunId,
+              step: "synthesize_voice",
+              data: {
                 sceneId: dbScene.id,
-                kind: "tts",
-                amount: Math.ceil(text.length / 100) * 2,
-                note: `场景 ${dbScene.id} 语音合成（${text.length}字）`,
-              });
-            })
-            .catch(async (err) => {
-              // 不再静默吞错
-              log.error(
-                `[workflow] 场景 ${dbScene.id} 配音生成失败`,
-                err instanceof Error ? err.message : err
-              );
-              await prisma.scene.update({
-                where: { id: dbScene.id },
-                data: { audioStatus: "FAILED" },
-              });
-              emitEvent({
-                type: "step:failed",
-                workflowRunId: ctx.workflowRunId,
-                step: "synthesize_voice",
-                data: {
-                  sceneId: dbScene.id,
-                  message: `场景 ${dbScene.id} 配音生成失败`,
-                  error: err instanceof Error ? err.message : String(err),
-                },
-                timestamp: new Date(),
-              });
-            })
-        );
-      }
+                message: `场景 ${dbScene.id} 配音生成失败`,
+                error: err instanceof Error ? err.message : String(err),
+              },
+              timestamp: new Date(),
+            });
+          })
+      );
     }
 
     await Promise.allSettled(tasks);

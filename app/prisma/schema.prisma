@@ -234,7 +234,7 @@ model Scene {
   narration   String? @db.Text // 旁白
   emotion     String? // 情感
   duration    Int     @default(3) // 预估时长(秒)
-  ttsSpeed    Float   @default(1.0) // 配音语速（0.5–2.0，TTS provider 消费）
+  ttsSpeed    Float   @default(1.1) // 配音语速（0.5–2.0，TTS provider 消费；1.1=漫剧快节奏默认）
 
   // 尾帧衔接下一镜：生成本镜视频时把下一镜图片作为尾帧（Veo FL 首尾帧插值），
   // 适合空间连续的相邻镜头；下一镜未出图时生成端自动回落普通 I2V

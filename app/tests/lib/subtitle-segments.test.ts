@@ -166,6 +166,61 @@ describe("allocateSubtitleWindows（逐句时间窗分配）", () => {
   });
 });
 
+describe("allocateSubtitleWindows — voiceDuration 配音对齐（批3）", () => {
+  it("配音短于镜时长 → 逐句节奏按配音走完，末句停驻到镜末", () => {
+    // 两句等宽、镜 10s、配音 4s：逐句节奏摊在 4s 内，末句 end 停到 10s
+    const windows = allocateSubtitleWindows(["一二三四", "五六七八"], 10, 4);
+    expect(windows).toHaveLength(2);
+    // 首句在配音区间内结束（≤4s）
+    expect(windows[0].end).toBeLessThanOrEqual(4 + 1e-9);
+    // 末句 start 也在配音区间内（≈2s，等宽均分 4s）
+    expect(windows[1].start).toBeLessThanOrEqual(4 + 1e-9);
+    // 末句停驻到镜末
+    expect(windows[windows.length - 1].end).toBeCloseTo(10, 6);
+    // 窗口仍连续闭合
+    expect(windows[0].end).toBe(windows[1].start);
+  });
+
+  it("单句 + 短配音 → 首句从 0 覆盖到镜末（末句停驻）", () => {
+    const windows = allocateSubtitleWindows(["独一句。"], 8, 3);
+    expect(windows).toEqual([{ text: "独一句。", start: 0, end: 8 }]);
+  });
+
+  it("配音 >= 镜时长 → 退化为按镜时长分配（零回归）", () => {
+    const withVoice = allocateSubtitleWindows(["甲。", "乙。"], 6, 6);
+    const withoutVoice = allocateSubtitleWindows(["甲。", "乙。"], 6);
+    expect(withVoice).toEqual(withoutVoice);
+
+    const longerVoice = allocateSubtitleWindows(["甲。", "乙。"], 6, 100);
+    expect(longerVoice).toEqual(withoutVoice);
+  });
+
+  it("voiceDuration 缺省 → 与旧签名完全等价（零回归）", () => {
+    const a = allocateSubtitleWindows(["甲。", "乙。", "丙。"], 9);
+    const b = allocateSubtitleWindows(["甲。", "乙。", "丙。"], 9, undefined);
+    expect(a).toEqual(b);
+  });
+
+  it("voiceDuration <= 0 视同缺省", () => {
+    const a = allocateSubtitleWindows(["甲。", "乙。"], 6, 0);
+    const b = allocateSubtitleWindows(["甲。", "乙。"], 6);
+    expect(a).toEqual(b);
+  });
+
+  it("配音对齐后窗口仍首尾相接且首窗从 0 开始", () => {
+    const windows = allocateSubtitleWindows(
+      ["第一句。", "第二句。", "第三句。"],
+      12,
+      5
+    );
+    expect(windows[0].start).toBe(0);
+    for (let i = 0; i < windows.length - 1; i += 1) {
+      expect(windows[i].end).toBe(windows[i + 1].start);
+    }
+    expect(windows[windows.length - 1].end).toBeCloseTo(12, 6);
+  });
+});
+
 describe("typewriterDelays（打字机逐字延迟，须与导出/预览两端同源）", () => {
   const charSec = SUBTITLE_ANIM.typewriterCharMs / 1000;
 

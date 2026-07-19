@@ -341,6 +341,85 @@ describe("buildVideoScenePrompt — 长度守卫", () => {
   });
 });
 
+describe("buildVideoScenePrompt — hasDialogue 口型指令（批3 lip flap）", () => {
+  const LIP_FLAP =
+    "Character speaks with natural anime-style mouth movement (lip flap), no audible dialogue, ambient sound only";
+  const SILENT = "No spoken dialogue, no lip-sync, ambient sound only";
+
+  it("有对白 + 特写 → lip flap 指令，不再禁口型", () => {
+    const out = buildVideoScenePrompt({
+      description: "林萧开口说话",
+      shotType: "特写",
+      hasDialogue: true,
+    });
+    expect(out).toContain(LIP_FLAP);
+    expect(out).not.toContain(SILENT);
+  });
+
+  it("有对白 + 近景 → lip flap", () => {
+    const out = buildVideoScenePrompt({
+      description: "对话",
+      shotType: "近景",
+      hasDialogue: true,
+    });
+    expect(out).toContain(LIP_FLAP);
+  });
+
+  it("有对白 + 中景 → lip flap（看得清嘴的景别）", () => {
+    const out = buildVideoScenePrompt({
+      description: "对话",
+      shotType: "中景",
+      hasDialogue: true,
+    });
+    expect(out).toContain(LIP_FLAP);
+  });
+
+  it("有对白 + 全景（远景看不清嘴）→ 保持禁口型", () => {
+    const out = buildVideoScenePrompt({
+      description: "远处交谈",
+      shotType: "全景",
+      hasDialogue: true,
+    });
+    expect(out).toContain(SILENT);
+    expect(out).not.toContain(LIP_FLAP);
+  });
+
+  it("有对白 + 远景 → 保持禁口型", () => {
+    const out = buildVideoScenePrompt({
+      description: "远眺对话",
+      shotType: "远景",
+      hasDialogue: true,
+    });
+    expect(out).toContain(SILENT);
+  });
+
+  it("无对白 + 特写 → 保持禁口型（不该动嘴）", () => {
+    const out = buildVideoScenePrompt({
+      description: "沉默凝视",
+      shotType: "特写",
+      hasDialogue: false,
+    });
+    expect(out).toContain(SILENT);
+    expect(out).not.toContain(LIP_FLAP);
+  });
+
+  it("hasDialogue 缺省视同无对白 → 禁口型（零回归）", () => {
+    const out = buildVideoScenePrompt({
+      description: "画面",
+      shotType: "特写",
+    });
+    expect(out).toContain(SILENT);
+  });
+
+  it("有对白但无 shotType → 保持禁口型（景别未知不放行 lip flap）", () => {
+    const out = buildVideoScenePrompt({
+      description: "说话",
+      hasDialogue: true,
+    });
+    expect(out).toContain(SILENT);
+  });
+});
+
 describe("buildVideoScenePrompt — 身份无关（不做前缀注入）", () => {
   it("description 含人名时不追加任何身份前缀 / Avoid 不重复", () => {
     const out = buildVideoScenePrompt({

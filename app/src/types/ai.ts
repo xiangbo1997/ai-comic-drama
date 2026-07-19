@@ -105,6 +105,12 @@ export interface TTSOptions {
   text: string;
   voiceId?: string;
   speed?: number;
+  /**
+   * 情绪（批3 引入）：项目内部情绪枚举
+   * neutral|happy|sad|angry|surprised|fear。provider 各自映射到自家情绪能力
+   * （火山 emotion 参数 / ElevenLabs voice_settings）；neutral/未知/缺省不做调整。
+   */
+  emotion?: string;
   config?: AIServiceConfig;
 }
 

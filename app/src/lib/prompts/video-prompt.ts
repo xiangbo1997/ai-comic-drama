@@ -45,6 +45,13 @@ export interface VideoScenePromptInput {
   duration?: number;
   /** FL 首尾帧模式（插值本身即运镜，不再叠加其他运镜） */
   hasLastFrame?: boolean;
+  /**
+   * 本镜是否有对白（批3 引入）：有对白且景别为特写/近景/中景时，音频指令改为
+   * 「角色自然口型开合（lip flap）」而非一刀切禁口型——闭嘴人物 + 画外配音是
+   * 视频最大 AI 破绽。远景/无对白镜仍保持原「禁口型」文案（远景看不清嘴、无对白
+   * 镜不该动嘴）。管线仍自叠 TTS 并丢弃模型音轨，故指令始终「no audible dialogue」。
+   */
+  hasDialogue?: boolean;
 }
 
 /** 景别 → 取景短语 */
@@ -222,8 +229,35 @@ function buildContinuity(hasLastFrame?: boolean): string {
     : "Maintain the exact character appearance, outfit, and setting from the first frame; consistent lighting throughout";
 }
 
-/** 音频指令（固定）：管线自行叠加 TTS 并丢弃 Veo 音轨。 */
-const AUDIO_DIRECTIVE = "No spoken dialogue, no lip-sync, ambient sound only";
+/** 无对白 / 远景镜的音频指令：禁口型（管线自叠 TTS 并丢弃模型音轨）。 */
+const AUDIO_DIRECTIVE_SILENT =
+  "No spoken dialogue, no lip-sync, ambient sound only";
+
+/**
+ * 有对白且景别看得清嘴（特写/近景/中景）的音频指令：角色自然口型开合（lip flap）。
+ *
+ * 漫剧行业标准是「模糊的动漫式口型开合」（对不上音素但嘴在动），不是音素级精确唇
+ * 同步——闭嘴人物 + 画外配音才是第一视觉 AI 破绽。仍声明「no audible dialogue」，
+ * 因管线自叠 TTS、丢弃模型音轨。
+ */
+const AUDIO_DIRECTIVE_LIP_FLAP =
+  "Character speaks with natural anime-style mouth movement (lip flap), no audible dialogue, ambient sound only";
+
+/** 看得清嘴的景别（特写/近景/中景）：这些景别有对白才输出 lip flap。 */
+const LIP_FLAP_SHOT_TYPES = new Set(["特写", "近景", "中景"]);
+
+/**
+ * 音频指令：有对白 + 景别看得清嘴 → lip flap；否则禁口型。
+ * FL 首尾帧模式不特殊处理（插值本身不涉及口型，沿用景别判据）。
+ */
+function buildAudioDirective(input: VideoScenePromptInput): string {
+  const shotVisible = input.shotType
+    ? LIP_FLAP_SHOT_TYPES.has(input.shotType)
+    : false;
+  return input.hasDialogue && shotVisible
+    ? AUDIO_DIRECTIVE_LIP_FLAP
+    : AUDIO_DIRECTIVE_SILENT;
+}
 
 /** 负面词段（纯 ASCII）：通用列表 + 按风格分支，合并后上限 9 条。 */
 function buildNegatives(style?: string | null): string {
@@ -278,6 +312,7 @@ export function buildVideoScenePrompt(input: VideoScenePromptInput): string {
       : undefined;
 
   const continuity = buildContinuity(input.hasLastFrame);
+  const audioDirective = buildAudioDirective(input);
   const negatives = buildNegatives(input.style);
 
   // 组装氛围段的辅助：从三个可选片段（可被长度守卫单独丢弃）拼出逗号串。
@@ -309,7 +344,7 @@ export function buildVideoScenePrompt(input: VideoScenePromptInput): string {
       ambiance,
       keepArc ? arc : undefined,
       continuity,
-      AUDIO_DIRECTIVE,
+      audioDirective,
       negatives,
     ].filter((s): s is string => Boolean(s && s.trim()));
     // 各段以 ". " 连接，整体以句号收尾（每段读作完整句子）

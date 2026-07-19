@@ -198,6 +198,12 @@ export function PreviewPlayer({
   // provider 常忽略请求时长返回 ~8s 片段，DB 的 scene.duration（LLM 估算，默认 3s）
   // 与真实长度不符——用真实值驱动计时器，避免播放到一半跳镜/循环。
   const [measuredDurs, setMeasuredDurs] = useState<Record<string, number>>({});
+  // 各分镜配音的「真实音频时长」（sceneId → 秒），由 <audio> 的 onLoadedMetadata
+  // 填充。字幕逐句节奏据此对齐（跟着语音走完 + 末句停驻到镜末），与导出端
+  // generateSubtitleFile 探测 audioUrl 时长的语义一致（预览必须反映导出效果）。
+  const [measuredAudioDurs, setMeasuredAudioDurs] = useState<
+    Record<string, number>
+  >({});
 
   // 按 sceneId 缓存已挂载的 <video> DOM 节点。两层媒体从「单一 keyed 数组」
   // 渲染，key=scene.id：currentIndex 前进时，原「下一镜」节点被 React 依 key
@@ -685,14 +691,12 @@ export function PreviewPlayer({
     if (!text) return [];
     const segments = splitSubtitleSegments(text);
     const dur = effDurs[currentIndex] ?? currentScene?.duration ?? 0;
-    return allocateSubtitleWindows(segments, dur);
-  }, [
-    currentScene?.dialogue,
-    currentScene?.narration,
-    currentScene?.duration,
-    effDurs,
-    currentIndex,
-  ]);
+    // 配音真实音频时长（有则字幕逐句节奏按它走完 + 末句停驻到镜末，与导出端同源）
+    const voiceDur = currentScene
+      ? measuredAudioDurs[currentScene.id]
+      : undefined;
+    return allocateSubtitleWindows(segments, dur, voiceDur);
+  }, [currentScene, measuredAudioDurs, effDurs, currentIndex]);
 
   // 当前生效的字幕句：progress×有效时长落在哪个时间窗即显示该句。
   // 播放中随 progress 逐句切换；暂停/拖动时显示 progress 位置对应句；
@@ -911,6 +915,21 @@ export function PreviewPlayer({
     });
   };
 
+  // 记录配音真实音频时长（<audio> onLoadedMetadata 触发）：供字幕逐句节奏对齐
+  // （与导出端探测 audioUrl 时长同语义）。仅接受有限正数，与已存值相同则不重渲。
+  const handleAudioLoadedMetadata = (
+    sceneId: string,
+    el: HTMLAudioElement | null
+  ) => {
+    if (!el) return;
+    const d = el.duration;
+    if (!Number.isFinite(d) || d <= 0) return;
+    setMeasuredAudioDurs((prev) => {
+      if (prev[sceneId] === d) return prev;
+      return { ...prev, [sceneId]: d };
+    });
+  };
+
   // 按 sceneId 缓存「稳定的 ref 回调」——关键修复：
   // 若在 JSX 里写内联 `ref={(el)=>...}`，该函数每次渲染 identity 都变，
   // React 每次 commit 都会先以 null 卸载旧 ref 再挂新 ref。播放中每 30ms
@@ -1079,7 +1098,16 @@ export function PreviewPlayer({
 
           {/* Audio */}
           {currentScene?.audioUrl && (
-            <audio ref={audioRef} src={currentScene.audioUrl} />
+            <audio
+              ref={audioRef}
+              src={currentScene.audioUrl}
+              onLoadedMetadata={(e) =>
+                handleAudioLoadedMetadata(
+                  currentScene.id,
+                  e.currentTarget as HTMLAudioElement
+                )
+              }
+            />
           )}
 
           {/* 背景音乐（循环，预览反映导出后的 BGM） */}

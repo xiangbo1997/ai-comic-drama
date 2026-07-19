@@ -436,7 +436,8 @@ async function generateSubtitleFile(
   width: number,
   height: number,
   subtitleStyle?: SubtitleStyle,
-  subtitlePositions?: SubtitlePosition[]
+  subtitlePositions?: SubtitlePosition[],
+  voiceDurations?: (number | undefined)[]
 ): Promise<string> {
   const events: string[] = [];
   let currentTime = 0;
@@ -445,6 +446,9 @@ async function generateSubtitleFile(
     const scene = scenes[i];
     // 字幕时轴用「实测有效时长」（变速+真实视频长度后），与画面/配音对齐
     const effDuration = effDurations[i];
+    // 配音真实音频秒长（有则字幕逐句节奏按它走完 + 末句停驻到镜末，见
+    // allocateSubtitleWindows 的 voiceDuration 语义）
+    const voiceDuration = voiceDurations?.[i];
     const text = scene.dialogue || scene.narration;
     if (text) {
       // 该分镜生效坐标（覆盖优先，否则全局默认）→ 像素中心点。
@@ -469,7 +473,11 @@ async function generateSubtitleFile(
       // 逐句化：把整段切成短句 + 按视觉宽度比例分配时间窗（与预览端同源），
       // 每句一条 Dialogue 事件，按所选动效构造 libass 覆盖标签让字幕「活起来」。
       const segments = splitSubtitleSegments(text);
-      const windows = allocateSubtitleWindows(segments, effDuration);
+      const windows = allocateSubtitleWindows(
+        segments,
+        effDuration,
+        voiceDuration
+      );
       for (const win of windows) {
         const start = formatAssTime(currentTime + win.start);
         const end = formatAssTime(currentTime + win.end);
@@ -1201,6 +1209,12 @@ export async function synthesizeVideo(
     const audioInputs: string[] = [];
     const audioFilters: string[] = [];
     let audioIndex = 0;
+    // 各镜配音真实音频秒长（按 scenes index 对齐），供字幕逐句节奏对齐（批3）：
+    // 字幕跟着语音走完 + 末句停驻到镜末，不再摊到语音结束后的静默画面。
+    // 无配音 / 未包含音频时该镜为 undefined，字幕退化为按 effDuration 分配（零回归）。
+    const voiceDurations: (number | undefined)[] = new Array(
+      scenes.length
+    ).fill(undefined);
 
     if (options.includeAudio) {
       // 配音 adelay 累计用「实测有效时长」（effDurations，按 scenes index 对齐），
@@ -1219,6 +1233,13 @@ export async function synthesizeVideo(
             `[${audioIndex + 1}:a]adelay=${Math.round(currentTime * 1000)}|${Math.round(currentTime * 1000)}[a${audioIndex}]`
           );
           audioIndex++;
+          // 探测配音真实时长供字幕对齐（探测失败留 undefined，字幕回退按镜时长分配）
+          try {
+            const probed = await getMediaDuration(audioPath);
+            if (probed > 0) voiceDurations[i] = probed;
+          } catch {
+            // ffprobe 失败不阻塞导出，该镜字幕退化为按 effDuration 分配
+          }
         }
         currentTime += effDurations[i];
       }
@@ -1261,7 +1282,8 @@ export async function synthesizeVideo(
         quality.width,
         quality.height,
         options.subtitleStyle,
-        options.subtitlePositions
+        options.subtitlePositions,
+        voiceDurations
       );
     }
 
@@ -1715,6 +1737,71 @@ export async function concatVideos(segments: Buffer[]): Promise<Buffer> {
       "aac",
       "-movflags",
       "+faststart",
+      "-y",
+      outputPath,
+    ]);
+
+    const { readFile } = await import("fs/promises");
+    return await readFile(outputPath);
+  } finally {
+    try {
+      const { rm } = await import("fs/promises");
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      // 忽略清理错误
+    }
+  }
+}
+
+/**
+ * 把多段音频 Buffer 按序拼接为单条 MP3 Buffer。
+ *
+ * 用途：一键 workflow 里同一分镜既有旁白又有对白时，旁白（说书人声线）作场景铺垫
+ * 在前、对白（角色声线）在后，两段独立合成后用此函数拼成单条音轨落库。用 concat
+ * demuxer + 统一重编码 mp3——两段可能来自不同 provider / 采样率，`-c copy` 会拼接
+ * 报错或时基错乱，重编码兜底一致性。
+ *
+ * @param segments 已按顺序排列的各段音频字节（1 段应由调用方直接返回，无需拼接）
+ * @returns 拼接后的 MP3 字节
+ * @throws 段数 <1 或 ffmpeg 失败时抛错
+ */
+export async function concatAudioBuffers(segments: Buffer[]): Promise<Buffer> {
+  if (segments.length === 0) {
+    throw new Error("concatAudioBuffers: 无可拼接的音频段");
+  }
+  const tmpDir = path.join(
+    os.tmpdir(),
+    "ai-comic-audio-concat",
+    `${Date.now()}_${Math.random().toString(36).slice(2)}`
+  );
+  await mkdir(tmpDir, { recursive: true });
+  try {
+    const segPaths: string[] = [];
+    for (let i = 0; i < segments.length; i += 1) {
+      const p = path.join(tmpDir, `seg_${i}.mp3`);
+      await writeFile(p, segments[i]);
+      segPaths.push(p);
+    }
+    const listPath = path.join(tmpDir, "segments.txt");
+    // concat demuxer 列表：路径需转义单引号（ffmpeg 语法）
+    const listContent = segPaths
+      .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
+      .join("\n");
+    await writeFile(listPath, listContent);
+
+    const outputPath = path.join(tmpDir, "concat.mp3");
+    // 重编码规范化：统一 mp3（libmp3lame），消除跨 provider 采样率/时基差异
+    await runFFmpeg([
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      listPath,
+      "-c:a",
+      "libmp3lame",
+      "-q:a",
+      "2",
       "-y",
       outputPath,
     ]);

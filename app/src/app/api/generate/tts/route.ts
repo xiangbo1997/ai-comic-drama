@@ -9,32 +9,11 @@ import { chargeCredits } from "@/lib/credits";
 
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
+import { normalizeVoiceFamily, resolveDialogueVoiceId } from "@/lib/tts-voice";
 const log = createLogger("api:generate:tts");
 
 // TTS 成本：每100字 2积分
 const TTS_COST_PER_100_CHARS = 2;
-
-/**
- * 把「厂商标识」归一到 TTS 声线家族，用于判定角色声线与激活配置是否同源。
- *
- * 背景：Character.voiceProvider 前端存 "volcano"，而激活 TTS 配置的 protocol
- * 走 provider-factory 的 "volcengine" / "elevenlabs" / "gpt-sovits"。二者字面不同
- * 但同属火山家族，需归一后比较。
- *
- * 归一规则（大小写不敏感，容忍 baseUrl 关键字）：
- *   volcano / volcengine / bytedance → "volcano"
- *   elevenlabs                       → "elevenlabs"
- *   gpt-sovits / gptsovits / sovits  → "gpt-sovits"
- *   其余                             → "" （未知家族，判定时按不匹配处理）
- */
-function normalizeVoiceFamily(raw?: string | null): string {
-  const v = (raw ?? "").trim().toLowerCase();
-  if (!v) return "";
-  if (v.includes("volc") || v.includes("bytedance")) return "volcano";
-  if (v.includes("elevenlabs")) return "elevenlabs";
-  if (v.includes("sovits")) return "gpt-sovits";
-  return "";
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -92,21 +71,22 @@ export async function POST(request: NextRequest) {
       if (character && character.userId === userId && character.voiceId) {
         // 跨厂商防污染（A4）：VOICE_PRESETS 的 voiceId 全是火山专用串，若激活
         // TTS 是 ElevenLabs / GPT-SoVITS，原样传火山 voiceId 会被目标 provider
-        // 当作未知声线（报错或跑偏）。仅当角色声线家族与激活配置家族匹配时才采用；
-        // 不匹配（或家族无法判定）则忽略角色 voiceId，回落该 provider 默认声线。
-        const charFamily = normalizeVoiceFamily(character.voiceProvider);
-        const familyMatches =
-          activeFamily !== "" &&
-          charFamily !== "" &&
-          charFamily === activeFamily;
-        if (familyMatches) {
-          voiceId = character.voiceId;
+        // 当作未知声线（报错或跑偏）。resolveDialogueVoiceId 仅在角色声线家族与
+        // 激活配置家族匹配时返回角色 voiceId，否则 undefined 回落 provider 默认。
+        const resolved = resolveDialogueVoiceId({
+          characterVoiceId: character.voiceId,
+          characterVoiceProvider: character.voiceProvider,
+          activeFamily,
+        });
+        if (resolved) {
+          voiceId = resolved;
         } else {
           log.warn(
             "角色声线与激活 TTS 配置厂商不一致，忽略角色 voiceId 回落默认声线",
             {
               characterId,
-              charFamily: charFamily || "(unknown)",
+              charFamily:
+                normalizeVoiceFamily(character.voiceProvider) || "(unknown)",
               activeFamily: activeFamily || "(unknown)",
               droppedVoiceId: character.voiceId,
             }
@@ -153,15 +133,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // IDOR 防护：校验 sceneId 归属当前用户（security-cost P0-1）
+    // IDOR 防护：校验 sceneId 归属当前用户（security-cost P0-1）。
+    // 同查取分镜情绪（批3）：情绪由 DB 服务端读取（不信客户端），供 TTS 情绪化合成。
+    let sceneEmotion: string | undefined;
     if (sceneId) {
       const ownsScene = await prisma.scene.findFirst({
         where: { id: sceneId, project: { userId } },
-        select: { id: true },
+        select: { id: true, emotion: true },
       });
       if (!ownsScene) {
         return NextResponse.json({ error: "Scene not found" }, { status: 404 });
       }
+      sceneEmotion = ownsScene.emotion ?? undefined;
     }
 
     // 如果有场景ID，先更新状态为处理中
@@ -195,6 +178,7 @@ export async function POST(request: NextRequest) {
           text,
           voiceId,
           speed,
+          emotion: sceneEmotion,
           config: ttsConfig ?? undefined,
         });
 
