@@ -60,6 +60,8 @@ export const SCRIPT_PARSE_SYSTEM = `你是一个专业的漫剧分镜编剧，�
    - tag 只能取：hit(重击/揭秘咚)、slap(掌掴/拍击)、glass(玻璃碎裂)、heartbeat(心跳紧张)、riser(情绪推进/反转前兆)、whoosh(快速动作掠过)、ambient-rain(雨)、ambient-street(街道)、ambient-night-crickets(夜晚虫鸣)、ambient-thunder(雷)
    - offsetSec 为镜内触发秒（0 = 镜头开始）
    - 【克制纪律】每镜 ≤2 个；全片约每 10-30 秒 1-2 个；安静/抒情镜一律【省略】该字段（绝大多数分镜没有它）。音效是标点符号不是背景噪音——只标打击/碎裂/心跳/环境雨雷等真实声音事件，宁缺毋滥。
+12. beatType: 叙事节拍类型（可选）。仅当该镜是明确的节拍重音时输出：impact（打击/冲突爆发/物理撞击）、reveal（反转/揭秘/真相揭晓）、emotional（情绪高点/爆发哭喊）；平铺直叙的常规镜一律【省略】该字段（绝大多数分镜没有它）。impact/reveal 全片各 ≤3 处，克制使用——节拍重音多了等于没有。
+13. isClimax: 高潮镜标记（可选布尔）。每集只有 1-2 镜是全集情绪顶点（最大冲突爆发/最狠反转），仅这些镜置 true；其余一律【省略】。
 
 【环境与空间一致性（务必遵守）】
 - description 必须写明主体元素在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）。
@@ -140,7 +142,9 @@ ${NARRATION_DISCIPLINE_RULES}
   "cameraMovement": "static",
   "actionBeat": "酒杯脱手坠落，触地炸裂，碎片与酒液向四周迸溅",
   "locationKey": "陆宅客厅",
-  "sfx": [{ "tag": "glass", "offsetSec": 1 }]
+  "sfx": [{ "tag": "glass", "offsetSec": 1 }],
+  "beatType": "impact",
+  "isClimax": true
 }
 
 【完整输出结构】

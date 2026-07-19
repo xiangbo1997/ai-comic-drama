@@ -4,6 +4,8 @@ import { useState } from "react";
 import type {
   SceneEffect,
   SceneEffectId,
+  SceneMotion,
+  SceneImpact,
   SceneSfx,
 } from "@/types/export-style";
 import { SFX_CATEGORIES, SFX_LIBRARY } from "@/lib/sfx-library";
@@ -46,6 +48,28 @@ const EFFECT_OPTIONS: { value: SceneEffectId | ""; label: string }[] = [
 const MAX_SFX_PER_SCENE = 2;
 
 /**
+ * 运镜三态选项（批4）："default" = 字段缺席（图片镜由导出端默认缓推 zoomIn），
+ * "none" = 显式关闭默认，其余为白名单运镜值。UI 值与 SceneEffect.motion 的
+ * undefined/null/枚举 三态一一映射。
+ */
+const MOTION_OPTIONS: { value: string; label: string }[] = [
+  { value: "default", label: "默认（图片镜缓推）" },
+  { value: "none", label: "关闭" },
+  { value: "zoomIn", label: "缓推近" },
+  { value: "zoomOut", label: "缓拉远" },
+  { value: "panLeft", label: "左移" },
+  { value: "panRight", label: "右移" },
+];
+
+/** 冲击重音选项（批4）：每镜至多一记 */
+const IMPACT_OPTIONS: { value: SceneImpact | ""; label: string }[] = [
+  { value: "", label: "无" },
+  { value: "shake", label: "震屏" },
+  { value: "flash", label: "闪白" },
+  { value: "freeze", label: "定格" },
+];
+
+/**
  * 分镜滤镜 / 变速 / 音效配置弹窗。
  * 按 sceneId 关联；滤镜+变速沿用原有 draft 模式，音效（批1）每镜最多 2 条
  * （分类分组下拉 + 镜内偏移秒）。点「完成」一次性保存——与字幕/水印/贴图弹窗同模式。
@@ -74,6 +98,11 @@ export function SceneEffectDialog({
         sceneId: sc.id,
         effect: found?.effect ?? null,
         speed: found?.speed ?? 1,
+        // motion 三态：undefined（沿用默认）与 null（显式关）必须区分保留
+        ...(found && found.motion !== undefined
+          ? { motion: found.motion }
+          : {}),
+        impact: found?.impact ?? null,
       };
     }
     return map;
@@ -128,9 +157,13 @@ export function SceneEffectDialog({
   };
 
   const handleSave = () => {
-    // 仅保留有实际效果的分镜（有滤镜 或 变速≠1）
+    // 仅保留有实际效果的分镜（有滤镜 / 变速≠1 / 动了运镜三态 / 有冲击）
     const effects = Object.values(draft).filter(
-      (e) => (e.effect != null && e.effect !== undefined) || e.speed !== 1
+      (e) =>
+        (e.effect != null && e.effect !== undefined) ||
+        e.speed !== 1 ||
+        e.motion !== undefined ||
+        (e.impact != null && e.impact !== undefined)
     );
     // 音效按分镜顺序拍平，丢弃未选 id 的空行
     const sfx = scenes.flatMap((sc) =>
@@ -221,6 +254,65 @@ export function SceneEffectDialog({
                     <span className="text-muted-foreground w-10 text-right text-xs">
                       {(eff.speed ?? 1).toFixed(2)}×
                     </span>
+                  </div>
+
+                  {/* 运镜（批4）：图片镜 Ken Burns，三态（默认缓推/关闭/指定） */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-muted-foreground w-10 text-xs">
+                      运镜
+                    </span>
+                    <select
+                      value={
+                        eff.motion === undefined
+                          ? "default"
+                          : (eff.motion ?? "none")
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDraft((prev) => {
+                          const cur = { ...prev[sc.id] };
+                          if (v === "default") {
+                            delete cur.motion;
+                          } else {
+                            cur.motion =
+                              v === "none" ? null : (v as SceneMotion);
+                          }
+                          return { ...prev, [sc.id]: cur };
+                        });
+                      }}
+                      className="bg-card focus:ring-primary min-w-0 flex-1 rounded px-2 py-1.5 text-xs focus:ring-2 focus:outline-none"
+                    >
+                      {MOTION_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* 冲击重音（批4）：震屏/闪白/定格，每镜至多一记 */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-muted-foreground w-10 text-xs">
+                      冲击
+                    </span>
+                    <select
+                      value={eff.impact ?? ""}
+                      onChange={(e) =>
+                        updateScene(sc.id, {
+                          impact:
+                            e.target.value === ""
+                              ? null
+                              : (e.target.value as SceneImpact),
+                        })
+                      }
+                      className="bg-card focus:ring-primary min-w-0 flex-1 rounded px-2 py-1.5 text-xs focus:ring-2 focus:outline-none"
+                    >
+                      {IMPACT_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* 音效（批1）：每镜 ≤2 条，分类分组下拉 + 镜内偏移秒 */}

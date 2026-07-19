@@ -475,6 +475,8 @@ function normalizeGenerationParams(
       "tealorange",
       "dreampurple",
     ];
+    const motionIds = ["zoomIn", "zoomOut", "panLeft", "panRight"];
+    const impactIds = ["shake", "flash", "freeze"];
     out.sceneEffects = src.sceneEffects
       .slice(0, 200)
       .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
@@ -485,6 +487,25 @@ function normalizeGenerationParams(
             ? e.effect
             : null,
         speed: typeof e.speed === "number" ? clampNumber(e.speed, 0.25, 4) : 1,
+        // 运镜/冲击（批4）三态保留：字段缺席=沿用默认（图片镜默认缓推）、
+        // 显式 null=关闭默认、白名单值=指定效果。缺席时不落字段，防止把
+        // 「没配置」固化成「显式关闭」。
+        ...(e.motion !== undefined
+          ? {
+              motion:
+                typeof e.motion === "string" && motionIds.includes(e.motion)
+                  ? e.motion
+                  : null,
+            }
+          : {}),
+        ...(e.impact !== undefined
+          ? {
+              impact:
+                typeof e.impact === "string" && impactIds.includes(e.impact)
+                  ? e.impact
+                  : null,
+            }
+          : {}),
       }))
       .filter((e) => e.sceneId);
   }

@@ -36,6 +36,11 @@ export interface VideoScenePromptInput {
   /** 情绪：neutral|happy|sad|angry|surprised|fear */
   emotion?: string | null;
   /**
+   * 叙事节拍（批4，可选）：impact|reveal|emotional|calm。impact 时 Action 段
+   * 追加高能动作短语（snappy anime motion），替代默认的平缓漂移感。
+   */
+  beatType?: string | null;
+  /**
    * 氛围覆盖（英文短语，可选）：由视频导演增强产出。有值时替换「情绪派生的
    * 氛围短语」（ATMOSPHERE_MAP[emotion]），让 LLM 精调的氛围（如
    * "quiet dread before the storm"）取代粗粒度情绪映射。风格短句/光线不受影响。
@@ -292,9 +297,16 @@ export function buildVideoScenePrompt(input: VideoScenePromptInput): string {
 
   // Action 段：description 打底；有 actionBeat 时中文拼接补成运动指令
   // （静态画面 + 运动节拍 → 视频模型可执行的动作描述）。
+  // impact 节拍镜追加高能动作指令（批4）：对抗视频模型默认的 slow/gentle 漂移感，
+  // 让打击/爆发镜真的「打得动」。
   const actionBeat = input.actionBeat?.trim();
   const baseAction = input.description.trim();
-  const action = actionBeat ? `${baseAction}。${actionBeat}` : baseAction;
+  const impactClause =
+    input.beatType === "impact"
+      ? " Dynamic anime action with snappy, forceful motion."
+      : "";
+  const action =
+    (actionBeat ? `${baseAction}。${actionBeat}` : baseAction) + impactClause;
 
   // 氛围：导演增强的 atmosphereOverride 优先，否则回落情绪派生映射。
   const overrideAtmosphere = input.atmosphereOverride?.trim();

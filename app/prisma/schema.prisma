@@ -248,6 +248,10 @@ model Scene {
   cameraMovement String? // 运镜（喂给视频模型）: zoom_in/pan_left/tilt_up/static...
   actionBeat     String? @db.Text // 运动节拍——这一镜内"什么在动"，LLM 解析产出，喂视频 prompt
 
+  // 叙事节拍（批4 冲击表现力）：LLM 解析产出
+  beatType String? // 节拍类型: impact(打击)/reveal(揭秘)/emotional(情绪)/calm(平静)——驱动默认冲击效果与视频动作强度
+  isClimax Boolean @default(false) // 高潮镜标记（每集1-2镜）：出图夸张表情升climax档、生成侧豁免裁剪
+
   // 地点标签：同一物理地点的分镜共用同一短标签，供场景锚定图（环境一致性）分组，
   // 让同一地点的多个分镜背景/空间布局不漂移；LLM 解析产出。
   // 不加索引：所有查询都带 projectId（走 @@index([projectId, order]) 已足够）。

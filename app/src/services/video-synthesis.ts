@@ -23,12 +23,22 @@ import type {
   TransitionType,
   SceneEffect,
   SceneEffectId,
+  SceneMotion,
+  SceneImpact,
   BackgroundMusic,
   SceneSfx,
 } from "@/types/export-style";
 import { resolveSubtitleXY, resolveSubtitleFontPx } from "@/types/export-style";
 // 音效库（解析标签 → 实际音频文件 + 默认音量），与前端/解析层共用单一真源。
 import { getSfxById } from "@/lib/sfx-library";
+// 冲击表现力 / Ken Burns 运镜的共享参数（导出端与预览端读同一份，保证预览=成片）。
+import {
+  SHAKE_PARAMS,
+  FLASH_PARAMS,
+  FREEZE_PARAMS,
+  KEN_BURNS_PARAMS,
+  CLIP_FPS,
+} from "@/lib/impact-effect-params";
 // 逐句字幕切分 + 时间窗分配（与预览端 preview-player 共用同一权威实现，
 // 保证「逐句显示 + 淡入淡出」在预览与成片两端时轴一致）。
 import {
@@ -47,6 +57,8 @@ export type {
   Sticker,
   Transition,
   SceneEffect,
+  SceneMotion,
+  SceneImpact,
   BackgroundMusic,
   SceneSfx,
 };
@@ -300,12 +312,21 @@ function buildAtempoChain(speed: number): string[] {
 }
 
 /**
- * 解析某分镜的画面调节配置（滤镜 + 变速），带边界校验。
+ * 解析某分镜的画面调节配置（滤镜 + 变速 + 运镜 + 冲击），带边界校验。
+ *
+ * motion/impact 为可选：缺省时返回 null，运镜的「图片分镜默认 zoomIn」契约由
+ * 调用点（sceneToVideoClip 的图片分支）在 motion===undefined 时兜底，此处只忠实
+ * 回传用户显式配置（含显式 null = 用户关掉了默认运镜）。
  */
 function resolveSceneEffect(
   sceneId: string,
   effects?: SceneEffect[]
-): { effect: string | null; speed: number } {
+): {
+  effect: string | null;
+  speed: number;
+  motion: SceneMotion | null | undefined;
+  impact: SceneImpact | null;
+} {
   const found = effects?.find((e) => e.sceneId === sceneId);
   const effectId = found?.effect;
   const effect = effectId && FX_FILTERS[effectId] ? FX_FILTERS[effectId] : null;
@@ -314,7 +335,153 @@ function resolveSceneEffect(
     rawSpeed != null && !isNaN(Number(rawSpeed))
       ? Math.min(4, Math.max(0.25, Number(rawSpeed)))
       : 1;
-  return { effect, speed };
+  // motion：区分「未配置」（undefined，触发图片默认 zoomIn）与「显式 null」（关闭默认）
+  const motion = found ? (found.motion ?? null) : undefined;
+  const impact = found?.impact ?? null;
+  return { effect, speed, motion, impact };
+}
+
+/**
+ * 构建图片分镜的 Ken Burns 运镜 zoompan 表达式（缓慢推拉/平移，杀「-loop 1 死图」）。
+ *
+ * 输入图片先放大（scale 到画面 2 倍）供 zoompan 采样，再按 motion 生成 z/x/y 表达式，
+ * 最后输出回画面尺寸。d = 时长 × fps，fps 与 CLIP_FPS 对齐。
+ *   - zoomIn   z 从 1 线性增到 maxScale（缓慢推近），画面居中
+ *   - zoomOut  z 从 maxScale 线性回到 1（缓慢拉远），画面居中
+ *   - panLeft  z 固定 maxScale，x 从右向左移（画面向左扫）
+ *   - panRight z 固定 maxScale，x 从左向右移
+ *
+ * @param width         成片画面宽
+ * @param height        成片画面高
+ * @param motion        运镜类型
+ * @param durationSec   分镜时长（秒），决定 d 帧数
+ * @returns zoompan 滤镜片段（含前置 scale 上采样与后置 scale 归位）
+ */
+function buildKenBurnsFilter(
+  width: number,
+  height: number,
+  motion: SceneMotion,
+  durationSec: number
+): string {
+  const fps = KEN_BURNS_PARAMS.fps;
+  const maxScale = KEN_BURNS_PARAMS.maxScale;
+  // 帧数（至少 1 帧，防 d=0）
+  const d = Math.max(1, Math.round(durationSec * fps));
+  // 上采样倍数：留足 zoompan 采样与平移余量（放大 2 倍避免边缘露黑）
+  const upW = width * 2;
+  const upH = height * 2;
+  // 归一化进度 on/(d-1)（on 为 zoompan 当前帧序号），d=1 时退化为 0 防除零
+  const denom = d > 1 ? d - 1 : 1;
+  const progress = `(on/${denom})`;
+
+  // z 表达式（推拉）与 x/y 表达式（平移/居中）
+  let zExpr: string;
+  let xExpr: string;
+  let yExpr: string;
+  // 居中：把放大后的采样窗对齐画面中心
+  const centerX = `(iw-iw/zoom)/2`;
+  const centerY = `(ih-ih/zoom)/2`;
+  switch (motion) {
+    case "zoomOut":
+      zExpr = `${maxScale}-(${maxScale}-1)*${progress}`;
+      xExpr = centerX;
+      yExpr = centerY;
+      break;
+    case "panLeft":
+      // z 固定放大；x 从最大偏移线性回到 0（采样窗自右向左 → 画面向左扫）
+      zExpr = `${maxScale}`;
+      xExpr = `(iw-iw/zoom)*(1-${progress})`;
+      yExpr = centerY;
+      break;
+    case "panRight":
+      zExpr = `${maxScale}`;
+      xExpr = `(iw-iw/zoom)*${progress}`;
+      yExpr = centerY;
+      break;
+    case "zoomIn":
+    default:
+      zExpr = `1+(${maxScale}-1)*${progress}`;
+      xExpr = centerX;
+      yExpr = centerY;
+      break;
+  }
+  // 前置放大 → zoompan（按帧推进）→ 归位到画面尺寸，末尾 fps 归一
+  return (
+    `scale=${upW}:${upH},` +
+    `zoompan=z='${zExpr}':x='${xExpr}':y='${yExpr}':d=${d}:s=${width}x${height}:fps=${fps}`
+  );
+}
+
+/**
+ * 构建冲击「震屏」滤镜片段：放大 + 裁剪窗按共享正弦公式抖动（落在镜头前 durationSec）。
+ *
+ * 与预览端 CSS 读同一份 SHAKE_PARAMS（幅度/频率/衰减），逐帧位移用与 shakeOffsetAt
+ * 相同的正弦×线性衰减公式表达（ffmpeg 用 t 时间变量）。窗外（t≥durationSec）位移
+ * 表达式自然归 0（衰减因子 max(0,1-t/dur) 为 0），画面归位。
+ *
+ * @param width      画面宽
+ * @param height     画面高
+ * @param intensity  档位（light/heavy）
+ * @returns scale + crop 抖动滤镜片段
+ */
+function buildShakeFilter(
+  width: number,
+  height: number,
+  intensity: "light" | "heavy"
+): string {
+  const cfg = SHAKE_PARAMS[intensity];
+  const dur = SHAKE_PARAMS.durationSec;
+  const pad = SHAKE_PARAMS.zoomPad;
+  // 振幅按画面高相对 1080 基准缩放（参数以 @1080 定义），跨分辨率视觉一致
+  const ampPx = (cfg.amplitudePx * height) / 1080;
+  const upW = Math.round(width * pad);
+  const upH = Math.round(height * pad);
+  // 衰减因子：max(0,1-t/dur)，窗外为 0；正弦项 sin(2π f t)
+  const decay = `max(0\\,1-t/${dur})`;
+  const sine = `sin(2*PI*${cfg.frequencyHz}*t)`;
+  const offset = `(${ampPx.toFixed(2)})*${decay}*${sine}`;
+  // 裁剪窗中心 = 放大余量中点 ± 抖动位移；x/y 各自抖动（y 用 cos 相位差制造二维晃动）
+  const cosine = `cos(2*PI*${cfg.frequencyHz}*t)`;
+  const offsetY = `(${ampPx.toFixed(2)})*${decay}*${cosine}`;
+  return (
+    `scale=${upW}:${upH},` +
+    `crop=${width}:${height}:'(iw-${width})/2+${offset}':'(ih-${height})/2+${offsetY}'`
+  );
+}
+
+/**
+ * 构建冲击「闪白」滤镜片段：镜头前 durationSec 内亮度三角脉冲（骤亮再回落）。
+ *
+ * 与预览端白色覆盖层读同一份 FLASH_PARAMS。用 eq=brightness 配 enable 时间窗；
+ * brightness 表达式用「三角脉冲 × 峰值」，与 flashIntensityAt 同形（前半升后半降）。
+ */
+function buildFlashFilter(): string {
+  const dur = FLASH_PARAMS.durationSec;
+  const half = dur / 2;
+  const peak = FLASH_PARAMS.peakBrightness;
+  // 三角脉冲：t<half 时 t/half，否则 1-(t-half)/half；乘峰值亮度
+  const tri = `if(lt(t\\,${half})\\,t/${half}\\,1-(t-${half})/${half})`;
+  const bright = `${peak}*${tri}`;
+  return `eq=brightness='${bright}':enable='between(t,0,${dur})'`;
+}
+
+/**
+ * 构建冲击「定格」滤镜片段：镜尾冻结最后一帧 tailSec，且总时长不变（在镜内定格）。
+ *
+ * 契约（见 FREEZE_PARAMS 注释）：不延长镜头。做法 = 先 trim 掉镜尾 tailSec 的动态
+ * 内容，再用 tpad 克隆末帧补回 tailSec，净时长守恒。分镜过短（≤ tailSec×2）时跳过定格
+ * （返回空串，调用方不拼），避免把整镜冻死。
+ *
+ * @param durationSec 分镜有效时长（秒）
+ * @returns trim+tpad 滤镜片段；分镜过短时返回空串
+ */
+function buildFreezeFilter(durationSec: number): string {
+  const tail = FREEZE_PARAMS.tailSec;
+  // 定格段需小于镜长，且留出至少 tail 的动态铺垫，否则整镜近乎全冻，跳过
+  if (durationSec <= tail * 2) return "";
+  const keep = durationSec - tail;
+  // 保留前 keep 秒动态 → tpad 克隆末帧补 tail 秒 → 净时长回到 durationSec
+  return `trim=0:${keep.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${tail.toFixed(3)}`;
 }
 
 /**
@@ -1101,22 +1268,77 @@ export function sumDurations(effDurations: number[]): number {
   return effDurations.reduce((acc, d) => acc + d, 0);
 }
 
+/** 单片段滤镜链的运镜/冲击参数（Ken Burns 仅图片分镜生效，冲击两者通用） */
+interface ClipMotionImpactParams {
+  /** 是否图片分镜（决定是否走 Ken Burns zoompan） */
+  isImage: boolean;
+  /** Ken Burns 运镜；null=不加运镜（图片分镜由调用方兜底默认 zoomIn） */
+  motion: SceneMotion | null;
+  /** 单镜冲击重音；null=无冲击 */
+  impact: SceneImpact | null;
+  /** 分镜有效时长（秒）：Ken Burns 帧数与 freeze 定格判定用 */
+  durationSec: number;
+}
+
 /**
- * 构建片段视频滤镜链：scale+pad（统一画幅）→ 可选 FX 滤镜 → 可选变速。
- * 变速用 setpts=PTS/speed 改变视频流时长。
+ * 构建片段视频滤镜链：
+ *   (图片分镜且有运镜 ? Ken Burns zoompan : scale+pad 统一画幅)
+ *   → 可选 FX 滤镜 → 可选冲击（shake/flash/freeze）→ 可选变速 → fps 归一(30)。
+ *
+ * 帧率归一（fps=30）恒挂链尾：让所有片段帧率一致，消除 xfade 因帧率不齐的抖动，
+ * 也与 Ken Burns 的 zoompan fps 对齐。变速用 setpts=PTS/speed 改变视频流时长。
+ *
+ * Ken Burns 内部已含 scale+zoompan 输出到目标尺寸（不再叠加 scale+pad）；
+ * 无运镜（视频分镜 / 图片显式关运镜）走原 scale+pad 统一画幅路径。
  */
 function buildClipVideoFilter(
   width: number,
   height: number,
   effect: string | null,
-  speed: number
+  speed: number,
+  motionImpact?: ClipMotionImpactParams
 ): string {
-  const parts = [
-    `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-    `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`,
-  ];
+  const useKenBurns =
+    !!motionImpact?.isImage &&
+    motionImpact.motion !== null &&
+    !!motionImpact.motion;
+
+  const parts: string[] = [];
+  if (useKenBurns && motionImpact) {
+    // Ken Burns 自带 scale 上采样 + zoompan 输出到 width×height（已统一画幅）
+    parts.push(
+      buildKenBurnsFilter(
+        width,
+        height,
+        motionImpact.motion as SceneMotion,
+        motionImpact.durationSec
+      )
+    );
+  } else {
+    parts.push(
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`
+    );
+  }
+
   if (effect) parts.push(effect);
+
+  // 冲击重音（在滤镜之后、变速之前）：shake/flash 落镜头前窗；freeze 在镜尾定格
+  const impact = motionImpact?.impact ?? null;
+  if (impact === "shake") {
+    // 图片轻震、视频重震：图片是静止画，轻震即够；视频动态画配重震更有力
+    const intensity = motionImpact?.isImage ? "light" : "heavy";
+    parts.push(buildShakeFilter(width, height, intensity));
+  } else if (impact === "flash") {
+    parts.push(buildFlashFilter());
+  } else if (impact === "freeze") {
+    const freeze = buildFreezeFilter(motionImpact?.durationSec ?? 0);
+    if (freeze) parts.push(freeze);
+  }
+
   if (speed !== 1) parts.push(`setpts=PTS/${speed.toFixed(4)}`);
+  // 帧率归一恒挂链尾（Ken Burns 已在 zoompan 里设 fps，这里再显式统一无副作用）
+  parts.push(`fps=${CLIP_FPS}`);
   return parts.join(",");
 }
 
@@ -1153,10 +1375,22 @@ async function sceneToVideoClip(
   const { width, height } = ASPECT_RATIOS[options.aspectRatio];
   const outputPath = path.join(outputDir, `scene_${scene.order}.mp4`);
 
-  const { effect, speed } = resolveSceneEffect(scene.id, options.sceneEffects);
+  const { effect, speed, motion, impact } = resolveSceneEffect(
+    scene.id,
+    options.sceneEffects
+  );
   // 声明有效时长 = 原始时长 / 倍速；仅作图片/黑场的生成参数与探测失败兜底。
   const declaredDuration = scene.duration / speed;
-  const vf = buildClipVideoFilter(width, height, effect, speed);
+
+  // 视频分镜的滤镜链：无运镜（视频自带运动），仅冲击（重震/闪白/定格）。
+  // freeze 用镜内 trim+tpad 定格，需传视频有效时长——但视频真实长度常≠声明值，
+  // 这里用 declaredDuration 作近似（freeze 仅镜尾 0.5s，误差不影响观感）。
+  const vf = buildClipVideoFilter(width, height, effect, speed, {
+    isImage: false,
+    motion: null,
+    impact,
+    durationSec: declaredDuration,
+  });
 
   // 如果有视频，直接使用
   if (scene.videoUrl) {
@@ -1209,7 +1443,19 @@ async function sceneToVideoClip(
 
     // 图片场景：滤镜照常应用，但变速对静态图无意义（画面不动），
     // 用有效时长直接 -t 即可（无需 setpts）。
-    const imgVf = buildClipVideoFilter(width, height, effect, 1);
+    //
+    // Ken Burns 默认契约：图片分镜是「-loop 1 死图」的幻灯片感重灾区，故
+    //   - motion===undefined（用户从未配运镜）→ 默认轻推 zoomIn（杀死图感）；
+    //   - motion===null（用户显式关运镜）→ 不加运镜（纯静图，尊重用户）；
+    //   - motion 有值 → 用该运镜。
+    const imgMotion: SceneMotion | null =
+      motion === undefined ? "zoomIn" : motion;
+    const imgVf = buildClipVideoFilter(width, height, effect, 1, {
+      isImage: true,
+      motion: imgMotion,
+      impact,
+      durationSec: declaredDuration,
+    });
     await runFFmpeg([
       "-loop",
       "1",

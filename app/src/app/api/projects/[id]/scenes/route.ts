@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import type { GenerationParams } from "@/types";
 import type {
+  SceneEffect,
   SceneSfx,
   Transition,
   TransitionType,
@@ -293,6 +294,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         actionBeat: scene.actionBeat || null,
         // 地点标签：LLM 解析产出，供场景锚定图（环境一致性）分组
         locationKey: scene.locationKey || null,
+        // 叙事节拍（批4）：beatType 驱动默认冲击效果与视频动作强度；
+        // isClimax 高潮镜标记（出图夸张表情升档、生成侧豁免裁剪）
+        beatType:
+          scene.beatType === "impact" ||
+          scene.beatType === "reveal" ||
+          scene.beatType === "emotional"
+            ? scene.beatType
+            : null,
+        isClimax: scene.isClimax === true,
         // 尾帧衔接下一镜：LLM 解析产出（linkNext），映射到 videoLinkNext；
         // 老输出无此字段时布尔化为 false，行为与今日一致（向后兼容）。
         videoLinkNext: Boolean(scene.linkNext),
@@ -355,6 +365,41 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const aggregatedSfx = aggregateSceneSfx(scenes, orderToNewSceneId);
     if (aggregatedSfx) {
       nextParams = { ...nextParams, sfx: aggregatedSfx };
+      paramsChanged = true;
+    }
+
+    // beatType → 默认冲击效果（批4）：impact 镜默认震屏（+缺音效时补一记重击），
+    // reveal 镜默认定格。仅对「该镜没有既存 sceneEffects 条目」的分镜补默认——
+    // 重解析桥接来的用户精调优先，不覆盖。
+    const beatEffects: SceneEffect[] = [];
+    const beatSfx: SceneSfx[] = [];
+    const existingEffectIds = new Set(
+      (nextParams.sceneEffects ?? []).map((e) => e.sceneId)
+    );
+    const sfxSceneIds = new Set((aggregatedSfx ?? []).map((s) => s.sceneId));
+    scenes.forEach((raw, i) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const beat = (raw as any)?.beatType;
+      const sceneId = orderToNewSceneId.get(i);
+      if (!sceneId || existingEffectIds.has(sceneId)) return;
+      if (beat === "impact") {
+        beatEffects.push({ sceneId, impact: "shake" });
+        // 打击镜缺音效时补一记重击（解析层已标 sfx 的不重复）
+        if (!sfxSceneIds.has(sceneId)) {
+          beatSfx.push({ sceneId, sfxId: "hit-punch", offsetSec: 0 });
+        }
+      } else if (beat === "reveal") {
+        beatEffects.push({ sceneId, impact: "freeze" });
+      }
+    });
+    if (beatEffects.length > 0) {
+      nextParams = {
+        ...nextParams,
+        sceneEffects: [...(nextParams.sceneEffects ?? []), ...beatEffects],
+        ...(beatSfx.length > 0
+          ? { sfx: [...(nextParams.sfx ?? []), ...beatSfx] }
+          : {}),
+      };
       paramsChanged = true;
     }
 

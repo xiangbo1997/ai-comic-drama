@@ -56,6 +56,16 @@ import {
 import { isStickerVisibleAt } from "./preview-sticker-window";
 // BGM 音量包络（纯函数，近似导出端 buildBgmFilter 的 fadeIn/fadeOut/ducking）
 import { bgmVolumeAt } from "./preview-bgm-envelope";
+// 冲击表现力 / Ken Burns 运镜的预览端 CSS（关键帧 + 映射函数），数值读共享常量，
+// 与导出端 ffmpeg 滤镜同参数（预览=成片）。
+import {
+  IMPACT_KEYFRAMES_CSS,
+  getMotionAnimationCss,
+  getShakeAnimationCss,
+  flashOverlayOpacityAt,
+  isFreezeTailAt,
+} from "./preview-impact-css";
+import type { SceneMotion, SceneImpact } from "@/types/export-style";
 
 interface PreviewPlayerProps {
   scenes: ScenePreview[];
@@ -117,17 +127,31 @@ function aspectRatioToCss(aspectRatio: string): string {
   return "16 / 9";
 }
 
-/** 解析某分镜的滤镜 id 与变速（与导出侧 resolveSceneEffect 等价） */
+/**
+ * 解析某分镜的滤镜 id / 变速 / 运镜 / 冲击（与导出侧 resolveSceneEffect 等价）。
+ * motion 保留 undefined（未配置）与 null（显式关）区分：图片分镜的默认 zoomIn
+ * 契约由渲染处按 isImage && motion===undefined 兜底（对齐导出端 sceneToVideoClip）。
+ */
 function resolveEffect(
   sceneId: string,
   effects?: SceneEffect[]
-): { effect: SceneEffectId | null; speed: number } {
+): {
+  effect: SceneEffectId | null;
+  speed: number;
+  motion: SceneMotion | null | undefined;
+  impact: SceneImpact | null;
+} {
   const found = effects?.find((e) => e.sceneId === sceneId);
   const speed =
     found?.speed != null && !isNaN(Number(found.speed))
       ? Math.min(4, Math.max(0.25, Number(found.speed)))
       : 1;
-  return { effect: found?.effect ?? null, speed };
+  return {
+    effect: found?.effect ?? null,
+    speed,
+    motion: found ? (found.motion ?? null) : undefined,
+    impact: found?.impact ?? null,
+  };
 }
 
 /**
@@ -231,13 +255,13 @@ export function PreviewPlayer({
   const nextScene =
     currentIndex < scenes.length - 1 ? scenes[currentIndex + 1] : null;
 
-  // 当前镜与下一镜的滤镜/变速
+  // 当前镜与下一镜的滤镜/变速/运镜/冲击
   const curFx = currentScene
     ? resolveEffect(currentScene.id, sceneEffects)
-    : { effect: null, speed: 1 };
+    : { effect: null, speed: 1, motion: undefined, impact: null };
   const nextFx = nextScene
     ? resolveEffect(nextScene.id, sceneEffects)
-    : { effect: null, speed: 1 };
+    : { effect: null, speed: 1, motion: undefined, impact: null };
   // 当前镜右侧转场（与下一镜之间）
   const curTransition = resolveTransition(currentIndex, transitions);
 
@@ -303,6 +327,33 @@ export function PreviewPlayer({
     return idx >= 0 ? effDurs[idx] : s.duration;
   };
 
+  // ── 冲击表现力 / Ken Burns 运镜（预览端，与导出端 ffmpeg 同参数）─────────────
+  // 当前镜内已播秒数（相对镜头起点）：flash 三角脉冲与 freeze 定格判定用，与画面同源。
+  const curEffDur = effDurs[currentIndex] ?? currentScene?.duration ?? 0;
+  const tInScene = progress * curEffDur;
+  // Ken Burns 运镜 CSS：图片分镜默认 zoomIn（motion===undefined 兜底，对齐导出端
+  // sceneToVideoClip 契约）；视频分镜不加运镜（自带运动）。铺满整镜有效时长。
+  const curIsImage = !!currentScene && !currentScene.videoUrl;
+  const curMotion: SceneMotion | null = curIsImage
+    ? curFx.motion === undefined
+      ? "zoomIn"
+      : curFx.motion
+    : null;
+  const curMotionCss = getMotionAnimationCss(curMotion, curEffDur);
+  // 震屏 CSS：图片轻震 / 视频重震（与导出端 buildClipVideoFilter 档位一致）。
+  const curShakeCss =
+    curFx.impact === "shake" ? getShakeAnimationCss(curIsImage) : undefined;
+  // 当前镜媒体层动画：运镜与震屏叠加时以 ", " 拼多条 animation。震屏落镜头前窗，
+  // 运镜铺满整镜——两者作用不同阶段可共存（CSS 会同时跑，震屏窗结束后归位）。
+  const curMediaAnimation =
+    [curMotionCss, curShakeCss].filter(Boolean).join(", ") || undefined;
+  // 闪白覆盖层 opacity：progress 落在闪白窗内按三角脉冲（与导出端 flashIntensityAt 同源）。
+  const curFlashOpacity =
+    curFx.impact === "flash" && isPlaying ? flashOverlayOpacityAt(tInScene) : 0;
+  // 定格：镜尾 tailSec 内暂停视频画面（近似导出端镜内定格；图片本就静止天然成立）。
+  const curFreezeActive =
+    curFx.impact === "freeze" && isFreezeTailAt(tInScene, curEffDur);
+
   // 同步外部选中的场景
   const sceneIndex = currentSceneId
     ? scenes.findIndex((s) => s.id === currentSceneId)
@@ -360,7 +411,15 @@ export function PreviewPlayer({
       // 已在播；对已在播元素再调 play() 无副作用（不重置进度）。
       if (currentScene.videoUrl) {
         const el = videoElsRef.current.get(currentScene.id);
-        el?.play().catch(() => {});
+        if (el) {
+          // 预览必须反映导出效果（铁律）：分镜变速在导出端由 atempo+setpts 实现，
+          // 预览端此前从不设 playbackRate → 视频恒 1x 播放，但计时器按「有效时长
+          // (真实时长/speed)」提前切镜，导致 speed>1 时预览被提前切走、speed<1 时
+          // 没播完就切 = 预览节奏≠成片。这里把视频播放速率对齐变速倍率。
+          // TTS 配音（audioRef）保持 1x：导出端配音不变速（atempo 仅作用于视频自带音轨）。
+          el.playbackRate = curFx.speed;
+          el.play().catch(() => {});
+        }
       }
 
       // 播放音频
@@ -403,6 +462,20 @@ export function PreviewPlayer({
     setTransitionT(0);
   }, [currentIndex]);
 
+  // 定格冲击（批4）：镜尾 tailSec 内暂停当前镜视频画面（近似导出端「镜内定格」，
+  // 图片镜本就静止天然成立）。离开定格窗（回退/切镜）且仍在播放时恢复。
+  // 计时器与音频不动——定格只冻画面，时轴与配音照常走（与导出端 trim+tpad 净时长守恒一致）。
+  useEffect(() => {
+    if (!currentScene?.videoUrl) return;
+    const el = videoElsRef.current.get(currentScene.id);
+    if (!el) return;
+    if (curFreezeActive && isPlaying) {
+      el.pause();
+    } else if (isPlaying && el.paused) {
+      el.play().catch(() => {});
+    }
+  }, [curFreezeActive, isPlaying, currentScene]);
+
   // 转场预播：转场窗口开始（transitionT>0）时起播「下一镜」底层视频（静音），
   // 让叠化淡入时看到真实运动画面而非冻结首帧。转场未完成即结束（手动跳镜/暂停
   // 令 transitionT 归 0）时，暂停并把底层视频复位到起点，下次转场从头播。
@@ -415,6 +488,8 @@ export function PreviewPlayer({
       : undefined;
     if (!nextEl) return;
     if (transitionT > 0 && isPlaying) {
+      // 转场预播下一镜时同样对齐其变速倍率（预览=成片），与当前镜播放速率同源
+      nextEl.playbackRate = nextFx.speed;
       // play() 的 promise 拒绝（如自动播放策略）吞掉，不阻断预览
       nextEl.play().catch(() => {});
     } else if (transitionT === 0) {
@@ -430,7 +505,7 @@ export function PreviewPlayer({
       // 恢复播放时能接着叠化，避免底层继续无声播放。
       nextEl.pause();
     }
-  }, [transitionT, isPlaying, nextScene]);
+  }, [transitionT, isPlaying, nextScene, nextFx.speed]);
 
   // 跟踪画面框实际像素高 → 驱动字号等比缩放（响应式布局/拖窗都实时更新）。
   // ResizeObserver 比 window.resize 更准：框高随容器内缩规则变化，非仅窗口尺寸。
@@ -1086,6 +1161,10 @@ export function PreviewPlayer({
     role: "current" | "next"
   ) => {
     const filterCss = sceneFilterCss(effect);
+    // 冲击/运镜动画只作用于「当前镜」的媒体元素本体（批4）：
+    // 挂在内层而非层容器上，避免与转场 slide/wipe 的容器 transform 相互覆盖。
+    const mediaAnimation =
+      role === "current" && isPlaying ? curMediaAnimation : undefined;
     if (scene.videoUrl) {
       // 下一镜默认 metadata（省带宽），仅在临近转场预热窗口内才 auto；
       // 当前镜恒 auto。
@@ -1098,7 +1177,7 @@ export function PreviewPlayer({
           // object-contain 精确复刻导出端 scale(decrease)+pad(black)：图片比例≠成片比例时
           // 完整缩入并补黑边，预览构图=成片构图（黑边由画面框黑底承接）。
           className="h-full w-full object-contain"
-          style={{ filter: filterCss }}
+          style={{ filter: filterCss, animation: mediaAnimation }}
           loop
           playsInline
           preload={preload}
@@ -1114,7 +1193,7 @@ export function PreviewPlayer({
           src={scene.imageUrl}
           alt=""
           className="h-full w-full object-contain"
-          style={{ filter: filterCss }}
+          style={{ filter: filterCss, animation: mediaAnimation }}
         />
       );
     }
@@ -1162,6 +1241,7 @@ export function PreviewPlayer({
           {/* 逐句字幕入场动效关键帧（与导出端 libass 标签时序一一对齐），仅注入一次。
               关键帧定义抽到 lib/subtitle-css，与字幕样式面板共用同一份。 */}
           <style>{SUBTITLE_KEYFRAMES_CSS}</style>
+          <style>{IMPACT_KEYFRAMES_CSS}</style>
 
           {/* 双层媒体从「单一 keyed 数组」渲染（key=scene.id）——
               currentIndex 前进时，原「下一镜」层的 DOM 节点被 React 依 key 复用
@@ -1205,6 +1285,15 @@ export function PreviewPlayer({
                 backgroundColor: overlay.color,
                 opacity: overlay.opacity,
               }}
+            />
+          )}
+
+          {/* 闪白冲击覆盖层（批4）——三角脉冲 opacity，与导出端 flashIntensityAt
+              同源参数。z-10 契约同转场覆盖层。 */}
+          {curFlashOpacity > 0 && (
+            <div
+              className="pointer-events-none absolute inset-0 z-10 bg-white"
+              style={{ opacity: curFlashOpacity }}
             />
           )}
 

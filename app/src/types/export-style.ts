@@ -304,7 +304,26 @@ export type SceneEffectId =
   | "dreampurple";
 
 /**
- * 单分镜的画面调节配置（滤镜 / 变速）
+ * 图片分镜的 Ken Burns 运镜白名单（缓慢推拉/平移，杀「幻灯片感」）。
+ * 对应 video-synthesis 的 zoompan 表达式；仅作用于「图片分镜」（视频分镜自带运动）。
+ *   - zoomIn   缓慢推近（放大到 ≤1.12）
+ *   - zoomOut  缓慢拉远（从 1.12 缩回 1.0）
+ *   - panLeft  向左平移（横移镜头）
+ *   - panRight 向右平移
+ */
+export type SceneMotion = "zoomIn" | "zoomOut" | "panLeft" | "panRight";
+
+/**
+ * 冲击表现力白名单（每镜至多一记「重音」，对应漫剧震屏/闪白/定格三大视觉签名）。
+ * 对应 video-synthesis 的 ffmpeg 滤镜与预览端 CSS：
+ *   - shake  震屏（正弦位移抖动，落在镜头前 ~0.6s）
+ *   - flash  闪白（亮度脉冲 ~0.25s）
+ *   - freeze 定格（镜尾冻结最后一帧 ~0.5s，在镜内定格而非延长时长）
+ */
+export type SceneImpact = "shake" | "flash" | "freeze";
+
+/**
+ * 单分镜的画面调节配置（滤镜 / 变速 / 运镜 / 冲击）
  * 按 sceneId 关联，导出时作用于该分镜片段。
  */
 export interface SceneEffect {
@@ -314,6 +333,16 @@ export interface SceneEffect {
   effect?: SceneEffectId | null;
   /** 变速倍率（0.25–4），默认 1（不变速） */
   speed?: number;
+  /**
+   * 图片分镜的 Ken Burns 运镜；缺省或 null = 由导出端按契约决定默认值
+   * （图片分镜默认轻推 zoomIn，杀幻灯片感；视频分镜忽略此字段）。
+   * 可选字段，老配置无此字段时按上述默认解析（向后兼容）。
+   */
+  motion?: SceneMotion | null;
+  /**
+   * 单镜冲击重音；缺省或 null = 无冲击。可选字段，老配置无此字段行为不变。
+   */
+  impact?: SceneImpact | null;
 }
 
 /**

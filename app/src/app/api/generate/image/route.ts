@@ -285,6 +285,7 @@ export async function POST(request: NextRequest) {
               description: true,
               dialogue: true,
               emotion: true,
+              isClimax: true,
               shotType: true,
               cameraAngle: true,
               lighting: true,
@@ -521,6 +522,7 @@ export async function POST(request: NextRequest) {
                 originalPrompt: safePrompt,
                 cinematics: sceneCinematics ?? undefined,
                 emotion: scene.emotion,
+                isClimax: scene.isClimax,
                 aspectRatio,
                 promptStyle: promptStyleFromProtocol(imageConfig?.protocol),
               });
