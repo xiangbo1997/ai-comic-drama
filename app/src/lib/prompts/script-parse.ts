@@ -57,7 +57,7 @@ export const SCRIPT_PARSE_SYSTEM = `你是一个专业的漫剧分镜编剧，�
 9. characterOutfits: 分镜级换装标注（可选数组）。仅当剧情【明确要求】某角色穿非默认着装（婚纱、战损铠甲、雨夜湿透、睡衣、丧服等）时才输出 [{"name":"林萧","outfit":"白色婚纱"}]；服装短语 ≤10 字。同一套衣服跨分镜必须用【完全相同】的短语（同 locationKey 纪律，禁止变体）。绝大多数分镜是日常/默认着装，一律【省略】该字段，不要输出空数组。
 10. linkNext: 尾帧衔接下一镜（可选布尔）。仅当本镜与下一镜是【同一 locationKey】且动作/时间连续（如进门/伸手/转身等空间连续动作）时置 true；跳切/换地点/时间跳跃一律【省略】该字段。
 11. sfx: 音效标注（可选数组）。仅当画面有【明确的声音事件】时输出 [{"tag":"glass-shatter","offsetSec":1}]：
-   - tag 只能取：hit(重击/揭秘咚)、slap(掌掴/拍击)、glass(玻璃碎裂)、heartbeat(心跳紧张)、riser(情绪推进/反转前兆)、whoosh(快速动作掠过)、ambient-rain(雨)、ambient-street(街道)、ambient-night-crickets(夜晚虫鸣)、ambient-thunder(雷)
+   - tag 只能取：hit(重击/揭秘咚)、slap(掌掴/拍击)、glass(玻璃碎裂)、heartbeat(心跳紧张)、riser(情绪推进/反转前兆)、whoosh(快速动作掠过)、comedy(综艺滑稽梗音)、comedy-fail-trumpet(失败长号)、comedy-ding(答对叮咚)、reaction-crowd-laugh(哄笑)、reaction-applause(掌声)、reaction-cheer(欢呼)、suspense-sting(悬疑戛止)、suspense-tick(倒计时滴答)、combat-sword(刀剑交击)、combat-explosion(爆炸)、daily-door-knock(敲门)、daily-door-slam(摔门)、daily-phone-ring(电话铃)、daily-message-pop(手机消息提示)、daily-camera-shutter(相机快门)、daily-footsteps(脚步)、ambient-rain(雨)、ambient-street(街道)、ambient-night-crickets(夜晚虫鸣)、ambient-thunder(雷)、ambient-wind(风)、ambient-birds(清晨鸟鸣)、ambient-cafe(餐厅人声)、ambient-fire(篝火)
    - offsetSec 为镜内触发秒（0 = 镜头开始）
    - 【克制纪律】每镜 ≤2 个；全片约每 10-30 秒 1-2 个；安静/抒情镜一律【省略】该字段（绝大多数分镜没有它）。音效是标点符号不是背景噪音——只标打击/碎裂/心跳/环境雨雷等真实声音事件，宁缺毋滥。
 12. beatType: 叙事节拍类型（可选）。仅当该镜是明确的节拍重音时输出：impact（打击/冲突爆发/物理撞击）、reveal（反转/揭秘/真相揭晓）、emotional（情绪高点/爆发哭喊）；平铺直叙的常规镜一律【省略】该字段（绝大多数分镜没有它）。impact/reveal 全片各 ≤3 处，克制使用——节拍重音多了等于没有。

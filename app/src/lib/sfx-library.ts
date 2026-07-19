@@ -22,6 +22,11 @@ export type SfxCategory =
   | "glass"
   | "heartbeat"
   | "riser"
+  | "comedy"
+  | "reaction"
+  | "suspense"
+  | "combat"
+  | "daily"
   | "ambient";
 
 /** 分类的中文标签 */
@@ -62,7 +67,14 @@ export interface SfxEntry {
   defaultVolume: number;
 }
 
-/** 七类音效分类（中文标签） */
+/**
+ * 音效分类（中文标签）。
+ *
+ * 2026-07-20 对标剪映内置音效库扩容：新增 综艺搞笑 / 观众反应 / 悬疑惊悚 /
+ * 打斗爆破 / 日常拟声 五类（对应剪映的 综艺、笑声/掌声、悬疑、打斗、拟声 分区），
+ * 素材仍全部来自 Mixkit 免费商用授权——剪映自带音频是字节跳动版权素材不可直搬，
+ * 这里搬的是「分类体系 + 等价免费素材」。
+ */
 export const SFX_CATEGORIES: SfxCategoryMeta[] = [
   { id: "whoosh", label: "疾风 / 转场" },
   { id: "hit", label: "重击 / 撞击" },
@@ -70,6 +82,11 @@ export const SFX_CATEGORIES: SfxCategoryMeta[] = [
   { id: "glass", label: "玻璃破碎" },
   { id: "heartbeat", label: "心跳" },
   { id: "riser", label: "情绪推进" },
+  { id: "comedy", label: "综艺搞笑" },
+  { id: "reaction", label: "观众反应" },
+  { id: "suspense", label: "悬疑惊悚" },
+  { id: "combat", label: "打斗爆破" },
+  { id: "daily", label: "日常拟声" },
   { id: "ambient", label: "环境氛围" },
 ];
 
@@ -208,6 +225,200 @@ export const SFX_LIBRARY: SfxEntry[] = [
     credit: mixkitCredit(2290),
     defaultVolume: 0.5,
   },
+  // ── 综艺搞笑（对标剪映综艺分区：梗音/滑稽标点，一次性突出）──────
+  {
+    id: "comedy-boing",
+    label: "弹簧滑稽",
+    category: "comedy",
+    file: "/sfx/comedy/comedy-boing-2894.mp3",
+    durationSec: 1.2,
+    credit: mixkitCredit(2894),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "comedy-fail-trumpet",
+    label: "失败长号",
+    category: "comedy",
+    file: "/sfx/comedy/comedy-fail-trumpet-744.mp3",
+    durationSec: 2.7,
+    credit: mixkitCredit(744),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "comedy-ding",
+    label: "答对叮咚",
+    category: "comedy",
+    file: "/sfx/comedy/comedy-ding-2870.mp3",
+    durationSec: 2.0,
+    credit: mixkitCredit(2870),
+    defaultVolume: 0.6,
+  },
+  {
+    id: "comedy-rimshot",
+    label: "捧哏鼓点",
+    category: "comedy",
+    file: "/sfx/comedy/comedy-rimshot-578.mp3",
+    durationSec: 2.0,
+    credit: mixkitCredit(578),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "comedy-fall-whistle",
+    label: "坠落口哨",
+    category: "comedy",
+    file: "/sfx/comedy/comedy-fall-whistle-395.mp3",
+    durationSec: 2.7,
+    credit: mixkitCredit(395),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "comedy-scream-fall",
+    label: "综艺惨叫",
+    category: "comedy",
+    file: "/sfx/comedy/comedy-scream-fall-392.mp3",
+    durationSec: 3.0,
+    credit: mixkitCredit(392),
+    defaultVolume: 0.65,
+  },
+  // ── 观众反应（对标剪映笑声/掌声分区：群体反应，半铺底）──────────
+  {
+    id: "reaction-crowd-laugh",
+    label: "哄堂大笑",
+    category: "reaction",
+    file: "/sfx/reaction/reaction-crowd-laugh-424.mp3",
+    durationSec: 4.1,
+    credit: mixkitCredit(424),
+    defaultVolume: 0.55,
+  },
+  {
+    id: "reaction-applause",
+    label: "掌声雷动",
+    category: "reaction",
+    file: "/sfx/reaction/reaction-applause-485.mp3",
+    durationSec: 11.9,
+    credit: mixkitCredit(485),
+    defaultVolume: 0.55,
+  },
+  {
+    id: "reaction-cheer",
+    label: "欢呼喝彩",
+    category: "reaction",
+    file: "/sfx/reaction/reaction-cheer-462.mp3",
+    durationSec: 10.1,
+    credit: mixkitCredit(462),
+    defaultVolume: 0.55,
+  },
+  // ── 悬疑惊悚（对标剪映悬疑分区：戛止重音/低鸣铺底/倒计时）────────
+  {
+    id: "suspense-sting",
+    label: "悬疑戛止",
+    category: "suspense",
+    file: "/sfx/suspense/suspense-sting-565.mp3",
+    durationSec: 4.1,
+    credit: mixkitCredit(565),
+    defaultVolume: 0.6,
+  },
+  {
+    id: "suspense-drone",
+    label: "阴森低鸣",
+    category: "suspense",
+    file: "/sfx/suspense/suspense-drone-2482.mp3",
+    durationSec: 15,
+    credit: mixkitCredit(2482),
+    defaultVolume: 0.4,
+  },
+  {
+    id: "suspense-tick",
+    label: "倒计时滴答",
+    category: "suspense",
+    file: "/sfx/suspense/suspense-tick-1045.mp3",
+    durationSec: 12,
+    credit: mixkitCredit(1045),
+    defaultVolume: 0.45,
+  },
+  // ── 打斗爆破（对标剪映打斗分区）────────────────────────────────
+  {
+    id: "combat-sword",
+    label: "刀剑交击",
+    category: "combat",
+    file: "/sfx/combat/combat-sword-2160.mp3",
+    durationSec: 1.3,
+    credit: mixkitCredit(2160),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "combat-explosion",
+    label: "爆炸轰鸣",
+    category: "combat",
+    file: "/sfx/combat/combat-explosion-1704.mp3",
+    durationSec: 8.4,
+    credit: mixkitCredit(1704),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "combat-bomb",
+    label: "远处炸响",
+    category: "combat",
+    file: "/sfx/combat/combat-bomb-2804.mp3",
+    durationSec: 8.0,
+    credit: mixkitCredit(2804),
+    defaultVolume: 0.65,
+  },
+  // ── 日常拟声（对标剪映拟声/电子分区：生活声音事件）──────────────
+  {
+    id: "daily-door-knock",
+    label: "敲门声",
+    category: "daily",
+    file: "/sfx/daily/daily-door-knock-197.mp3",
+    durationSec: 1.1,
+    credit: mixkitCredit(197),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "daily-door-slam",
+    label: "摔门而去",
+    category: "daily",
+    file: "/sfx/daily/daily-door-slam-194.mp3",
+    durationSec: 1.7,
+    credit: mixkitCredit(194),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "daily-phone-ring",
+    label: "电话铃响",
+    category: "daily",
+    file: "/sfx/daily/daily-phone-ring-1350.mp3",
+    durationSec: 1.1,
+    credit: mixkitCredit(1350),
+    defaultVolume: 0.6,
+  },
+  {
+    id: "daily-message-pop",
+    label: "消息提示",
+    category: "daily",
+    file: "/sfx/daily/daily-message-pop-2354.mp3",
+    durationSec: 1.1,
+    credit: mixkitCredit(2354),
+    defaultVolume: 0.6,
+  },
+  {
+    id: "daily-camera-shutter",
+    label: "相机快门",
+    category: "daily",
+    file: "/sfx/daily/daily-camera-shutter-1133.mp3",
+    durationSec: 0.4,
+    credit: mixkitCredit(1133),
+    defaultVolume: 0.7,
+  },
+  {
+    id: "daily-footsteps",
+    label: "脚步声",
+    category: "daily",
+    file: "/sfx/daily/daily-footsteps-542.mp3",
+    durationSec: 5.2,
+    credit: mixkitCredit(542),
+    defaultVolume: 0.55,
+  },
   // ── 环境氛围（铺底，压到对白之下）───────────────────────────
   {
     id: "ambient-rain",
@@ -245,6 +456,42 @@ export const SFX_LIBRARY: SfxEntry[] = [
     credit: mixkitCredit(1287),
     defaultVolume: 0.4,
   },
+  {
+    id: "ambient-wind",
+    label: "风声",
+    category: "ambient",
+    file: "/sfx/ambient/ambient-wind-2658.mp3",
+    durationSec: 15,
+    credit: mixkitCredit(2658),
+    defaultVolume: 0.35,
+  },
+  {
+    id: "ambient-birds",
+    label: "清晨鸟鸣",
+    category: "ambient",
+    file: "/sfx/ambient/ambient-birds-2472.mp3",
+    durationSec: 15,
+    credit: mixkitCredit(2472),
+    defaultVolume: 0.35,
+  },
+  {
+    id: "ambient-cafe",
+    label: "餐厅人声",
+    category: "ambient",
+    file: "/sfx/ambient/ambient-cafe-444.mp3",
+    durationSec: 15,
+    credit: mixkitCredit(444),
+    defaultVolume: 0.35,
+  },
+  {
+    id: "ambient-fire",
+    label: "篝火噼啪",
+    category: "ambient",
+    file: "/sfx/ambient/ambient-fire-1329.mp3",
+    durationSec: 14.1,
+    credit: mixkitCredit(1329),
+    defaultVolume: 0.35,
+  },
 ];
 
 /** 按 id 取单个音效（未命中返回 undefined） */
@@ -258,7 +505,7 @@ export function listSfxByCategory(category: SfxCategory): SfxEntry[] {
 }
 
 /**
- * 解析层可用的「音效标签」全集：所有具体音效 id + 七个分类 id。
+ * 解析层可用的「音效标签」全集：所有具体音效 id + 全部分类 id。
  *
  * 解析层允许 LLM 用「具体音效 id」（如 "glass-shatter"）或「分类 id」（如
  * "whoosh"，交由导出端取该类第一个音效兜底）。校验/导出端据此判定标签合法。
