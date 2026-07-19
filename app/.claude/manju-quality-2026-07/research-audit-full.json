@@ -1,0 +1,1161 @@
+{
+  "summary": "Research real comic-drama quality bar + audit current pipeline, synthesize prioritized optimization plan",
+  "agentCount": 9,
+  "logs": ["Research+audit done: 8/8 agents returned"],
+  "result": {
+    "plan": {
+      "gapMatrix": "| 维度 | 真实漫剧标准 | 我们现状 | 差距等级 |\n|------|------------|---------|---------|\n| 剪辑节奏/镜头密度 | 0.5-6s三档快切，每分钟15-25镜，冲突镜1-3s | shot-timing算出的1-4s被档位吸附成5-8s同质长镜并实测反写DB；2s对白配8s画面产生6s哑口空拍 | 致命 |\n| 转场语言 | 90%硬切+情绪爆点闪白/闪黑，叠化是禁忌 | 默认全片0.3s交叉叠化(fade)；LLM产出的transition字段在drama-to-scenes.ts被整条丢弃 | 致命 |\n| 音效设计 | 每镜卡点SFX+环境音床+四层混音(配音>BGM>环境,-16LUFS) | 仅TTS+单曲BGM两轨，全仓零SFX资产/零混音路径，无loudnorm，纯对白amix缺normalize=0 | 致命 |\n| 配音表演 | 逐句情绪标注、1.1-1.2x语速、角色分声线、旁白独立 | 一键workflow全员默认甜美女声(不传voiceId)；Scene.emotion落库但TTS链零消费，平调朗读 | 致命 |\n| 对白嘴动 | lip flap简单开合即达标(行业本不做音素对齐) | video-prompt.ts:219硬编码\"No spoken dialogue, no lip-sync\"，闭嘴人物配画外音 | 高 |\n| 画面冲击语汇 | 震屏/冲击帧/速度线/拟声字卡程式化套用 | 全仓grep零命中；图片分镜是-loop 1死帧无任何推拉 | 高 |\n| 关键帧情绪表现 | 夸张表情+漫画符号+机位构图变化制造张力 | 情绪压成\"sad mood\"两词；镜头四字段拼在质量词之后权重最低；自动workflow直接丢弃四字段 | 高 |\n| 成片包装 | 片头3s标题卡+片尾5s下集钩子+全片统一调色+中文粗体花字 | 无片头尾卡；ASS字体硬编码Arial；无LUT，跨provider每镜一个色温 | 中 |\n| 结构节拍验收 | 3s炸点/每30s情绪事件/结尾钩子可机检；红果2026新规红线 | 有爆款方法论prompt但无数字化门禁；审片报告未对齐平台官方红线 | 中 |",
+      "batches": [
+        {
+          "priority": "P0",
+          "title": "批1：声音设计从零到一——SFX音效轨+混音工程收口",
+          "rationale": "行业明文共识\"画面动态不足由声音弥补\"，音效密度是抖音/红果漫剧最显著的听感特征，而我们是全链路零SFX能力——这是感知提升/成本比最高的单项。BGM的adelay/amix/时轴基建全部已在(buildBgmFilter/buildSceneStarts)，只是复制一条轨的边际成本。顺手收口两处已确认的混音bug(纯对白amix缺normalize=0导致逐镜音量漂移)与响度归一。",
+          "changes": [
+            {
+              "file": "app/src/lib/sfx-library.ts",
+              "change": "新建：仿bgm-library.ts结构建CC0音效清单，分类whoosh(转场)/hit重音咚/slap打击/glass碎裂/heartbeat/riser/ambient(雨风街道夜虫)，带credit合规留痕字段"
+            },
+            {
+              "file": "app/public/sfx/",
+              "change": "新建资产目录：Mixkit/Pixabay/Freesound精选CC0素材，每类2-4条，按分类命名"
+            },
+            {
+              "file": "app/src/lib/prompts/script-parse.ts",
+              "change": "分镜JSON增加sfx字段(受控枚举标签数组，标注触发时点)，写入克制规则：每镜≤2个、每10-30秒1-2个、安静镜留空；few-shot示例补标注"
+            },
+            {
+              "file": "app/src/types/export-style.ts",
+              "change": "新增SceneSfx类型{sceneId,sfxId,offsetSec,volume}；BackgroundMusic的ducking默认值false翻转为true(L386)"
+            },
+            {
+              "file": "app/src/services/video-synthesis.ts",
+              "change": "新增buildSfxFilters第三类音轨(复用buildSceneStarts+adelay并入amix)；转场点自动挂whoosh并与xfade offset对齐；L1386/L1466两处amix补normalize=0；终混音频链尾加loudnorm=I=-16:TP=-1.5:LRA=11"
+            },
+            {
+              "file": "app/src/app/api/projects/[id]/export/route.ts",
+              "change": "从generationParams读取sfx配置透传ExportOptions"
+            },
+            {
+              "file": "app/src/components/preview-player.tsx",
+              "change": "预览端按分镜起点+offset调度sfx的audio元素播放并跟随seek/暂停(铁律：预览必须反映所有导出效果)"
+            },
+            {
+              "file": "app/src/app/(dashboard)/editor/[id]/components/SceneEffectDialog.tsx",
+              "change": "增加逐镜音效选择UI+\"按解析标签一键填充\"；BGM区加\"按剧情主情绪自动选曲\"按钮(Scene.emotion众数→BGM_CATEGORIES七分类映射)"
+            }
+          ],
+          "effort": "L",
+          "risk": "音效滥用反而廉价化→prompt克制规则+默认音量-15dB+全局开关可一键静音；CC0素材版权→仅收录可溯源CC0并在library的credit字段留痕(沿用bgm-library合规模式)；预览端多audio元素时序漂移→复用既有BGM预览的调度模式"
+        },
+        {
+          "priority": "P0",
+          "title": "批2：剪辑节奏回归——镜头实长裁剪对齐+硬切默认+转场设计数据链打通",
+          "rationale": "所有调研来源交叉确认的第一差距：真漫剧0.5-6s三档快切+90%硬切，我们是档位吸附后的5-8s同质长镜+全片0.3s交叉叠化(恰是漫剧禁忌)，等于\"AI味PPT\"。shot-timing.ts已算出专业镜长，只是被video-segmenter档位吸附和实测反写摧毁——生成后裁剪即可恢复，同时消灭2s对白配8s画面的哑口空拍。转场字段LLM早已产出，只差drama-to-scenes到导出的数据链。",
+          "changes": [
+            {
+              "file": "app/src/services/generation/segmented-video.ts",
+              "change": "provider出片后按shot-timing目标时长ffmpeg -t从头截尾裁剪；完整实测时长另存measuredDuration不丢失"
+            },
+            {
+              "file": "app/src/app/api/generate/video/route.ts",
+              "change": "L625-632实测时长反写改为写裁剪后值，Scene.duration保持叙事目标不被档位吸附覆盖；埋点记录cameraMovement来源占比(director/db/derived)验证解析层13值枚举实际命中率(video-prompt.ts:10自述'几乎恒为null'待证实)"
+            },
+            {
+              "file": "app/src/services/video-synthesis.ts",
+              "change": "resolveTransition缺省从fade 0.3s改为none硬切(0.04s近似已有)；补闪白fadewhite 0.15s/闪黑fadeblack进推荐映射，作为情绪爆点/时空跳跃专用"
+            },
+            {
+              "file": "app/src/lib/drama-to-scenes.ts",
+              "change": "映射cell.transition(当前被丢弃)：建转场词→TransitionType映射表(硬切/闪白/闪黑/叠化)输出到SceneDraft"
+            },
+            {
+              "file": "app/src/app/(dashboard)/editor/[id]/components/DramaScriptPanel.tsx",
+              "change": "创建分镜时把逐镜transition聚合写入project.generationParams.transitions(ProducerWizardDialog.tsx同步)"
+            },
+            {
+              "file": "app/src/app/(dashboard)/editor/[id]/components/TransitionDialog.tsx",
+              "change": "默认值同步为硬切，预设项标注漫剧惯例文案(硬切为主/闪白留给情绪爆点/叠化仅时间流逝)"
+            },
+            {
+              "file": "app/src/lib/prompts/video-prompt.ts",
+              "change": "FL首尾帧分支(L181-183)不再整句覆盖运镜，改为'从首帧到尾帧的{运镜短语}过渡'保留导演13值枚举意图"
+            }
+          ],
+          "effort": "M",
+          "risk": "裁剪可能截断动作弧→只截尾保留完整开场，且isClimax/动作镜可豁免裁剪走全长；默认转场变化影响存量项目→仅对未存transitions配置的新导出生效硬切默认，已存配置原样尊重"
+        },
+        {
+          "priority": "P0",
+          "title": "批3：配音表演修复——workflow声线断链+情绪透传+对白嘴动指令",
+          "rationale": "三个已验证的断链：①workflow-engine.ts:1138的synthesizeSpeech不传voiceId，一键成片全员(含男角)默认甜美女声——最直白的穿帮bug；②Scene.emotion已落库但TTS链零消费，火山bigtts原生支持emotion参数只是没传，平调朗读是'播音腔念稿'AI感最大声音来源；③video-prompt.ts:219硬编码禁口型，闭嘴人物配画外音是观众识别AI第一视觉信号——而行业标准本就是模糊lip flap，prompt级即达标，零新依赖。",
+          "changes": [
+            {
+              "file": "app/src/services/agents/workflow-engine.ts",
+              "change": "L1134-1143 TTS步骤解析sceneArtifact关联角色→Character.voiceId(voiceFamily防污染逻辑从tts/route.ts提取到lib共用)；旁白用独立旁白声线；dialogue??narration改为对白+旁白两段分声线合成后concat，修复'既有对白又有旁白时旁白被静默丢弃'"
+            },
+            {
+              "file": "app/src/types/ai.ts",
+              "change": "TTSOptions(L104-109)增emotion?: string"
+            },
+            {
+              "file": "app/src/services/ai/providers/tts/volcengine.ts",
+              "change": "audio参数(L38-42)补emotion/enable_emotion(按音色支持度静默降级)；speed_ratio默认1.0改1.1对齐漫剧快节奏惯例"
+            },
+            {
+              "file": "app/src/services/ai/providers/tts/elevenlabs.ts",
+              "change": "按情绪映射stability/style(愤怒→低stability高style，悲伤→高stability低style)"
+            },
+            {
+              "file": "app/src/app/api/generate/tts/route.ts",
+              "change": "透传scene.emotion到TTSOptions(use-generation-actions.ts手动路径同步)"
+            },
+            {
+              "file": "app/src/lib/prompts/video-prompt.ts",
+              "change": "VideoScenePromptInput增hasDialogue；AUDIO_DIRECTIVE(L219)分支：有对白且近/中景时改为'character speaks with natural anime-style mouth movement (lip flap), no audible dialogue'"
+            },
+            {
+              "file": "app/src/app/api/generate/video/route.ts",
+              "change": "scene查询补dialogue字段传入prompt构建，video-director.ts规则4的禁口型措辞同步放开"
+            },
+            {
+              "file": "app/src/services/video-synthesis.ts",
+              "change": "L472字幕时间窗改为allocateSubtitleWindows(segments, min(配音实长getMediaDuration(audioUrl), effDuration))，人声结束后末句停驻，消灭'人停了字幕还在翻页'"
+            },
+            {
+              "file": "app/src/components/preview-player.tsx",
+              "change": "字幕窗口用audio.duration同构对齐导出逻辑"
+            }
+          ],
+          "effort": "M",
+          "risk": "火山emotion参数部分音色不支持→失败静默降级为无参数调用不阻塞生成；嘴动指令可能引发嘴部伪影→仅近/中景+有对白镜启用，远景与无对白镜维持原禁令；批2裁剪落地后镜长缩短，嘴动漂移暴露时间也随之缩短"
+        },
+        {
+          "priority": "P1",
+          "title": "批4：冲击表现力包——死帧救活+震屏/闪白/定格+速度线拟声字贴图+变速parity修复",
+          "rationale": "震屏/冲击帧/速度线/拟声字是漫剧区别于普通短视频的程式化视觉签名(DancingBoard从95部真漫剧提取的模式库核心词汇)，全部可用ffmpeg滤镜+贴图管线实现，零模型成本；图片分镜目前是-loop 1完全死帧，是'幻灯片感'的直接来源，zoompan缓推即救活。顺手修变速预览不设playbackRate的铁律违反项(预览1x被提前切走vs导出真加速，两端内容不一致)。",
+          "changes": [
+            {
+              "file": "app/src/types/export-style.ts",
+              "change": "SceneEffect(L310-317)扩展motion字段(zoomIn/zoomOut/panLeft/panRight)与impact字段(shake/flash/freeze)"
+            },
+            {
+              "file": "app/src/services/video-synthesis.ts",
+              "change": "图片分支(L983附近)加zoompan Ken Burns缓推(z增量+fps=30:d=duration*30)；shake=放大105%+crop正弦偏移表达式(轻2-4Hz/5-15px、重5-8Hz/20-50px快速衰减两档)；flash=curves亮度脉冲enable between；freeze=末帧tpad定格；buildClipVideoFilter链尾统一fps=30归一消xfade帧率抖动"
+            },
+            {
+              "file": "app/src/components/preview-player.tsx",
+              "change": "CSS keyframes震屏/白色闪光覆盖层(z-10)/transform缓推同源复现(与ffmpeg同参数正弦函数)；起播与keyed视频层挂载处补el.playbackRate=speed修复变速parity，TTS audio保持1x"
+            },
+            {
+              "file": "app/src/components/scene-filters.tsx",
+              "change": "新动态效果的预览映射注册(沿用12滤镜逐个翻译SVG filter的既有模式)"
+            },
+            {
+              "file": "app/src/app/(dashboard)/editor/[id]/components/SceneEffectDialog.tsx",
+              "change": "动态效果选择UI+'按节拍自动填充'按钮"
+            },
+            {
+              "file": "app/src/lib/prompts/script-parse.ts",
+              "change": "分镜输出beatType(impact/reveal/emotional/calm)，建beatType→默认效果映射表：打击镜=shake+flash+hit音效、反转揭秘=freeze+咚、静帧对白镜=zoompan缓推(与批1的sfx标签同一次schema变更落库)"
+            },
+            {
+              "file": "app/public/fx-overlays/",
+              "change": "新建预置素材：半透明放射速度线/集中线/拟声字卡(轰/砰/哐)PNG，走已有sticker overlay管线+enable时间窗+归一化坐标，透明度30-70%时长0.3-1s"
+            },
+            {
+              "file": "app/src/lib/prompts/video-prompt.ts",
+              "change": "动作强度三档(calm/normal/impact)由emotion+beatType派生：impact档注入'dynamic anime action, snappy motion, brief impact freeze'；VIDEO_STYLE_MAP的anime系(L135)补运动风格短语，替换现在全线slow/gentle的漂移感默认值"
+            }
+          ],
+          "effort": "L",
+          "risk": "效果滥用会崩坏观感→仅beatType=impact/isClimax镜默认建议开启、每集限量、全局可关；预览-导出偏差→shake/zoom两端用同一参数常量文件(沿用SUBTITLE_ANIM共享常量模式)；zoompan在低分辨率图上放大糊→缩放上限1.12并优先用原图分辨率"
+        },
+        {
+          "priority": "P1",
+          "title": "批5：关键帧漫剧化——情绪视觉语法+镜头语言权重重排+workflow路径对齐",
+          "rationale": "关键帧是每镜底图与视频生成首帧，决定成片视觉上限。三个已验证断链：①剧本层的打脸公式/爽点设计在图像层被压成'sad mood'两词渲染为平静插画，全链路零夸张表情/漫画符号词汇；②解析层辛苦产出的cameraAngle/lighting/composition/colorPalette四字段被拼在质量词之后权重最低，自动workflow路径干脆没传——修的是'专业设计已存在但没送到模型嘴边'；③竖屏9:16无任何构图指导。这批不加新基建，纯prompt层重排+补词表。",
+          "changes": [
+            {
+              "file": "app/src/lib/prompts/emotion-grammar.ts",
+              "change": "新建：情绪×强度→夸张表情+漫画符号词映射表(如angry+climax→'furious exaggerated expression, gritted teeth, anime rage effect, radial speed lines background')，按画风包门控(写实包不注入符号词)"
+            },
+            {
+              "file": "app/src/lib/prompts/script-parse.ts",
+              "change": "分镜补emotionIntensity/isClimax字段(与批4 beatType合并为同一次schema+落库白名单变更)"
+            },
+            {
+              "file": "app/src/lib/prompt-builder.ts",
+              "change": "buildEnhancedPrompt段序重排：风格锚→景别机位构图(sceneCinematics改为入参前置注入)→角色→动作+夸张表情(消费emotion-grammar)→环境→光线色调→护栏；质量词按协议分流(booru词仅留SD系，指令模型改自然语言)；增加aspectRatio入参，9:16注入'vertical composition, subject in upper two-thirds, strong vertical depth'竖屏基线"
+            },
+            {
+              "file": "app/src/app/api/generate/image/route.ts",
+              "change": "L511-522 cinematics改传参进构建器、删除尾部追加补丁；L423-431 prev/next select补lighting/colorPalette注入连续性块，同locationKey强制沿用前镜光线基调防昼夜漂移"
+            },
+            {
+              "file": "app/src/lib/prompts/agent-prompts/storyboard.ts",
+              "change": "L39-46 sceneList模板补cameraAngle/lighting/composition/colorPalette四字段，imagePrompt构造规则改为'必须原样复用解析层字段'，使自动workflow与手动路径出图质量对等(workflow-engine传参同步)"
+            },
+            {
+              "file": "app/src/lib/prompts/image-prompt.ts",
+              "change": "SHOT_MAP从8个通用短语扩为景别×机位×光学三维词表(85mm浅景深特写/24mm广角畸变/OTS前景虚化/荷兰角/仰拍冲击/俯拍压迫，每项带焦距+景深描述)"
+            },
+            {
+              "file": "app/src/lib/prompts/negative-prompts.ts",
+              "change": "基线追加漫剧向负向：stiff pose, expressionless face, flat boring composition, centered passport-style framing"
+            },
+            {
+              "file": "app/src/lib/prompts/agent-prompts/observer.ts",
+              "change": "六维度增加visual_impact(构图张力/情绪表现力/是否呆板，权重10-15%)并补'表情不够夸张建议改仰拍'类suggestions示例，让reflect闭环获得'更漫剧'的改写方向而非只保'正确'"
+            },
+            {
+              "file": "app/src/lib/prompts/style-packs.ts",
+              "change": "每包补colorSystemEn/sceneRulesEn精炼英文版(≤120 chars)供图像prompt消费，替换现在整段600字中文混入英文prompt的问题；中文版保留给UI与LLM评审"
+            }
+          ],
+          "effort": "M",
+          "risk": "prompt改动影响面大且收益依模型而异→保留旧构建顺序为开关，同一分镜A/B重生成对比验证后再全量；夸张表情与一致性闭环可能打架(Observer判'表情不像定妆照')→vision-reviewer的剧情性变化豁免规则同步扩展到夸张表情"
+        },
+        {
+          "priority": "P1",
+          "title": "批6：成片包装与验收门禁——片头片尾卡+中文字体+花字金句+全片LUT+红果红线",
+          "rationale": "片头3s标题+片尾5s下集钩子是漫剧结构标配，脚本层已设计钩子但成片视觉上不存在，追更转化直接损失；Arial硬编码致中文字幕字形不可控且预览成片不同源；跨provider每镜色温各异的'素材拼接感'靠全片LUT一次收敛；红果2026年4月新规(过稿率降至20%)是投放变现的官方验收标准，审片Agent应以平台红线而非自定标准验收。",
+          "changes": [
+            {
+              "file": "app/src/app/api/projects/[id]/export/route.ts",
+              "change": "L142-151 sceneMediaList前后注入片头卡(canonicalImageUrl/首镜图+drawtext剧名集数，1.5-2s)与片尾卡(下集钩子文案取系列storyBible/hook+追更贴字，2-3s)，作为普通SceneMedia走既有管线零新滤镜；ExportOptions加titleCard/endCard开关，系列项目默认开"
+            },
+            {
+              "file": "app/fonts/",
+              "change": "新建：内置思源黑体+得意黑(均OFL开源)，视频合成与预览共用"
+            },
+            {
+              "file": "app/src/services/video-synthesis.ts",
+              "change": "L538 Arial替换为SubtitleStyle.fontFamily白名单值，ass滤镜加fontsdir=钉仓库字体目录；终混两分支链头支持lut3d=file全片调色"
+            },
+            {
+              "file": "app/src/types/export-style.ts",
+              "change": "SubtitleStyle加fontFamily白名单字段+emphasis金句样式(大字号+彩色+pop)；新增generationParams.colorGrade配置类型"
+            },
+            {
+              "file": "app/src/lib/prompts/script-parse.ts",
+              "change": "台词字段增加emphasis金句标注(LLM识别喊叫/高潮金句，克制规则每集1-3处，正文禁用花字)"
+            },
+            {
+              "file": "app/public/luts/",
+              "change": "新建：3-5个.cube LUT(暖黄怀旧/冷峻蓝/高饱和漫感)，圣经ColorScript色调枚举→LUT预设映射供场记自动选"
+            },
+            {
+              "file": "app/src/components/preview-player.tsx",
+              "change": "@font-face加载同一字体文件实现两端同字形；LUT用近似CSS filter组合复现并标注'预览近似'；片头尾卡按SceneMedia渲染自然进预览"
+            },
+            {
+              "file": "app/src/lib/producer-review.ts",
+              "change": "审片报告增加红果《漫剧内容创作建议》红线维度(画风统一/音画同步/字幕完整/角色跨镜一致/单集≤3分钟)+节奏数字门禁(开场3s内冲突镜/任意连续30s含情绪事件/结尾钩子存在性/对白单句≤15字/单镜>4s须有镜内运动)——按Scene时长轴机检+LLM判定双通道"
+            }
+          ],
+          "effort": "M",
+          "risk": "LUT预览与导出有色差→colorGrade默认关，开启时UI明示'预览为近似效果'；字体文件体积大→仅置2款并做中文常用字集子集化；片头尾卡拉长总时长→计入时长展示、红果3分钟红线校验包含卡片时长"
+        }
+      ],
+      "notDoing": [
+        "模型级对口型接入(Kling lip-sync API / MuseTalk / LatentSync自托管)——行业标准本就是模糊lip flap+旁白驱动规避口型，批3的prompt级嘴动+旁白优先已达漫剧惯例线；模型级口型需新provider或自托管GPU，且逐音素对齐是真人短剧标准而非漫剧标准，先验证批3效果再议",
+        "新增原生音画同步/多参考主体生视频provider(Vidu Q2-Q3 / Kling 3.0 Omni / PixVerse多关键帧 / Kling camera_control结构化运镜)——方向正确但属重provider集成(API申请/计费/协议适配/SSRF合规)，对既有存量成片零改善；调研结论明确指出声音与剪辑节奏的感知增益远高于新模型集成，待批1-4后期语言层兑现后按数据决定扩容",
+        "LoRA角色训练锁定——longterm；三视图+定妆照+多参考合成闭环尚未到一致性天花板，训练管线/计费/存储复杂度不匹配当前阶段，'能出一季'的需求出现时再评估",
+        "AniSora自托管区域mask生成——唯一为漫剧特化的开源模型但无公开API，需自建GPU推理节点与长期运维，团队负载不允许",
+        "深度图2.5D分层视差(DepthFlow / See-through PSD分层)——批4的zoompan已覆盖静帧动感约60%效果且零新依赖；完整分层视差需深度估计模型+新渲染管线，作为静帧路径远期升级蓝图存档，触发条件=批4上线后静帧镜头仍被反馈'廉价'",
+        "BGM按情绪分段切歌+鼓点卡点剪辑——卡点需引入librosa/aubio类beat detection音频分析栈；分段切歌涉及BackgroundMusic schema与预览双端改造，听感优先级排在SFX层与ducking(批1已含ducking默认开+按情绪自动选单曲)之后，批1上线后按用户反馈再评估",
+        "超分+补帧后处理链(Real-ESRGAN / RIFE)——显著增加导出时长与GPU依赖，当前差评集中在节奏与声音而非分辨率；清晰度红线先靠provider出片参数保障",
+        "多段长镜逐段导演节拍数组(video-director拆起承收三拍)——批2裁剪落地后镜头普遍缩到1-4s，>8s需拆段的镜头暴露面先天收缩，问题可能自然消解；保留segmented-video.ts既有string[]签名，待批2数据出来再决定",
+        "MovieAgent式幕场镜三级CoT重构解析层——审计认定解析层是全链路最专业一层，推倒重构风险大收益不确定；镜间光线/空间连贯先靠批5的prev/next光线锁定+既有场记闭环兜底",
+        "词级卡拉OK字幕——沿用既有负结论(需forced aligner非Whisper可达)，不重新提案",
+        "九宫格grid-prompt一致性锚补齐——审计定级low：九宫格是辅助预览路径非成片路径，角色漂移不进成片；优先级让位于以上批次"
+      ]
+    },
+    "researchSummaries": [
+      {
+        "key": "real-manju-craft",
+        "summary": "真实漫剧与我们的差距不在生成画质而在后期语言：行业规范=镜头0.5-6秒三档快切(单集15-30镜)、硬切+闪白转场(禁溶解)、震屏/速度线/冲击帧/拟声特效字符号层、每镜卡点音效+环境音(BGM -18dB)、字幕白字黑描边≤15字。画面动态不足靠声音与节奏弥补是行业共识，多数可用ffmpeg滤镜+LLM规划直接落地。",
+        "findings": [
+          {
+            "technique": "镜头时长三档制+高频快切",
+            "description": "行业规范：快剪镜头(动作/冲突)0.5-1秒、常规对话2-3秒、情绪特写4-6秒，单集(1-3分钟)15-30个镜头，每2-4秒切换一次景别(全景→中景→特写循环)。我们的视频段实测5-8秒(受Veo等模型固有时长限制)，这就是'不像漫剧'的第一根因。落地：LLM分镜层按三档规划时长，ffmpeg对生成的8秒视频段做裁切/一段切多镜(同段素材推近裁切当第二镜用)，而非一段视频=一个分镜。",
+            "whyItMatters": "漫剧观感的本质是剪辑密度：爆款完播率靠'秒秒留魂'的快切节奏，长镜头直接被识别为'AI味PPT'。这是所有来源交叉确认的最大差距点。",
+            "source": "https://www.wzbj1616.com/script_necessary_info/912",
+            "applicability": "direct"
+          },
+          {
+            "technique": "转场语言限定集：硬切为主+闪白/甩镜/急推",
+            "description": "规范明确：转场用硬切(主流)、闪白、模糊转场，禁用花哨特效；闪白/甩镜/Zoom转场时长0.3-0.8秒；回忆段落加黑白/朦胧滤镜。我们导出用xfade交叉溶解——恰是漫剧禁忌。ffmpeg实现：闪白=白帧1-3帧+fade；急推=zoompan在结尾0.3秒缩放150%-300%；甩镜=方向性运动模糊(tblend/boxblur+平移crop)；均配whoosh音效。",
+            "whyItMatters": "交叉溶解是漫剧最典型的'外行味'；闪白+音效卡点是抖音漫剧的标志性节奏语言。",
+            "source": "https://www.wzbj1616.com/script_necessary_info/912",
+            "applicability": "direct"
+          },
+          {
+            "technique": "震屏(camera shake)冲击惯例",
+            "description": "打击/爆炸/拍桌瞬间叠加0.5-2秒画面抖动：轻度频率2-4Hz幅度5-15px，重度(战斗)5-8Hz幅度20-50px，快速衰减，配合运动模糊。ffmpeg实现：放大画面105%后用crop x/y加随机/正弦偏移表达式(等价AE wiggle(5,10))。触发点由LLM在分镜JSON中标注(动作动词/情绪爆点)。",
+            "whyItMatters": "震屏是漫剧最高频的廉价冲击手段，'冲突加震动特效'已写进行业情绪特效惯例；我们的输出完全没有。",
+            "source": "https://www.premiumbeat.com/blog/15-free-camera-shake-presets/",
+            "applicability": "direct"
+          },
+          {
+            "technique": "冲击帧/黑白闪(impact frame)",
+            "description": "动作峰值处插入1-3帧高对比黑白/反相帧(源自中村丰式日式动画，一拳超人等)：提取该帧→去饱和→提对比/描边→径向模糊聚焦冲击点，序列=正常帧→白闪→反相高对比→正常。ffmpeg可用negate/hue=s=0/curves+zoompan对单帧处理后insert。用量克制：仅关键打击点，过用则失效。",
+            "whyItMatters": "1-3帧的高反差'视觉踢'是漫剧打斗/打脸名场面的力量感来源，纯视频生成模型不会自发产生。",
+            "source": "https://www.bilibili.com/read/cv10404621/",
+            "applicability": "direct"
+          },
+          {
+            "technique": "速度线/集中线叠加层",
+            "description": "预渲染一套带透明通道的放射速度线/集中线素材(AE做法：Fractal Noise高对比+Polar Coordinates极坐标+旋转动画；也可SVG/Canvas批量生成)。惯例：放射状=高速移动/惊愕聚焦，横竖线=冲击；透明度30-70%，时长0.3-1秒，中心对准主体。ffmpeg overlay叠加，LLM按情绪标签(惊/怒/爽)选素材。",
+            "whyItMatters": "速度线/集中线是漫画符号系统的核心词汇，是'保留漫画感'的关键——漫剧要的正是'会动的漫画'而非'廉价动画'。",
+            "source": "https://tips.clip-studio.com/zh-cn/articles/3221",
+            "applicability": "direct"
+          },
+          {
+            "technique": "拟声特效字/叫喊字卡('轰''砰')",
+            "description": "动作源头处弹出大号变形拟声字：粗重动态字体、多层描边+阴影+发光、缩放旋转弹出动画(0.2-0.5秒由大到位或爆炸式)，方向跟随运动方向，与打击音效严格同帧；情绪花字惯例=震惊加闪光、甜蜜加光斑爱心。落地：LLM在分镜产出sfxText字段(字+位置+情绪)，用预渲染PNG序列/ASS高级标签(\\t缩放动画+\\bord描边)叠加。",
+            "whyItMatters": "特效字是漫剧区别于普通短视频的最显眼视觉签名，同时承担'听觉可视化'功能，弥补有限动画的动作缺失。",
+            "source": "https://tips.clip-studio.com/zh-cn/articles/3992",
+            "applicability": "direct"
+          },
+          {
+            "technique": "音效密度：每镜卡点SFX+环境音层",
+            "description": "行业结论：AI视频'塑料感'的根因是只有BGM没有环境音。惯例：每个镜头至少一个卡点音效——转场whoosh、打击hit、情绪(心跳/呼吸)、场景(脚步/门响/风雨/蝉鸣)；音量层级配音>BGM>环境音，BGM压到-18~-20dB，人声-6~-3dB。落地：建CC0音效库(类似已有BGM库)，LLM按分镜动作/转场类型输出sfx标签，ffmpeg amix按dB规范混音。",
+            "whyItMatters": "漫剧工艺的明文共识是'画面动态不足由声音设计弥补'——音效层是成本最低、区分度最高的专业感来源，我们目前只有TTS+BGM两层。",
+            "source": "https://www.wzbj1616.com/script_necessary_info/912",
+            "applicability": "direct"
+          },
+          {
+            "technique": "有限动画口型惯例(lip flap)",
+            "description": "漫剧不做逐音素对齐：说话=2-4帧张嘴闭嘴简单循环(lip flap)叠加在静止头部上，配音停顿时持帧；表演靠眉眼夸张+头部微动驱动而非嘴型精度('经济嘴型')。对我们：给对白镜头的视频生成prompt明确'mouth opening and closing naturally while speaking, subtle head movement, expressive eyes'，且不必追求音画嘴型对齐——行业本来就不对齐。",
+            "whyItMatters": "我们可能在为'嘴型不准'焦虑，但真实漫剧的标准就是模糊lip flap+表情驱动；把生成预算花在夸张表情而非口型是正确取舍。",
+            "source": "https://www.rmcad.edu/blog/lip-sync-like-a-pro-dialogue-animation-performance/",
+            "applicability": "direct"
+          },
+          {
+            "technique": "待机微动：呼吸/发丝/眨眼循环",
+            "description": "静态感镜头靠三件套救活：呼吸(胸肩2-4秒周期几像素起伏)、发丝飘动、随机眨眼(3-5帧)。对话/叙事镜头的视频生成prompt应指定'subtle idle motion: gentle breathing, hair swaying slightly, occasional blink, otherwise still'，替代大幅动作(大动作反而放大AI伪影)；纯静帧兜底时用zoompan慢推(2.5D Ken Burns)制造伪动感。",
+            "whyItMatters": "漫剧的'活'不来自大动作而来自微动；对话镜头要的是稳定+微动，我们让模型自由发挥反而产出漂移和肢体崩坏。",
+            "source": "https://tips.clip-studio.com/en-us/articles/10861",
+            "applicability": "direct"
+          },
+          {
+            "technique": "运镜-情绪匹配表+景别配比",
+            "description": "规范给出确定性映射：紧张=快切+跟拍、伤感=慢推+固定、震撼=拉远+全景；景别配比中景(对话)占40%、特写在关键情绪点必用、远景每集仅1-2个；基础运镜限定推/拉/摇/跟/固定，禁复杂旋转。可直接编码进分镜LLM的system prompt作硬约束(我们已有13值运镜枚举，缺的是这套情绪映射与配比校验)。",
+            "whyItMatters": "专业感来自运镜的'纪律性'而非丰富性——AI自由选择运镜会产生情绪错配，规则表让LLM导演有行业默认值可依。",
+            "source": "https://www.wzbj1616.com/script_necessary_info/912",
+            "applicability": "direct"
+          },
+          {
+            "technique": "节奏结构数字模板：3秒炸点/15秒小高潮/3秒定格/5秒钩子",
+            "description": "红果爆款量化拆解：0-3秒直接上最强冲突名场面(跳过一切铺垫)、10秒内立住角色立场、每15秒一个小高潮、情绪爆点镜头3秒定格(唯一允许慢放的位置)、结尾5秒悬念钩子、每集≥2-3次有效反转；片头3秒(标题+角色名)片尾5秒(下集预告)。单集台词500-800字对应1-3分钟。落地为剧本解析LLM的结构校验器：检查产出分镜是否满足这些时间锚点。",
+            "whyItMatters": "我们已有爆款方法论prompt，但缺可校验的数字节拍；爆款平台数据显示达标剧完播率95%，这是可机检的结构标准。",
+            "source": "https://www.huxiu.com/article/2360429.html",
+            "applicability": "direct"
+          },
+          {
+            "technique": "字幕/台词硬规范",
+            "description": "竖屏9:16惯例：台词36号无衬线(思源黑体)白字+黑描边(对比度≥4.5:1)、居中、单行≤15字、换行不拆词、停留匹配语速；重点台词放大+变色作强调(花字化)；台词写作端同步约束单句≤15字短句化、心理描写转为画面。我们ASS管线可直接对齐字号/描边/行长规范，并让LLM在台词字段标'重点'触发放大变色样式。",
+            "whyItMatters": "字幕是竖屏漫剧观看的主通道(大量用户静音刷)，不合规范的字幕样式是最容易被识破的业余信号。",
+            "source": "https://www.wzbj1616.com/script_necessary_info/912",
+            "applicability": "direct"
+          },
+          {
+            "technique": "TTS语速1.1-1.2x+禁止画面变速",
+            "description": "配音惯例：1.1-1.2倍速适配漫剧快节奏，旁白少用且音量低于台词；关键教训：漫剧画面严禁变速处理——静态画面切换型内容减速会呈现丢帧式卡顿(头部漫剧工具专门做了'配音变速、画面不变速'方案)。落地：TTS speed参数默认1.1-1.2，时长对齐一律动TTS不动视频速率。",
+            "whyItMatters": "若我们用视频变速去凑音画时长会直接产生漫剧特有的卡顿伪影；正确做法是反向的。",
+            "source": "https://zhuanlan.zhihu.com/p/2027042492122501648",
+            "applicability": "direct"
+          },
+          {
+            "technique": "有限动画成本折衷认知：动作预算分级",
+            "description": "行业定位：AI漫剧只需达到传统二维动画六七成完成度，动作有限'并不致命'；传统有限动画本来就是一拍三(8张/秒)、对话镜头近乎静止、只有动作场景上一拍一。启示=生成预算分级：对话/叙事镜头用低动态(微动即可，甚至静帧+zoompan)，把高动态视频生成集中在每集2-3个情绪爆点镜头。这同时降低成本和伪影率。",
+            "whyItMatters": "我们可能在'所有镜头都追求全动态'上浪费生成费并引入漂移；行业成功产品证明观众对漫剧的动态期望本来就低，节奏和声音才是体验主体。",
+            "source": "https://news.qq.com/rain/a/20251205A02MKK00",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "2.5D视差分层(前中后景异速)",
+            "description": "经典motion comic核心工艺：画面拆前景/中景/背景层，虚拟摄像机运动时前景快(Z轴近)、背景慢，产生纵深感；现可用深度图自动化(depth估计→分层→ffmpeg/着色器视差平移)。短期近似：zoompan对全图做带缓动的推拉已可覆盖60%效果；完整分层视差需接入depth模型+分层渲染管线。",
+            "whyItMatters": "视差是'静止画面看起来贵'的核心手法，是纯zoompan平移与专业动态漫的观感分水岭；适合作为静帧兜底路径的升级。",
+            "source": "https://botnw.com/blog/2019/4/8/drawn-to-animate-dpb34-tz2d6",
+            "applicability": "longterm"
+          }
+        ]
+      },
+      {
+        "key": "ai-competitors",
+        "summary": "竞品差距集中在五层：①对白镜头缺对口型；②声音只有TTS单轨、缺动作/环境音效层；③镜内运动控制（多关键帧一镜到底、运动笔刷、模型原生多图参考@主体）；④后期质感统一pass（缓推呼吸感、统一调色、极简转场、超分补帧）；⑤红果/抖音2026年4月新规把角色一致性、台词清晰度、备案变成硬门槛。前两层+质感pass可在现有ffmpeg/prompt管线直接落地。",
+        "findings": [
+          {
+            "technique": "对口型（Lip Sync）",
+            "description": "即梦数字人模式：上传人物图+音频（或文本转语音）生成唇形精确匹配、表情自然的说话视频；可灵2.6+原生lip sync支持自定义视频、多人画面指定说话人(face_id)和开始时间；教程界普遍用即梦/可灵内置对口型或开源SadTalker本地渲染。具体做法：有台词的分镜先生成TTS音频，再把该镜视频段+音频送lip sync API/模型，替换原视频段后进ffmpeg合成。",
+            "whyItMatters": "对白镜头人物嘴不动或乱动是'AI假感'第一来源；红果漫剧教程把'台词镜头匹配口型'列为标准流程环节，是专业漫剧与PPT式幻灯片输出的最直观分界线。",
+            "source": "https://ai-bot.cn/jimeng-ai-digital-human/ ; https://xix.ai/ainews/kling-ai-lip-sync-comprehensive-guide-realistic-ai-dubbing.html ; https://gitcode.csdn.net/6a28c005662f9a54cb7be657.html",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "四层声音设计（配音/动作音效/环境音/BGM）",
+            "description": "剪映2026版AI音效可理解视频内容自动匹配电影级音效；创作者课程把'声音克隆+角色配音+精准对口型+氛围音效搭配'作为完整音频板块，分镜脚本模板要求每镜标注'音效/配音备注（旁白台词、BGM风格、环境音效）'。可落地做法：解析层让LLM为每镜输出SFX事件标签（脚步/刀剑/爆炸/雨声等）+环境音床，映射到本地CC0音效库，ffmpeg按时间轴混音成独立音效轨。",
+            "whyItMatters": "我们目前只有TTS+BGM两轨；专业漫剧的沉浸感一半来自动作音效和环境音床，缺这层就是'无声电影配旁白'的廉价感。",
+            "source": "https://www.capcut.cn/ ; https://zcjun.com/47278.html ; https://juejin.cn/post/7626003597823410202",
+            "applicability": "direct"
+          },
+          {
+            "technique": "多关键帧一镜到底（智能多帧）",
+            "description": "即梦【智能多帧】支持一次上传最多10张关键帧图，AI自动补全过渡画面生成连贯长镜头（每2张图≈5秒，消耗10积分），配套提示词写法是让LLM先生成'5个连续性首尾帧画面提示词+运镜提示词'。区别于我们的两帧首尾衔接：一个镜头内可规划N个中间关键帧，动作弧线可控。",
+            "whyItMatters": "只靠首尾两帧，中间大段动作是模型自由发挥，动作断层和运镜生硬是漫剧连贯性差的主因；多关键帧把'镜内演出'变成可规划资产。",
+            "source": "https://index.zshipu.com/ai/post/202510/即梦智能多帧制作叙事动画详细实操教程来了/ ; https://www.hlwc8.com/2026/04/29/356389/",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "模型原生多图参考/元素库（取代拼图合成）",
+            "description": "可灵元素库：每个主体上传1-7张多角度图/短视频建成持久'元素'，prompt里@element直接引用，还可绑定音色；Vidu Q2参考生视频支持最多7张参考（角色/场景/道具分开），prompt用@标记主体（'@角色1挥剑攻击@角色2'），动漫风格一致性行业领先；海螺S2V-01单图锚定人物身份。这是把'一次生成多参考槽位'交给模型原生能力，而非我们现在的sharp横向拼合成图喂edits。",
+            "whyItMatters": "拼合成图是workaround，多角色互动镜头仍易崩脸；原生多参考槽位（角色图和场景锚图分槽传入）是2025-2026所有头部模型的共同演进方向，也是多角色一致性上限所在。",
+            "source": "https://klingai.com/quickstart/klingai-element-library-3-user-guide ; https://www.vidu.com/blog/create-ai-animation-3-characters-1-scene-vidu-multi-reference ; https://www.minimaxi.com/news/s2v-01发布",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "后期质感统一Pass（呼吸感缓推+统一调色+极简转场）",
+            "description": "创作者教程的固定套路：①剪映关键帧对每镜再叠一层缓慢推拉（scale 100%→110%）制造'呼吸感'；②全片统一调色/LUT，掩盖AI生成的局部闪烁并造胶片质感；③转场只用0.3秒淡入淡出，花哨转场（闪白/旋转）会拉低漫剧质感；④生图固定seed统一画风底色。ffmpeg可直接实现：zoompan慢推、lut3d全片调色、xfade只留fade。",
+            "whyItMatters": "这是零模型成本、纯后期就能拉开的档次差：AI片段各自为政的色调和静止画面是'素材拼接感'根源，统一质感pass让成片看起来像一部剧而非片段集。",
+            "source": "https://zhuanlan.zhihu.com/p/1990797931272491458 ; https://gitcode.csdn.net/6a28c005662f9a54cb7be657.html",
+            "applicability": "direct"
+          },
+          {
+            "technique": "运镜克制原则+括号运镜指令",
+            "description": "漫剧教程明确：固定镜头最稳定，提升质感只加缓慢推镜/轻微横移，禁止快速推拉摇移；海螺Director模式用[Push in, Pan right]括号语法组合15种基础运镜且显著降低运动随机性。落地：在video prompt构建器给运镜枚举加'速度修饰+组合规则'，并按镜头情绪默认选保守运镜（对白镜=固定或缓推），激烈运镜仅留给动作高潮镜。",
+            "whyItMatters": "AI视频运镜失控（乱摇乱转）比没运镜更假；专业漫剧90%镜头是克制运镜，我们已有13值运镜枚举但缺'什么时候不该动'的克制策略。",
+            "source": "https://gitcode.csdn.net/6a28c005662f9a54cb7be657.html ; https://www.escapism.ai/p/hailuo-ai-director-mode",
+            "applicability": "direct"
+          },
+          {
+            "technique": "红果/抖音2026漫剧审核新规=产品质量红线",
+            "description": "红果联合抖音发布《动画微短剧（漫剧）内容创作建议》，2026-04-07起大幅提升审核标准：过稿率降至约20%，单账户日上传限30部，一季度下架低质漫剧数千部；实操避坑清单=画面清晰、台词清晰、剧本逻辑、角色一致性（发型/服装/表情跨镜不变）、单集≤3分钟、需备案；分成系数仿真人60/3D动画50/2D动画40，S+级保底75万+最高95%分成；流量倾斜五类题材（言情/古风玄幻/都市轻悬疑/家庭成长/校园甜宠）。可把这份清单编进现有审片报告（producer review）作硬门禁。",
+            "whyItMatters": "平台已从'为量买单'转向'只为质付费'，这份官方清单就是'什么算合格漫剧'的权威定义，产品的审片Agent应以此为验收标准而非自定标准。",
+            "source": "http://m.tvoao.com/news/223779.html ; https://www.tahou.com/article/209333618746456069 ; https://news.qq.com/rain/a/20260511A08RTT00",
+            "applicability": "direct"
+          },
+          {
+            "technique": "原生音画同步生成（16s直出）",
+            "description": "Vidu Q3提供16秒连续生成+原生多轨音频（对话+音效+音乐）音画直出；可灵3.0 Omni统一模型原生音画同步、智能分镜、15s+；即梦Seedance 2.0支持文/图/音/视四模态输入，音频可作为生成条件。这类模型把'视频生成+TTS+混音'合并为一步，唇形、动作节拍与声音天然对齐。",
+            "whyItMatters": "分离式TTS+ffmpeg混音永远存在音画节拍错位；原生音画直出是消灭'配音贴上去'感觉的终极路径，也是2026各家模型的主攻方向。",
+            "source": "https://www.atlascloud.ai/blog/ai-updates/vidu-q3-ai-video-generator-now-on-atlas-cloud-create-16s-cinematic-with-native-audio-sync ; https://www.klingai.com/dev/model-release/video-3-omni ; https://seed.bytedance.com/zh/seedance2_0",
+            "applicability": "longterm"
+          },
+          {
+            "technique": "运动笔刷/局部运动轨迹控制",
+            "description": "可灵Motion Brush：在参考图上涂抹区域并画运动轨迹（方向/强度/路径），最多6组独立运动元素，其余区域静止；API侧暴露masks+trajectories参数。适合动态漫典型镜头：人物静立只有头发/披风/雨丝在动，或指定道具沿轨迹移动。",
+            "whyItMatters": "动态漫的'有限动画'美学正是'大部分静止+局部精准动'，全帧自由生成反而容易乱动穿帮；轨迹级控制是把导演意图传给模型的最细通道。",
+            "source": "https://prompt-architects.com/blog/29-kling-motion-brush-prompts ; https://tessl.io/registry/skills/github/jeremylongshore/claude-code-plugins-plus-skills/klingai-image-to-video",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "超分+补帧后处理链",
+            "description": "Vidu生成后一键智能超清（540p/720p→1080p细节增强不失真）；剪映AI补帧一键把素材提升到50/60fps增强流畅度。自建等价物：Real-ESRGAN(anime模型)超分+RIFE插帧，作为导出前的可选ffmpeg前置步骤。",
+            "whyItMatters": "AI视频原生输出多为720p/24fps以下且有压缩糊感，红果新规明确'避免模糊画面'；超分+补帧是最便宜的画质档次提升手段。",
+            "source": "https://ai-bot.cn/vidu-q3/ ; https://www.capcut.cn/ ; https://www.bilibili.com/opus/990560277569208322",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "分层视差动态漫（PSD图层分离+2.5D运镜）",
+            "description": "专业动态漫底层做法：静帧经See-through（SIGGRAPH 2026，ComfyUI插件jtydhr88/ComfyUI-See-through）自动拆约24个PSD图层（前发/后发/眼/嘴/衣物）+深度排序+遮挡补全，导入Live2D做局部绑定，运镜时背景慢移、前景快动制造视差。轻量版可先做：单帧深度估计→前景/背景两层→ffmpeg分层zoompan不同速度合成2.5D视差推镜。",
+            "whyItMatters": "真正的'动态漫'质感来自分层视差+有限动画，不是整帧视频生成；这解释了为何头部漫剧镜头稳定不崩而纯图生视频容易糊变——是美学范式差异而非单纯模型差距。",
+            "source": "https://civitai.com/models/2620019/see-throughor-auto-split-anime-to-psd-layers-live2d-vtuber-prep ; https://note.com/ai_driven/n/nafe907059646",
+            "applicability": "longterm"
+          },
+          {
+            "technique": "角色档案+@引用的逐镜编排范式",
+            "description": "即梦5.0漫剧流程：剧本拆为≤15秒单镜头，为每角色建专属'角色档案'，每镜提示词用@引用角色+@引用配音音频+场景参考图，生成后支持二次编辑、时长延长、片段拼接；Seedance长视频工作流补充：每段参考上一段成品写'连续动作描述'，连续延长3次以上质量衰减需'重启'，动作衔接难点用B-roll遮盖。",
+            "whyItMatters": "把'角色/音频/场景'变成可@引用的一等资产是竞品编辑器的交互范式，比自由文本prompt更防漂移；'延长衰减+B-roll遮接缝'是工业界处理长叙事的实战经验。",
+            "source": "https://blog.csdn.net/2501_92061023/article/details/160987420 ; https://adg.csdn.net/69a2877254b52172bc5e15b2.html",
+            "applicability": "direct"
+          },
+          {
+            "technique": "Agent一键成片模式（全自动规划+批量生成）",
+            "description": "即梦Agent模式：输入剧本或需求描述，智能体自动规划剧情、生成分镜、自主选择技能（生图/多帧/视频/配音）并批量产出连贯画面；腾讯云AI动态漫方案覆盖剧本→角色库→分镜→配音→视频→增强全链路，宣称成本低至$15/分钟。我们已有workflow引擎，差距在'技能自主选择'（按镜头类型自动决定用图生视频/多帧/对口型哪条路径）与失败自动重试重规划。",
+            "whyItMatters": "竞品把'每镜该走哪条生成路径'的决策也交给Agent（对白镜走口型路径、动作镜走多帧路径），而固定单一路径的管线对所有镜头一视同仁，正是产出均质平庸的原因之一。",
+            "source": "https://www.chooseai.net/news/2464/ ; https://x.com/TencentAI_News/status/2026249020096872757",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "LoRA角色锁定（专业级一致性）",
+            "description": "触手AI（acgnai.art）支持上传角色参考图训练个性化LoRA+ControlNet结构控制，实现系列IP级角色稳定，被评为三工具中角色一致性最强；极虎漫剪走本地SD批量绘图+单镜精绘+导出剪映草稿的路线。对我们：接SiliconFlow/Replicate的LoRA训练API，为长期系列的主角训练专属LoRA。",
+            "whyItMatters": "参考图注入的一致性有天花板，多集系列的主角跨百镜稳定最终要靠权重级绑定（LoRA）；这是'能出一集'和'能出一季'的差别。",
+            "source": "https://www.jindage.com/archives/4688 ; https://hbzgn.com/archives/6534.html",
+            "applicability": "longterm"
+          }
+        ]
+      },
+      {
+        "key": "academic-opensource",
+        "summary": "调研2025-26学术/开源漫剧管线：最大差距=对白无口型、无音效层、全靠视频生成而非2.5D运镜混排、运镜未按API可靠性分级。可直接落地：MMAudio/Kling原生音效补foley、Kling口型API或自托管MuseTalk、Vidu多参考主体到视频、DepthFlow静帧视差、SkyCaptioner式结构化镜头语言、ffmpeg光流检测废镜头。",
+        "findings": [
+          {
+            "technique": "对白镜头口型驱动（MuseTalk/LatentSync/Kling对口型）",
+            "description": "真漫剧对白镜头人物嘴部随台词开合；我们的管线视频生成与TTS完全解耦，人物说话不动嘴。可行路径：①Kling API有lip-sync（对口型）端点，对已生成视频段+TTS音频直接驱动口型，走现有provider体系；②自托管腾讯MuseTalk（实时latent inpainting，只重绘嘴部256x256区域、保留画风，社区证实对2D/卡通脸可用）或字节LatentSync（demo含动漫片段，ComfyUI生态成熟），输入=分镜视频+对应TTS mp3，输出替换原段。建议只对『近景/中景+有台词』的分镜启用，由LLM场记标记需口型的镜头。",
+            "whyItMatters": "『说话不动嘴』是观众一眼识别AI漫剧劣质感的最强信号之一；抖音/红果头部动态漫全部有口型。这是我们与真漫剧最大的单点差距。",
+            "source": "https://github.com/TMElyralab/MuseTalk ; https://github.com/bytedance/LatentSync ; Kling API lip-sync",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "视频转音效自动foley层（MMAudio/Kling原生音频）",
+            "description": "我们音轨只有TTS+BGM，缺环境音和动作音效。①MMAudio（V2）在Replicate有现成API（我们已接Replicate协议）：上传每段分镜视频，~5秒生成8秒与画面动作时间对齐的SFX/环境音（脚步、雨声、开门），导出时ffmpeg以-15dB左右混入现有音轨；②Kling 2.6+/3.0原生音频：生成视频时直接带同步SFX/环境声，一次生成省一步；③FoleyCrafter（open-mmlab）开源可自托管，支持文本条件控制音效内容。落地=video-synthesis.ts导出链路加一个可选『自动音效』轨。",
+            "whyItMatters": "专业漫剧声音设计=对白+音效+环境声+BGM四层；只有对白+BGM的成片『干』且廉价感明显。音效层是成本最低、感知提升最大的改造之一。",
+            "source": "https://replicate.com/zsxkib/mmaudio ; https://github.com/open-mmlab/foleycrafter ; https://kling.ai/quickstart/klingai-video-26-audio-user-guide",
+            "applicability": "direct"
+          },
+          {
+            "technique": "2.5D静帧视差运镜混排（DepthFlow/LayerAnimate思路）",
+            "description": "真动态漫并非每个镜头都是全动画：大量对白/静场镜头用的是『静止画+深度视差运镜』（2.5D camera-on-still），只在动作高潮用真视频。DepthFlow（BrokenSource，开源无水印，DepthAnything估深度+GLSL光线步进渲染，Python可脚本化批量、直接管道给ffmpeg）可把我们已有的分镜关键帧图变成带Zoom/Dolly/Circle视差的视频段。落地=分镜增加『渲染模式』字段（video-gen | 2.5D视差 | 静帧zoompan），LLM导演按节拍分配：对白/铺垫走2.5D，动作/转折走视频生成。ICCV2025 LayerAnimate与2026单图分层论文（arXiv:2602.03749）印证分层+视差是漫剧工业标准做法。",
+            "whyItMatters": "①成本骤降（视频API最贵）；②节奏感更像真漫剧——全片每镜都在『游泳式』AI运动反而假，静动对比才是专业感来源；③2.5D镜头零身份漂移，一致性天然完美。",
+            "source": "https://github.com/BrokenSource/DepthFlow ; https://openaccess.thecvf.com/content/ICCV2025/papers/Yang_LayerAnimate_Layer-level_Control_for_Animation_ICCV_2025_paper.pdf ; https://arxiv.org/html/2602.03749v1",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "多参考主体到视频（Vidu Q2 reference-to-video / Veo3.1 ingredients / Kling多元素）",
+            "description": "我们目前靠『多角色定妆图sharp拼合成图→图生视频』间接保一致性。2025年商用API已原生支持多参考主体到视频：Vidu Q1/Q2最多7张参考图（角色+道具+场景锚图分别喂入，多实体一致性语义组合），且Vidu是2D动漫风最强的商用模型；Veo 3.1 'ingredients to video'支持3张参考图；Kling支持主体锁定。落地=新增Vidu provider，把角色圣经定妆图+场景锚图直接作为参考输入视频生成，替代或补充现有拼图方案；SkyReels-A2（arXiv:2504.02436）论文验证了该'elements-to-video'范式。",
+            "whyItMatters": "图生视频只有一帧信息，长镜头后半段角色必漂移；多参考主体到视频让视频模型全程持有角色/场景身份，是目前不训练模型条件下一致性上限最高的路径，且Vidu动漫画风匹配度高于Veo/Kling。",
+            "source": "https://arxiv.org/abs/2504.02436 ; https://platform.vidu.com/ ; https://developers.googleblog.com/introducing-veo-3-1-and-new-creative-capabilities-in-the-gemini-api/",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "运镜可靠性分级+Kling camera_control结构化参数",
+            "description": "研究界CameraCtrl/MotionCtrl/ReCamMaster证明精确轨迹需模型级条件注入，但API侧有可靠性规律：单轴慢速运镜（缓推、横摇、竖摇、锁定机位+主体动）高可靠；基础跟拍/轻弧线中等；多轴复合/快速滚转在动漫画风下易翻车（线条崩坏、脸部漂移）。且Kling API暴露结构化camera_control参数（pan/tilt/roll/zoom各-10~10+预设组合），比纯文字prompt可靠。落地：①给现有13值运镜枚举标注可靠性等级，video-director选运镜时约束『每镜一个主导运镜』、动作镜头才允许复合；②Kling路径把枚举映射为camera_control JSON而非文字。",
+            "whyItMatters": "运镜翻车（画面扭曲、角色变形）是成片专业感崩塌主因；漫剧工业实践本就是保守运镜为主。分级约束能把废片率显著降下来，等于免费提升良品率。",
+            "source": "https://docs.comfy.org/built-in-nodes/partner-node/video/kwai_vgi/kling-camera-controls ; https://arxiv.org/abs/2503.11647 (ReCamMaster) ; https://github.com/hehao13/CameraCtrl",
+            "applicability": "direct"
+          },
+          {
+            "technique": "SkyCaptioner式电影语法结构化镜头描述",
+            "description": "SkyReels-V2专门训练了SkyCaptioner-V1解决通用LLM写不好电影语法的问题：镜头描述结构化为{景别(特写/中/远), 机位角度(俯/仰/平), 主体画面位置, 运镜, 表情/演技, 光线/氛围}固定字段。我们解析层已有运镜枚举，但缺『机位角度』『主体画面位置』『表情演技指令』字段。落地=drama-script.ts的分镜JSON schema补这三个字段（各给受控枚举），buildVideoScenePrompt按『运镜+景别+角度开头（API对前置token权重高）→主体→表演→光线』的顺序拼装。",
+            "whyItMatters": "Veo/Kling对专业电影术语响应远强于自然描述；角度和构图字段缺失导致我们所有镜头都是平视居中——这正是AI片『呆板感』的来源，真漫剧靠俯仰角和构图变化制造情绪。",
+            "source": "https://huggingface.co/Skywork/SkyCaptioner-V1 ; https://arxiv.org/abs/2504.13074",
+            "applicability": "direct"
+          },
+          {
+            "technique": "MovieAgent层级CoT分镜规划+前镜递归条件",
+            "description": "MovieAgent（arXiv:2503.07314）核心可移植点：①层级分解——先『幕→场→镜』三级CoT而非一步从文本到分镜列表，每级只做本级决策（幕定情绪弧、场定空间/光线、镜定机位），显著减少镜头间逻辑断裂；②递归条件——生成第N镜prompt时把第N-1镜的输出（构图/光线/角色姿态收尾状态）作为上下文注入，显式要求『承接上镜结尾状态』。我们的解析是单次LLM调用直出分镜，可改为两段：先出场级规划（含每场光线/氛围锁定），再按场批量出镜级细节。",
+            "whyItMatters": "单次直出的分镜列表常出现相邻镜头光线跳变、空间逻辑矛盾（人物瞬移）；层级规划+递归条件是不训练模型就能获得镜头间连贯性的最有效prompt结构。",
+            "source": "https://arxiv.org/abs/2503.07314 ; https://arxiv.org/abs/2503.05242 (MM-StoryAgent)",
+            "applicability": "direct"
+          },
+          {
+            "technique": "AutoStudio式多主体布局规划（LLM出bounding box）",
+            "description": "AutoStudio用『主体管理agent+布局agent』让LLM先输出各角色在画面中的bounding box/相对位置，再转成生成指令。无需其P2P注意力机制也能移植弱化版：多角色分镜的图像prompt中由LLM显式声明空间布局（'角色A占画面左1/3面向右，角色B右1/3面向左，中间留白'），并在对话正反打镜头中锁定180度轴线规则（越轴是AI片常见错误）。落地=图像prompt构建器为SceneCharacter≥2的镜头追加布局描述段。",
+            "whyItMatters": "多角色镜头角色挤在中央、朝向随机、正反打越轴，是我们输出'不像分镜'的重要原因；显式布局声明是纯prompt级、零成本的修复。",
+            "source": "https://github.com/donahowe/AutoStudio ; https://arxiv.org/abs/2311.11243 (AutoStory布局思路)",
+            "applicability": "direct"
+          },
+          {
+            "technique": "ffmpeg光流/运动量检测废镜头自动重试（借AniSora数据管线思路）",
+            "description": "AniSora清洗1000万训练片段用的过滤规则可反向用作我们的成片质检：①光流分数过低=近静止『死镜头』（图生视频常见失败模式：画面几乎不动）；②光流分数异常高=闪烁/崩坏。落地=生成回写前用ffmpeg跑`vf signalstats`或freezedetect/scene检测+相邻帧差分均值，低于阈值自动判废并带『增强运动描述』重试一次，与现有VLM择优互补（ffmpeg检测零成本、先行粗筛，VLM只评过筛候选）。",
+            "whyItMatters": "『画面几乎不动的图生视频』是廉价AI漫剧最常见的失败形态，观众感知极强；机器可测且免费，不该漏到成片。",
+            "source": "https://arxiv.org/pdf/2412.10255.pdf (AniSora数据管线) ; https://github.com/bilibili/Index-anisora",
+            "applicability": "direct"
+          },
+          {
+            "technique": "动态漫效果模式库（DancingBoard 95部真实漫剧动作模式）",
+            "description": "DancingBoard（arXiv:2503.09061，CHI系）从95部真实动态漫画中提取了动作/转场模式库：全屏化转场（抛弃分格gutters）、按节拍类型套用预制动效模式（震动=冲击、速度线滑入=动作、缓推=情绪）。移植：不引其工具，而是把『节拍类型→视觉效果』映射固化为我们自己的规则表（LLM场记输出beatType，导出层ffmpeg按表施加shake/flash/速度线贴图/白闪转场），与现有sceneEffects体系合并。",
+            "whyItMatters": "真漫剧的专业感很大程度来自这些程式化动效语汇（白闪、震屏、速度线）；它们是可枚举、可ffmpeg实现的，缺失时成片像'幻灯片+视频'而非漫剧。",
+            "source": "https://arxiv.org/html/2503.09061v1",
+            "applicability": "direct"
+          },
+          {
+            "technique": "图像关键帧改用原生多参考编辑模型（Seedream 4.0/Nano Banana/FLUX Kontext）",
+            "description": "2025-26保角色一致性的主流已从StoryDiffusion式注意力共享转向『原生多图参考的统一编辑模型』：Seedream 4.0（火山引擎API，多图参考一致性专项优化、2K直出）、Nano Banana/Gemini图像（我们已有gemini协议，多角色自然特征强）、FLUX Kontext（Replicate/Together可调）。相比我们现在的『sharp拼合成图→OpenAI images/edits』hack，这些模型原生接受多张独立参考图+文本，不会把参考融合重画。落地=图像provider层新增Seedream/Kontext路由，多角色镜头优先走原生多参考模型，拼图方案降级为兜底。",
+            "whyItMatters": "images/edits融合重画是我们已知的多角色不像根因，拼图只是缓解；原生多参考模型从机制上消除该问题，且画质上限更高。",
+            "source": "https://seed.bytedance.com/en/seedream4_0 ; https://www.together.ai/blog/flux-1-kontext ; https://replicate.com/blog/generate-consistent-characters",
+            "applicability": "direct"
+          },
+          {
+            "technique": "PixVerse多关键帧转场+动漫预设（备选provider）",
+            "description": "PixVerse V5.6+ API暴露多帧控制（一次最多7个关键帧的multi-transition序列生成）、动漫/漫画风格预设、镜头控制、口型。多关键帧意味着可把『本镜关键帧+尾帧+下镜关键帧』一次喂入生成带转场的连续段，替代现在的逐段生成+xfade拼接。作为Vidu之外的第二个动漫特化备选。",
+            "whyItMatters": "逐段生成+ffmpeg转场的接缝是成片明显破绽；模型内多关键帧转场让镜头衔接由模型完成，接缝自然度高一档。",
+            "source": "https://pixverse.ai/en/blog/ai-video-api-guide-text-to-video-image-to-video-solutions ; https://www.mindstudio.ai/blog/what-is-pixverse-v5-6-video",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "AniSora自托管（时空mask关键帧插值/区域运动控制）",
+            "description": "B站Index-AniSora（Apache 2.0，V3支持12GB VRAM推理）核心是统一时空mask条件：首/中/尾帧任意组合插值生成、区域mask控制（只动说话角色的嘴/手臂，背景锁死）、线稿引导风格迁移。B站内部已用于漫画→3-5分钟动态漫量产。无公开API，需自托管GPU。对我们是远期选项：若自建GPU推理节点，『区域mask只动局部』正是漫剧最缺的精细控制，商用API均不提供。",
+            "whyItMatters": "这是唯一为动漫/漫剧专门训练并已在B站漫剧量产验证的开源模型；其区域mask能力（背景完全静止、仅角色局部动）是真漫剧质感的核心，商用API做不到。",
+            "source": "https://github.com/bilibili/Index-anisora ; https://arxiv.org/abs/2412.10255",
+            "applicability": "longterm"
+          }
+        ]
+      },
+      {
+        "key": "narrative-editing",
+        "summary": "专业漫剧与AI拼片的感知差距集中在可量化的声画节奏规则：3秒冲突钩子+30秒反转+60秒情绪爆点+悬崖式结尾；旁白驱动叙事(每分钟2-4句台词、单镜头2-4秒)；每转场必加whoosh、情绪点前置\"咚\"、动作帧精确对齐音效；BGM人声闪避-12~-20dB且反转前突然静音换歌；TTS按情绪标注驱动气息语速；字幕白字黑描边底部安全区、花字每集1-3处。多数规则可直接编码进LLM prompt与ffmpeg管线。",
+        "findings": [
+          {
+            "technique": "单集三幕黄金结构（3秒/30秒/60秒节奏网格）",
+            "description": "爆款短剧单集固定节奏：0-3秒必须抛出极端冲突（退婚/身份曝光/危机，一句台词或一个画面直接说明冲突，禁止铺垫）；3-30秒建立主角状态+核心冲突；之后每30秒一个小反转、每60秒一个情绪爆点（爽点/虐点，常配耳光+玻璃碎裂音效）；每10秒至少一个信息点或小转折；结尾在冲突最高点/动作一半/话说一半处戛然而止形成下集钩子（蔡格尼克未完成效应）。反转密度：每集1个小反转、每3集1个大反转。",
+            "whyItMatters": "观众判断'专业'的第一标准就是节奏密度——AI产出常按均匀线性叙事推进，缺少这套按秒计的情绪网格，观众10秒内感觉'没事发生'就划走。这是完播率>80%的行业硬指标背后的结构。",
+            "source": "https://www.163.com/dy/article/KEOSDR6U0537QCFY.html / https://www.dianyingjie.com.cn/2025/0918/396940.shtml / https://www.douban.com/note/877132376",
+            "applicability": "direct"
+          },
+          {
+            "technique": "结尾钩子(cliffhanger)的三种具体写法",
+            "description": "结尾钩子写法可枚举：①动作切断——挥拳/开门/掀盖头进行到一半黑屏；②台词切断——关键信息说到一半（'其实你的真实身份是——'）；③新威胁入画——高潮解决瞬间引入新冲突画面。钩子句本身需<20字短句，且下一集开场直接从钩子帧继续（画面/台词无缝续接）。",
+            "whyItMatters": "AI生成剧本倾向于每集'讲完一个完整小故事'，情绪归零；专业漫剧每集结尾必须制造生理焦虑，这是留存/追更的核心机制，可以作为剧本解析层的硬约束校验规则。",
+            "source": "https://genra.ai/zh/blog/ai-short-drama-script-formula-hooks-cliffhangers / https://mp.weixin.qq.com/s (钩子写作专栏)",
+            "applicability": "direct"
+          },
+          {
+            "technique": "旁白驱动叙事+对白密度控制（漫剧特有惯例）",
+            "description": "男频/解说型漫剧以旁白为主叙事者：每分钟台词仅2-4条，每个叙事段1-2句关键对白，其余信息全由旁白承载；对白单句<20字。理由很实际：AI对口型能力有限，台词越多口型翻车越明显，旁白可完全规避口型问题。女频/对白型则相反但仍保持短句高频交替。旁白与对白的功能分工：旁白推进剧情/交代时间跳跃/输出爽感金句（'逆袭开始！'），对白只留冲突性、情绪性的关键句。",
+            "whyItMatters": "我们的管线目前对白/旁白比例由LLM随意决定；专业漫剧用旁白扬长避短（规避口型缺陷、加快信息密度），这是'像不像漫剧'的体裁级特征——解说漫单人周产一部、播放破10亿靠的就是这套。",
+            "source": "https://lmtw.com/mzw/content/detail/id/247980 / https://github.com/liangdabiao/Seedance2-Storyboard-Generator",
+            "applicability": "direct"
+          },
+          {
+            "technique": "分镜密度标准：每分钟15-25镜、单镜2-4秒",
+            "description": "AI漫剧实操共识：单镜头2-4秒（太短不连贯，太长旁白撑不住画面），每分钟15-25个镜头，5-10分钟单集对应75-150镜。镜头时长按功能分配：冲突镜头1-3秒、情绪镜头3-7秒。配合分镜时间轴脚本格式（0-3秒:高空俯拍+旁白 / 3-6秒:推进+对白 / 9-12秒:高潮+音效爆点）。",
+            "whyItMatters": "我们的分镜时长目前由对白驱动（shot-timing.ts），但缺少'镜头数密度下限'约束——AI产出常一个镜头挂5-8秒旁白导致画面呆滞，这是观众感知'AI拼的'最直接信号之一。可在解析层加校验：单镜>4秒必须拆分或加镜头内运动。",
+            "source": "https://youmind.com/zh-CN/skills/ai-comic-storyboard-prompts-EiiSm3n7giy9Up / https://github.com/liangdabiao/Seedance2-Storyboard-Generator",
+            "applicability": "direct"
+          },
+          {
+            "technique": "音效密度标准与四类核心SFX",
+            "description": "专业短剧后期'每转场几乎必加音效'：①whoosh转场音（0.5-1.5秒，音量适中）用于场景切换/时间跳跃；②震惊'咚'（低沉hit）放在反转/揭秘高光镜头前0.1-0.3秒，常叠短暂停顿；③心跳声用于紧张/期待，持续2-5秒渐强或淡出，慢速=压抑、快速=惊慌；④打脸'啪'/玻璃碎裂精确对齐动作帧。整体密度：每10-30秒至少1-2个音效，动作戏每5-10秒1-2个whoosh/hit；安静场景每10秒<3个。分层混音：环境音垫底(低音量循环)、动作音效中层、强调音+人声上层。",
+            "whyItMatters": "这是我们最大空白——目前管线只有BGM+人声，零SFX轨。'视听轰炸'式音效密度是短剧工业化的标配，缺音效的视频观感立刻'单薄/AI感'。规则完全可编码：转场处插whoosh、情绪标记点前插咚、按分镜animation类型映射音效，ffmpeg多轨amix即可实现。",
+            "source": "https://post.smzdm.com/p/a3m948g5 / https://www.lookae.com/sounds-whooshes/ / https://soundofcomics.sdsu.edu/sound-effects/",
+            "applicability": "direct"
+          },
+          {
+            "technique": "音效库建设惯例（CC0/免费来源）",
+            "description": "行业常用音效来源：Mixkit、Pixabay、Freesound、Orange Free Sounds（免费whoosh/hit/heartbeat）、爱给网(aigei)中文'咚咚'震惊音专区、LookAE的329个whoosh打包；也可用ElevenLabs音效生成API按文本描述生成自定义SFX（shock/glass shatter等）。惯例上一个项目备一套固定风格音效包（卡通夸张 vs 写实二选一）保持全剧统一。",
+            "whyItMatters": "我们已有BGM曲库机制（public/bgm），完全可平移建一个public/sfx曲库（按whoosh/hit/heartbeat/slap/glass/ambient分类命名），LLM在分镜JSON里输出sfx标记，合成时按名取用——基础设施已存在，只差素材与标记协议。",
+            "source": "https://mixkit.co/free-sound-effects/whoosh/ / https://elevenlabs.io/zh/sound-effects / https://www.aigei.com/sound/class/deng_deng_67/",
+            "applicability": "direct"
+          },
+          {
+            "technique": "BGM人声闪避(ducking)与音量分层",
+            "description": "量化规则：BGM音量为人声的20-30%（约-12dB~-20dB）；有对白时自动闪避（BGM再降15-20dB），无对白段回升；关键金句处BGM再压5dB突出人声；BGM进出用0.5秒淡入淡出。这是sidechain ducking的手工版，ffmpeg可用sidechaincompress或按字幕时间轴写volume关键帧实现。",
+            "whyItMatters": "AI拼片常见病是BGM恒定音量盖过人声或全程一个响度，专业感的一半来自动态混音。我们已有字幕时间轴数据，闪避曲线可以直接从对白区间自动生成，属于纯ffmpeg工程活。",
+            "source": "https://diantuoyi.com/article/7969.html / https://vpn07.com/cn/blog/2026-jianying-ai-jianji-duanju-zimu-zhuanchang-yijian-chengpian-jiaocheng.html",
+            "applicability": "direct"
+          },
+          {
+            "technique": "BGM切歌点与'超前半拍'情绪跟随",
+            "description": "换BGM的触发节点可枚举：情绪反转（背叛/重生揭示）、场景大切换、动作爆发、关键台词落点；节奏快的前几集约每15秒一次音乐事件。核心手法：BGM情绪'超前半拍'——紧张对话前音乐先绷紧，反转前突然压低甚至完全静音制造压迫感，高潮瞬间爆发；集尾黑幕渐入或突然静音留悬念。切歌用淡出+新曲淡入，忌硬切。",
+            "whyItMatters": "我们目前BGM是整集单曲铺底，无情绪跟随——这是'背景音乐感'与'配乐感'的分水岭。可落地方案：LLM在分镜解析时输出情绪段落标记(emotion arc)，按段落切分BGM并在反转点前插入0.5-1秒静音/低音量区，ffmpeg分段concat+volume automation。",
+            "source": "https://diantuoyi.com/article/8226.html / https://www.douyin.com/video/7523920253194194227",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "卡点(beat sync)：切镜对齐音乐鼓点",
+            "description": "专业剪辑将画面切换/动作/特效对齐BGM鼓点或重音，误差<50ms；副歌高潮段每0.5-1秒快切+特写，前奏段慢镜空镜铺垫；还有'反向卡点'（预期点故意慢半拍制造惊喜）。剪映靠'自动踩点'实现；程序化实现可用librosa/aubio做beat detection，再把分镜切点吸附到最近节拍。",
+            "whyItMatters": "卡点是观众无意识感知'剪辑很爽'的来源；完全反过来做（先测BGM节拍，再微调各分镜时长±0.3秒吸附节拍）在我们concat管线里可行，但需引入音频分析步骤，属于中期改造。",
+            "source": "https://bbs.huaweicloud.com/blogs/476888 / https://diantuoyi.com/article/8226.html",
+            "applicability": "adaptable"
+          },
+          {
+            "technique": "配音情绪标注协议与气息-情绪映射",
+            "description": "行业惯例在脚本每句台词标注[情绪+强度+处理方式]，如[愤怒-爆发][低沉悲伤-慢][耳语-气声]；配音的物理实现有固定映射：愤怒=气填胸腔有力爆发、悲哀=气短促多长叹、惊骇=气抖声颤、柔情=气息绵长、遮掩=气虚语速慌乱。语速规则：叙述段自然语速、冲突段加快但保持清晰、重音前后安排停顿（气口落在标点/情绪转折处）。前15秒的钩子台词要用情绪爆发或刻意停顿抓注意力。",
+            "whyItMatters": "我们TTS目前基本平调朗读，'播音腔念稿'是AI感的最大声音来源。可直接落地：LLM解析层为每句对白输出emotion/intensity/speed字段，映射到TTS参数（火山TTS支持emotion与speed_ratio，ElevenLabs支持stability/style），旁白与对白分声线；GPT-SoVITS可换参考音频切情绪。",
+            "source": "https://www.soundems.com/news/detail/9194.html / https://tencentcloud.csdn.net/69eaf11254b52172bc6fa7b2.html",
+            "applicability": "direct"
+          },
+          {
+            "technique": "字幕呈现规范（竖屏1080x1920）",
+            "description": "量化惯例：正文字幕白字+黑描边（细描边1-2px，标题粗描边3-6px），无衬线字体（思源黑体），字号54-80px（约画面高1/20~1/15），单行8-15个汉字、最多2行，底部居中对齐、距屏底50-100px的字幕安全区内（避开抖音进度条/UI），单条停留≤6秒且句尾多留0.5秒。花字仅用于标题/章节开头/高潮金句/转场，每集1-3处，配1-3秒入场动画，正文对白禁用花字。",
+            "whyItMatters": "我们已有ASS字幕+5种入场动画，但缺的是'克制规则'——花字/动效滥用同样暴露AI感。这套数值可直接写进subtitle-segments与ASS样式默认值，并加'金句检测'让LLM标记哪1-3句配花字。",
+            "source": "https://subanana.com/zh-HK/blog/four-points-to-note-when-creating-video-subtitle / https://help.aliyun.com/zh/ims/use-cases/subtitles-and-subtitle-templates",
+            "applicability": "direct"
+          },
+          {
+            "technique": "红果/抖音《动画微短剧(漫剧)内容创作建议》合规底线",
+            "description": "红果短剧联合抖音2026年4月7日起执行的官方漫剧创作建议：不设旁白/字幕密度硬指标，但单集质量红线明确——画风必须统一（AI生成不得割裂）、剧情连贯、禁止重复剧情凑集数、禁止非漫剧体裁拼接（Vlog式）、字幕不得缺失错乱、音画必须同步；审核重心是价值观正向+质量把关，达标后AI漫剧过审率显著提升。",
+            "whyItMatters": "这是投放目标平台的官方验收标准，等于我们审片报告(producer review)应新增的硬校验维度：画风一致性、音画同步、字幕完整性可以做成导出前自动检查项，直接决定能否上架变现。",
+            "source": "https://v.lmtw.com/mzs/content/detail/id/252849 / https://news.qq.com/rain/a/20260510A0319Z00 / https://m.thepaper.cn/newsDetail_forward_32805994",
+            "applicability": "direct"
+          },
+          {
+            "technique": "AI漫剧'一眼假'的感知根因清单",
+            "description": "观众吐槽聚焦四点：①口型不同步/融化感（对策=旁白驱动+少对白正面口型镜头，说话时切反应镜头或背面/侧面）；②运镜无叙事动机、滥用炫技镜头导致'精美但空洞'（对策=运镜必须服务情绪：静场用定镜、压迫用推进）；③音效单薄无层次、动作无重量感；④节奏无张弛、情绪断层、角色一致性漂移。'恐怖谷'规律：越写实越暴露缺陷，漫画风格化反而更耐看。",
+            "whyItMatters": "这份负面清单正好是感知层验收标准的反面模板：把'说话镜头避免正面口型''运镜动机校验''音效必备'写进场记/审片Observer的检查项，比正向堆功能更能消除AI感。",
+            "source": "https://vocus.cc/article/69f16fe3fd8978000116f8b0 / https://genra.ai/zh/blog/why-ai-videos-look-fake-how-to-fix / https://www.zhihu.com/question/2044941270087463980",
+            "applicability": "direct"
+          },
+          {
+            "technique": "情绪峰值密度的神经科学依据（存疑但方向可用）",
+            "description": "有来源援引脑成像实验称'每15秒一个情绪峰值可使多巴胺显著提升'，行业将其工业化为'紧张-缓解-新紧张'循环；具体数字（15秒/47%）单一来源无法交叉验证，置信度低，但'情绪峰值需按固定短周期排布而非自然分布'这一方向与多个编剧方法论来源一致（每10秒信息点/每30秒反转/90秒内一个主高潮）。",
+            "whyItMatters": "提示我们在剧本解析prompt中应加'情绪峰值间隔上限'约束（如任意连续30秒必须含一个情绪事件），并让场记Agent按时间轴统计情绪事件间隔做门禁，而不是只看剧情逻辑。",
+            "source": "http://www.socienceai.com/blog/index.php/archives/23/ / https://www.douban.com/note/877132376",
+            "applicability": "direct"
+          }
+        ]
+      }
+    ],
+    "auditSummaries": [
+      {
+        "key": "image-chain",
+        "summary": "工程链路扎实（画风包/三视图/一致性闭环/场记），但\"漫剧感\"断在图像prompt层：情绪只有6值扁平标签、全链路零夸张表情与漫画符号词汇、镜头语言四字段被拼在质量词之后权重最低、自动workflow路径直接丢弃这些字段、景别词表薄且无镜头光学语言、同地点光线无状态锁定。结果是构图正确但情绪平庸的插画，而非有冲击力的专业漫剧关键帧。",
+        "gaps": [
+          {
+            "gap": "全链路零漫剧情绪视觉语法：无夸张表情、无漫画符号（速度线/集中线/冲击帧/汗滴/青筋）、无情绪特效词汇。情绪被压成6值扁平标签最终渲染为'sad mood'两个词。剧本层明明有打脸四步公式和爽点设计，图像层却全部渲染成平静的'正确'画面——这是与真实漫剧观感差距的最大单一来源",
+            "evidence": "script-parse.ts:54 情感标签仅'neutral, happy, sad, angry, surprised, fear'；prompt-builder.ts:235 `${emotion} mood`；grep 'speed line|impact frame|夸张|集中线' 在 src/lib、src/services 全零命中",
+            "impact": "high",
+            "fixSketch": "新建 lib/prompts/emotion-grammar.ts：情绪×强度→夸张表情描述+漫画符号词汇映射表（如 angry+高潮→'furious exaggerated expression, gritted teeth, anime rage effect, radial speed lines background'）；解析层给分镜加 emotionIntensity/isClimax 字段；buildEnhancedPrompt 与 storyboard.ts imagePrompt 规则消费该映射，打脸/反转镜强制注入冲击帧词汇"
+          },
+          {
+            "gap": "镜头语言四字段（cameraAngle/lighting/composition/colorPalette）被拼在整个 prompt 的最末尾——甚至排在质量词'masterpiece, best quality'之后，处于权重最低位置，模型基本忽略，导致构图指令形同虚设、成片全是同距平拍中景",
+            "evidence": "prompt-builder.ts:172 buildEnhancedPrompt 以质量词结尾；api/generate/image/route.ts:519-522 `composedPrompt = enhancedPrompt + ', ' + cinematicParts.join(', ')` 在其后追加",
+            "impact": "high",
+            "fixSketch": "重排 buildEnhancedPrompt 段序：风格锚→【景别+机位+构图】→角色→动作表情→环境→光线→色调→护栏→质量词；把 sceneCinematics 作为参数传入 buildEnhancedPrompt 在第2段注入而非路由层尾巴上补丁；改 prompt-builder.ts 与 route.ts:511-522"
+          },
+          {
+            "gap": "自动 workflow 路径丢失镜头语言：buildStoryboardPrompt 的 sceneList 只拼 shotType/emotion/description/对白/旁白，解析层辛苦产出的 cameraAngle/lighting/composition/colorPalette 四字段根本没传给 StoryboardAgent，imagePrompt 由 LLM 凭 description 重新瞎编光线构图——与手动路径（route 层拼 cinematics）质量不对等",
+            "evidence": "agent-prompts/storyboard.ts:39-46 sceneList 模板无四字段；storyboard.ts:76-84 imagePrompt 构造规则也未要求复用解析层字段",
+            "impact": "high",
+            "fixSketch": "buildStoryboardPrompt 的 scenes 入参与 sceneList 模板补上四字段，imagePrompt 构造规则第5-6条改为'必须原样复用解析层的 cameraAngle/composition/lighting/colorPalette'；同步改 workflow-engine 传参"
+          },
+          {
+            "gap": "景别/镜头词表过薄且无光学语言：SHOT_MAP 仅8个通用短语，shotType 枚举只有5个景别；无焦距（85mm人像/24mm广角畸变）、无景深控制、无前景遮挡构图（OTS前景虚化）、无极端透视/鱼眼/荷兰角作为可选景别——专业漫剧关键帧的视觉张力恰恰来自这些",
+            "evidence": "lib/prompts/image-prompt.ts:16-25 SHOT_MAP 8项如'medium shot, waist up'；script-parse.ts:52 '景别选择：特写、近景、中景、全景、远景'",
+            "impact": "high",
+            "fixSketch": "扩 SHOT_MAP 为景别×机位×镜头三维词表（每项带焦距+景深+透视描述，如特写→'extreme close-up, 85mm lens, shallow depth of field, compressed perspective'）；解析层枚举增加 肩越/荷兰角/仰拍冲击/俯拍压迫 等复合景别并在 few-shot 示范"
+          },
+          {
+            "gap": "同地点光线/时间无状态锁定：连续性注入只取相邻镜 description，不取 lighting/colorPalette；locationKey 只锁空间不锁时间，每镜光线由独立 LLM 分析自由发挥，同一客厅序列可能昼夜漂移，只能靠事后场记体检兜底而非事前防止",
+            "evidence": "api/generate/image/route.ts:423-431 prev/next select 仅 `{ description: true }`；buildSceneAnalysisPrompt 连续性块只含描述文本",
+            "impact": "medium",
+            "fixSketch": "prev/next select 补 lighting/colorPalette 字段并注入分析 prompt（'同地点须沿用前镜光线基调'）；进一步可在解析层按 locationKey 输出 timeOfDay 字段，同 locationKey 连续段强制同值，buildEnhancedPrompt 优先消费"
+          },
+          {
+            "gap": "Observer 评审标准保'正确'不保'出彩'：6个维度全是匹配性/一致性检查，无'视觉冲击力/表现力/镜头张力'维度，overall≥70 即过——平庸但无错的图永远通过闭环，reflect 也永远不会朝'更有漫剧感'方向改写 prompt",
+            "evidence": "agent-prompts/observer.ts:8-27 六维度定义与权重（scene_match 30%...quality 10%），无任何表现力维度",
+            "impact": "medium",
+            "fixSketch": "observer.ts 增加 visual_impact 维度（构图张力/情绪表现力/是否呆板同质，权重10-15%），suggestions 示例中加入'表情不够夸张、构图平淡建议改仰拍'类反馈样例，让 reflect 循环获得升级方向"
+          },
+          {
+            "gap": "大段中文画风文本混入英文图像 prompt：colorSystem（约600字中文含'L1硬约束'等元语言）和'场景画风：''色彩风格基线（…）：'前缀直接拼进逗号串，对 FLUX/SDXL 类英文模型基本不可读还稀释主体描述权重；与视频链路'纯英文'的既有教训相悖",
+            "evidence": "prompt-builder.ts:97 `色彩风格基线（画面色调服从画风调性）：${pack.colorSystem}`、:142 `场景画风：${pack.sceneRules}`（colorSystem 为 style-packs.ts:58 等中文长文）",
+            "impact": "medium",
+            "fixSketch": "style-packs 每包增加 colorSystemEn/sceneRulesEn 精炼英文版（≤120 chars）供图像 prompt 消费，中文版保留给 UI 与 LLM 评审；prompt-builder 按 provider 语言能力选用"
+          },
+          {
+            "gap": "质量词与负向基线停留在 SD1.5 时代：'masterpiece, best quality, highly detailed' booru 标签在三处出现，对 gpt-image/gemini/flux 类自然语言模型无增益且占位；负向基线'lowres/worst quality/extra digits'同理，真正该负向的漫剧噪声（呆板站桩、面无表情、画面平淡）反而没有",
+            "evidence": "prompt-builder.ts:172,237；strategy-resolver.ts:183；negative-prompts.ts:14-35 基线词表",
+            "impact": "medium",
+            "fixSketch": "质量词按 protocol 分流：booru 系（siliconflow/SD类）保留，指令系改为自然语言质量描述；负向基线追加漫剧向条目 'stiff pose, expressionless face, flat boring composition, centered passport-style framing'"
+          },
+          {
+            "gap": "竖屏(9:16)构图规则缺失：aspectRatio 只作为 API 参数传给模型，prompt 层没有任何竖屏构图指导（头部留白、主体上1/3、竖向纵深引导线），而抖音/红果漫剧全是竖屏，横屏思维的 composition 描述直出竖屏常见'半身居中大头照'",
+            "evidence": "prompt-builder.ts 全文无 aspectRatio 入参；route.ts:551 aspectRatio 仅透传 orchestrateImageGeneration",
+            "impact": "medium",
+            "fixSketch": "buildEnhancedPrompt 增加 aspectRatio 入参，9:16 时注入 'vertical composition, subject in upper two-thirds, strong vertical depth' 类竖屏构图基线；script-parse 的 composition 字段说明补充竖屏构图示例"
+          },
+          {
+            "gap": "九宫格出图 prompt 无一致性锚：每格只有标题+镜头+特写要点三个短语，不注入角色外貌、不带画风色彩系统、无负向词——九格里同一角色长相必然漂移，与主链路苦心经营的一致性工程完全脱节",
+            "evidence": "lib/prompts/grid-prompt.ts:20-30 `panel ${c.index}: ${c.sceneTitle}, ${c.shot}, ${c.closeup}`",
+            "impact": "low",
+            "fixSketch": "buildGridImagePrompt 增加 characters 入参，前置一段'all panels feature the same character: <外貌特征>'（复用 buildAppearanceFeatures），追加画风包 negative 与 colorSystem 英文版"
+          }
+        ]
+      },
+      {
+        "key": "video-chain",
+        "summary": "视频链路工程质量高（导演LLM/分段链接/时长校准俱全），但四处结构性断层使成片不像专业漫剧：①对白驱动节拍被模型档位(5/10/15s或Veo~8s)摧毁且实测时长反写DB，全片镜头同质5-8s+大量哑口空拍；②prompt明令禁止口型，配音叠在闭嘴人物上；③LLM设计的转场字段全程丢弃，导出一律0.3s淡化；④运镜只靠英文散文喂模型、无结构化camera控制，且FL模式统一覆盖运镜。",
+        "gaps": [
+          {
+            "gap": "对白驱动节拍在视频生成环节被彻底摧毁：shot-timing算出的1-4s精确镜长被档位吸附成5/10/15s（或Veo固定~8s），生成后实测时长又反写Scene.duration，全片镜头同质化5-8s；2s对白叠在8s画面上产生6s哑口空拍——这是'不像专业漫剧'的第一根因（真漫剧1-3s高密度快切）",
+            "evidence": "video-segmenter.ts:147-150（requested≤maxTier时就近吸附档位，2s→5s）；video/route.ts:578-599实测时长、625-632反写duration；video-synthesis.ts:1192-1205配音只adelay到片段起点、无裁剪对齐",
+            "impact": "high",
+            "fixSketch": "生成后按shot-timing校准值裁剪：segmented-video.ts拿到provider视频后ffmpeg -t裁到目标镜长（或1.1-1.25x变速压缩）再落库；Scene.duration保留叙事目标值不被实测覆盖，实测长度另存measuredDuration供导出兜底。改动点：segmented-video.ts加trim步骤、video/route.ts反写逻辑改为裁剪后值"
+          },
+          {
+            "gap": "对白镜零口型：AUDIO_DIRECTIVE硬编码'No spoken dialogue, no lip-sync'，导演规则4再禁口型指示，TTS配音叠在完全闭嘴的人物上——观众一眼识别'AI假片'；专业动态漫至少有说话时嘴部开合循环（动漫口型容错极高，不需精确对齐）",
+            "evidence": "video-prompt.ts:219 `const AUDIO_DIRECTIVE = \"No spoken dialogue, no lip-sync, ambient sound only\"`；video-director.ts:114规则4'禁止对白和口型指示'；全仓grep无任何lip-sync能力",
+            "impact": "high",
+            "fixSketch": "分镜有dialogue时切换音频指令：video-prompt.ts的VideoScenePromptInput加hasDialogue，AUDIO_DIRECTIVE分支为'The character speaks with natural anime-style mouth movement, no audible dialogue'；video/route.ts查scene时带dialogue字段传入。远期可接SadTalker/LivePortrait类口型驱动"
+          },
+          {
+            "gap": "LLM设计的转场全程断链：storyboard-agent与九宫格都产出transition字段，但drama-to-scenes不映射、Scene表无此列、workflow里仅用于默认关闭的评审；导出一律0.3s交叉淡化——真漫剧以硬切为主+关键情绪点闪白/黑，全片匀速fade是'PPT感'主要来源",
+            "evidence": "storyboard-agent.ts:38 transition进schema；storyboard-table-agent.ts:32 CellSchema.transition；drama-to-scenes.ts:107-134映射时无transition；schema.prisma grep无transition列；video-synthesis.ts:1104'缺省fade 0.3s'",
+            "impact": "high",
+            "fixSketch": "打通数据链：①drama-to-scenes把cell.transition映射为SceneDraft字段；②建LLM转场词→TransitionType映射表（硬切/闪白fadewhite/闪黑fadeblack/叠化dissolve）；③scenes路由把逐镜transition聚合写入project.generationParams.transitions；④导出默认改'none'硬切而非fade"
+          },
+          {
+            "gap": "运镜只靠英文散文进模型，无任何provider结构化camera控制；且FL首尾帧模式用同一句固定文案覆盖所有运镜——开启videoLinkNext后全片运镜同质化，导演产出的13值枚举被丢弃",
+            "evidence": "fal.ts:145/runway.ts:36-40/flow2api-video.ts:198只传text prompt，无camera_control类参数；video-prompt.ts:181-183 FL分支return固定文案，不再拼cameraMovement",
+            "impact": "medium",
+            "fixSketch": "①VideoProvider options加结构化cameraMovement字段，支持的provider转原生参数（Kling camera_control、Minimax导演模式[Push in]标签语法）；②FL分支不整句替换，改为'从首帧到尾帧的{运镜短语}过渡'保留导演意图"
+          },
+          {
+            "gap": "动作强度全线偏'漂移'：默认派生运镜全是slow/smooth/gentle，static映射为'only subtle in-scene motion'，运动弧线仅≥10s触发；全仓无漫剧动作词汇（impact frame/speed lines/smear/snappy timing均grep为零）——冲突高潮镜也只是缓推，人物'站桩微动'不'表演'",
+            "evidence": "video-prompt.ts:194-208默认运镜全为slow/gentle系；video-prompt.ts:135 anime风格短句仅'consistent 2D anime aesthetic'无运动风格词；grep 'impact frame|speed line|sakuga|smear'零命中",
+            "impact": "medium",
+            "fixSketch": "加动作强度维度：由emotion+variationType派生calm/normal/impact三档，impact档注入'dynamic anime action, snappy motion, brief impact freeze'类词汇；VIDEO_STYLE_MAP的anime系风格追加运动风格短语；改动集中在video-prompt.ts的buildCameraMove与VIDEO_STYLE_MAP"
+          },
+          {
+            "gap": "多段视频复用同一prompt：>8s镜头拆N段后每段收到相同动作描述+一句'Continue seamlessly'，模型每段重演同一动作→长镜头动作循环/原地打转；代码注释自认'逐段导演节拍留给后续workstream'",
+            "evidence": "segmented-video.ts:83-95 resolveSegmentPrompt复用prompts[0]；segmented-video.ts:48注释'逐段导演节拍留给后续 workstream'",
+            "impact": "medium",
+            "fixSketch": "video-director输出扩展为分段节拍数组（按plan.segments.length让LLM把actionBeat拆成起/承/收三拍），video/route.ts把多段prompt数组传入generateSceneVideoSegmented（签名已支持string[]，只差上游产出）"
+          },
+          {
+            "gap": "解析层cameraMovement实际命中率存疑：video-prompt.ts自述'解析器里几乎恒为null'，意味着script-parse的13值枚举强制要求在真实解析输出中大量丢失，运镜多数时候走shotType兜底默认值（又全是slow系）——专业运镜设计名存实亡的概率高",
+            "evidence": "video-prompt.ts:10注释'cameraMovement 在解析器里几乎恒为 null'与script-parse.ts:172'每个分镜必须给出cameraMovement'自相矛盾",
+            "impact": "medium",
+            "fixSketch": "先埋点验证：video/route.ts记录cameraMovement来源占比(director/db/derived)；若DB命中率低，检查两条解析路径（script.ts与drama-script）的Zod schema与落库白名单是否真包含cameraMovement，缺失处补齐"
+          },
+          {
+            "gap": "竖屏比例硬编码风险：Runway provider无视传入aspectRatio恒发9:16，横屏项目在该provider出片比例错误",
+            "evidence": "runway.ts:39 `ratio: \"9:16\"`硬编码，options.aspectRatio未消费",
+            "impact": "low",
+            "fixSketch": "runway.ts按options.aspectRatio映射ratio参数（gen3a支持768:1280/1280:768）"
+          }
+        ]
+      },
+      {
+        "key": "audio-subtitle-chain",
+        "summary": "音频链是全链路最薄弱环节：音效(SFX)零能力、TTS无情绪表演、自动workflow全片单一默认女声、BGM整片单曲不随情绪切换、无响度归一；字幕工程质量高但缺漫剧标配的花字/拟声字卡，且字幕时轴按分镜时长而非配音实长分配。这些正是成片与抖音/红果专业漫剧的听感差距主因。",
+        "gaps": [
+          {
+            "gap": "音效(SFX)零能力：全管线无任何whoosh/打击/转场音/环境音资产与混音路径，而音效密度恰是抖音/红果漫剧最显著的听感特征",
+            "evidence": "全仓grep 'sfx|音效|whoosh|foley|ambien' 仅命中 lib/prompts/adaptation-rules.ts:23 的prompt文字'音效提示'和 producer-character-extract.ts:38 的说话人黑名单词'sfx'；video-synthesis.ts 音频链只有配音轨+BGM两类输入",
+            "impact": "high",
+            "fixSketch": "仿BGM曲库模式建 lib/sfx-library.ts(CC0音效分类: whoosh/hit/impact/riser/ambient)+public/sfx资产；LLM解析层(script.ts的SceneScript)新增sfxTag字段(转场音/重音点/环境底噪)；video-synthesis.ts的音频链按分镜起点adelay混入第三类音轨(复用buildSceneStarts)；转场处自动挂whoosh与xfade时刻对齐"
+          },
+          {
+            "gap": "自动workflow的TTS完全不传voiceId/characterId——一键成片全片所有角色(含男角)统一用默认'甜美女声'，角色声线指派形同虚设",
+            "evidence": "services/agents/workflow-engine.ts:1137-1143 synthesizeSpeech({text, speed, config}) 无voiceId；对比编辑器手动路径 use-generation-actions.ts:427-435 会传characterId",
+            "impact": "high",
+            "fixSketch": "workflow-engine.ts 的TTS步骤查 sceneArtifact 关联角色→Character.voiceId(复用tts/route.ts的voiceFamily防污染逻辑，可提取到lib共用)；无角色的旁白镜用独立旁白声线"
+          },
+          {
+            "gap": "TTS无情绪表演：Scene.emotion(6值枚举)已由LLM解析产出并落库，但从未进入TTS调用链——愤怒/悲伤/惊恐台词全部平调朗读",
+            "evidence": "types/ai.ts:104-109 TTSOptions仅{text,voiceId,speed,config}；volcengine.ts:38-42 audio参数无emotion字段(火山bigtts原生支持emotion/enable_emotion参数)；grep 'emotion' 在tts route与全部tts provider中零命中",
+            "impact": "high",
+            "fixSketch": "TTSOptions增emotion?: string；tts/route.ts与workflow-engine透传scene.emotion；volcengine.ts映射到audio.emotion+enable_emotion；elevenlabs.ts按情绪调stability/style(愤怒→低stability高style)；gpt-sovits按情绪切参考音频"
+          },
+          {
+            "gap": "无BGM导出路径amix缺normalize=0：N个配音轨被1/N衰减且随流结束逐镜变响(与BGM路径注释'防对白变小声'自相矛盾)",
+            "evidence": "video-synthesis.ts:1386 与 1466 均为 amix=inputs=${audioFilters.length}[aout] 无normalize=0；而BGM路径L359/L374显式加了normalize=0并注释原因",
+            "impact": "high",
+            "fixSketch": "两处amix补:normalize=0（video-synthesis.ts:1386、1466），与buildBgmFilter一致"
+          },
+          {
+            "gap": "多说话人/旁白混读一条声线，且dialogue||narration使'既有对白又有旁白'的分镜旁白被静默丢弃(配音与字幕两端同缺)",
+            "evidence": "use-generation-actions.ts:426 与 workflow-engine.ts:1135 均为 text = dialogue || narration；video-synthesis.ts:448 字幕同样 scene.dialogue || scene.narration；一镜内多角色对白只按selectedCharacter单一声线合成",
+            "impact": "medium",
+            "fixSketch": "TTS支持分镜内多段合成：按'角色名：'前缀拆行(producer-character-extract.ts已有说话人解析可复用)→逐段用各自Character.voiceId合成→ffmpeg concat为单audioUrl；narration用独立旁白声线追加在对白后；字幕端同步渲染narration"
+          },
+          {
+            "gap": "BGM整片单曲循环：不随剧情情绪逐段切换、无按脚本情绪自动选曲、无卡点；曲库'与情绪标签对齐'的设计意图未兑现",
+            "evidence": "types/export-style.ts:357-374 BackgroundMusic仅单url整片生效；buildBgmFilter(video-synthesis.ts:320)整片一条处理链；bgm-library.ts:36注释'与剧情情绪标签对齐，便于一键匹配'但无任何消费代码按Scene.emotion选曲",
+            "impact": "medium",
+            "fixSketch": "BackgroundMusic扩展segments?: {startSceneId,trackId}[]；导出时按情绪连续段分组(相邻同emotion分镜合并)分段atrim+acrossfade拼BGM轨；编辑器加'按情绪自动配乐'按钮：emotion→BGM_CATEGORIES映射选曲"
+          },
+          {
+            "gap": "字幕时间窗按分镜全时长分配而非配音实长——TTS音频3秒、分镜8秒时，人声停了字幕还在逐句翻页，声字错位明显",
+            "evidence": "video-synthesis.ts:472 allocateSubtitleWindows(segments, effDuration) 用视频片段时长；配音仅adelay到分镜起点(L1205)，二者无关联；音频实长从未ffprobe",
+            "impact": "medium",
+            "fixSketch": "导出时对scene.audioUrl跑getMediaDuration(已有函数)，字幕窗口改为allocateSubtitleWindows(segments, min(audioDur, effDuration))，剩余时间末句停驻；预览端preview-player用audio.duration同构对齐"
+          },
+          {
+            "gap": "无漫剧标配的花字/特效字/拟声字卡：喊叫台词无放大变色强调、无'轰！哐！'类拟声字卡，字幕样式全片单一",
+            "evidence": "types/export-style.ts:33-56 SubtitleStyle为全局唯一样式，无per-line/per-scene强调字段；ASS字体硬编码Arial(video-synthesis.ts:538)且无fontFamily配置",
+            "impact": "medium",
+            "fixSketch": "SubtitleStyle加fontFamily+打包1-2款开源中文粗体(站酷高端黑等)；SceneScript增emphasis标注(LLM识别喊叫/重点句)→ASS端映射大字号+彩色+pop动效；拟声字卡走已有sticker管线做预置模板(文字渲染成PNG贴图+入场动效)"
+          },
+          {
+            "gap": "无响度归一：不同TTS厂商输出电平不一致，BGM/配音相对响度靠固定0.25拍脑袋，成片响度不达短视频平台-16 LUFS惯例",
+            "evidence": "grep 'loudnorm|dynaudnorm' 全仓零命中；video-synthesis.ts:331 仅BGM有volume系数，配音轨无任何电平处理",
+            "impact": "low",
+            "fixSketch": "最终输出音频链末尾加loudnorm=I=-16:TP=-1.5:LRA=11(video-synthesis.ts两条合成路径的[aout]之后)；ducking默认值翻转为true(export-style.ts:386)"
+          }
+        ]
+      },
+      {
+        "key": "synthesis-export-chain",
+        "summary": "导出链工程质量高（实测时长对齐、ASS字幕同源、任务化），但后期表现力停留在\"拼片\"层：图片镜死帧无推拉、转场默认全叠化且无真硬切/甩镜/闪白、无音效轨、无震屏/变速曲线、无片头封面与下集钩子卡、无全片LUT统一调色。这些正是专业漫剧与本产品成片的核心差距；另有变速预览不改playbackRate的parity破洞。",
+        "gaps": [
+          {
+            "gap": "图片分镜是完全静止的死帧：无 Ken Burns/zoompan 缓推缓拉，静帧段一动不动",
+            "evidence": "video-synthesis.ts:983-1000 图片分支仅 `-loop 1 -i image -t duration` + scale/pad；全仓 grep zoompan/kenburns 零命中",
+            "impact": "high",
+            "fixSketch": "在 sceneToVideoClip 图片分支加 zoompan 滤镜（如 z='min(zoom+0.0008,1.12)':x/y 居中或按构图偏移，fps=30:d=duration*30），并给 SceneEffect 增加 motion 字段（zoomIn/zoomOut/panLeft…）让 LLM 导演或用户选择；预览端用 CSS transform+transition 同源复现（改 export-style.ts + video-synthesis.ts + preview-player.tsx）"
+          },
+          {
+            "gap": "转场语法贫乏且缺省逐镜叠化：真硬切不存在（none 用 0.04s fade 近似），无甩镜(whip pan)/闪白冲击帧/zoom punch 转场，默认全片 fade 0.3s = PPT 感；真实漫剧 90% 硬切+节拍卡点",
+            "evidence": "video-synthesis.ts:1092 「\"none\"（硬切）用极短淡化≈0.04s 近似，统一走 xfade 管线」；resolveTransition L1085-1099 缺省 fade 0.3s；XFADE_TYPES L244-262 仅 FFmpeg 内置叠化/擦除类",
+            "impact": "high",
+            "fixSketch": "① none 走真 concat 段（xfade 链里跳过该衔接点，分段 xfade 后 concat）；② 把默认转场从 fade 0.3 改为 none（硬切），fade 仅在时空跳跃处由场记/LLM 建议；③ 新增自定义转场：闪白=fadewhite 0.15s 已有可用、甩镜可用 xfade 自定义 expr 或对前段末 0.2s 加 dirblur+快速 slide 近似（改 video-synthesis.ts resolveTransition + TransitionsDialog 默认值 + 场记建议规则）"
+          },
+          {
+            "gap": "零音效(SFX)轨：成片只有 TTS 对白 + 单条 BGM，无 whoosh/打击/环境音/转场音效——声音设计是专业短剧感知差距第一位",
+            "evidence": "grep -riE 'sfx|音效|sound.?effect' 仅命中 prompts（adaptation-rules.ts:23 提示词层）与 producer-character-extract.ts 字段名，导出链无任何 SFX 输入；ExportOptions（video-synthesis.ts:61-91）无 sfx 字段",
+            "impact": "high",
+            "fixSketch": "仿 BGM 模式做 SceneSfx[]：{sceneId, url, offset, volume}，内置 CC0 音效库（whoosh/impact/riser 各几条，放 public/sfx），导出端复用 adelay+amix 管线（buildBgmFilter 旁加 buildSfxFilters），转场音效可按 transitions 自动挂；LLM 场记在解析层为 actionBeat 建议 SFX（改 export-style.ts/video-synthesis.ts/export route/预览端 audio 元素）"
+          },
+          {
+            "gap": "无冲击表现力效果：sceneEffects 只有静态滤镜+匀速变速，无震屏(shake)、无速度曲线(speed ramp)、无定格(freeze)、无冲击闪帧",
+            "evidence": "export-style.ts:310-317 SceneEffect 仅 {effect?, speed?}；FX_FILTERS（video-synthesis.ts:224-238）全为调色类；grep shake/震屏 零命中",
+            "impact": "high",
+            "fixSketch": "扩展 SceneEffectId 增加动态类：shake（crop+random offset 表达式或 vidstab 反用）、flash（亮度脉冲 curves+enable between）、freeze（末帧 tpad clone 定格 0.5s）；speed 改支持 {from,to} 曲线用分段 setpts 拼接；预览端 shake 用 CSS keyframes、flash 用白色覆盖层（改 export-style.ts + FX 管线 + EffectsDialog + preview-player）"
+          },
+          {
+            "gap": "无片头封面/标题卡与片尾下集钩子卡：脚本层有「设下集钩子」但成片视觉上没有任何 title card / end card / 追更引导",
+            "evidence": "lib/prompts/episode-structure.ts:24 仅提示词提「结尾 10-15s 设下集钩子」；export route L142-151 sceneMediaList 只映射 scenes，无片头尾注入点；grep 片尾/封面/title.?card 零命中",
+            "impact": "medium",
+            "fixSketch": "导出端在 scenes 前后注入合成卡片段：片头卡=项目封面图(canonicalImageUrl 或首镜图)+drawtext 剧名/集数 1.5s，片尾卡=下集预告文案(从系列 storyBible/下集 hook 取)+「关注追更」贴字 2s；作为普通 SceneMedia 走既有管线零新滤镜；ExportOptions 加 titleCard/endCard 开关，系列项目默认开（改 export/route.ts + video-synthesis.ts + 导出面板）"
+          },
+          {
+            "gap": "无全片统一调色：色彩设计只锁在提示词圣经，导出端无 per-episode LUT/lut3d，跨 provider 生成的分镜色温漂移无法后期收敛，成片「每镜一个色调」",
+            "evidence": "FX_FILTERS（video-synthesis.ts:224-238）仅 12 个分镜级手动预设，无项目级调色；grep lut3d/\\bLUT\\b 零命中；ColorScript 仅存在于 prompt 侧",
+            "impact": "medium",
+            "fixSketch": "加项目级 colorGrade 配置（generationParams.colorGrade）：内置若干 .cube LUT（暖黄怀旧/冷峻蓝/高饱和漫感，放 public/luts），merged 之后终混 -vf 链头插 lut3d=file；把圣经 ColorScript 的色调枚举映射到 LUT 预设让场记自动选；预览端用近似 CSS filter 组合复现（改 video-synthesis.ts 终混两分支 + export-style.ts + 预览）"
+          },
+          {
+            "gap": "变速 preview≠export：预览端不设 video.playbackRate，只把计时窗缩短为 duration/speed——预览里视频 1x 播放被提前切走，导出却是真加速全内容，两端画面内容不一致（违反本项目「预览必须反映所有效果」铁律）",
+            "evidence": "grep playbackRate src/components → 零命中；preview-player.tsx:266 `return base / speed;` 仅缩短窗口，视频元素无 playbackRate 赋值",
+            "impact": "medium",
+            "fixSketch": "preview-player.tsx 在起播 effect（L335 附近 el.play() 处）与 keyed 视频层挂载时设置 el.playbackRate = speed（含转场预播的下一镜），TTS audio 保持 1x（导出端 atempo 只作用于视频自带音轨）；补充 measuredDurs 语义确认（实测时长为 1x 原始长度，除以 speed 逻辑不变）"
+          },
+          {
+            "gap": "ASS 字幕字体硬编码 Arial：中文渲染回退到服务器系统字体不可控，且无字体选择、无花字/关键词高亮——漫剧大字花字标题感缺失，预览(浏览器字体)与成片字体也不同源",
+            "evidence": "video-synthesis.ts:538 `Style: Default,Arial,${fontSize},...` 写死 Arial；SubtitleStyle（export-style.ts:33-68）无 fontFamily 字段",
+            "impact": "medium",
+            "fixSketch": "仓库内置 2-3 个开源中文字体（思源黑体/得意黑 OFL，放 app/fonts），ffmpeg 加 `-vf ass=...:fontsdir=` 钉字体目录；SubtitleStyle 加 fontFamily 白名单字段，预览端 @font-face 加载同一字体文件实现两端同字形；进阶：关键词高亮语法（\\c 色彩 override）对齐漫剧花字"
+          },
+          {
+            "gap": "xfade 前未归一帧率：各 provider 产出 fps 不一（Veo/Kling/图片自造 25fps 默认），切片转码未加 fps 滤镜，xfade 多输入帧率不一致会造成抖动或合成异常",
+            "evidence": "buildClipVideoFilter（video-synthesis.ts:878-891）滤镜链仅 scale,pad[,fx][,setpts]，无 fps=；切片 args（L945-961）无 -r",
+            "impact": "low",
+            "fixSketch": "buildClipVideoFilter 链尾统一加 `fps=30`（图片分支加 -r 30），保证 xfade 输入时基一致；顺带终混声明 -r 30 稳定 VFR 来源"
+          },
+          {
+            "gap": "响度工程缺失：无 BGM 时纯对白 amix 未带 normalize=0（多路自动归一互压响度），且终混无 loudnorm，成片响度不对齐短视频平台 -14 LUFS 惯例，多集之间音量漂移",
+            "evidence": "video-synthesis.ts:1386 `amix=inputs=${audioFilters.length}[aout]` 与 L1466 同（均无 normalize=0，对比 BGM 路径 L359/366/374 都带）；全文件无 loudnorm",
+            "impact": "low",
+            "fixSketch": "两处纯对白 amix 补 normalize=0（adelay 后各轨时间不重叠，直接求和即可）；终混音频链尾统一加 `loudnorm=I=-14:TP=-1.5:LRA=11` 单遍模式（改 video-synthesis.ts 两个合成分支）"
+          },
+          {
+            "gap": "画幅不匹配时黑边 pad：竖屏项目里横图/横视频被塞黑上下边，专业竖屏短剧惯用「高斯模糊放大背景+前景原比例」填充",
+            "evidence": "video-synthesis.ts:886 `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black`（切片与终混 L1305/L1427 三处同）",
+            "impact": "low",
+            "fixSketch": "pad black 换 split+scale 铺满+gblur 做模糊底、overlay 原比例前景（[0:v]split[a][b];[a]scale=cover,gblur=20[bg];[bg][b]overlay=center）；预览端外层加 blur 背景层同源（可做成 ExportOptions.fillMode: black|blur 开关，默认 blur）"
+          },
+          {
+            "gap": "BGM 全片单曲铺底，无按情绪分段配乐/无卡点：漫剧惯例是冲突/反转/爽点切 BGM 并踩节拍剪辑",
+            "evidence": "export-style.ts:357-374 BackgroundMusic 为单对象（无 sceneId/时间段）；buildBgmFilter 只处理一条轨",
+            "impact": "low",
+            "fixSketch": "BackgroundMusic 扩展为分段数组 {url, startSceneId, endSceneId}[]（向后兼容单对象），导出端每段独立 atrim+adelay 后并入 amix；场记按情绪弧线（圣经 ColorScript/emotion 已有数据）建议分段点；卡点属远期（需 beat 检测，可先不做）"
+          }
+        ]
+      }
+    ]
+  },
+  "workflowProgress": [
+    {
+      "type": "workflow_phase",
+      "index": 1,
+      "title": "Research"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 2,
+      "title": "Audit"
+    },
+    {
+      "type": "workflow_phase",
+      "index": 3,
+      "title": "Synthesize"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 1,
+      "label": "research:real-craft",
+      "phaseIndex": 1,
+      "phaseTitle": "Research",
+      "agentId": "a536253650cf53e3d",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450487837,
+      "queuedAt": 1784450487822,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "真实漫剧与我们的差距不在生成画质而在后期语言：行业规范=镜头…",
+      "promptPreview": "Project: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-to-video via Veo/Kling-class models, tail-frame chaining) → TTS voiceover → ffmpeg synthesis/export.\nAlready implemented (do NOT …",
+      "lastProgressAt": 1784451026090,
+      "tokens": 85818,
+      "toolCalls": 19,
+      "durationMs": 538253,
+      "resultPreview": "{\"summary\":\"真实漫剧与我们的差距不在生成画质而在后期语言：行业规范=镜头0.5-6秒三档快切(单集15-30镜)、硬切+闪白转场(禁溶解)、震屏/速度线/冲击帧/拟声特效字符号层、每镜卡点音效+环境音(BGM -18dB)、字幕白字黑描边≤15字。画面动态不足靠声音与节奏弥补是行业共识，多数可用ffmpeg滤镜+LLM规划直接落地。\",\"findings\":[{\"technique\":\"镜头时长三档制+高频快切\",\"description\":\"行业规范：快剪镜头(动作/冲突)0.5-1秒、常规对话2-3秒、情绪特写4-6秒，单集(1-3分钟)15-30个镜头，每2-4秒切换一次景别(全景→中景→特写循环)。我们的视频段实测5-8秒(受Veo等模型固有时长限制)，这就是'不像漫剧'的第一根因。落地：LLM分镜层按三档规划时长，ffmpeg对生成的8秒视频段做裁切/一段切多镜(同段…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 2,
+      "label": "research:competitors",
+      "phaseIndex": 1,
+      "phaseTitle": "Research",
+      "agentId": "a87ba2e51b63ffba7",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450487838,
+      "queuedAt": 1784450487822,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "竞品差距集中在五层：①对白镜头缺对口型；②声音只有TTS单轨、缺…",
+      "promptPreview": "Project: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-to-video via Veo/Kling-class models, tail-frame chaining) → TTS voiceover → ffmpeg synthesis/export.\nAlready implemented (do NOT …",
+      "lastProgressAt": 1784451055879,
+      "tokens": 82104,
+      "toolCalls": 22,
+      "durationMs": 568041,
+      "resultPreview": "{\"summary\":\"竞品差距集中在五层：①对白镜头缺对口型；②声音只有TTS单轨、缺动作/环境音效层；③镜内运动控制（多关键帧一镜到底、运动笔刷、模型原生多图参考@主体）；④后期质感统一pass（缓推呼吸感、统一调色、极简转场、超分补帧）；⑤红果/抖音2026年4月新规把角色一致性、台词清晰度、备案变成硬门槛。前两层+质感pass可在现有ffmpeg/prompt管线直接落地。\",\"findings\":[{\"technique\":\"对口型（Lip Sync）\",\"description\":\"即梦数字人模式：上传人物图+音频（或文本转语音）生成唇形精确匹配、表情自然的说话视频；可灵2.6+原生lip sync支持自定义视频、多人画面指定说话人(face_id)和开始时间；教程界普遍用即梦/可灵内置对口型或开源SadTalker本地渲染。具体做法：有台词的分镜先生成TTS音频，再把该镜视频…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 3,
+      "label": "research:academic",
+      "phaseIndex": 1,
+      "phaseTitle": "Research",
+      "agentId": "aa29688e91c833849",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450487838,
+      "queuedAt": 1784450487822,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "调研2025-26学术/开源漫剧管线：最大差距=对白无口型、无音效层…",
+      "promptPreview": "Project: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-to-video via Veo/Kling-class models, tail-frame chaining) → TTS voiceover → ffmpeg synthesis/export.\nAlready implemented (do NOT …",
+      "lastProgressAt": 1784451002559,
+      "tokens": 76817,
+      "toolCalls": 15,
+      "durationMs": 514721,
+      "resultPreview": "{\"summary\":\"调研2025-26学术/开源漫剧管线：最大差距=对白无口型、无音效层、全靠视频生成而非2.5D运镜混排、运镜未按API可靠性分级。可直接落地：MMAudio/Kling原生音效补foley、Kling口型API或自托管MuseTalk、Vidu多参考主体到视频、DepthFlow静帧视差、SkyCaptioner式结构化镜头语言、ffmpeg光流检测废镜头。\",\"findings\":[{\"technique\":\"对白镜头口型驱动（MuseTalk/LatentSync/Kling对口型）\",\"description\":\"真漫剧对白镜头人物嘴部随台词开合；我们的管线视频生成与TTS完全解耦，人物说话不动嘴。可行路径：①Kling API有lip-sync（对口型）端点，对已生成视频段+TTS音频直接驱动口型，走现有provider体系；②自托管腾讯MuseTalk（实…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 4,
+      "label": "research:narrative",
+      "phaseIndex": 1,
+      "phaseTitle": "Research",
+      "agentId": "a49be50e69bb6fb5b",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450487839,
+      "queuedAt": 1784450487822,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "专业漫剧与AI拼片的感知差距集中在可量化的声画节奏规则：3秒冲…",
+      "promptPreview": "Project: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-to-video via Veo/Kling-class models, tail-frame chaining) → TTS voiceover → ffmpeg synthesis/export.\nAlready implemented (do NOT …",
+      "lastProgressAt": 1784450939900,
+      "tokens": 72699,
+      "toolCalls": 11,
+      "durationMs": 452061,
+      "resultPreview": "{\"summary\":\"专业漫剧与AI拼片的感知差距集中在可量化的声画节奏规则：3秒冲突钩子+30秒反转+60秒情绪爆点+悬崖式结尾；旁白驱动叙事(每分钟2-4句台词、单镜头2-4秒)；每转场必加whoosh、情绪点前置\\\"咚\\\"、动作帧精确对齐音效；BGM人声闪避-12~-20dB且反转前突然静音换歌；TTS按情绪标注驱动气息语速；字幕白字黑描边底部安全区、花字每集1-3处。多数规则可直接编码进LLM prompt与ffmpeg管线。\",\"findings\":[{\"technique\":\"单集三幕黄金结构（3秒/30秒/60秒节奏网格）\",\"description\":\"爆款短剧单集固定节奏：0-3秒必须抛出极端冲突（退婚/身份曝光/危机，一句台词或一个画面直接说明冲突，禁止铺垫）；3-30秒建立主角状态+核心冲突；之后每30秒一个小反转、每60秒一个情绪爆点（爽点/虐点，常配耳光+玻璃碎…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 5,
+      "label": "audit:image",
+      "phaseIndex": 2,
+      "phaseTitle": "Audit",
+      "agentId": "ad2b11077578663f8",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450487846,
+      "queuedAt": 1784450487823,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "工程链路扎实（画风包/三视图/一致性闭环/场记），但\"漫剧感\"断…",
+      "promptPreview": "You are auditing the IMAGE GENERATION chain of an AI comic-drama app at /Volumes/workSpace/study/aiProject/ai-comic-drama/app. \nProject: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-t…",
+      "lastProgressAt": 1784450726815,
+      "tokens": 134029,
+      "toolCalls": 25,
+      "durationMs": 238968,
+      "resultPreview": "{\"summary\":\"工程链路扎实（画风包/三视图/一致性闭环/场记），但\\\"漫剧感\\\"断在图像prompt层：情绪只有6值扁平标签、全链路零夸张表情与漫画符号词汇、镜头语言四字段被拼在质量词之后权重最低、自动workflow路径直接丢弃这些字段、景别词表薄且无镜头光学语言、同地点光线无状态锁定。结果是构图正确但情绪平庸的插画，而非有冲击力的专业漫剧关键帧。\",\"capabilities\":[{\"name\":\"画风包体系（StylePack）\",\"file\":\"app/src/lib/prompts/style-packs.ts\",\"quality\":\"strong\",\"note\":\"9个画风包含英文锚定词+分层色彩系统+情绪色盘+定妆规则+风格负向，单一真源，Toonflow改编内容专业。但缺红果漫剧主流的webtoon/厚涂国漫质感包\"},{\"name\":\"剧本解析层镜头语言\",\"f…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 6,
+      "label": "audit:video",
+      "phaseIndex": 2,
+      "phaseTitle": "Audit",
+      "agentId": "a5bb5540c345674b8",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450487847,
+      "queuedAt": 1784450487823,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "视频链路工程质量高（导演LLM/分段链接/时长校准俱全），但四处…",
+      "promptPreview": "You are auditing the VIDEO GENERATION chain of an AI comic-drama app at /Volumes/workSpace/study/aiProject/ai-comic-drama/app. \nProject: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-t…",
+      "lastProgressAt": 1784450719070,
+      "tokens": 131225,
+      "toolCalls": 26,
+      "durationMs": 231223,
+      "resultPreview": "{\"summary\":\"视频链路工程质量高（导演LLM/分段链接/时长校准俱全），但四处结构性断层使成片不像专业漫剧：①对白驱动节拍被模型档位(5/10/15s或Veo~8s)摧毁且实测时长反写DB，全片镜头同质5-8s+大量哑口空拍；②prompt明令禁止口型，配音叠在闭嘴人物上；③LLM设计的转场字段全程丢弃，导出一律0.3s淡化；④运镜只靠英文散文喂模型、无结构化camera控制，且FL模式统一覆盖运镜。\",\"capabilities\":[{\"name\":\"视频Prompt构建器(Veo五段式)\",\"file\":\"app/src/lib/prompts/video-prompt.ts\",\"quality\":\"strong\",\"note\":\"运镜/动作/氛围/连续性/负面词五段结构化，长度守卫按优先级整段丢弃，FL模式区分，13值运镜枚举唯一真源，纯ASCII负面词避开内容安全自伤。工…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 7,
+      "label": "audit:audio",
+      "phaseIndex": 2,
+      "phaseTitle": "Audit",
+      "agentId": "a8a6fae5f5362f245",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450719071,
+      "queuedAt": 1784450487823,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "音频链是全链路最薄弱环节：音效(SFX)零能力、TTS无情绪表演、…",
+      "promptPreview": "You are auditing the AUDIO + SUBTITLE chain of an AI comic-drama app at /Volumes/workSpace/study/aiProject/ai-comic-drama/app. \nProject: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-t…",
+      "lastProgressAt": 1784450951496,
+      "tokens": 128540,
+      "toolCalls": 24,
+      "durationMs": 232425,
+      "resultPreview": "{\"summary\":\"音频链是全链路最薄弱环节：音效(SFX)零能力、TTS无情绪表演、自动workflow全片单一默认女声、BGM整片单曲不随情绪切换、无响度归一；字幕工程质量高但缺漫剧标配的花字/拟声字卡，且字幕时轴按分镜时长而非配音实长分配。这些正是成片与抖音/红果专业漫剧的听感差距主因。\",\"capabilities\":[{\"name\":\"逐句字幕切分与时间窗分配\",\"file\":\"app/src/lib/subtitle-segments.ts\",\"quality\":\"strong\",\"note\":\"句末/次级标点两级切分+视觉宽度比例分窗+最小窗保障，纯函数、预览与导出共用单一权威实现，工程质量高\"},{\"name\":\"ASS字幕渲染(5种入场动效)\",\"file\":\"app/src/services/video-synthesis.ts\",\"quality\":\"adequa…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 8,
+      "label": "audit:export",
+      "phaseIndex": 2,
+      "phaseTitle": "Audit",
+      "agentId": "ac5b7f107ad9240c8",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784450726816,
+      "queuedAt": 1784450487823,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "导出链工程质量高（实测时长对齐、ASS字幕同源、任务化），但后…",
+      "promptPreview": "You are auditing the SYNTHESIS/EXPORT chain of an AI comic-drama app at /Volumes/workSpace/study/aiProject/ai-comic-drama/app. \nProject: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → video generation (image-t…",
+      "lastProgressAt": 1784450965799,
+      "tokens": 120122,
+      "toolCalls": 17,
+      "durationMs": 238983,
+      "resultPreview": "{\"summary\":\"导出链工程质量高（实测时长对齐、ASS字幕同源、任务化），但后期表现力停留在\\\"拼片\\\"层：图片镜死帧无推拉、转场默认全叠化且无真硬切/甩镜/闪白、无音效轨、无震屏/变速曲线、无片头封面与下集钩子卡、无全片LUT统一调色。这些正是专业漫剧与本产品成片的核心差距；另有变速预览不改playbackRate的parity破洞。\",\"capabilities\":[{\"name\":\"FFmpeg 合成主链（分镜切片→xfade→终混）\",\"file\":\"app/src/services/video-synthesis.ts\",\"quality\":\"strong\",\"note\":\"每镜独立转码后 ffprobe 实测有效时长（effectiveDuration），xfade offset/字幕/adelay/BGM/贴图全部同源对齐，tpad 克隆末帧防转场黑闪，3 并发切片。…"
+    },
+    {
+      "type": "workflow_agent",
+      "index": 9,
+      "label": "synthesize:plan",
+      "phaseIndex": 3,
+      "phaseTitle": "Synthesize",
+      "agentId": "a429ae692e14a9e11",
+      "model": "claude-fable-5",
+      "state": "done",
+      "startedAt": 1784451055889,
+      "queuedAt": 1784451055881,
+      "attempt": 1,
+      "lastToolName": "StructuredOutput",
+      "lastToolSummary": "| 维度 | 真实漫剧标准 | 我们现状 | 差距等级 | |------|-----…",
+      "promptPreview": "You are the lead architect synthesizing a quality-optimization plan for an AI comic-drama app at /Volumes/workSpace/study/aiProject/ai-comic-drama/app. \nProject: AI漫剧工作台 (AI Comic Drama Workbench) — Next.js full-stack app converting novel text into comic-drama videos.\nPipeline: text → LLM storyboard parsing → character setup (character bible, three-views) → image generation (per-scene keyframe) → …",
+      "lastProgressAt": 1784451622815,
+      "tokens": 114229,
+      "toolCalls": 9,
+      "durationMs": 566926,
+      "resultPreview": "{\"gapMatrix\":\"| 维度 | 真实漫剧标准 | 我们现状 | 差距等级 |\\n|------|------------|---------|---------|\\n| 剪辑节奏/镜头密度 | 0.5-6s三档快切，每分钟15-25镜，冲突镜1-3s | shot-timing算出的1-4s被档位吸附成5-8s同质长镜并实测反写DB；2s对白配8s画面产生6s哑口空拍 | 致命 |\\n| 转场语言 | 90%硬切+情绪爆点闪白/闪黑，叠化是禁忌 | 默认全片0.3s交叉叠化(fade)；LLM产出的transition字段在drama-to-scenes.ts被整条丢弃 | 致命 |\\n| 音效设计 | 每镜卡点SFX+环境音床+四层混音(配音>BGM>环境,-16LUFS) | 仅TTS+单曲BGM两轨，全仓零SFX资产/零混音路径，无loudnorm，纯对白amix缺norm…"
+    }
+  ],
+  "totalTokens": 945583,
+  "totalToolCalls": 168
+}
