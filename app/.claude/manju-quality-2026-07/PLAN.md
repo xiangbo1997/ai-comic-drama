@@ -27,6 +27,8 @@
 
 执行序：Wave1 = 批2∥批5（文件不相交）→ 批3 → 批1 → 批4 → 批6（video-synthesis.ts/preview-player.tsx 为枢纽文件，串行避竞写）。
 
+> **状态（2026-07-20，Claude Code）**：六批全部上线收官。批2=2792196 / 批5=1dac5be / 批3=5ea8180 / 批1=d1baa3f / 批4=d2a9d8b / 批6=f17c40f（成片包装：片头尾卡+思源黑体/得意黑+金句花字+全片LUT+红果红线门禁，零 schema 变更）。批6 契约单一真源：`lib/title-cards.ts` / `lib/color-grade.ts` / `lib/subtitle-fonts.ts`。
+
 ## 明确不做（勿重提）
 
 模型级对口型（漫剧标准=模糊lip flap）；新video provider集成（Vidu Q2/Kling 3.0 Omni等——感知增益低于声音+节奏层）；LoRA角色锁定；AniSora自托管；深度图2.5D视差（批4 zoompan覆盖~60%，留触发条件）；BGM卡点/分段切歌（需beat detection栈）；超分补帧；多段逐段导演节拍（批2裁剪后暴露面收缩）；MovieAgent式解析层重构（解析层已是最专业一层）；词级卡拉OK字幕（沿用负结论）；九宫格一致性锚（非成片路径）。
