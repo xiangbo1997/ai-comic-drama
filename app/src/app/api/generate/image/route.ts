@@ -13,6 +13,7 @@ import {
   buildEnhancedPrompt,
   buildSceneAnalysisPrompt,
   parseSceneAnalysisResponse,
+  promptStyleFromProtocol,
 } from "@/lib/prompt-builder";
 import {
   orchestrateImageGeneration,
@@ -252,6 +253,9 @@ export async function POST(request: NextRequest) {
 
         // 获取场景和角色信息，构建编排器所需的 SceneCharacterInfo[]
         let enhancedPrompt = safePrompt;
+        // 镜头语言是否已由 buildEnhancedPrompt 前置注入（新排序主路径 true）。
+        // 为 false 的降级路径（分析失败/无 LLM）才在末尾 tail-append 镜头语言兜底。
+        let cinematicsInjected = false;
         let sceneCharacters: SceneCharacterInfo[] = [];
         let shotType: string | undefined;
         // 镜头语言（块内从 scene 取，块外拼进出图 prompt）
@@ -286,6 +290,7 @@ export async function POST(request: NextRequest) {
               lighting: true,
               composition: true,
               colorPalette: true,
+              locationKey: true,
               selectedCharacterIds: true,
               selectedCharacter: {
                 select: {
@@ -419,11 +424,17 @@ export async function POST(request: NextRequest) {
           if (characters.length > 0 && scene?.description && llmConfig) {
             try {
               // 连续性记忆（Deliverable 3）：取相邻镜画面描述（order±1），让分析层
-              // 保持人物状态/道具/服装延续、不与前后镜冲突。cheap select，仅取 description。
+              // 保持人物状态/道具/服装延续、不与前后镜冲突。前镜额外取 lighting/
+              // colorPalette/locationKey，用于同地点强制承接光线基调。
               const [prevScene, nextScene] = await Promise.all([
                 prisma.scene.findFirst({
                   where: { projectId, order: scene.order - 1 },
-                  select: { description: true },
+                  select: {
+                    description: true,
+                    lighting: true,
+                    colorPalette: true,
+                    locationKey: true,
+                  },
                 }),
                 prisma.scene.findFirst({
                   where: { projectId, order: scene.order + 1 },
@@ -432,6 +443,19 @@ export async function POST(request: NextRequest) {
               ]);
               const prevSceneDescription = prevScene?.description || undefined;
               const nextSceneDescription = nextScene?.description || undefined;
+
+              // 同地点光线承接：本镜与上一镜 locationKey 相同时，把前镜的
+              // lighting（回落 colorPalette）作为光线基调传给分析层，强制承接，
+              // 防止同一地点相邻镜出现昼夜/冷暖漂移。异地点/无标签则不传（正常切换）。
+              const sameLocation =
+                !!scene.locationKey &&
+                !!prevScene?.locationKey &&
+                scene.locationKey === prevScene.locationKey;
+              const continuityLighting = sameLocation
+                ? prevScene?.lighting?.trim() ||
+                  prevScene?.colorPalette?.trim() ||
+                  undefined
+                : undefined;
 
               // 系列记忆（既定场景/道具/角色状态）：续集时注入分析 prompt，保证
               // 跨集视觉一致。空圣经/非系列返回 null。digest 变化必须进 cache key。
@@ -449,6 +473,7 @@ export async function POST(request: NextRequest) {
                 characterNames: characters.map((c) => c.name),
                 prevSceneDescription,
                 nextSceneDescription,
+                continuityLighting,
                 seriesContext,
               };
               let analysisResponse = await getAnalysisCache(analysisCacheKey);
@@ -462,6 +487,7 @@ export async function POST(request: NextRequest) {
                   shotType: scene.shotType || undefined,
                   prevSceneDescription,
                   nextSceneDescription,
+                  continuityLighting,
                   seriesContext,
                 });
 
@@ -483,13 +509,22 @@ export async function POST(request: NextRequest) {
               const analysis: SceneAnalysis =
                 parseSceneAnalysisResponse(analysisResponse);
 
+              // 镜头语言前置注入 + 情绪语法（漫剧化重排）：cinematics 作为高权重
+              // 参数进 builder（此前在 route 末尾 tail-append，权重最低），情绪按
+              // emotion×景别推断强度驱动夸张表情。promptStyle 按 provider 协议分派
+              // （SD 系 booru 标签 / 指令类自然语言）。
               enhancedPrompt = buildEnhancedPrompt({
                 style,
                 characters,
                 analysis,
                 shotType: scene.shotType || undefined,
                 originalPrompt: safePrompt,
+                cinematics: sceneCinematics ?? undefined,
+                emotion: scene.emotion,
+                aspectRatio,
+                promptStyle: promptStyleFromProtocol(imageConfig?.protocol),
               });
+              cinematicsInjected = true;
             } catch (analysisError) {
               log.warn(
                 "Scene analysis failed, falling back to simple prompt:",
@@ -508,14 +543,18 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 镜头语言：把 LLM 解析的 cameraAngle/lighting/composition/colorPalette
-        // 拼进 prompt，给出图注入电影感（此前这四字段落库后从不参与出图）。
-        const cinematicParts = [
-          sceneCinematics?.cameraAngle,
-          sceneCinematics?.lighting,
-          sceneCinematics?.composition,
-          sceneCinematics?.colorPalette,
-        ].filter((v): v is string => !!v && v.trim().length > 0);
+        // 镜头语言 tail-append 兜底：仅在降级路径（buildEnhancedPrompt 未执行，
+        // 如分析失败 / 无角色 / 无 LLM）时把 cameraAngle/lighting/composition/
+        // colorPalette 拼到末尾，避免这四字段完全丢失。主路径已由 builder 前置
+        // 高权重注入，这里跳过（不重复）。
+        const cinematicParts = cinematicsInjected
+          ? []
+          : [
+              sceneCinematics?.cameraAngle,
+              sceneCinematics?.lighting,
+              sceneCinematics?.composition,
+              sceneCinematics?.colorPalette,
+            ].filter((v): v is string => !!v && v.trim().length > 0);
         const composedPrompt =
           cinematicParts.length > 0
             ? `${enhancedPrompt}, ${cinematicParts.join(", ")}`

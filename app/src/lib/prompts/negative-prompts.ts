@@ -32,6 +32,11 @@ const NEGATIVE_BASELINE = [
   "disfigured",
   "cropped",
   "duplicate",
+  // 漫剧化负向：抑制呆板无表演的平淡画面（关键帧漫剧感门槛）
+  "stiff pose",
+  "expressionless face",
+  "flat boring composition",
+  "centered passport-style framing",
 ].join(", ");
 
 import { STYLE_PACKS } from "./style-packs";

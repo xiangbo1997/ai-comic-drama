@@ -26,6 +26,11 @@ import {
   getStylePack,
 } from "@/lib/prompts";
 import {
+  buildEmotionPhrase,
+  inferEmotionIntensity,
+  type EmotionIntensity,
+} from "@/lib/prompts/emotion-grammar";
+import {
   getNegativePromptPreset,
   getSceneNegativePrompt,
   type NegativePromptPreset,
@@ -38,6 +43,39 @@ export { getNegativePromptPreset };
 export type { NegativePromptPreset };
 
 // ============ Prompt 构建 ============
+
+/**
+ * 出图 prompt 的质量词风格：
+ * - "tags"：booru 风格逗号标签（masterpiece, best quality...），SD 系模型（replicate/fal/siliconflow）吃这套。
+ * - "natural"：自然语言（high quality, highly detailed image），指令类模型（openai/gemini/claude）吃这套。
+ */
+export type PromptQualityStyle = "tags" | "natural";
+
+/** SD 系协议（吃 booru 标签）；其余指令类模型走自然语言。 */
+const SD_FAMILY_PROTOCOLS: ReadonlySet<string> = new Set([
+  "replicate",
+  "fal",
+  "siliconflow",
+]);
+
+/**
+ * 由 provider 协议推断质量词风格。未知/指令类回落 "natural"（安全默认——
+ * 自然语言不会在 SD 上崩，反之 booru 标签喂给指令模型会被当普通文本淡化）。
+ */
+export function promptStyleFromProtocol(
+  protocol?: string | null
+): PromptQualityStyle {
+  const p = protocol?.trim().toLowerCase();
+  return p && SD_FAMILY_PROTOCOLS.has(p) ? "tags" : "natural";
+}
+
+/** 分级镜头语言：解析层产出的 cameraAngle/lighting/composition/colorPalette。 */
+export interface SceneCinematics {
+  cameraAngle?: string | null;
+  lighting?: string | null;
+  composition?: string | null;
+  colorPalette?: string | null;
+}
 
 export interface BuildPromptOptions {
   style?: string;
@@ -52,22 +90,161 @@ export interface BuildPromptOptions {
    * 使整部剧色调统一。留空则行为完全不变（向后兼容）。
    */
   seriesPalette?: string;
+  /**
+   * 镜头语言（解析层产出）。前置注入到 style 之后、角色之前（高权重位），
+   * 替代此前在 route 末尾 tail-append 的低权重做法。留空则不注入。
+   */
+  cinematics?: SceneCinematics;
+  /** 情绪（neutral/happy/sad/angry/surprised/fear）；驱动夸张表情语法。 */
+  emotion?: string | null;
+  /** 情绪强度（low/medium/climax）；缺省时按 emotion+景别+isClimax 推断。 */
+  emotionIntensity?: EmotionIntensity;
+  /** 高潮镜头标记；true 时情绪强度直接拉到 climax。 */
+  isClimax?: boolean;
+  /** 画幅（9:16 时注入竖屏构图基线）。 */
+  aspectRatio?: string | null;
+  /** 质量词风格（SD 系用 tags，指令类用 natural）。缺省 natural（安全默认）。 */
+  promptStyle?: PromptQualityStyle;
+  /**
+   * 用旧的段落排序（质量词在前、镜头语言 tail-append）。默认 false = 新排序。
+   * 仅作廉价回滚开关，不做 A/B 基建。
+   */
+  legacyOrdering?: boolean;
 }
 
 /**
- * 构建增强的图像生成 prompt
+ * 构建增强的图像生成 prompt（漫剧化重排）
  *
- * 策略：
- * - 角色 description 包含完整的人物形象描述（外貌+服装+发型+饰品）
- * - 将 description 放在 prompt 前面，强调这是角色的固定特征
- * - 动作、表情、姿态根据场景变化
- * - 若传入 seriesPalette（系列 colorScript），把统一主色板作为全局色彩约束前置，
- *   单镜光线/色调只在该主色板内局部偏移，消除跨镜色调漂移
+ * 新排序（默认，权重从高到低）：
+ *   风格锚定 → 镜头语言（景别/机位/构图，前置高权重） → 角色 →
+ *   动作 + 夸张表情（消费情绪语法） → 环境 → 光线/色彩 → 质量词 + 一致性护栏
+ * 相比旧排序，把镜头语言从末尾 tail-append 提到角色之前，把夸张表情/漫画符号
+ * 注入动作段——让高潮镜头被真正画出漫剧感，而非渲染成平静插画。
  *
- * @param options 构建选项（seriesPalette 可选，调用方从 series colorScript 传入）
+ * legacyOrdering=true 时回退旧排序（质量词在前、镜头语言 tail-append），廉价回滚。
+ *
+ * @param options 构建选项（cinematics/emotion/aspectRatio/promptStyle 均可选）
  * @returns 增强后的 prompt
  */
 export function buildEnhancedPrompt(options: BuildPromptOptions): string {
+  if (options.legacyOrdering) {
+    return buildEnhancedPromptLegacy(options);
+  }
+
+  const {
+    style,
+    characters,
+    analysis,
+    shotType,
+    originalPrompt,
+    seriesPalette,
+    cinematics,
+    emotion,
+    emotionIntensity,
+    isClimax,
+    aspectRatio,
+    promptStyle = "natural",
+  } = options;
+
+  const parts: string[] = [];
+  const pack = getStylePack(style);
+
+  // 1. 风格锚定
+  parts.push(pack.anchor);
+
+  // 2. 镜头语言（前置高权重）：景别 → 机位/角度 → 构图。
+  //    优先解析层的 cinematics.composition/cameraAngle；景别过 SHOT_MAP 翻译成焦段+景深。
+  parts.push(getShotTypeDescription(shotType));
+  const cameraAngle = cinematics?.cameraAngle?.trim();
+  if (cameraAngle) parts.push(cameraAngle);
+  const composition = cinematics?.composition?.trim();
+  if (composition) parts.push(composition);
+  // 9:16 竖屏构图基线（漫剧默认竖屏，需主体上移+纵深强调）
+  if (aspectRatio === "9:16") {
+    parts.push(
+      "vertical composition, subject in upper two-thirds, strong vertical depth"
+    );
+  }
+
+  // 3. 角色外貌描述（固定特征）
+  if (characters.length > 0) {
+    const characterDescriptions = characters.map((c) => {
+      const features = [
+        c.gender === "male" ? "male" : c.gender === "female" ? "female" : null,
+        c.age ? `${c.age} years old` : null,
+        c.description || null,
+      ].filter(Boolean);
+      return `${c.name}: ${features.join(", ")}`;
+    });
+    if (characterDescriptions.length === 1) {
+      parts.push(`character: ${characterDescriptions[0]}`);
+    } else {
+      parts.push(`characters: ${characterDescriptions.join("; ")}`);
+    }
+  }
+
+  // 4. 角色动作 + 夸张表情（情绪语法）。动作来自分析；表情/符号来自 emotion-grammar，
+  //    按 emotion×强度×画风生成，写实画风自动无漫画符号。
+  if (analysis.characterActions.length > 0) {
+    const actionDescriptions = analysis.characterActions.map((ca) => {
+      const actionParts = [ca.action, ca.expression].filter(Boolean);
+      if (ca.position) actionParts.push(ca.position);
+      return `${ca.characterName}: ${actionParts.join(", ")}`;
+    });
+    parts.push(actionDescriptions.join("; "));
+  }
+  if (analysis.interaction) parts.push(analysis.interaction);
+
+  const intensity =
+    emotionIntensity ?? inferEmotionIntensity(emotion, shotType, isClimax);
+  const emotionPhrase = buildEmotionPhrase(emotion, intensity, style);
+  if (emotionPhrase) parts.push(emotionPhrase);
+
+  // 5. 环境描述（+ 画风包场景规则英文精炼版；legacy 平面风格为空自动跳过）
+  if (analysis.environment) {
+    parts.push(analysis.environment);
+    if (pack.sceneRulesEn.trim()) parts.push(pack.sceneRulesEn);
+  }
+
+  // 6. 光线 + 色彩：光线过预设映射；色彩优先系列主色板 → cinematics.colorPalette →
+  //    画风包英文色彩基线（legacy 为空自动跳过）。
+  const lighting = getLightingPrefix(cinematics?.lighting ?? analysis.lighting);
+  if (lighting) parts.push(lighting);
+
+  const palette = seriesPalette?.trim();
+  if (palette) {
+    parts.push(`unified color palette (obey across all shots): ${palette}`);
+  } else {
+    const colorPalette = cinematics?.colorPalette?.trim();
+    if (colorPalette) parts.push(colorPalette);
+    if (pack.colorSystemEn.trim()) parts.push(pack.colorSystemEn);
+  }
+
+  // 7. 氛围
+  if (analysis.mood) parts.push(`${analysis.mood} atmosphere`);
+
+  // 8. 原始提示词（自定义内容）
+  if (originalPrompt) parts.push(originalPrompt);
+
+  // 9. 一致性护栏 + 质量词（按协议分风格：SD 系用 booru 标签，指令类用自然语言）
+  parts.push(buildConsistencyGuard(characters.length));
+  parts.push(qualityWords(promptStyle));
+
+  return parts.filter(Boolean).join(", ");
+}
+
+/** 质量词：SD 系 booru 标签 vs 指令类自然语言。 */
+function qualityWords(style: PromptQualityStyle): string {
+  return style === "tags"
+    ? "masterpiece, best quality, highly detailed"
+    : "high quality, highly detailed, cinematic";
+}
+
+/**
+ * 旧排序实现（legacyOrdering=true 回滚用）：质量词在前、镜头语言 tail-append。
+ * 保留原行为逐字不改，作为廉价回退路径。
+ */
+function buildEnhancedPromptLegacy(options: BuildPromptOptions): string {
   const {
     style,
     characters,
@@ -78,16 +255,10 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
   } = options;
 
   const parts: string[] = [];
-
-  // 画风包：风格锚定词 + 分层色彩系统（作为 color script 的风格基线）+ 场景规则。
   const pack = getStylePack(style);
 
-  // 1. 风格前缀（画风包锚定词）
   parts.push(pack.anchor);
 
-  // 1.5 系列统一主色板（有值时作为全局色彩约束前置；单镜色调只在其内局部偏移）。
-  //     无系列主色板时，退回画风包的分层色彩系统作为色彩基线（让每镜色调服从画风调性，
-  //     而非自由发挥）。legacy 平面风格 colorSystem 为空 → 自动跳过，行为不变。
   const palette = seriesPalette?.trim();
   if (palette) {
     parts.push(
@@ -97,19 +268,15 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     parts.push(`色彩风格基线（画面色调服从画风调性）：${pack.colorSystem}`);
   }
 
-  // 2. 角色外貌描述（重要：放在最前面，作为固定特征）
   if (characters.length > 0) {
     const characterDescriptions = characters.map((c) => {
-      // 组合角色的所有固定特征：性别 + 年龄 + 描述
       const features = [
         c.gender === "male" ? "male" : c.gender === "female" ? "female" : null,
         c.age ? `${c.age} years old` : null,
-        c.description || null, // 完整的外貌描述
+        c.description || null,
       ].filter(Boolean);
-
       return `${c.name}: ${features.join(", ")}`;
     });
-
     if (characterDescriptions.length === 1) {
       parts.push(`character: ${characterDescriptions[0]}`);
     } else {
@@ -117,57 +284,31 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     }
   }
 
-  // 3. 角色动作和表情（从分析结果）
   if (analysis.characterActions.length > 0) {
     const actionDescriptions = analysis.characterActions.map((ca) => {
       const actionParts = [ca.action, ca.expression].filter(Boolean);
-      if (ca.position) {
-        actionParts.push(ca.position);
-      }
+      if (ca.position) actionParts.push(ca.position);
       return `${ca.characterName}: ${actionParts.join(", ")}`;
     });
     parts.push(actionDescriptions.join("; "));
   }
 
-  // 4. 角色互动
-  if (analysis.interaction) {
-    parts.push(analysis.interaction);
-  }
+  if (analysis.interaction) parts.push(analysis.interaction);
 
-  // 5. 环境描述（+ 画风包场景规则：空间质感/光影语言，让场景出图贴合画风；
-  //    legacy 平面风格 sceneRules 为空 → 自动跳过，行为不变）
   if (analysis.environment) {
     parts.push(analysis.environment);
-    if (pack.sceneRules.trim()) {
-      parts.push(`场景画风：${pack.sceneRules}`);
-    }
+    if (pack.sceneRules.trim()) parts.push(`场景画风：${pack.sceneRules}`);
   }
 
-  // 6. 光线（过灯光预设映射：命中预设 key 翻译成电影级布光片段，自由文本原样保留）
   const lighting = getLightingPrefix(analysis.lighting);
-  if (lighting) {
-    parts.push(lighting);
-  }
+  if (lighting) parts.push(lighting);
 
-  // 7. 景别
   parts.push(getShotTypeDescription(shotType));
 
-  // 8. 氛围
-  if (analysis.mood) {
-    parts.push(`${analysis.mood} atmosphere`);
-  }
+  if (analysis.mood) parts.push(`${analysis.mood} atmosphere`);
+  if (analysis.cameraAngle) parts.push(analysis.cameraAngle);
+  if (originalPrompt) parts.push(originalPrompt);
 
-  // 9. 镜头角度
-  if (analysis.cameraAngle) {
-    parts.push(analysis.cameraAngle);
-  }
-
-  // 10. 原始提示词（如果有自定义内容）
-  if (originalPrompt) {
-    parts.push(originalPrompt);
-  }
-
-  // 11. 质量标签 + 分级身份一致性护栏（单人锁脸/发/服装；多人额外锁人数/顺序/不克隆）
   parts.push(buildConsistencyGuard(characters.length));
   parts.push("masterpiece, best quality, highly detailed");
 
@@ -282,6 +423,7 @@ export function buildSceneAnalysisPrompt(request: AnalyzeSceneRequest): string {
     shotType,
     prevSceneDescription,
     nextSceneDescription,
+    continuityLighting,
     seriesContext,
   } = request;
 
@@ -292,11 +434,12 @@ export function buildSceneAnalysisPrompt(request: AnalyzeSceneRequest): string {
     })
     .join("\n");
 
-  // 连续性上下文（承接前情/铺垫后续）：有相邻镜时注入，让人物状态/道具/服装延续
+  // 连续性上下文（承接前情/铺垫后续）：有相邻镜时注入，让人物状态/道具/服装延续。
+  // 同地点时额外强制承接光线基调（continuityLighting），防止昼夜/冷暖漂移。
   const continuityBlock =
-    prevSceneDescription || nextSceneDescription
+    prevSceneDescription || nextSceneDescription || continuityLighting
       ? `## 连续性上下文（承接前后镜，人物状态/道具/服装要延续，不与前情冲突）
-${prevSceneDescription ? `上一镜：${prevSceneDescription}\n` : ""}${nextSceneDescription ? `下一镜：${nextSceneDescription}\n` : ""}`
+${prevSceneDescription ? `上一镜：${prevSceneDescription}\n` : ""}${nextSceneDescription ? `下一镜：${nextSceneDescription}\n` : ""}${continuityLighting ? `同地点光线基调（本镜光线必须承接，不得昼夜/冷暖漂移）：${continuityLighting}\n` : ""}`
       : "";
 
   // 系列记忆（既定场景/道具/角色状态）：续集时注入，保证跨集视觉一致

@@ -12,20 +12,35 @@ export function getStylePrefix(style?: string): string {
   return getStylePack(style).anchor;
 }
 
-/** 景别描述映射 */
+/**
+ * 景别 × 机位 × 光学映射
+ *
+ * 每个值带上焦段与景深描述，把「特写/近景」这类抽象景别翻译成模型能理解的
+ * 镜头语言（焦距 + 光圈景深 + 视角），出图才有真正的电影镜头感而非平铺直叙。
+ * 键向后兼容原 8 个（特写/近景/中景/全景/远景/俯拍/仰拍/平拍），
+ * 并补充过肩/斜角/低角冲击/高角压迫等常用机位。
+ */
 const SHOT_MAP: Record<string, string> = {
-  特写: "extreme close-up shot, face detail",
-  近景: "close-up shot, head and shoulders",
-  中景: "medium shot, waist up",
-  全景: "full shot, entire body visible",
-  远景: "wide shot, environment emphasis",
-  俯拍: "high angle shot, looking down",
-  仰拍: "low angle shot, looking up",
-  平拍: "eye level shot",
+  // 景别（焦段 + 景深）
+  特写: "extreme close-up shot, 85mm lens, shallow depth of field, face and eyes detail, background bokeh",
+  近景: "close-up shot, 85mm portrait lens, head and shoulders, soft shallow depth of field",
+  中景: "medium shot, 50mm lens, waist up, natural perspective, moderate depth of field",
+  全景: "full shot, 35mm lens, entire body visible, balanced depth of field",
+  远景: "wide establishing shot, 24mm wide-angle lens, environment emphasis, deep focus, subject small in frame",
+  // 机位（角度 + 光学效果）
+  俯拍: "high angle shot, camera looking down, oppressive top-down perspective, subject appears diminished",
+  仰拍: "low angle shot, camera looking up, heroic impactful perspective, towering subject",
+  平拍: "eye level shot, 50mm lens, neutral natural perspective",
+  斜角: "dutch angle shot, tilted canted frame, unsettling dynamic tension",
+  过肩: "over-the-shoulder shot, foreground shoulder blur, 85mm lens, layered depth",
+  低角冲击:
+    "dramatic low-angle impact shot, wide-angle distortion, dynamic upward perspective, exaggerated foreground",
+  高角压迫:
+    "high-angle oppression shot, steep top-down view, subject small and vulnerable, looming negative space",
 };
 
 export function getShotTypeDescription(shotType?: string): string {
-  return SHOT_MAP[shotType || "中景"] || "medium shot";
+  return SHOT_MAP[shotType || "中景"] || "medium shot, 50mm lens";
 }
 
 /**

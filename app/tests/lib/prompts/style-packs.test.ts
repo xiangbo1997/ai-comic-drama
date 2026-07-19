@@ -40,9 +40,11 @@ const BUDGETS: Record<keyof StylePack, number> = {
   description: Infinity,
   anchor: 220,
   colorSystem: 600,
+  colorSystemEn: 160,
   moodPalettes: 500,
   characterRules: 400,
   sceneRules: 300,
+  sceneRulesEn: 160,
   negative: Infinity,
   legacy: Infinity,
 };
@@ -69,6 +71,25 @@ describe("STYLE_PACKS 注册表", () => {
   it("每个包 negative 非空（风格特化负向词）", () => {
     for (const pack of STYLE_PACKS) {
       expect(pack.negative.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("英文精炼字段（colorSystemEn/sceneRulesEn）遵守预算；有中文版的包英文版必须非空", () => {
+    for (const pack of STYLE_PACKS) {
+      expect(pack.colorSystemEn.length).toBeLessThanOrEqual(
+        BUDGETS.colorSystemEn
+      );
+      expect(pack.sceneRulesEn.length).toBeLessThanOrEqual(
+        BUDGETS.sceneRulesEn
+      );
+      // 有中文 colorSystem/sceneRules 的包必须配套英文精炼版（进英文 prompt 用）；
+      // legacy 平面风格两者皆空，行为不变
+      if (pack.colorSystem.trim()) {
+        expect(pack.colorSystemEn.trim().length).toBeGreaterThan(0);
+      }
+      if (pack.sceneRules.trim()) {
+        expect(pack.sceneRulesEn.trim().length).toBeGreaterThan(0);
+      }
     }
   });
 });

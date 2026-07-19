@@ -150,6 +150,11 @@ export interface AnalyzeSceneRequest {
   /** 下一镜画面描述（连续性参考） */
   nextSceneDescription?: string;
   /**
+   * 同地点前镜的光线/色调基线（仅当本镜与上一镜 locationKey 相同时传入）。
+   * 用于强制承接光线基调，防止同一地点相邻镜出现昼夜/冷暖漂移。
+   */
+  continuityLighting?: string;
+  /**
    * 系列记忆上下文（既定场景/道具/角色状态，一句话预算级；系列续集时注入）。
    * 见 lib/series.ts#buildSeriesMemoryDigest（stage 'scene'）。
    */
