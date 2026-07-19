@@ -20,7 +20,10 @@ import type {
   SceneEffect,
   SceneEffectId,
   BackgroundMusic,
+  SceneSfx,
 } from "@/types/export-style";
+// 音效库（纯数据）：预览端按导出同源的触发时刻调度 <audio>（预览必须反映导出效果）
+import { getSfxById } from "@/lib/sfx-library";
 import {
   resolveSubtitleXY,
   resolveSubtitleFontPx,
@@ -95,6 +98,11 @@ interface PreviewPlayerProps {
   sceneEffects?: SceneEffect[];
   /** 背景音乐（预览时循环播放，让用户听到导出后的 BGM 效果） */
   backgroundMusic?: BackgroundMusic;
+  /**
+   * 音效列表（按 sceneId + 镜内偏移触发；与导出端 buildSfxSchedule 同源语义）。
+   * 预览播放跨过触发时刻时播放对应 one-shot/环境音，暂停/回退同步停止。
+   */
+  sfx?: SceneSfx[];
 }
 
 /**
@@ -159,6 +167,7 @@ export function PreviewPlayer({
   transitions,
   sceneEffects,
   backgroundMusic,
+  sfx,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -538,6 +547,109 @@ export function PreviewPlayer({
     effDurs,
     totalDuration,
   ]);
+
+  // ── SFX 音效调度（批1，与导出端 buildSfxSchedule 同源语义）────────────
+  // 触发表：显式配置（sceneStart+offsetSec）+ 转场自动 whoosh（携带 sfx 配置且
+  // 该衔接为显式非硬切转场时，与导出端 wantAutoTransitionSfx 契约一致）。
+  const sfxSchedule = useMemo(() => {
+    if (sfx === undefined) return [];
+    const idxById = new Map(scenes.map((s, i) => [s.id, i]));
+    const items: { url: string; triggerSec: number; volume: number }[] = [];
+    for (const s of sfx) {
+      const entry = getSfxById(s.sfxId);
+      const idx = idxById.get(s.sceneId);
+      if (!entry || idx === undefined) continue;
+      const offset = Number.isFinite(s.offsetSec)
+        ? Math.max(0, s.offsetSec)
+        : 0;
+      items.push({
+        url: entry.file,
+        triggerSec: (prefixDurations[idx] ?? 0) + offset,
+        volume:
+          typeof s.volume === "number" && Number.isFinite(s.volume)
+            ? Math.min(1, Math.max(0, s.volume))
+            : entry.defaultVolume,
+      });
+    }
+    // 转场自动 whoosh：显式非硬切转场的衔接点补一记疾风（同导出端默认值 0.5）
+    const whoosh = getSfxById("whoosh-fast");
+    if (whoosh && Array.isArray(transitions)) {
+      for (let k = 0; k < scenes.length - 1; k += 1) {
+        const t = transitions[k];
+        if (t && t.type && t.type !== "none") {
+          items.push({
+            url: whoosh.file,
+            triggerSec: prefixDurations[k + 1] ?? 0,
+            volume: 0.5,
+          });
+        }
+      }
+    }
+    return items.sort((a, b) => a.triggerSec - b.triggerSec);
+  }, [sfx, scenes, prefixDurations, transitions]);
+
+  // 已触发集合 + 活动音频（暂停/回退/卸载时统一停止）。
+  // lastElapsed 用于识别「回退/跳转」：时间倒流则重建已触发集合（<= 新时刻的
+  // 视为已触发但不补播），避免 seek 后旧音效连环补放。
+  const sfxFiredRef = useRef<Set<number>>(new Set());
+  const sfxActiveRef = useRef<Set<HTMLAudioElement>>(new Set());
+  const sfxLastElapsedRef = useRef(0);
+  useEffect(() => {
+    if (sfxSchedule.length === 0) return;
+    const elapsed =
+      (prefixDurations[currentIndex] ?? 0) +
+      (effDurs[currentIndex] ?? 0) * progress;
+
+    // 回退/跳转：时间倒流 → 已触发集合重建为「时刻之前的全部」，不补播
+    if (elapsed < sfxLastElapsedRef.current - 0.2) {
+      const rebuilt = new Set<number>();
+      sfxSchedule.forEach((item, i) => {
+        if (item.triggerSec <= elapsed) rebuilt.add(i);
+      });
+      sfxFiredRef.current = rebuilt;
+    }
+    sfxLastElapsedRef.current = elapsed;
+
+    if (!isPlaying) return;
+    sfxSchedule.forEach((item, i) => {
+      if (sfxFiredRef.current.has(i) || item.triggerSec > elapsed) return;
+      sfxFiredRef.current.add(i);
+      // 仅在触发时刻附近 0.6s 内真正发声：跨大步前进（seek）越过的旧触发点只标记不补播
+      if (elapsed - item.triggerSec > 0.6 || isMuted) return;
+      const audio = new Audio(item.url);
+      audio.volume = item.volume;
+      sfxActiveRef.current.add(audio);
+      audio.addEventListener("ended", () => {
+        sfxActiveRef.current.delete(audio);
+      });
+      audio.play().catch(() => {
+        sfxActiveRef.current.delete(audio);
+      });
+    });
+  }, [
+    sfxSchedule,
+    progress,
+    currentIndex,
+    isPlaying,
+    isMuted,
+    prefixDurations,
+    effDurs,
+  ]);
+
+  // 暂停/卸载：停止所有在放音效（环境音长达 15s，必须跟随暂停）
+  useEffect(() => {
+    if (isPlaying) return;
+    const active = sfxActiveRef.current;
+    active.forEach((a) => a.pause());
+    active.clear();
+  }, [isPlaying]);
+  useEffect(() => {
+    const active = sfxActiveRef.current;
+    return () => {
+      active.forEach((a) => a.pause());
+      active.clear();
+    };
+  }, []);
 
   const togglePlay = () => {
     setIsPlaying(!isPlaying);

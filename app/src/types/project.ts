@@ -10,6 +10,7 @@ import type {
   Transition,
   SceneEffect,
   BackgroundMusic,
+  SceneSfx,
 } from "./export-style";
 
 /** 项目状态 — 与 Prisma enum ProjectStatus 对齐 */
@@ -45,6 +46,8 @@ export interface GenerationParams {
   sceneEffects?: SceneEffect[];
   /** 全片背景音乐（BGM）配置 */
   backgroundMusic?: BackgroundMusic;
+  /** 音效列表（按 sceneId + 镜内偏移触发；导出/预览的第三音频层） */
+  sfx?: SceneSfx[];
   /** 一键 AI 制片人审阅态（仅向导创建的项目有此字段；常规项目缺省） */
   producerReview?: ProducerReview;
 }

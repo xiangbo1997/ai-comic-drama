@@ -151,16 +151,18 @@ export function TimelineDialogs({
       {showEffectDialog && (
         <SceneEffectDialog
           initialEffects={project.generationParams?.sceneEffects}
+          initialSfx={project.generationParams?.sfx}
           scenes={project.scenes.map((s) => ({
             id: s.id,
             order: s.order,
             description: s.description,
           }))}
-          onSave={(sceneEffects) =>
+          onSave={(sceneEffects, sfx) =>
             updateProject({
               generationParams: {
                 ...project.generationParams,
                 sceneEffects,
+                sfx,
               },
             })
           }

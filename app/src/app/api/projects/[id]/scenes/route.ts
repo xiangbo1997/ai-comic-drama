@@ -3,7 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import type { GenerationParams } from "@/types";
-import type { Transition, TransitionType } from "@/types/export-style";
+import type {
+  SceneSfx,
+  Transition,
+  TransitionType,
+} from "@/types/export-style";
+import { resolveSfxTag } from "@/lib/sfx-library";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
 import { createLogger } from "@/lib/logger";
@@ -54,6 +59,9 @@ function remapGenerationParams(
   if (st !== next.stickers) next.stickers = st;
   const se = remapByScene(next.sceneEffects);
   if (se !== next.sceneEffects) next.sceneEffects = se;
+  // 音效同为 sceneId 键控（批1）：重解析后桥接到新分镜，防精调丢失/孤儿滞留
+  const sf = remapByScene(next.sfx);
+  if (sf !== next.sfx) next.sfx = sf;
 
   // transitions 按相邻分镜顺序（k 与 k+1 之间），最多 新分镜数-1 项
   const maxTransitions = Math.max(0, orderToNewSceneId.size - 1);
@@ -101,6 +109,41 @@ function aggregateSceneTransitions(scenes: unknown[]): Transition[] | null {
   });
 
   return anyTransition ? transitions : null;
+}
+
+/**
+ * 从分镜草稿聚合音效配置（声音设计 · 批1）。
+ *
+ * 解析层按克制纪律产出的 scene.sfx（[{tag, offsetSec}]）在此单点落到
+ * generationParams.sfx（SceneSfx[] 按新建分镜 id 关联）——与转场聚合同模式。
+ * tag 经 resolveSfxTag 解析（支持具体音效 id 与分类 id），未命中静默跳过；
+ * 每镜最多取 2 条（服务端兜底解析层克制规则）。全部缺席返回 null（不写空数组）。
+ */
+function aggregateSceneSfx(
+  scenes: unknown[],
+  orderToNewSceneId: Map<number, string>
+): SceneSfx[] | null {
+  const result: SceneSfx[] = [];
+  for (let i = 0; i < scenes.length; i += 1) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = scenes[i] as any;
+    const sceneId = orderToNewSceneId.get(i);
+    if (!sceneId || !Array.isArray(raw?.sfx)) continue;
+    let taken = 0;
+    for (const item of raw.sfx) {
+      if (taken >= 2) break; // 每镜 ≤2 条，服务端兜底
+      const tag = typeof item?.tag === "string" ? item.tag : "";
+      const entry = tag ? resolveSfxTag(tag) : undefined;
+      if (!entry) continue;
+      const offset =
+        typeof item?.offsetSec === "number" && Number.isFinite(item.offsetSec)
+          ? Math.max(0, item.offsetSec)
+          : 0;
+      result.push({ sceneId, sfxId: entry.id, offsetSec: offset });
+      taken += 1;
+    }
+  }
+  return result.length > 0 ? result : null;
 }
 
 interface RouteParams {
@@ -308,6 +351,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       paramsChanged = true;
     }
 
+    // 聚合解析层音效标注（批1）：同转场，脚本产出即本次重建的权威来源
+    const aggregatedSfx = aggregateSceneSfx(scenes, orderToNewSceneId);
+    if (aggregatedSfx) {
+      nextParams = { ...nextParams, sfx: aggregatedSfx };
+      paramsChanged = true;
+    }
+
     if (paramsChanged) {
       await prisma.project.update({
         where: { id },
@@ -317,7 +367,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       });
       log.info(
         `Updated generationParams for project ${id}` +
-          (aggregatedTransitions ? " (aggregated scene transitions)" : "")
+          (aggregatedTransitions ? " (aggregated scene transitions)" : "") +
+          (aggregatedSfx ? ` (aggregated ${aggregatedSfx.length} sfx)` : "")
       );
     }
 

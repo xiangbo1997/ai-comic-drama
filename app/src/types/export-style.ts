@@ -350,6 +350,25 @@ export const DEFAULT_TRANSITION: Transition = {
 };
 
 /**
+ * 单条音效（SFX）叠加配置（按 sceneId + 镜内偏移关联）。
+ *
+ * 存于 Project.generationParams.sfx（与 stickers/sceneEffects 同位，无需改 schema）。
+ * 导出时由 video-synthesis 作为「第三音频层」（voice > SFX > BGM > ambient 混音
+ * 层级）在 sceneStart + offsetSec 处触发；预览端同源在分镜起点 + offsetSec 调度
+ * <audio> 播放（预览必须反映导出效果）。
+ */
+export interface SceneSfx {
+  /** 归属分镜 id（在该分镜时间段内触发） */
+  sceneId: string;
+  /** 内置音效 SfxEntry.id（如 "glass-shatter"） */
+  sfxId: string;
+  /** 在该分镜内的触发偏移（秒），默认 0 */
+  offsetSec: number;
+  /** 音量 0-1；缺省时用该音效的 defaultVolume */
+  volume?: number;
+}
+
+/**
  * 背景音乐（BGM）配置 —— 全片单条主音乐。
  * 存于 Project.generationParams.backgroundMusic（与 watermark/stickers 同位，
  * 无需改 schema）。导出时由 video-synthesis 用 ffmpeg 混入成片。
@@ -374,7 +393,11 @@ export interface BackgroundMusic {
 }
 
 /**
- * 背景音乐默认值（enabled=false → 不混入，与旧行为一致）
+ * 背景音乐默认值（enabled=false → 不混入，与旧行为一致）。
+ *
+ * ducking 默认 true：漫剧专业混音层级 voice > SFX > BGM > ambient，对白清晰是刚需，
+ * 新建配置默认开启「对白时压低 BGM」。仅影响「未设置过 ducking」的新默认——
+ * 已落库的存量配置带自己的 ducking 值，读取时不受此默认影响（值不变）。
  */
 export const DEFAULT_BACKGROUND_MUSIC: BackgroundMusic = {
   enabled: false,
@@ -383,5 +406,5 @@ export const DEFAULT_BACKGROUND_MUSIC: BackgroundMusic = {
   fadeIn: 1.5,
   fadeOut: 2.0,
   loop: true,
-  ducking: false,
+  ducking: true,
 };

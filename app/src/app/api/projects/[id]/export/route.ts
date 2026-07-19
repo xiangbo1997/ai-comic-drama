@@ -100,6 +100,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       genParams.backgroundMusic && typeof genParams.backgroundMusic === "object"
         ? genParams.backgroundMusic
         : undefined;
+    // 音效（SFX，批1）：从 generationParams 读取，缺省时合成端零音效（存量零回归）。
+    const resolvedSfx = Array.isArray(genParams.sfx)
+      ? genParams.sfx
+      : undefined;
 
     // 检查是否有足够的内容可以导出
     const scenesWithContent = project.scenes.filter(
@@ -165,6 +169,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       transitions: resolvedTransitions,
       sceneEffects: resolvedSceneEffects,
       backgroundMusic: resolvedBackgroundMusic,
+      sfx: resolvedSfx,
     };
 
     // 如果是同步模式，立即处理

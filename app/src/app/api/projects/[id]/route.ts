@@ -7,6 +7,7 @@ import { deleteFile } from "@/services/storage";
 import { createLogger } from "@/lib/logger";
 import { normalizeSubtitleStyle } from "@/lib/subtitle-style-normalize";
 import { normalizeProducerReview } from "@/lib/producer-review";
+import { getSfxById } from "@/lib/sfx-library";
 import { parseStoryBible, isBibleEmpty } from "@/types/series-bible";
 const log = createLogger("api:projects:[id]");
 
@@ -506,6 +507,26 @@ function normalizeGenerationParams(
       loop: bm.loop !== false,
       ducking: bm.ducking === true,
     };
+  }
+  // 音效列表（批1）：校验 sfxId 命中音效库 + 偏移/音量范围后放行 —— 不加这段
+  // 则弹窗怎么存都进不了 DB，导出/预览永远读不到音效（同 BGM「白存」教训）。
+  if (Array.isArray(src.sfx)) {
+    out.sfx = src.sfx
+      .slice(0, 400)
+      .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+      .map((e) => ({
+        sceneId: typeof e.sceneId === "string" ? e.sceneId.slice(0, 64) : "",
+        sfxId:
+          typeof e.sfxId === "string" && getSfxById(e.sfxId) ? e.sfxId : "",
+        offsetSec:
+          typeof e.offsetSec === "number"
+            ? clampNumber(e.offsetSec, 0, 600)
+            : 0,
+        ...(typeof e.volume === "number"
+          ? { volume: clampNumber(e.volume, 0, 1) }
+          : {}),
+      }))
+      .filter((e) => e.sceneId && e.sfxId);
   }
   // 制片人审阅态（一键 AI 制片人 3.1）：白名单归一化后整体放行 —— 不加这段则
   // 前端逐项确认怎么存都进不了 DB，审阅进度静默丢失（同 subtitleStyle 白存教训）。

@@ -680,6 +680,7 @@ export default function EditorPage() {
               transitions={project.generationParams?.transitions}
               sceneEffects={project.generationParams?.sceneEffects}
               backgroundMusic={project.generationParams?.backgroundMusic}
+              sfx={project.generationParams?.sfx}
             />
           </div>
         </DialogContent>

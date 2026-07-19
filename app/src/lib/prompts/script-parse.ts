@@ -56,6 +56,10 @@ export const SCRIPT_PARSE_SYSTEM = `你是一个专业的漫剧分镜编剧，�
 8. locationKey: 地点标签（中文短标签，≤12 字，如 "出租屋客厅"、"学校操场"）。同一物理地点的所有分镜必须用【完全相同】的标签，换地点才换值；禁止同一地点写出多个变体（如 "客厅" 与 "出租屋客厅" 混用）——它用于把同地点分镜的背景/空间锚定一致。
 9. characterOutfits: 分镜级换装标注（可选数组）。仅当剧情【明确要求】某角色穿非默认着装（婚纱、战损铠甲、雨夜湿透、睡衣、丧服等）时才输出 [{"name":"林萧","outfit":"白色婚纱"}]；服装短语 ≤10 字。同一套衣服跨分镜必须用【完全相同】的短语（同 locationKey 纪律，禁止变体）。绝大多数分镜是日常/默认着装，一律【省略】该字段，不要输出空数组。
 10. linkNext: 尾帧衔接下一镜（可选布尔）。仅当本镜与下一镜是【同一 locationKey】且动作/时间连续（如进门/伸手/转身等空间连续动作）时置 true；跳切/换地点/时间跳跃一律【省略】该字段。
+11. sfx: 音效标注（可选数组）。仅当画面有【明确的声音事件】时输出 [{"tag":"glass-shatter","offsetSec":1}]：
+   - tag 只能取：hit(重击/揭秘咚)、slap(掌掴/拍击)、glass(玻璃碎裂)、heartbeat(心跳紧张)、riser(情绪推进/反转前兆)、whoosh(快速动作掠过)、ambient-rain(雨)、ambient-street(街道)、ambient-night-crickets(夜晚虫鸣)、ambient-thunder(雷)
+   - offsetSec 为镜内触发秒（0 = 镜头开始）
+   - 【克制纪律】每镜 ≤2 个；全片约每 10-30 秒 1-2 个；安静/抒情镜一律【省略】该字段（绝大多数分镜没有它）。音效是标点符号不是背景噪音——只标打击/碎裂/心跳/环境雨雷等真实声音事件，宁缺毋滥。
 
 【环境与空间一致性（务必遵守）】
 - description 必须写明主体元素在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）。
@@ -117,6 +121,26 @@ ${NARRATION_DISCIPLINE_RULES}
   "actionBeat": "林萧提起裙摆缓步前行，目光坚定望向圣坛，纱裙随步伐轻摆",
   "locationKey": "婚礼殿堂",
   "characterOutfits": [{ "name": "林萧", "outfit": "白色婚纱" }]
+}
+
+【少样本示例：带 sfx 音效标注的冲突分镜（仅真实声音事件才标）】
+{
+  "id": 18,
+  "shotType": "特写",
+  "description": "酒杯从陆霆骁手中滑落，在大理石地面炸裂成碎片，酒液四溅",
+  "characters": ["陆霆骁"],
+  "dialogue": null,
+  "narration": null,
+  "emotion": "angry",
+  "duration": 2,
+  "cameraAngle": "high-angle",
+  "lighting": "cold overhead spotlight with hard shadows",
+  "composition": "shattered glass in the center foreground, feet blurred in background",
+  "colorPalette": "cold steel blue with amber liquid accents",
+  "cameraMovement": "static",
+  "actionBeat": "酒杯脱手坠落，触地炸裂，碎片与酒液向四周迸溅",
+  "locationKey": "陆宅客厅",
+  "sfx": [{ "tag": "glass", "offsetSec": 1 }]
 }
 
 【完整输出结构】
