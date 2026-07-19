@@ -25,6 +25,7 @@ import type { VideoDirection } from "@/services/generation";
 import { getVideoModelCapability } from "@/services/ai/video-capabilities";
 import { buildPreviousEpisodeRecap } from "@/lib/series";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
+import { isTrimExemptShot } from "@/lib/shot-timing";
 
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
@@ -521,6 +522,51 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // 剪辑裁剪豁免决策（批2）：拉本镜 emotion/actionBeat/cameraMovement 做启发式，
+        // 高潮/动作/长镜豁免裁剪（保完整动作弧线），常规镜裁到叙事目标恢复快节奏。
+        // 同时记录 cameraMovement 来源遥测（director/db/derived），供后续验证解析层
+        // 13 值枚举实际到达频率（video-prompt.ts 断言「几乎恒为 null」，此处仅测不修）。
+        let exemptFromTrim = false;
+        if (sceneId) {
+          try {
+            const sceneMeta = await prisma.scene.findUnique({
+              where: { id: sceneId },
+              select: {
+                emotion: true,
+                actionBeat: true,
+                cameraMovement: true,
+              },
+            });
+            const effectiveActionBeat =
+              directed?.direction.actionBeat ?? sceneMeta?.actionBeat ?? null;
+            exemptFromTrim = isTrimExemptShot({
+              emotion: sceneMeta?.emotion ?? null,
+              actionBeat: effectiveActionBeat,
+              targetDuration: duration,
+            });
+            // cameraMovement 来源：导演增强 > DB 解析层 > 派生（video-prompt 兜底）
+            const cameraMovementSource = directed?.direction.cameraMovement
+              ? "director"
+              : sceneMeta?.cameraMovement
+                ? "db"
+                : "derived";
+            log.info("视频剪辑遥测", {
+              sceneId,
+              exemptFromTrim,
+              cameraMovementSource,
+              cameraMovement:
+                directed?.direction.cameraMovement ??
+                sceneMeta?.cameraMovement ??
+                null,
+            });
+          } catch (metaErr) {
+            log.warn("裁剪豁免元数据拉取失败，默认不豁免（裁剪）", {
+              sceneId,
+              error: metaErr instanceof Error ? metaErr.message : metaErr,
+            });
+          }
+        }
+
         log.info("视频 prompt 路径", {
           sceneId,
           path: enhancedPrompt ? "enhanced" : "client_fallback",
@@ -528,9 +574,10 @@ export async function POST(request: NextRequest) {
           segments: plan.segments.length,
         });
 
-        // 分段生成编排：时长 ≤ 单段能力时退化为一次生成（零回归）；超过时按 plan
-        // 拆成 N 段链式衔接（末帧→下段首帧）+ ffmpeg 拼接成单条视频。多段路径内部
-        // 已走 storage 门面落自有存储；单段路径返回 provider 临时 URL（下方转存）。
+        // 分段生成编排：时长 ≤ 单段能力时退化为一次生成（零回归/或按需裁剪到叙事
+        // 目标）；超过时按 plan 拆成 N 段链式衔接（末帧→下段首帧）+ ffmpeg 拼接成单
+        // 条视频。多段路径与单段裁剪路径内部已走 storage 门面落自有存储
+        // （isSelfHosted=true）；单段透传路径返回 provider 临时 URL（下方转存）。
         const segResult = await generateSceneVideoSegmented({
           imageUrl,
           requestedSeconds: duration,
@@ -544,8 +591,8 @@ export async function POST(request: NextRequest) {
           userId,
           projectId,
           sceneId,
+          exemptFromTrim,
         });
-        const isMultiSegment = segResult.segments.length > 1;
         const rawVideoUrl = segResult.videoUrl;
 
         // 转存到自有存储（R2 或本地盘），落库自有 URL —— 与图片生成路径一致。
@@ -554,9 +601,9 @@ export async function POST(request: NextRequest) {
         // 但用户浏览器无法解析该域名 → 预览 <video> 加载超时「视频看不了」，且
         // URL 带过期时间，过期后彻底失效。转存后浏览器用自有 URL 加载，稳定可播。
         // 转存失败降级沿用原始 URL（至少服务端导出仍可用），不阻塞生成。
-        // 多段路径的 videoUrl 已是拼接后上传的自有 URL，无需再转存。
+        // 多段路径与单段裁剪路径的 videoUrl 已是自有存储 URL（isSelfHosted），无需再转存。
         let videoUrl = rawVideoUrl;
-        if (!isMultiSegment && isStorageConfigured()) {
+        if (!segResult.isSelfHosted && isStorageConfigured()) {
           try {
             videoUrl = await uploadFileFromUrl(rawVideoUrl, {
               fileName: `scene_${sceneId || "unknown"}_${Date.now()}.mp4`,
@@ -571,10 +618,11 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // 探测视频真实时长回写 Scene.duration：provider（flow2api/Veo）常忽略
-        // 请求的时长，返回 ~8s 片段，与 DB 声明时长不符。一旦分镜有了视频，
-        // 视频的真实长度就是分镜时长——预览计时/导出时轴全部据此对齐（三层修复的源头）。
-        // 多段路径 orchestrator 已 ffprobe 拼接后总时长，优先采用；否则用自有 URL 探测。
+        // 回写 Scene.duration（批2 剪辑节奏回归）：优先用 orchestrator 返回的
+        // measuredDurationSeconds——单段裁剪路径下这是「裁到叙事目标后的实测时长」
+        // （1–4s 快切，非 provider 原始 5–8s），多段路径是拼接后总时长。二者都是
+        // 「成片真实长度」，预览计时/导出时轴据此对齐。豁免/透传路径无 measured 时
+        // 回落自有 URL 探测（高潮/动作镜保完整时长）。
         let resolvedDuration = duration;
         if (
           segResult.measuredDurationSeconds &&

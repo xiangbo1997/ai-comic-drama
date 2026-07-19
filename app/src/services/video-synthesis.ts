@@ -1078,6 +1078,13 @@ export async function synthesizeVideo(
     // 成片时间轴上各片段的有效时长（变速后），用于 xfade offset 与音频累计对齐
     const effDurations = clips.map((c) => c.effectiveDuration);
 
+    // 是否有存储的转场配置（用户/脚本已显式设置）。
+    // 剪辑节奏回归（批2）：漫剧专业惯例 ~90% 硬切，全片叠化=业余「AI味PPT」。
+    // 故「无任何存储配置」时默认硬切（none）而非旧 fade 0.3s；一旦有存储配置就
+    // 逐项尊重（缺项仍回落 fade，保持存量项目导出行为不变——兼容铁律）。
+    const hasStoredTransitions =
+      Array.isArray(options.transitions) && options.transitions.length > 0;
+
     // 解析每个衔接处（k = 第 k 与 k+1 分镜之间）的转场类型与时长。
     // 转场时长上限不超过相邻两段有效时长的一半，避免 offset 越界导致 xfade 报错。
     const resolveTransition = (
@@ -1085,10 +1092,17 @@ export async function synthesizeVideo(
     ): { type: TransitionType; duration: number } => {
       const t = options.transitions?.[k];
       const rawType = t?.type;
+      // 缺省转场：有存储配置时回落 fade（存量兼容）；无存储配置时回落 none（硬切）。
+      const fallbackType: TransitionType = hasStoredTransitions
+        ? "fade"
+        : "none";
+      const resolvedRawType = rawType ?? fallbackType;
       const type: TransitionType =
-        rawType && XFADE_TYPES.has(rawType) ? rawType : "fade";
+        resolvedRawType && XFADE_TYPES.has(resolvedRawType)
+          ? resolvedRawType
+          : "fade";
       // "none"（硬切）用极短淡化≈0.04s 近似，统一走 xfade 管线
-      const isNone = rawType === "none";
+      const isNone = resolvedRawType === "none";
       const rawDur = isNone ? 0.04 : (t?.duration ?? DEFAULT_FADE_DURATION);
       const maxDur = Math.max(
         0.1,
@@ -1530,6 +1544,68 @@ export async function getMediaDuration(mediaPath: string): Promise<number> {
 
     ffprobe.on("error", reject);
   });
+}
+
+/**
+ * 把视频 Buffer 从开头裁到目标时长（秒），返回裁剪后的 MP4 Buffer。
+ *
+ * 剪辑节奏回归（批2）：provider 常返回 5–8s 片段，而漫剧专业节奏要求单镜 1–4s
+ * 快切。这里保留开头、只砍尾部，把片段裁到 shot-timing 算出的叙事目标时长，
+ * 让「视频真实长度 = 分镜叙事时长」，恢复快节奏。
+ *
+ * 实现细节：`-ss 0 -t {target}` 从头截取；`-c copy` 无损快裁（关键帧对齐可能
+ * 有 ±1 帧误差，对节奏无感），失败或产物为空时由调用方降级沿用原片段。
+ * 若源片段本就 ≤ 目标时长（罕见：provider 返回比目标短），ffmpeg 自然只输出
+ * 实际长度，不会补长——调用方据此不会误判。
+ *
+ * @param videoBuffer 源视频字节
+ * @param targetSeconds 目标时长（秒，>0）
+ * @returns 裁剪后的 MP4 字节
+ * @throws ffmpeg 失败或产物为空时抛错（调用方决定是否降级沿用原片段）
+ */
+export async function trimVideoToDuration(
+  videoBuffer: Buffer,
+  targetSeconds: number
+): Promise<Buffer> {
+  const tmpDir = path.join(
+    os.tmpdir(),
+    "ai-comic-trim",
+    `${Date.now()}_${Math.random().toString(36).slice(2)}`
+  );
+  await mkdir(tmpDir, { recursive: true });
+  const inputPath = path.join(tmpDir, "seg.mp4");
+  const outputPath = path.join(tmpDir, "trimmed.mp4");
+  try {
+    await writeFile(inputPath, videoBuffer);
+    // -ss 0 -t {target}：从头保留到目标时长；-c copy 无损快裁 + faststart 便于播放
+    await runFFmpeg([
+      "-ss",
+      "0",
+      "-i",
+      inputPath,
+      "-t",
+      targetSeconds.toFixed(3),
+      "-c",
+      "copy",
+      "-movflags",
+      "+faststart",
+      "-y",
+      outputPath,
+    ]);
+    const { readFile } = await import("fs/promises");
+    const trimmed = await readFile(outputPath);
+    if (trimmed.length === 0) {
+      throw new Error("裁剪产物为空");
+    }
+    return trimmed;
+  } finally {
+    try {
+      const { rm } = await import("fs/promises");
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      // 忽略清理错误
+    }
+  }
 }
 
 /**

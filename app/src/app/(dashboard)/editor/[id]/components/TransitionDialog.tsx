@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import {
-  DEFAULT_TRANSITION,
-  type Transition,
-  type TransitionType,
-} from "@/types/export-style";
+import { type Transition, type TransitionType } from "@/types/export-style";
+
+/**
+ * 弹窗内「新衔接」的缺省转场：硬切（剪辑节奏回归 · 批2）。
+ * 漫剧惯例 ~90% 硬切，故新建/未配置的衔接默认硬切，而非旧 fade 0.3s。
+ * 注意：不改共享的 DEFAULT_TRANSITION（导出/预览把它当「有存储配置」时的
+ * 回落值），仅弹窗初始化用此本地默认。
+ */
+const DIALOG_DEFAULT_TRANSITION: Transition = { type: "none", duration: 0 };
 import {
   Dialog,
   DialogContent,
@@ -67,7 +71,7 @@ export function TransitionDialog({
   const [transitions, setTransitions] = useState<Transition[]>(() =>
     Array.from(
       { length: gapCount },
-      (_, k) => initialTransitions?.[k] ?? { ...DEFAULT_TRANSITION }
+      (_, k) => initialTransitions?.[k] ?? { ...DIALOG_DEFAULT_TRANSITION }
     )
   );
 
@@ -118,6 +122,13 @@ export function TransitionDialog({
                   应用首项到全部
                 </button>
               </div>
+
+              {/* 漫剧剪辑惯例提示（批2）：硬切为主，闪白留爆点，叠化仅用于时间流逝 */}
+              <p className="bg-secondary/40 text-muted-foreground rounded-lg px-3 py-2 text-[11px] leading-relaxed">
+                漫剧节奏建议：硬切为主（干脆利落，不拖沓）· 闪白 /
+                闪黑留给情绪爆点或时空跳切 ·
+                叠化仅用于时间流逝。全片叠化会显得像 PPT。
+              </p>
 
               {transitions.map((t, k) => (
                 <div

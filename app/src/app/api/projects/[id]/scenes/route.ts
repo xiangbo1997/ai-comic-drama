@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import type { GenerationParams } from "@/types";
+import type { Transition, TransitionType } from "@/types/export-style";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
 import { createLogger } from "@/lib/logger";
@@ -62,6 +63,44 @@ function remapGenerationParams(
   }
 
   return { next, changed };
+}
+
+/**
+ * 从分镜草稿聚合分镜间转场配置（剪辑节奏回归 · 批2）。
+ *
+ * 短剧脚本直转（DramaScriptPanel / 一键制片人 ProducerWizardDialog）两条路径都
+ * POST 到本路由，故在此单点聚合，避免两处客户端各写一遍（全局一致性）。
+ *
+ * 语义：drama-to-scenes 产出的 scene.transition 是「本镜 → 下一镜」的出向转场；
+ * generationParams.transitions[k] 描述「第 k 与 k+1 分镜之间」，故 transitions[k]
+ * = 第 k 镜的出向转场（末镜无下一镜，其 transition 丢弃）。项数 = 分镜数 - 1。
+ *
+ * 至少有一镜携带 transition 才生成配置（全部缺席→返回 null，保持无配置状态，
+ * 由导出/预览端回落硬切默认，不写空数组污染 generationParams）。
+ */
+function aggregateSceneTransitions(scenes: unknown[]): Transition[] | null {
+  const gapCount = Math.max(0, scenes.length - 1);
+  if (gapCount === 0) return null;
+
+  let anyTransition = false;
+  const transitions: Transition[] = Array.from({ length: gapCount }, (_, k) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = scenes[k] as any;
+    const type = raw?.transition as TransitionType | undefined;
+    if (type) {
+      anyTransition = true;
+      const duration =
+        typeof raw?.transitionDuration === "number"
+          ? raw.transitionDuration
+          : 0.3;
+      return { type, duration };
+    }
+    // 未指定的衔接：硬切（none）——与「无存储配置默认硬切」一致，
+    // 但因为同批里有其它镜显式设了转场，这里需显式落项，避免它回落到 fade。
+    return { type: "none" as TransitionType, duration: 0 };
+  });
+
+  return anyTransition ? transitions : null;
 }
 
 interface RouteParams {
@@ -257,14 +296,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       oldSceneIdToOrder,
       orderToNewSceneId
     );
-    if (changed) {
+
+    // 聚合脚本直转携带的分镜间转场（批2）：短剧/一键制片两条路径都经此，
+    // 单点收口。有转场时覆盖 transitions（脚本转场即本次重建的权威来源；
+    // remap 截断的旧转场按顺序失效，脚本产出的新转场取而代之）。
+    const aggregatedTransitions = aggregateSceneTransitions(scenes);
+    let nextParams = remappedParams;
+    let paramsChanged = changed;
+    if (aggregatedTransitions) {
+      nextParams = { ...remappedParams, transitions: aggregatedTransitions };
+      paramsChanged = true;
+    }
+
+    if (paramsChanged) {
       await prisma.project.update({
         where: { id },
         data: {
-          generationParams: remappedParams as unknown as Prisma.InputJsonValue,
+          generationParams: nextParams as unknown as Prisma.InputJsonValue,
         },
       });
-      log.info(`Remapped generationParams sceneId refs for project ${id}`);
+      log.info(
+        `Updated generationParams for project ${id}` +
+          (aggregatedTransitions ? " (aggregated scene transitions)" : "")
+      );
     }
 
     return NextResponse.json(createdScenes, { status: 201 });

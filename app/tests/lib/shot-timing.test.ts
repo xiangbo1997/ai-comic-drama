@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { estimateSpeechSeconds, computeShotDuration } from "@/lib/shot-timing";
+import {
+  estimateSpeechSeconds,
+  computeShotDuration,
+  isTrimExemptShot,
+} from "@/lib/shot-timing";
 
 describe("estimateSpeechSeconds", () => {
   it("空文本返回 0", () => {
@@ -120,5 +124,43 @@ describe("computeShotDuration", () => {
     expect(computeShotDuration({ shotType: "怪景别" })).toBe(3);
     // 完全空输入 → 3
     expect(computeShotDuration({})).toBe(3);
+  });
+});
+
+describe("isTrimExemptShot — 裁剪豁免（批2）", () => {
+  it("快节奏情绪（angry/surprised/fear）豁免", () => {
+    expect(isTrimExemptShot({ emotion: "angry" })).toBe(true);
+    expect(isTrimExemptShot({ emotion: "surprised" })).toBe(true);
+    expect(isTrimExemptShot({ emotion: "fear" })).toBe(true);
+  });
+
+  it("普通情绪不豁免", () => {
+    expect(isTrimExemptShot({ emotion: "neutral" })).toBe(false);
+    expect(isTrimExemptShot({ emotion: "sad" })).toBe(false);
+    expect(isTrimExemptShot({ emotion: null })).toBe(false);
+  });
+
+  it("有非空 actionBeat 豁免（动作镜）", () => {
+    expect(isTrimExemptShot({ actionBeat: "挥拳砸向敌人" })).toBe(true);
+    // 空白 actionBeat 不豁免
+    expect(isTrimExemptShot({ actionBeat: "   " })).toBe(false);
+    expect(isTrimExemptShot({ actionBeat: null })).toBe(false);
+  });
+
+  it("长镜（目标 ≥6s）豁免", () => {
+    expect(isTrimExemptShot({ targetDuration: 6 })).toBe(true);
+    expect(isTrimExemptShot({ targetDuration: 12 })).toBe(true);
+    expect(isTrimExemptShot({ targetDuration: 4 })).toBe(false);
+    expect(isTrimExemptShot({ targetDuration: null })).toBe(false);
+  });
+
+  it("全部为常规值 → 不豁免（裁剪，恢复快节奏）", () => {
+    expect(
+      isTrimExemptShot({
+        emotion: "neutral",
+        actionBeat: null,
+        targetDuration: 3,
+      })
+    ).toBe(false);
   });
 });

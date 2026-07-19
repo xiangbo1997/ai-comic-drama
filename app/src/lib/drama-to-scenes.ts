@@ -19,6 +19,7 @@ import type {
   StoryboardCell,
   StoryboardTableArtifact,
 } from "@/types";
+import type { TransitionType } from "@/types/export-style";
 import { computeShotDuration } from "@/lib/shot-timing";
 
 /** POST /api/projects/[id]/scenes 接受的单镜字段（route 侧按此消费） */
@@ -43,7 +44,87 @@ export interface SceneDraft {
   colorPalette?: string;
   actionBeat?: string;
   cameraMovement?: string;
+  /**
+   * 出向转场类型（本镜 → 下一镜之间；剪辑节奏回归 · 批2）。
+   * 由九宫格 cell.transition 中文词映射而来，供后端聚合为
+   * generationParams.transitions。缺省不下传（缺席即回落硬切默认）。
+   */
+  transition?: TransitionType;
+  /** 转场时长（秒）；闪白/闪黑短促（0.15s），叠化稍长（0.4s），硬切无时长 */
+  transitionDuration?: number;
   [key: string]: unknown;
+}
+
+/**
+ * 九宫格转场中文词 → TransitionType + 建议时长（秒）。
+ *
+ * 剪辑节奏回归（批2）：漫剧惯例硬切为主，闪白/闪黑留给情绪爆点，叠化仅用于
+ * 时间流逝。LLM 产出的 transition 文案措辞多样（"硬切"/"直切"/"闪白"/"故障
+ * 闪白"/"叠化"/"淡入"…），这里做确定性子串匹配收敛到白名单转场。
+ * 未命中任何关键词 → undefined（缺席，后端回落硬切默认）。
+ */
+const TRANSITION_WORD_MAP: Array<{
+  keywords: string[];
+  type: TransitionType;
+  duration: number;
+}> = [
+  // 闪白（情绪爆点 / 冲击）：短促 0.15s
+  {
+    keywords: ["闪白", "白闪", "爆闪", "flash white", "white flash"],
+    type: "fadewhite",
+    duration: 0.15,
+  },
+  // 闪黑 / 黑场（时空跳切 / 情绪落点）：短促 0.15s
+  {
+    keywords: ["闪黑", "黑闪", "黑场", "淡出", "fade black", "fade to black"],
+    type: "fadeblack",
+    duration: 0.15,
+  },
+  // 叠化 / 溶解（时间流逝）：稍长 0.4s
+  {
+    keywords: [
+      "叠化",
+      "溶解",
+      "交叠",
+      "dissolve",
+      "crossfade",
+      "cross dissolve",
+    ],
+    type: "dissolve",
+    duration: 0.4,
+  },
+  // 淡入（片头 / 段落开场，近似黑场淡入）：0.4s
+  { keywords: ["淡入", "fade in"], type: "fadeblack", duration: 0.4 },
+  // 硬切 / 直切（默认，占比最高）：无时长（none 走极短近似）
+  {
+    keywords: ["硬切", "直切", "切", "hard cut", "cut"],
+    type: "none",
+    duration: 0,
+  },
+];
+
+/**
+ * 把九宫格 cell.transition 中文/英文措辞映射为 TransitionType（+建议时长）。
+ * 空/未命中返回 null（后端据此不下发，回落硬切默认）。
+ */
+function mapTransitionWord(
+  raw: string | null | undefined
+): { type: TransitionType; duration: number } | null {
+  const text = raw?.trim().toLowerCase();
+  if (!text) return null;
+  for (const entry of TRANSITION_WORD_MAP) {
+    if (entry.keywords.some((kw) => text.includes(kw.toLowerCase()))) {
+      return { type: entry.type, duration: entry.duration };
+    }
+  }
+  return null;
+}
+
+/** 供后端/测试复用的映射入口（导出以便单测直接断言词表覆盖）。 */
+export function resolveTransitionFromWord(
+  raw: string | null | undefined
+): { type: TransitionType; duration: number } | null {
+  return mapTransitionWord(raw);
 }
 
 /**
@@ -86,6 +167,10 @@ export function dramaScriptToScenes(
     const description = cell?.closeup
       ? `${scene.description}\n特写要点：${cell.closeup}`
       : scene.description;
+
+    // 转场：九宫格 cell.transition 中文词 → TransitionType（剪辑节奏回归 · 批2）。
+    // 命中即下传，供后端聚合为 generationParams.transitions；未命中缺席（回落硬切）。
+    const transition = mapTransitionWord(cell?.transition);
 
     const dialogue = scene.dialogue ?? cell?.dialogue ?? null;
     const narration = scene.narration ?? null;
@@ -131,6 +216,13 @@ export function dramaScriptToScenes(
       ...(scene.colorPalette ? { colorPalette: scene.colorPalette } : {}),
       ...(scene.actionBeat ? { actionBeat: scene.actionBeat } : {}),
       ...(scene.cameraMovement ? { cameraMovement: scene.cameraMovement } : {}),
+      // 转场（命中九宫格 transition 词才下传）：type + duration 供后端聚合。
+      ...(transition
+        ? {
+            transition: transition.type,
+            transitionDuration: transition.duration,
+          }
+        : {}),
     };
   });
 }

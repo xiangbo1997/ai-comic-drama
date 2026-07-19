@@ -122,13 +122,21 @@ function resolveEffect(
   return { effect: found?.effect ?? null, speed };
 }
 
-/** 解析某衔接的转场类型与时长（缺省 fade 0.3s；"none" 视为无转场） */
+/**
+ * 解析某衔接的转场类型与时长（与导出端 video-synthesis.resolveTransition 同源）。
+ *
+ * 剪辑节奏回归（批2）：无任何存储转场配置时默认硬切（none），而非旧 fade 0.3s
+ * ——与导出端「无存储配置默认硬切」保持一致（预览必须反映导出效果的铁律）。
+ * 一旦有存储配置就逐项尊重（缺项回落 fade，存量兼容）。"none" 视为无转场。
+ */
 function resolveTransition(
   index: number,
   transitions?: Transition[]
 ): { type: TransitionType; duration: number } {
+  const hasStored = Array.isArray(transitions) && transitions.length > 0;
   const t = transitions?.[index];
-  const type = t?.type ?? "fade";
+  // 缺省转场：有存储配置回落 fade（兼容），无存储配置回落 none（硬切）。
+  const type = t?.type ?? (hasStored ? "fade" : "none");
   const duration =
     type === "none"
       ? 0

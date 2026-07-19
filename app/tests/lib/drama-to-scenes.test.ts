@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { dramaScriptToScenes, scriptToInputText } from "@/lib/drama-to-scenes";
+import {
+  dramaScriptToScenes,
+  scriptToInputText,
+  resolveTransitionFromWord,
+} from "@/lib/drama-to-scenes";
 import type { DramaScriptArtifact, StoryboardTableArtifact } from "@/types";
 
 function makeDoc(
@@ -170,6 +174,79 @@ describe("dramaScriptToScenes", () => {
     expect(scenes[0]).not.toHaveProperty("lighting");
     expect(scenes[0]).not.toHaveProperty("cameraMovement");
     expect(scenes[0]).not.toHaveProperty("actionBeat");
+  });
+});
+
+describe("resolveTransitionFromWord — 九宫格转场词映射（批2）", () => {
+  it("闪白类 → fadewhite 0.15s", () => {
+    for (const w of ["闪白", "故障闪白", "白闪", "flash white"]) {
+      expect(resolveTransitionFromWord(w)).toEqual({
+        type: "fadewhite",
+        duration: 0.15,
+      });
+    }
+  });
+
+  it("闪黑 / 黑场 / 淡出 → fadeblack 0.15s", () => {
+    for (const w of ["闪黑", "黑场", "淡出"]) {
+      expect(resolveTransitionFromWord(w)).toEqual({
+        type: "fadeblack",
+        duration: 0.15,
+      });
+    }
+  });
+
+  it("叠化 / 溶解 / dissolve → dissolve 0.4s", () => {
+    for (const w of ["叠化", "溶解", "cross dissolve"]) {
+      expect(resolveTransitionFromWord(w)).toEqual({
+        type: "dissolve",
+        duration: 0.4,
+      });
+    }
+  });
+
+  it("淡入 → fadeblack 0.4s（片头淡入近似黑场淡入）", () => {
+    expect(resolveTransitionFromWord("淡入")).toEqual({
+      type: "fadeblack",
+      duration: 0.4,
+    });
+  });
+
+  it("硬切 / 直切 / cut → none 0s", () => {
+    for (const w of ["硬切", "直切", "hard cut"]) {
+      expect(resolveTransitionFromWord(w)).toEqual({
+        type: "none",
+        duration: 0,
+      });
+    }
+  });
+
+  it("空 / 未命中 → null", () => {
+    expect(resolveTransitionFromWord(null)).toBeNull();
+    expect(resolveTransitionFromWord("")).toBeNull();
+    expect(resolveTransitionFromWord("   ")).toBeNull();
+    expect(resolveTransitionFromWord("莫名其妙的词")).toBeNull();
+  });
+});
+
+describe("dramaScriptToScenes — 转场映射透传（批2）", () => {
+  it("九宫格 transition 命中时下传 transition + transitionDuration", () => {
+    const scenes = dramaScriptToScenes(makeDoc(), storyboard);
+    // cell[0].transition='淡入' → fadeblack 0.4；cell[1].transition='故障闪白' → fadewhite 0.15
+    expect(scenes[0]).toMatchObject({
+      transition: "fadeblack",
+      transitionDuration: 0.4,
+    });
+    expect(scenes[1]).toMatchObject({
+      transition: "fadewhite",
+      transitionDuration: 0.15,
+    });
+  });
+
+  it("无九宫格 / transition 未命中时不出现 transition 键（向后兼容）", () => {
+    const scenes = dramaScriptToScenes(makeDoc(), null);
+    expect(scenes[0]).not.toHaveProperty("transition");
+    expect(scenes[0]).not.toHaveProperty("transitionDuration");
   });
 });
 

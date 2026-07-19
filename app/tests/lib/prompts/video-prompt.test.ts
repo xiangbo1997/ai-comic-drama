@@ -82,7 +82,7 @@ describe("buildVideoScenePrompt — cameraMovement 为空时按 shotType 派生"
 });
 
 describe("buildVideoScenePrompt — FL 首尾帧模式", () => {
-  it("hasLastFrame 替换运镜文案 + 用过渡连续性 + 不加 arc", () => {
+  it("hasLastFrame 保留 FL 过渡文案 + 并入运镜意图 + 用过渡连续性 + 不加 arc", () => {
     const out = buildVideoScenePrompt({
       description: "转场衔接",
       shotType: "中景",
@@ -93,14 +93,29 @@ describe("buildVideoScenePrompt — FL 首尾帧模式", () => {
     expect(out).toContain(
       "Smooth continuous camera motion that begins on the first frame and seamlessly transitions to end on the final frame"
     );
-    // 显式 cameraMovement 在 FL 模式下被忽略
-    expect(out).not.toContain("push-in that gradually tightens");
+    // 批2：显式 cameraMovement 不再被丢弃，而是以 "with {运镜}" 并入 FL 文案，
+    // 让导演的 13 值枚举意图存活。
+    expect(out).toContain("with slow, smooth push-in");
     // 连续性用过渡文案
     expect(out).toContain(
       "Maintain character and setting continuity across the transition"
     );
     // FL 模式即使 duration>=10 也不加运动弧线
     expect(out).not.toContain("Beginning steady, then gradually intensifying");
+  });
+
+  it("hasLastFrame 且无显式运镜 → 回落纯 FL 插值文案（旧行为）", () => {
+    const out = buildVideoScenePrompt({
+      description: "转场衔接",
+      shotType: "中景",
+      duration: 15,
+      hasLastFrame: true,
+    });
+    expect(out).toContain(
+      "Smooth continuous camera motion that begins on the first frame and seamlessly transitions to end on the final frame"
+    );
+    // 无 cameraMovement 时不追加 "with ..." 子句
+    expect(out).not.toContain("with slow");
   });
 });
 

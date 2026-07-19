@@ -177,9 +177,16 @@ function buildFraming(
 
 /** 运镜段：FL 模式 / 显式 cameraMovement / 按 shotType+emotion 派生 三分支。 */
 function buildCameraMove(input: VideoScenePromptInput): string {
-  // a) FL 首尾帧模式：插值即运镜，固定文案，不叠加其他运镜
+  // a) FL 首尾帧模式：插值本身即运镜。此前直接覆盖运镜、丢弃导演的 13 值枚举意图；
+  //    改为把导演/DB 的运镜短语并入 FL 文案（"...with {运镜}"），让运镜意图存活；
+  //    无显式运镜时回落纯插值文案（旧行为）。
   if (input.hasLastFrame) {
-    return "Smooth continuous camera motion that begins on the first frame and seamlessly transitions to end on the final frame";
+    const base =
+      "Smooth continuous camera motion that begins on the first frame and seamlessly transitions to end on the final frame";
+    const movement = input.cameraMovement
+      ? describeCameraMovement(input.cameraMovement)
+      : "";
+    return movement ? `${base}, with ${movement}` : base;
   }
 
   // b) 显式 cameraMovement

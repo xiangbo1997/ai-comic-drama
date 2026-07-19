@@ -17,10 +17,12 @@ vi.mock("@/services/storage", () => ({
 vi.mock("@/lib/url-guard", () => ({
   safeDownload: (...args: unknown[]) => safeDownloadMock(...args),
 }));
+const trimVideoToDurationMock = vi.fn();
 vi.mock("@/services/video-synthesis", () => ({
   extractLastFrame: (...args: unknown[]) => extractLastFrameMock(...args),
   concatVideos: (...args: unknown[]) => concatVideosMock(...args),
   getMediaDuration: (...args: unknown[]) => getMediaDurationMock(...args),
+  trimVideoToDuration: (...args: unknown[]) => trimVideoToDurationMock(...args),
 }));
 
 import { generateSceneVideoSegmented } from "@/services/generation/segmented-video";
@@ -35,38 +37,59 @@ const baseArgs = {
   sceneId: "s1",
 };
 
-describe("generateSceneVideoSegmented — 单段路径零回归透传", () => {
+describe("generateSceneVideoSegmented — 单段路径零回归透传（豁免裁剪）", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("时长 ≤ 单段能力：generateVideo 调用一次，原样返回 URL，不下载/拼接/上传", async () => {
+  it("exemptFromTrim=true：generateVideo 调用一次，原样返回 URL，不下载/裁剪/拼接/上传", async () => {
     generateVideoMock.mockResolvedValue("https://provider/temp.mp4");
 
     const result = await generateSceneVideoSegmented({
       ...baseArgs,
       requestedSeconds: 5, // 档位类 5s → 1 段
       capability: getVideoModelCapability("runway"),
+      exemptFromTrim: true,
     });
 
     expect(result.videoUrl).toBe("https://provider/temp.mp4");
+    expect(result.isSelfHosted).toBe(false);
     expect(result.segments).toHaveLength(1);
     expect(result.segments[0].seconds).toBe(5);
-    // 单段路径：仅生成一次，绝不触发下载 / 末帧 / 拼接 / 上传
+    // 豁免路径：仅生成一次，绝不触发下载 / 裁剪 / 末帧 / 拼接 / 上传
     expect(generateVideoMock).toHaveBeenCalledTimes(1);
     expect(safeDownloadMock).not.toHaveBeenCalled();
+    expect(trimVideoToDurationMock).not.toHaveBeenCalled();
     expect(extractLastFrameMock).not.toHaveBeenCalled();
     expect(concatVideosMock).not.toHaveBeenCalled();
     expect(uploadFileMock).not.toHaveBeenCalled();
   });
 
-  it("Veo 单段（≤8s）同样透传，不携带 requestDuration", async () => {
+  it("FL 首尾帧模式：不裁剪（整段插值不宜砍尾），透传", async () => {
+    generateVideoMock.mockResolvedValue("https://provider/fl.mp4");
+
+    const result = await generateSceneVideoSegmented({
+      ...baseArgs,
+      requestedSeconds: 5,
+      capability: getVideoModelCapability("flow2api"), // supportsFirstLastFrame
+      lastFrameImage: "https://cdn/next.jpg",
+      // 不设 exemptFromTrim，但 FL 模式内部豁免裁剪
+    });
+
+    expect(result.videoUrl).toBe("https://provider/fl.mp4");
+    expect(result.isSelfHosted).toBe(false);
+    expect(safeDownloadMock).not.toHaveBeenCalled();
+    expect(trimVideoToDurationMock).not.toHaveBeenCalled();
+  });
+
+  it("Veo 单段（≤8s）豁免时透传，不携带 requestDuration", async () => {
     generateVideoMock.mockResolvedValue("https://provider/veo.mp4");
 
     const result = await generateSceneVideoSegmented({
       ...baseArgs,
       requestedSeconds: 5,
       capability: getVideoModelCapability("flow2api"),
+      exemptFromTrim: true,
     });
 
     expect(result.videoUrl).toBe("https://provider/veo.mp4");
@@ -84,10 +107,80 @@ describe("generateSceneVideoSegmented — 单段路径零回归透传", () => {
       ...baseArgs,
       requestedSeconds: 8, // → 就近 10 档（|10-8|=2 < |5-8|=3）
       capability: getVideoModelCapability("runway"),
+      exemptFromTrim: true,
     });
 
     const callArg = generateVideoMock.mock.calls[0][0] as { duration: number };
     expect(callArg.duration).toBe(10);
+  });
+});
+
+describe("generateSceneVideoSegmented — 单段裁剪路径（剪辑节奏回归）", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("默认裁剪：provider 出 5s，裁到叙事目标 3s，下载→裁剪→上传自有存储", async () => {
+    // 目标 3s：runway 档位就近选 5（|5-3|=2<|10-3|=7），provider 实出 5s
+    generateVideoMock.mockResolvedValue("https://provider/temp.mp4");
+    safeDownloadMock.mockResolvedValue({ buffer: Buffer.from("raw") });
+    getMediaDurationMock
+      .mockResolvedValueOnce(5) // 下载后实测原始 5s
+      .mockResolvedValueOnce(3); // 裁剪后实测 3s
+    trimVideoToDurationMock.mockResolvedValue(Buffer.from("trimmed"));
+    uploadFileMock.mockResolvedValue("https://storage/trimmed.mp4");
+
+    const result = await generateSceneVideoSegmented({
+      ...baseArgs,
+      requestedSeconds: 3, // 叙事目标 3s
+      capability: getVideoModelCapability("runway"),
+    });
+
+    // 裁到 3s 目标（trimVideoToDuration 收到 target=3）
+    expect(trimVideoToDurationMock).toHaveBeenCalledTimes(1);
+    expect(trimVideoToDurationMock.mock.calls[0][1]).toBe(3);
+    // 落自有存储 + isSelfHosted
+    expect(result.videoUrl).toBe("https://storage/trimmed.mp4");
+    expect(result.isSelfHosted).toBe(true);
+    // 回写用裁剪后实测时长（3s），保留原始 5s 供排障
+    expect(result.measuredDurationSeconds).toBe(3);
+    expect(result.rawMeasuredDurationSeconds).toBe(5);
+  });
+
+  it("provider 实出已 ≤ 目标：不裁剪，仍转存到自有存储", async () => {
+    generateVideoMock.mockResolvedValue("https://provider/short.mp4");
+    safeDownloadMock.mockResolvedValue({ buffer: Buffer.from("raw") });
+    // 原始实测 2.5s ≤ 目标 3s → 不裁剪
+    getMediaDurationMock.mockResolvedValueOnce(2.5).mockResolvedValueOnce(2.5);
+    uploadFileMock.mockResolvedValue("https://storage/short.mp4");
+
+    const result = await generateSceneVideoSegmented({
+      ...baseArgs,
+      requestedSeconds: 3,
+      capability: getVideoModelCapability("runway"),
+    });
+
+    expect(trimVideoToDurationMock).not.toHaveBeenCalled();
+    expect(result.isSelfHosted).toBe(true);
+    expect(result.videoUrl).toBe("https://storage/short.mp4");
+  });
+
+  it("裁剪链任一步失败：降级透传 provider 原 URL，不阻断生成", async () => {
+    generateVideoMock.mockResolvedValue("https://provider/temp.mp4");
+    safeDownloadMock.mockResolvedValue({ buffer: Buffer.from("raw") });
+    getMediaDurationMock.mockResolvedValue(5);
+    trimVideoToDurationMock.mockRejectedValue(new Error("ffmpeg 挂了"));
+
+    const result = await generateSceneVideoSegmented({
+      ...baseArgs,
+      requestedSeconds: 3,
+      capability: getVideoModelCapability("runway"),
+    });
+
+    // 降级：返回 provider 原 URL，isSelfHosted=false（route 会转存）
+    expect(result.videoUrl).toBe("https://provider/temp.mp4");
+    expect(result.isSelfHosted).toBe(false);
+    expect(uploadFileMock).not.toHaveBeenCalled();
   });
 });
 

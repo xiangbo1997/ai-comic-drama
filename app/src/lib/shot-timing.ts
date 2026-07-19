@@ -138,6 +138,31 @@ function clamp(n: number): number {
   return Math.min(ABSOLUTE_MAX, Math.max(ABSOLUTE_MIN, Math.round(n)));
 }
 
+/**
+ * 判断某镜是否豁免「剪辑裁剪」（批2 剪辑节奏回归）。
+ *
+ * 常规漫剧单镜 1–4s 快切，provider 返回的 5–8s 片段应被裁到叙事目标时长。
+ * 但高潮 / 动作 / 大动态镜需要完整时长承载动作弧线，不应被砍尾——否则动作
+ * 半途截断（挥拳到一半、转身没转完）。判据（无 LLM，纯启发式）：
+ * - 快节奏情绪（angry/surprised/fear）：冲突 / 反转瞬间，动作往往需要完整呈现。
+ * - actionBeat 存在且非空：LLM/导演标注了「这一镜什么在动」，说明是动作镜。
+ * - 叙事目标时长本就较长（≥6s）：长镜是刻意设计（长台词 / 慢推），不该裁。
+ *
+ * 这些判据都在解析层 / DB 可得，故豁免决策放在 route（有 scene 数据）而非
+ * segmented-video（只有秒数）。缺省不豁免（裁剪，恢复快节奏）。
+ */
+export function isTrimExemptShot(input: {
+  emotion?: string | null;
+  actionBeat?: string | null;
+  targetDuration?: number | null;
+}): boolean {
+  const fastEmotion = input.emotion ? FAST_EMOTIONS.has(input.emotion) : false;
+  const hasActionBeat = Boolean(input.actionBeat?.trim());
+  const isLongShot =
+    typeof input.targetDuration === "number" && input.targetDuration >= 6;
+  return fastEmotion || hasActionBeat || isLongShot;
+}
+
 /** 可被时长校准的分镜的最小形状（两条解析路径的 scene 都满足） */
 export interface CalibratableScene {
   shotType?: string | null;

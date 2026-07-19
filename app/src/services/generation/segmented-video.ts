@@ -22,9 +22,10 @@ import {
   extractLastFrame,
   concatVideos,
   getMediaDuration,
+  trimVideoToDuration,
 } from "@/services/video-synthesis";
 import type { VideoModelCapability } from "@/services/ai/video-capabilities";
-import { planVideoSegments } from "./video-segmenter";
+import { planVideoSegments, clampSceneDuration } from "./video-segmenter";
 import type { VideoSegmentPlanItem } from "./video-segmenter";
 import type { AIServiceConfig } from "@/types";
 import { createLogger } from "@/lib/logger";
@@ -67,14 +68,36 @@ export interface SegmentedVideoArgs {
   userId: string;
   projectId?: string;
   sceneId?: string;
+  /**
+   * 剪辑节奏回归（批2）：单段路径下，把 provider 返回的片段裁到 requestedSeconds
+   * 的叙事目标时长（保头砍尾），恢复漫剧 1–4s 快切节奏。true 时豁免裁剪（高潮/
+   * 动作镜需要完整时长）。缺省 false（裁剪）。仅作用于单段路径——多段是用户明确
+   * 要的长视频（>单档能力），永不裁剪。
+   */
+  exemptFromTrim?: boolean;
 }
 
 /** 分段生成结果 */
 export interface SegmentedVideoResult {
-  /** 最终（拼接后）视频的自有存储 URL */
+  /** 最终（拼接后 / 裁剪后）视频的自有存储 URL */
   videoUrl: string;
-  /** ffprobe 实测总时长（秒）；探测失败为 undefined */
+  /**
+   * 最终视频（裁剪/拼接后）的实测时长（秒）；探测失败为 undefined。
+   * 单段裁剪路径下即裁剪后时长（叙事目标），route 据此回写 Scene.duration
+   * 恢复快节奏；未裁剪时为 provider 原始实测时长。
+   */
   measuredDurationSeconds?: number;
+  /**
+   * 裁剪前 provider 返回的原始实测时长（秒），仅单段裁剪路径填充。
+   * 保留原始值供排障（对比目标 vs provider 实出），不用于回写。
+   */
+  rawMeasuredDurationSeconds?: number;
+  /**
+   * videoUrl 是否已是自有存储 URL（多段拼接、或单段裁剪路径均为 true）。
+   * route 据此跳过重复的 uploadFileFromUrl 转存（片段已落自有存储）。
+   * false=provider 临时 URL（单段透传路径），route 需转存。
+   */
+  isSelfHosted: boolean;
   /** 各段元数据（排障 / GenerationTask.output 留痕） */
   segments: Array<{ url: string; seconds: number }>;
 }
@@ -128,6 +151,30 @@ async function downloadSegment(
 }
 
 /**
+ * 把视频 Buffer 落临时文件后 ffprobe 时长（供裁剪后实测）。探测失败抛错由调用方兜底。
+ */
+async function measureBufferDuration(buffer: Buffer): Promise<number> {
+  const tmpDir = path.join(os.tmpdir(), "ai-comic-seg-probe");
+  if (!existsSync(tmpDir)) {
+    await mkdir(tmpDir, { recursive: true });
+  }
+  const tmpFile = path.join(
+    tmpDir,
+    `trim_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`
+  );
+  await writeFile(tmpFile, buffer);
+  try {
+    return await getMediaDuration(tmpFile);
+  } finally {
+    try {
+      await unlink(tmpFile);
+    } catch {
+      // 忽略清理错误
+    }
+  }
+}
+
+/**
  * 生成分镜视频（自动分段 + 链式衔接 + 拼接）。
  *
  * 单段路径（plan.segments.length===1）零改动透传：直接 generateVideo 返回其 URL，
@@ -165,15 +212,71 @@ export async function generateSceneVideoSegmented(
     });
   };
 
-  // ── 单段：零回归透传（不下载、不拼接） ──
+  // ── 单段：默认透传；开启裁剪时下载→裁到叙事目标→上传自有存储 ──
   if (total === 1) {
     const seg = plan.segments[0];
     // 单段仍可能命中 FL（传了尾帧且模型支持）——沿用现有单段+尾帧行为
     const url = await generateOneSegment(seg, args.imageUrl, true);
-    return {
-      videoUrl: url,
-      segments: [{ url, seconds: seg.targetSeconds }],
-    };
+
+    // 裁剪目标 = 用户设定的叙事时长（shot-timing 算出，1–4s 快切）。
+    // 豁免（高潮/动作镜）或 FL 首尾帧模式（整段插值不宜砍尾）时不裁剪。
+    const isFirstLastFrame =
+      args.capability.supportsFirstLastFrame && !!args.lastFrameImage;
+    const target = clampSceneDuration(args.requestedSeconds);
+    const shouldTrim = !args.exemptFromTrim && !isFirstLastFrame;
+
+    if (!shouldTrim) {
+      // 零回归透传（不下载、不裁剪、不上传）——URL 是 provider 临时地址，route 转存
+      return {
+        videoUrl: url,
+        isSelfHosted: false,
+        segments: [{ url, seconds: seg.targetSeconds }],
+      };
+    }
+
+    // 裁剪路径：下载 provider 片段 → 实测原始时长 → 裁到目标 → 上传自有存储。
+    // 任一步失败一律降级为「原样透传 provider URL」，绝不阻断视频生成。
+    try {
+      const { buffer, seconds: rawSeconds } = await downloadSegment(url);
+      // provider 实出已 ≤ 目标（罕见）→ 无需裁剪，仍需转存到自有存储保持契约一致
+      const needTrim = rawSeconds <= 0 || rawSeconds > target + 0.1;
+      const finalBuffer = needTrim
+        ? await trimVideoToDuration(buffer, target)
+        : buffer;
+      // 实测裁剪后时长（回写 Scene.duration 用真实值，探测失败回落目标）
+      let measured = target;
+      try {
+        measured = await measureBufferDuration(finalBuffer);
+        if (measured <= 0) measured = target;
+      } catch {
+        measured = target;
+      }
+      const trimmedUrl = await uploadFile(finalBuffer, {
+        fileName: `scene_${args.sceneId ?? "unknown"}_trimmed_${Date.now()}.mp4`,
+        contentType: "video/mp4",
+        fileType: "video",
+        userId: args.userId,
+        projectId: args.projectId,
+      });
+      return {
+        videoUrl: trimmedUrl,
+        measuredDurationSeconds: measured,
+        rawMeasuredDurationSeconds: rawSeconds > 0 ? rawSeconds : undefined,
+        isSelfHosted: true,
+        segments: [{ url: trimmedUrl, seconds: Math.round(measured) }],
+      };
+    } catch (err) {
+      log.warn("单段裁剪失败，降级透传 provider 原片段", {
+        sceneId: args.sceneId,
+        target,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return {
+        videoUrl: url,
+        isSelfHosted: false,
+        segments: [{ url, seconds: seg.targetSeconds }],
+      };
+    }
   }
 
   // ── 多段：链式生成 + 拼接 ──
@@ -251,5 +354,10 @@ export async function generateSceneVideoSegmented(
     }
   }
 
-  return { videoUrl, measuredDurationSeconds, segments: segmentMeta };
+  return {
+    videoUrl,
+    measuredDurationSeconds,
+    isSelfHosted: true,
+    segments: segmentMeta,
+  };
 }
