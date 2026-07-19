@@ -12,6 +12,8 @@ import type {
   BackgroundMusic,
   SceneSfx,
 } from "./export-style";
+import type { ColorGrade } from "@/lib/color-grade";
+import type { TitleCardsConfig } from "@/lib/title-cards";
 
 /** 项目状态 — 与 Prisma enum ProjectStatus 对齐 */
 export type ProjectStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "FAILED";
@@ -48,6 +50,12 @@ export interface GenerationParams {
   backgroundMusic?: BackgroundMusic;
   /** 音效列表（按 sceneId + 镜内偏移触发；导出/预览的第三音频层） */
   sfx?: SceneSfx[];
+  /** 金句花字分镜 id 列表（批6）：命中且有对白的分镜其字幕用大字号强调色 pop 花字 */
+  emphasis?: string[];
+  /** 全片 LUT 调色（批6）：enabled 且预设合法时终混统一色调；缺省不调色 */
+  colorGrade?: ColorGrade;
+  /** 片头/片尾卡开关（批6）：缺省由导出端按 resolveTitleCardsEnabled 契约解析 */
+  titleCards?: TitleCardsConfig;
   /** 一键 AI 制片人审阅态（仅向导创建的项目有此字段；常规项目缺省） */
   producerReview?: ProducerReview;
 }

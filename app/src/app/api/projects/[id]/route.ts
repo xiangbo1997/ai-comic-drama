@@ -9,6 +9,8 @@ import { normalizeSubtitleStyle } from "@/lib/subtitle-style-normalize";
 import { normalizeProducerReview } from "@/lib/producer-review";
 import { getSfxById } from "@/lib/sfx-library";
 import { parseStoryBible, isBibleEmpty } from "@/types/series-bible";
+import { MAX_EMPHASIS_SCENES } from "@/types/export-style";
+import { resolveLutPreset, DEFAULT_COLOR_GRADE } from "@/lib/color-grade";
 const log = createLogger("api:projects:[id]");
 
 /**
@@ -548,6 +550,44 @@ function normalizeGenerationParams(
           : {}),
       }))
       .filter((e) => e.sceneId && e.sfxId);
+  }
+  // 金句花字分镜 id 列表（批6）：字符串数组，每项截 64、去重、cap 上限 ——
+  // 不加这段则解析层聚合到的金句分镜怎么存都进不了 DB，导出/预览读不到花字。
+  if (Array.isArray(src.emphasis)) {
+    const seen = new Set<string>();
+    const emphasis: string[] = [];
+    for (const raw of src.emphasis) {
+      if (typeof raw !== "string") continue;
+      const id = raw.slice(0, 64);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      emphasis.push(id);
+      if (emphasis.length >= MAX_EMPHASIS_SCENES) break;
+    }
+    if (emphasis.length > 0) out.emphasis = emphasis;
+  }
+  // 全片 LUT 调色（批6）：enabled 严格布尔 + lutId 白名单校验（resolveLutPreset
+  // 判合法，非法回退默认预设）—— 不加这段则调色选择怎么存都进不了 DB，导出读不到。
+  if (src.colorGrade && typeof src.colorGrade === "object") {
+    const cg = src.colorGrade as Record<string, unknown>;
+    const lutId =
+      typeof cg.lutId === "string" && resolveLutPreset(cg.lutId)
+        ? cg.lutId
+        : DEFAULT_COLOR_GRADE.lutId;
+    out.colorGrade = {
+      enabled: cg.enabled === true,
+      lutId,
+    };
+  }
+  // 片头/片尾卡开关（批6）：title/end 仅当为 boolean 时收录（缺省由导出端按
+  // resolveTitleCardsEnabled 契约解析，系列默认开、非系列默认关）—— 不加这段则
+  // 弹窗里的卡片开关怎么存都进不了 DB。
+  if (src.titleCards && typeof src.titleCards === "object") {
+    const tc = src.titleCards as Record<string, unknown>;
+    const titleCards: Record<string, boolean> = {};
+    if (typeof tc.title === "boolean") titleCards.title = tc.title;
+    if (typeof tc.end === "boolean") titleCards.end = tc.end;
+    out.titleCards = titleCards;
   }
   // 制片人审阅态（一键 AI 制片人 3.1）：白名单归一化后整体放行 —— 不加这段则
   // 前端逐项确认怎么存都进不了 DB，审阅进度静默丢失（同 subtitleStyle 白存教训）。

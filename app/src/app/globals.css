@@ -3,6 +3,29 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * 成片包装内置字幕字体（批6）——预览端 @font-face，与 lib/subtitle-fonts.ts 的
+ * cssFamily 一一对应。字幕层 / 花字 / 片头片尾卡的 font-family 引用这两款字体。
+ *
+ * ⚠️ web 字体为 GB2312 子集（控制体积），罕见字回退声明里的系统黑体（PingFang SC /
+ * Microsoft YaHei）——预览仅为近似；导出端（video-synthesis）用全字集 OTF/TTF，
+ * 罕见字不受影响。font-display: swap 避免字体加载期文字不可见（FOIT）。
+ */
+@font-face {
+  font-family: "Source Han Sans CN";
+  src: url("/fonts/SourceHanSansCN-Subset.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Smiley Sans Oblique";
+  src: url("/fonts/SmileySans-Oblique.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

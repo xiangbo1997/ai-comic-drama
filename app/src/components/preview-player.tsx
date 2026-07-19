@@ -66,6 +66,18 @@ import {
   isFreezeTailAt,
 } from "./preview-impact-css";
 import type { SceneMotion, SceneImpact } from "@/types/export-style";
+// 成片包装（批6）：字幕字体 / 金句花字 / 全片 LUT / 片头片尾卡，
+// 均与导出端共用同一份契约常量（预览=成片的单一真源）。
+import { resolveSubtitleFont, TITLE_FONT_ID } from "@/lib/subtitle-fonts";
+import { EMPHASIS_STYLE } from "@/types/export-style";
+import { resolveLutPreset } from "@/lib/color-grade";
+import type { ColorGrade } from "@/lib/color-grade";
+import {
+  TITLE_CARD_SCENE_ID,
+  END_CARD_SCENE_ID,
+  isCardSceneId,
+} from "@/lib/title-cards";
+import type { CardSpec, CardLineRole } from "@/lib/title-cards";
 
 interface PreviewPlayerProps {
   scenes: ScenePreview[];
@@ -113,6 +125,23 @@ interface PreviewPlayerProps {
    * 预览播放跨过触发时刻时播放对应 one-shot/环境音，暂停/回退同步停止。
    */
   sfx?: SceneSfx[];
+  /**
+   * 金句花字分镜 id 列表（generationParams.emphasis）。命中且有对白的分镜，
+   * 其字幕以 EMPHASIS_STYLE（大字 + 强调色 + pop 弹入 + 加粗描边）渲染，
+   * 与导出端 ASS 专用 Emphasis 样式同源（预览=成片）。
+   */
+  emphasisSceneIds?: string[];
+  /**
+   * 全片 LUT 调色（generationParams.colorGrade）。启用时对「画面」（img/video）
+   * 应用近似 CSS filter，不作用于字幕/水印/贴图覆盖层（导出端 LUT 在字幕之前）。
+   * CSS filter 无法精确等价 3D LUT，UI 已明示「预览为近似效果」。
+   */
+  colorGrade?: ColorGrade;
+  /**
+   * 片头 / 片尾卡（buildTitleCards 产出）。非 null 时在时间轴首/尾注入虚拟分镜
+   * （底图 + Ken Burns 缓推 + 得意黑大字覆盖层），与导出端注入成片首尾同源。
+   */
+  titleCards?: { intro: CardSpec | null; outro: CardSpec | null };
 }
 
 /**
@@ -177,7 +206,7 @@ function resolveTransition(
 }
 
 export function PreviewPlayer({
-  scenes,
+  scenes: rawScenes,
   aspectRatio,
   onSceneChange,
   currentSceneId,
@@ -192,6 +221,9 @@ export function PreviewPlayer({
   sceneEffects,
   backgroundMusic,
   sfx,
+  emphasisSceneIds,
+  colorGrade,
+  titleCards,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -251,9 +283,69 @@ export function PreviewPlayer({
   // 与导出端画面分辨率同坐标系，确保「拖到哪 = 导出到哪」。
   const stageRef = useRef<HTMLDivElement>(null);
 
+  // 片头/片尾卡注入（批6）：把非 null 的卡片包成「虚拟图片分镜」，intro 前置、
+  // outro 后置到时间轴。卡片底图 → ScenePreview.imageUrl（走既有图片渲染 + Ken
+  // Burns 缓推），durationSec → duration；无对白/旁白 → 天然不出普通字幕。
+  // 用保留 sceneId（__title-card__/__end-card__），下方按 isCardSceneId 关联卡片文字层。
+  // 卡片文字（CardSpec.lines）单独查表渲染，故不塞进 ScenePreview。
+  //
+  // 所有既有播放/计时/进度/转场逻辑都以 `scenes`（下面重绑为有效数组）为准，
+  // 虚拟分镜天然融入无需改动；cardSpecById 供卡片文字覆盖层查询。
+  const { scenes, cardSpecById } = useMemo(() => {
+    const intro = titleCards?.intro ?? null;
+    const outro = titleCards?.outro ?? null;
+    if (!intro && !outro) {
+      return { scenes: rawScenes, cardSpecById: new Map<string, CardSpec>() };
+    }
+    const cardMap = new Map<string, CardSpec>();
+    const list: ScenePreview[] = [];
+    if (intro) {
+      cardMap.set(TITLE_CARD_SCENE_ID, intro);
+      list.push({
+        id: TITLE_CARD_SCENE_ID,
+        order: -1,
+        duration: intro.durationSec,
+        imageUrl: intro.imageUrl,
+        videoUrl: null,
+        audioUrl: null,
+        dialogue: null,
+        narration: null,
+      });
+    }
+    list.push(...rawScenes);
+    if (outro) {
+      cardMap.set(END_CARD_SCENE_ID, outro);
+      list.push({
+        id: END_CARD_SCENE_ID,
+        order: rawScenes.length,
+        duration: outro.durationSec,
+        imageUrl: outro.imageUrl,
+        videoUrl: null,
+        audioUrl: null,
+        dialogue: null,
+        narration: null,
+      });
+    }
+    return { scenes: list, cardSpecById: cardMap };
+  }, [rawScenes, titleCards]);
+
   const currentScene = scenes[currentIndex];
   const nextScene =
     currentIndex < scenes.length - 1 ? scenes[currentIndex + 1] : null;
+  // 当前镜是否为片头/片尾卡（决定是否渲染卡片文字层、抑制普通字幕/贴图工具条）
+  const currentCard = currentScene
+    ? (cardSpecById.get(currentScene.id) ?? null)
+    : null;
+
+  // 场景切换上抛：虚拟卡片 id 不上抛（上层 setSelectedSceneId 会因无匹配分镜
+  // 而误清选中态）。真实分镜 id 照常上抛，行为与批6前完全一致。
+  const emitSceneChange = useCallback(
+    (sceneId: string) => {
+      if (isCardSceneId(sceneId)) return;
+      onSceneChange?.(sceneId);
+    },
+    [onSceneChange]
+  );
 
   // 当前镜与下一镜的滤镜/变速/运镜/冲击
   const curFx = currentScene
@@ -264,6 +356,15 @@ export function PreviewPlayer({
     : { effect: null, speed: 1, motion: undefined, impact: null };
   // 当前镜右侧转场（与下一镜之间）
   const curTransition = resolveTransition(currentIndex, transitions);
+
+  // 全片 LUT 近似（批6）：启用且命中预设时，取其 cssFilter 串接到「画面」媒体
+  // 元素（img/video），与分镜滤镜叠加共存；字幕/水印/贴图覆盖层不受染色
+  // （导出端 lut3d 在字幕之前，只染画面）。CSS filter 无法精确等价 3D LUT，
+  // UI 已明示「预览为近似效果」。
+  const lutCssFilter =
+    colorGrade?.enabled && resolveLutPreset(colorGrade.lutId)
+      ? resolveLutPreset(colorGrade.lutId)!.cssFilter
+      : null;
 
   // 是否预热下一镜视频（带宽敏感）：仅在「播放中 且 当前镜已播过 60%」时为真。
   // 此时才把下一镜 preload 升到 auto 提前拉取，覆盖切镜黑屏空档；其余时间
@@ -394,7 +495,7 @@ export function PreviewPlayer({
             setCurrentIndex((prev) => prev + 1);
             setProgress(0);
             setTransitionT(0);
-            onSceneChange?.(scenes[currentIndex + 1].id);
+            emitSceneChange(scenes[currentIndex + 1].id);
           } else {
             // 播放结束
             setIsPlaying(false);
@@ -455,7 +556,7 @@ export function PreviewPlayer({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, currentIndex, currentScene, scenes, onSceneChange]);
+  }, [isPlaying, currentIndex, currentScene, scenes, emitSceneChange]);
 
   // 手动切换分镜时重置转场进度
   useEffect(() => {
@@ -734,7 +835,7 @@ export function PreviewPlayer({
     if (currentIndex > 0) {
       setCurrentIndex((prev) => prev - 1);
       setProgress(0);
-      onSceneChange?.(scenes[currentIndex - 1].id);
+      emitSceneChange(scenes[currentIndex - 1].id);
     }
   };
 
@@ -742,7 +843,7 @@ export function PreviewPlayer({
     if (currentIndex < scenes.length - 1) {
       setCurrentIndex((prev) => prev + 1);
       setProgress(0);
-      onSceneChange?.(scenes[currentIndex + 1].id);
+      emitSceneChange(scenes[currentIndex + 1].id);
     }
   };
 
@@ -869,6 +970,18 @@ export function PreviewPlayer({
   const effectiveFontSize = dragFontSize ?? subtitleStyle?.fontSize;
   const subtitleFontPx = resolveSubtitleFontPx(effectiveFontSize, stageHeight);
 
+  // 金句花字（批6）：当前分镜命中 emphasisSceneIds 且有对白 → 字幕以
+  // EMPHASIS_STYLE 渲染（字号 ×fontScale、强调色、pop 弹入、描边 ×outlineScale）。
+  // 与导出端 ASS 专用 Emphasis 样式同源；其余分镜行为不变。
+  const isEmphasisScene =
+    !!currentScene &&
+    !!currentScene.dialogue &&
+    (emphasisSceneIds?.includes(currentScene.id) ?? false);
+  // 花字字号：正文字号 ×fontScale（在已按画面高缩放的 subtitleFontPx 上再放大）。
+  const emphasisFontPx = isEmphasisScene
+    ? Math.round(subtitleFontPx * EMPHASIS_STYLE.fontScale)
+    : subtitleFontPx;
+
   // 逐句字幕：把当前镜的对白/旁白切成短句 + 按视觉宽度分配时间窗，与导出端
   // （video-synthesis.generateSubtitleFile）共用 splitSubtitleSegments /
   // allocateSubtitleWindows，保证「逐句显示 + 淡入」的切句与时轴两端一致。
@@ -917,8 +1030,10 @@ export function PreviewPlayer({
       : 0;
 
   // 入场动效：缺省 fade（与旧行为、导出端解析规则一致）。
-  const subtitleAnimation: SubtitleAnimation =
-    subtitleStyle?.animation ?? "fade";
+  // 金句花字强制走 pop（视觉签名统一，忽略全局 animation，与 EMPHASIS_STYLE 一致）。
+  const subtitleAnimation: SubtitleAnimation = isEmphasisScene
+    ? EMPHASIS_STYLE.animation
+    : (subtitleStyle?.animation ?? "fade");
 
   // 非 typewriter 动效映射为 <p> 的 CSS animation 简写（时序读共享常量，
   // 与导出端 libass 标签对齐）。typewriter 返回 undefined——它由逐字符 span
@@ -1141,6 +1256,61 @@ export function PreviewPlayer({
     return cb;
   }, []);
 
+  // 片头/片尾卡文字层（批6）——DOM 覆盖层（z-10 契约，高于媒体层）。
+  // 得意黑（TITLE_FONT_ID）大字居中，与导出端 ASS Title/Hook 样式同源；
+  // 纵向：title/hook 约 45% 高，sub/cta 约 58% 高；淡入入场。
+  // 各角色字号相对字幕默认（subtitleFontPx）的视觉占比：
+  //   title ×2.2、hook ×1.6、sub ×1.1、cta ×0.95（cta 用强调色）。
+  const CARD_ROLE: Record<
+    CardLineRole,
+    { scale: number; topPct: number; color: string; strong: boolean }
+  > = {
+    title: { scale: 2.2, topPct: 45, color: "#FFFFFF", strong: true },
+    hook: { scale: 1.6, topPct: 45, color: "#FFFFFF", strong: true },
+    sub: { scale: 1.1, topPct: 58, color: "#FFFFFF", strong: false },
+    cta: {
+      scale: 0.95,
+      topPct: 58,
+      color: EMPHASIS_STYLE.color,
+      strong: false,
+    },
+  };
+  const renderCardOverlay = (card: CardSpec) => {
+    // 得意黑字体族（与导出端标题字体同源）
+    const titleFamily = resolveSubtitleFont(TITLE_FONT_ID).cssFamily;
+    // 描边宽度随画面高等比缩放（同字幕，保证深浅底可读）
+    const strokePx =
+      (3 * (stageHeight > 0 ? stageHeight : SUBTITLE_FONT_BASE_HEIGHT)) /
+      SUBTITLE_FONT_BASE_HEIGHT;
+    return (
+      <div className="pointer-events-none absolute inset-0 z-10">
+        {card.lines.map((line, i) => {
+          const role = CARD_ROLE[line.role];
+          return (
+            <div
+              key={`${line.role}-${i}`}
+              className="absolute left-1/2 w-full -translate-x-1/2 -translate-y-1/2 px-6 text-center"
+              style={{
+                top: `${role.topPct}%`,
+                fontFamily: titleFamily,
+                fontSize: `${Math.round(subtitleFontPx * role.scale)}px`,
+                fontWeight: role.strong ? 700 : 500,
+                color: role.color,
+                lineHeight: 1.2,
+                textShadow: "rgba(0,0,0,0.55) 0 2px 8px",
+                WebkitTextStroke: `${strokePx}px rgba(0,0,0,0.85)`,
+                // 卡片文字淡入（与导出端卡片文字入场同语义）
+                animation: "subtitleFadeIn 500ms ease-out both",
+              }}
+            >
+              {line.text}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   /**
    * 渲染一镜的媒体（video / image / 占位），应用其滤镜。
    * video 用「按 sceneId 记忆的稳定 ref 回调」把 DOM 节点登记进 videoElsRef，
@@ -1160,7 +1330,10 @@ export function PreviewPlayer({
     effect: SceneEffectId | null,
     role: "current" | "next"
   ) => {
-    const filterCss = sceneFilterCss(effect);
+    // 分镜滤镜（SVG filter 引用）与全片 LUT（CSS filter 近似）串接共存：
+    // CSS 的 filter 属性支持多值空格拼接，两者会依次作用于同一元素。
+    const sceneFilter = sceneFilterCss(effect);
+    const filterCss = [sceneFilter, lutCssFilter].filter(Boolean).join(" ");
     // 冲击/运镜动画只作用于「当前镜」的媒体元素本体（批4）：
     // 挂在内层而非层容器上，避免与转场 slide/wipe 的容器 transform 相互覆盖。
     const mediaAnimation =
@@ -1296,6 +1469,10 @@ export function PreviewPlayer({
               style={{ opacity: curFlashOpacity }}
             />
           )}
+
+          {/* 片头/片尾卡文字层（批6）——当前镜为卡片时渲染得意黑大字覆盖层
+              （底图 = 卡片虚拟分镜的 imageUrl，已由媒体层带 Ken Burns 缓推渲染）。 */}
+          {currentCard && renderCardOverlay(currentCard)}
 
           {/* Audio */}
           {currentScene?.audioUrl && (
@@ -1439,10 +1616,20 @@ export function PreviewPlayer({
                       : ""
                   } ${dragXY ? "ring-primary shadow-lg ring-2" : ""}`}
                   style={{
-                    // 字号按画面框高等比缩放（与导出 ASS Fontsize 同源），预览=成片
-                    fontSize: `${subtitleFontPx}px`,
-                    color: subtitleStyle?.fontColor ?? "#FFFFFF",
-                    fontWeight: subtitleStyle?.bold ? 700 : 400,
+                    // 字体：内置白名单解析（默认思源黑体），替换旧继承字体，
+                    // 与导出端 ASS Fontname 同字形（预览=成片）。
+                    fontFamily: resolveSubtitleFont(subtitleStyle?.fontFamily)
+                      .cssFamily,
+                    // 字号按画面框高等比缩放（与导出 ASS Fontsize 同源），预览=成片；
+                    // 金句花字再 ×fontScale（emphasisFontPx）。
+                    fontSize: `${emphasisFontPx}px`,
+                    // 金句花字用强调色，正文用用户配置色。
+                    color: isEmphasisScene
+                      ? EMPHASIS_STYLE.color
+                      : (subtitleStyle?.fontColor ?? "#FFFFFF"),
+                    // 花字加粗（大字需更醒目），正文按用户配置。
+                    fontWeight:
+                      isEmphasisScene || subtitleStyle?.bold ? 700 : 400,
                     background: subtitleStyle?.backgroundBox
                       ? "rgba(0,0,0,0.7)"
                       : "transparent",
@@ -1451,9 +1638,10 @@ export function PreviewPlayer({
                       : "rgba(0,0,0,0.8) 0 1px 2px",
                     // 描边宽度随画面高等比缩放（对齐导出端 ScaledBorderAndShadow:yes），
                     // 系数 = 画面框高 / 1080 基准；字越大描边越粗，两端比例一致。
+                    // 金句花字描边再 ×outlineScale（大字需更粗描边保可读）。
                     WebkitTextStroke:
                       subtitleStyle && subtitleStyle.outlineWidth > 0
-                        ? `${(subtitleStyle.outlineWidth * (stageHeight > 0 ? stageHeight : SUBTITLE_FONT_BASE_HEIGHT)) / SUBTITLE_FONT_BASE_HEIGHT}px ${subtitleStyle.outlineColor}`
+                        ? `${(subtitleStyle.outlineWidth * (isEmphasisScene ? EMPHASIS_STYLE.outlineScale : 1) * (stageHeight > 0 ? stageHeight : SUBTITLE_FONT_BASE_HEIGHT)) / SUBTITLE_FONT_BASE_HEIGHT}px ${subtitleStyle.outlineColor}`
                         : undefined,
                     // 拖拽期间禁用文本选中，避免选中文字干扰拖动
                     userSelect: subtitleEditable ? "none" : undefined,

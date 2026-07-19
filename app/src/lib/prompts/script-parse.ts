@@ -62,6 +62,7 @@ export const SCRIPT_PARSE_SYSTEM = `你是一个专业的漫剧分镜编剧，�
    - 【克制纪律】每镜 ≤2 个；全片约每 10-30 秒 1-2 个；安静/抒情镜一律【省略】该字段（绝大多数分镜没有它）。音效是标点符号不是背景噪音——只标打击/碎裂/心跳/环境雨雷等真实声音事件，宁缺毋滥。
 12. beatType: 叙事节拍类型（可选）。仅当该镜是明确的节拍重音时输出：impact（打击/冲突爆发/物理撞击）、reveal（反转/揭秘/真相揭晓）、emotional（情绪高点/爆发哭喊）；平铺直叙的常规镜一律【省略】该字段（绝大多数分镜没有它）。impact/reveal 全片各 ≤3 处，克制使用——节拍重音多了等于没有。
 13. isClimax: 高潮镜标记（可选布尔）。每集只有 1-2 镜是全集情绪顶点（最大冲突爆发/最狠反转），仅这些镜置 true；其余一律【省略】。
+14. emphasis: 金句花字标记（可选布尔）。仅当该镜台词是【全集级金句/怒吼/高潮宣言】（一句话点题、决绝反击、情绪炸点，值得放大成花字）时置 true。【克制纪律】每集 1-3 处；只标有 dialogue 的镜（旁白不算），普通对白一律【省略】。花字多了等于没有——宁缺毋滥。
 
 【环境与空间一致性（务必遵守）】
 - description 必须写明主体元素在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）。
@@ -147,6 +148,28 @@ ${NARRATION_DISCIPLINE_RULES}
   "isClimax": true
 }
 
+【少样本示例：带 dialogue + emphasis 金句花字的高潮宣言镜（每集仅 1-3 处）】
+{
+  "id": 24,
+  "shotType": "近景",
+  "description": "林萧直视陆霆骁，眼神从隐忍转为决绝，一字一句掷地有声",
+  "characters": ["林萧"],
+  "dialogue": "这段婚姻，我不要了。",
+  "narration": null,
+  "emotion": "angry",
+  "duration": 3,
+  "cameraAngle": "eye-level",
+  "lighting": "hard key light carving sharp facial contrast",
+  "composition": "centered close-up, subject filling the frame",
+  "colorPalette": "cold blue shadow with warm skin highlight",
+  "cameraMovement": "dolly_in",
+  "actionBeat": "林萧抬眼直视，下颌收紧，一字一顿说出决裂宣言",
+  "locationKey": "陆宅客厅",
+  "beatType": "emotional",
+  "isClimax": true,
+  "emphasis": true
+}
+
 【完整输出结构】
 {
   "title": "作品标题",
@@ -200,6 +223,7 @@ ${text}
 5. 每个分镜必须给出 cameraMovement（13 值枚举之一）与 actionBeat（中文 ≤80 字，只写"动"的内容）；相邻镜头运镜不重复，运镜服务节奏
 6. 每个分镜必须给出 locationKey（中文短标签 ≤12 字）：同一物理地点用完全相同的标签，同地点禁止多个变体；每个地点首次出现尽量用全景/远景建立场景空间
 7. 仅当剧情明确要求某角色穿非默认着装（婚纱/战损/雨夜湿透/睡衣等）时，给该分镜加 characterOutfits: [{"name":角色名,"outfit":服装短语≤10字}]；同一套衣服跨分镜用完全相同短语；日常着装省略此字段（绝大多数分镜没有它）
-8. 保留原文的对话和旁白
-9. 输出纯JSON，不要其他内容`;
+8. 仅当某镜台词是全集级金句/怒吼/高潮宣言（值得放大成花字）时，给该镜加 emphasis: true；每集 1-3 处，只标有对白的镜，普通对白省略此字段
+9. 保留原文的对话和旁白
+10. 输出纯JSON，不要其他内容`;
 }

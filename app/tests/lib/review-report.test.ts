@@ -22,6 +22,12 @@ function scene(overrides: Partial<ReviewScene> = {}): ReviewScene {
     videoUrl: "https://x/v.mp4",
     audioUrl: "https://x/a.mp3",
     videoLinkNext: false,
+    // 红线门禁字段（默认无节拍/无运镜/中性情绪；各红线用例按需覆盖）
+    beatType: null,
+    isClimax: false,
+    cameraMovement: null,
+    actionBeat: null,
+    emotion: "neutral",
   };
   return { ...base, ...overrides };
 }
@@ -295,10 +301,11 @@ describe("assembleReviewReport · 完整性", () => {
 describe("assembleReviewReport · 综合等级边界", () => {
   it("全 ok → A", () => {
     const report = assembleReviewReport({
+      // 首镜带强情绪（构成开场钩子镜）+ 全片有情绪事件，避免触发红线 warn
       scenes: [
-        scene({ id: "a", order: 0, duration: 4 }),
-        scene({ id: "b", order: 1, duration: 4 }),
-        scene({ id: "c", order: 2, duration: 4 }),
+        scene({ id: "a", order: 0, duration: 4, emotion: "angry" }),
+        scene({ id: "b", order: 1, duration: 4, emotion: "sad" }),
+        scene({ id: "c", order: 2, duration: 4, emotion: "happy" }),
       ],
       hookType: "悬念",
       continuitySummary: okContinuity,
@@ -354,7 +361,273 @@ describe("assembleReviewReport · 综合等级边界", () => {
       hookType: "悬念",
       continuitySummary: okContinuity,
     });
-    // pacing warn + completeness warn，无 bad → B
+    // pacing warn + completeness warn + redline warn，无 bad → B
     expect(report.grade).toBe("B");
+  });
+});
+
+describe("assembleReviewReport · 红果红线门禁", () => {
+  /** 造一条「红线全绿」健康镜：短时长、有情绪事件、有运镜、短对白 */
+  function healthy(overrides: Partial<ReviewScene> = {}): ReviewScene {
+    return scene({
+      duration: 3,
+      dialogue: "短句台词。",
+      emotion: "angry",
+      cameraMovement: "zoom_in",
+      actionBeat: "转身",
+      ...overrides,
+    });
+  }
+
+  it("① 总时长 >180s → redline bad + 删减建议", () => {
+    // 首镜有钩子，其余每 20s 一个情绪事件避免断档；用大时长堆到 >180s
+    const scenes: ReviewScene[] = [
+      healthy({ id: "a", order: 0, duration: 60 }),
+      healthy({ id: "b", order: 1, duration: 60 }),
+      healthy({ id: "c", order: 2, duration: 61 }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.status).toBe("bad");
+    expect(redline.lines.some((l) => l.includes("超过红线上限"))).toBe(true);
+    expect(report.suggestions.some((s) => s.text.includes("180"))).toBe(true);
+  });
+
+  it("① 总时长在 168-180 之间 → redline warn（逼近上限）", () => {
+    const scenes: ReviewScene[] = [
+      healthy({ id: "a", order: 0, duration: 58 }),
+      healthy({ id: "b", order: 1, duration: 58 }),
+      healthy({ id: "c", order: 2, duration: 58 }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    // 174s → warn
+    expect(redline.status).toBe("warn");
+    expect(redline.lines.some((l) => l.includes("逼近红线"))).toBe(true);
+  });
+
+  it("① cardExtraSec 计入总时长（卡片把 178s 顶过 180s 红线）", () => {
+    const scenes: ReviewScene[] = [
+      healthy({ id: "a", order: 0, duration: 60 }),
+      healthy({ id: "b", order: 1, duration: 60 }),
+      healthy({ id: "c", order: 2, duration: 58 }),
+    ];
+    // 分镜和 178s，加卡片 4.5s → 182.5s，跨过 180 红线
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      cardExtraSec: 4.5,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.status).toBe("bad");
+    expect(redline.lines.some((l) => l.includes("含片头尾卡"))).toBe(true);
+  });
+
+  it("② 开场 3s 内无钩子镜 → redline warn + 定位首镜", () => {
+    // 首镜中性情绪、非节拍镜 → 非钩子；后续镜有情绪避免断档
+    const scenes: ReviewScene[] = [
+      healthy({ id: "a", order: 0, duration: 3, emotion: "neutral" }),
+      healthy({ id: "b", order: 1, duration: 3 }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.status).toBe("warn");
+    expect(redline.lines.some((l) => l.includes("开场"))).toBe(true);
+    const jump = report.suggestions.find(
+      (s) => s.sceneId === "a" && s.text.includes("开场")
+    );
+    expect(jump?.sceneOrder).toBe(1);
+  });
+
+  it("② 开场 3s 内有 impact/reveal/isClimax → 不触发钩子告警", () => {
+    const scenes: ReviewScene[] = [
+      healthy({
+        id: "a",
+        order: 0,
+        duration: 2,
+        emotion: "neutral",
+        beatType: "impact",
+      }),
+      healthy({ id: "b", order: 1, duration: 3 }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.lines.some((l) => l.includes("开场"))).toBe(false);
+  });
+
+  it("③ 连续 30s 无情绪事件 → redline warn + 定位断档起始镜", () => {
+    // 首镜钩子（满足②），随后一长串中性镜堆够 30s 断档
+    const scenes: ReviewScene[] = [
+      healthy({ id: "hook", order: 0, duration: 2 }),
+      scene({
+        id: "g0",
+        order: 1,
+        duration: 16,
+        emotion: "neutral",
+        cameraMovement: "pan_left",
+      }),
+      scene({
+        id: "g1",
+        order: 2,
+        duration: 16,
+        emotion: "neutral",
+        cameraMovement: "pan_left",
+      }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.status).toBe("warn");
+    expect(redline.lines.some((l) => l.includes("无情绪事件"))).toBe(true);
+    const jump = report.suggestions.find((s) => s.text.includes("无情绪起伏"));
+    expect(jump?.sceneOrder).toBe(2);
+  });
+
+  it("③ 情绪事件打断断档 → 不触发（beatType 重置计时）", () => {
+    const scenes: ReviewScene[] = [
+      healthy({ id: "hook", order: 0, duration: 2 }),
+      scene({ id: "g0", order: 1, duration: 16, emotion: "neutral" }),
+      // 情绪事件把连续断档打断
+      scene({ id: "e", order: 2, duration: 4, emotion: "surprised" }),
+      scene({ id: "g1", order: 3, duration: 16, emotion: "neutral" }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.lines.some((l) => l.includes("无情绪事件"))).toBe(false);
+  });
+
+  it("④ 对白单句 >15 字 → 逐镜 suggestion", () => {
+    const longDlg = "这是一句非常非常长的台词一直说个不停根本停不下来";
+    const scenes: ReviewScene[] = [
+      healthy({ id: "a", order: 0, duration: 6, dialogue: longDlg }),
+      healthy({ id: "b", order: 1, duration: 3 }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.status).toBe("warn");
+    expect(redline.lines.some((l) => l.includes("长对白"))).toBe(true);
+    const jump = report.suggestions.find(
+      (s) => s.sceneId === "a" && s.text.includes("对白单句")
+    );
+    expect(jump?.sceneOrder).toBe(1);
+  });
+
+  it("④ 长句按句末标点切分 → 短句不误报", () => {
+    // 单句都 ≤15 字，仅因整段长；切句后不触发
+    const scenes: ReviewScene[] = [
+      healthy({
+        id: "a",
+        order: 0,
+        duration: 5,
+        dialogue: "你来了。我等你很久了。快进来吧。",
+      }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.lines.some((l) => l.includes("长对白"))).toBe(false);
+  });
+
+  it("⑤ 静止长镜 >4s 且无运镜无动作 → 加镜内运动建议", () => {
+    const scenes: ReviewScene[] = [
+      healthy({ id: "hook", order: 0, duration: 2 }),
+      // 6s 静止（cameraMovement=static、无 actionBeat），有情绪避免断档
+      scene({
+        id: "static",
+        order: 1,
+        duration: 6,
+        emotion: "sad",
+        cameraMovement: "static",
+        actionBeat: null,
+      }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.status).toBe("warn");
+    expect(redline.lines.some((l) => l.includes("无运镜"))).toBe(true);
+    const jump = report.suggestions.find(
+      (s) => s.sceneId === "static" && s.text.includes("加镜内运动")
+    );
+    expect(jump?.sceneOrder).toBe(2);
+  });
+
+  it("⑤ 有运镜或有 actionBeat → 不触发静止告警", () => {
+    const scenes: ReviewScene[] = [
+      healthy({ id: "hook", order: 0, duration: 2 }),
+      scene({
+        id: "moving",
+        order: 1,
+        duration: 6,
+        emotion: "sad",
+        cameraMovement: "dolly_in",
+        actionBeat: null,
+      }),
+      scene({
+        id: "acting",
+        order: 2,
+        duration: 6,
+        emotion: "happy",
+        cameraMovement: "static",
+        actionBeat: "挥手",
+      }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.lines.some((l) => l.includes("无运镜"))).toBe(false);
+  });
+
+  it("全绿健康镜 → redline ok + 分工声明常驻", () => {
+    const scenes: ReviewScene[] = [
+      healthy({ id: "a", order: 0, duration: 3 }),
+      healthy({ id: "b", order: 1, duration: 3 }),
+    ];
+    const report = assembleReviewReport({
+      scenes,
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const redline = findSection(report, "redline");
+    expect(redline.status).toBe("ok");
+    // 连贯性分工声明在任何情况下都作为末行注明
+    expect(redline.lines.some((l) => l.includes("AI 场记"))).toBe(true);
   });
 });

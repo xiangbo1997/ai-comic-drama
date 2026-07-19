@@ -9,6 +9,7 @@ import type {
   Transition,
   TransitionType,
 } from "@/types/export-style";
+import { MAX_EMPHASIS_SCENES } from "@/types/export-style";
 import { resolveSfxTag } from "@/lib/sfx-library";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
 
@@ -63,6 +64,23 @@ function remapGenerationParams(
   // 音效同为 sceneId 键控（批1）：重解析后桥接到新分镜，防精调丢失/孤儿滞留
   const sf = remapByScene(next.sfx);
   if (sf !== next.sfx) next.sfx = sf;
+
+  // 金句花字（批6）：emphasis 是「裸 sceneId 字符串数组」（非 {sceneId} 对象），
+  // 需单独按 旧sceneId→order→新sceneId 桥接，去重清理越界/失联 id（同 remapByScene 逻辑）。
+  if (next.emphasis && next.emphasis.length > 0) {
+    const seen = new Set<string>();
+    const mappedEmphasis: string[] = [];
+    for (const oldId of next.emphasis) {
+      const order = oldSceneIdToOrder.get(oldId);
+      if (order === undefined) continue;
+      const newId = orderToNewSceneId.get(order);
+      if (!newId || seen.has(newId)) continue;
+      seen.add(newId);
+      mappedEmphasis.push(newId);
+    }
+    if (mappedEmphasis.length !== next.emphasis.length) changed = true;
+    next.emphasis = mappedEmphasis;
+  }
 
   // transitions 按相邻分镜顺序（k 与 k+1 之间），最多 新分镜数-1 项
   const maxTransitions = Math.max(0, orderToNewSceneId.size - 1);
@@ -142,6 +160,34 @@ function aggregateSceneSfx(
           : 0;
       result.push({ sceneId, sfxId: entry.id, offsetSec: offset });
       taken += 1;
+    }
+  }
+  return result.length > 0 ? result : null;
+}
+
+/**
+ * 从分镜草稿聚合金句花字分镜 id（成片包装 · 批6）。
+ *
+ * 解析层按克制纪律（每集 1-3 处）标注的 scene.emphasis === true 且【有对白】的分镜，
+ * 在此单点收口到 generationParams.emphasis（裸 sceneId 字符串数组，按新建分镜 id 关联）
+ * ——与转场/音效聚合同模式。旁白（无对白）的 emphasis 标注忽略（花字只上对白）；
+ * 上限 MAX_EMPHASIS_SCENES 从宽钳制。全部缺席返回 null（不写空数组污染 generationParams）。
+ */
+function aggregateSceneEmphasis(
+  scenes: unknown[],
+  orderToNewSceneId: Map<number, string>
+): string[] | null {
+  const result: string[] = [];
+  for (let i = 0; i < scenes.length; i += 1) {
+    if (result.length >= MAX_EMPHASIS_SCENES) break;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = scenes[i] as any;
+    const sceneId = orderToNewSceneId.get(i);
+    if (!sceneId) continue;
+    const hasDialogue =
+      typeof raw?.dialogue === "string" && raw.dialogue.trim().length > 0;
+    if (raw?.emphasis === true && hasDialogue) {
+      result.push(sceneId);
     }
   }
   return result.length > 0 ? result : null;
@@ -368,6 +414,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       paramsChanged = true;
     }
 
+    // 聚合解析层金句花字标注（批6）：同音效，脚本产出即本次重建的权威来源
+    const aggregatedEmphasis = aggregateSceneEmphasis(
+      scenes,
+      orderToNewSceneId
+    );
+    if (aggregatedEmphasis) {
+      nextParams = { ...nextParams, emphasis: aggregatedEmphasis };
+      paramsChanged = true;
+    }
+
     // beatType → 默认冲击效果（批4）：impact 镜默认震屏（+缺音效时补一记重击），
     // reveal 镜默认定格。仅对「该镜没有既存 sceneEffects 条目」的分镜补默认——
     // 重解析桥接来的用户精调优先，不覆盖。
@@ -413,7 +469,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       log.info(
         `Updated generationParams for project ${id}` +
           (aggregatedTransitions ? " (aggregated scene transitions)" : "") +
-          (aggregatedSfx ? ` (aggregated ${aggregatedSfx.length} sfx)` : "")
+          (aggregatedSfx ? ` (aggregated ${aggregatedSfx.length} sfx)` : "") +
+          (aggregatedEmphasis
+            ? ` (aggregated ${aggregatedEmphasis.length} emphasis)`
+            : "")
       );
     }
 

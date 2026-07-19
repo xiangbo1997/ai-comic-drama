@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import type { Scene } from "@/types";
 import type { SubtitleStyle } from "@/types/export-style";
+import { buildTitleCards } from "@/lib/title-cards";
 import { TimelineDialogs } from "./components/TimelineDialogs";
 import Link from "next/link";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -410,6 +411,25 @@ export default function EditorPage() {
       ? (project.scenes[selectedSceneIndex + 1] ?? null)
       : null;
 
+  // 成片包装（批6）：片头/片尾卡预览注入。
+  // - isSeries：有 seriesId 即系列（决定卡片缺省开关，与导出端契约一致）；
+  // - 底图：片头取首个有图分镜、片尾取末个有图分镜（无图则纯黑底）；
+  // - hookText：客户端拿不到圣经，传 null → buildTitleCards 用通用追更文案兜底。
+  const isSeries = !!project.seriesId;
+  const scenesWithImage = project.scenes.filter((s) => s.imageUrl);
+  const coverImageUrl = scenesWithImage[0]?.imageUrl ?? null;
+  const endImageUrl =
+    scenesWithImage[scenesWithImage.length - 1]?.imageUrl ?? null;
+  const titleCards = buildTitleCards({
+    projectTitle: project.title,
+    episodeNumber: project.episodeNumber,
+    hookText: null,
+    coverImageUrl,
+    endImageUrl,
+    config: project.generationParams?.titleCards,
+    isSeries,
+  });
+
   return (
     // h-dvh 锁定视口高度（IDE 式布局）：三栏各自内部滚动（左栏根 / 中右栏
     // flex-1 区域均已带 overflow-y-auto）。此前 min-h-screen 让页面随内容撑高、
@@ -681,6 +701,9 @@ export default function EditorPage() {
               sceneEffects={project.generationParams?.sceneEffects}
               backgroundMusic={project.generationParams?.backgroundMusic}
               sfx={project.generationParams?.sfx}
+              emphasisSceneIds={project.generationParams?.emphasis}
+              colorGrade={project.generationParams?.colorGrade}
+              titleCards={titleCards}
             />
           </div>
         </DialogContent>
@@ -700,6 +723,18 @@ export default function EditorPage() {
         // 时间轴入口已配置的字幕/水印作为导出表单初值，保证预览/时间轴/导出三处一致
         initialSubtitleStyle={project.generationParams?.subtitleStyle}
         initialWatermark={project.generationParams?.watermark}
+        // 成片包装（批6）初值 + 系列判定 + 持久化回调（写回 generationParams 让主预览同步）
+        initialColorGrade={project.generationParams?.colorGrade}
+        initialTitleCards={project.generationParams?.titleCards}
+        isSeries={isSeries}
+        onPersist={(patch) =>
+          editor.updateProject({
+            generationParams: {
+              ...project.generationParams,
+              ...patch,
+            },
+          })
+        }
         onClose={() => {
           stopExportPoll();
           setShowExportDialog(false);

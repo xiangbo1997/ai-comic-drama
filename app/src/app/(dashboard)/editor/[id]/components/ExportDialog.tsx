@@ -20,6 +20,16 @@ import type {
   ReviewSection,
   ReviewSectionStatus,
 } from "@/lib/review-report";
+import { SUBTITLE_FONTS, DEFAULT_SUBTITLE_FONT_ID } from "@/lib/subtitle-fonts";
+import {
+  LUT_PRESETS,
+  DEFAULT_COLOR_GRADE,
+  type ColorGrade,
+} from "@/lib/color-grade";
+import {
+  resolveTitleCardsEnabled,
+  type TitleCardsConfig,
+} from "@/lib/title-cards";
 import { SubtitleStylePanel } from "./SubtitleStylePanel";
 import { WatermarkPanel } from "./WatermarkPanel";
 import {
@@ -38,19 +48,28 @@ interface ExportStatus {
   videoUrl?: string | null;
 }
 
+/** 导出选项（含批6 成片包装：字幕字体已并入 subtitleStyle.fontFamily） */
+export interface ExportDialogOptions {
+  format: string;
+  quality: string;
+  includeSubtitles: boolean;
+  includeAudio: boolean;
+  subtitleStyle: SubtitleStyle;
+  watermark: Watermark;
+  /** 全片 LUT 调色（body 覆盖，与 subtitleStyle 同优先级） */
+  colorGrade: ColorGrade;
+  /** 片头标题卡开关（body 覆盖 generationParams.titleCards.title） */
+  titleCard: boolean;
+  /** 片尾钩子卡开关（body 覆盖 generationParams.titleCards.end） */
+  endCard: boolean;
+}
+
 interface ExportDialogProps {
   isOpen: boolean;
   exportStatus: ExportStatus;
   /** 项目 ID，用于拉取审片报告 */
   projectId: string;
-  onExport: (options: {
-    format: string;
-    quality: string;
-    includeSubtitles: boolean;
-    includeAudio: boolean;
-    subtitleStyle: SubtitleStyle;
-    watermark: Watermark;
-  }) => void;
+  onExport: (options: ExportDialogOptions) => void;
   onClose: () => void;
   onRetry: () => void;
   /** 审片报告建议条目「定位」→ 选中该分镜并关闭弹窗 */
@@ -59,6 +78,21 @@ interface ExportDialogProps {
   initialSubtitleStyle?: SubtitleStyle;
   /** 时间轴入口已配置的品牌水印，作为导出表单初值（保持三处一致） */
   initialWatermark?: Watermark;
+  /** 已存的全片调色配置（generationParams.colorGrade），作为初值 */
+  initialColorGrade?: ColorGrade;
+  /** 已存的片头/片尾卡开关（generationParams.titleCards），作为初值 */
+  initialTitleCards?: TitleCardsConfig;
+  /** 是否系列项目（决定片头/片尾卡缺省开关；与导出端契约一致） */
+  isSeries: boolean;
+  /**
+   * 成片包装配置变更时持久化到 generationParams（片头尾卡 / 调色 / 字幕字体），
+   * 让主编辑器预览同步反映（预览=成片）。上层用 editor.updateProject 落库。
+   */
+  onPersist: (patch: {
+    titleCards?: TitleCardsConfig;
+    colorGrade?: ColorGrade;
+    subtitleStyle?: SubtitleStyle;
+  }) => void;
 }
 
 export function ExportDialog({
@@ -71,6 +105,10 @@ export function ExportDialog({
   onJumpToScene,
   initialSubtitleStyle,
   initialWatermark,
+  initialColorGrade,
+  initialTitleCards,
+  isSeries,
+  onPersist,
 }: ExportDialogProps) {
   // 下载视频：视频在 R2 跨域，前端直接 fetch 被 CORS 拦（Failed to fetch），
   // <a download> 对跨域资源也无效（变新标签打开）。改走同源下载代理
@@ -161,6 +199,10 @@ export function ExportDialog({
                 onCancel={onClose}
                 initialSubtitleStyle={initialSubtitleStyle}
                 initialWatermark={initialWatermark}
+                initialColorGrade={initialColorGrade}
+                initialTitleCards={initialTitleCards}
+                isSeries={isSeries}
+                onPersist={onPersist}
               />
             </div>
           )}
@@ -383,23 +425,134 @@ function CollapsibleSection({
   );
 }
 
+/** 开关行（复用弹窗内一致的 switch 视觉，与 SubtitleStylePanel 风格一致） */
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between">
+      <span className="text-sm">{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`focus:ring-primary relative h-5 w-9 rounded-full transition-colors focus:ring-2 focus:outline-none ${
+          checked ? "bg-primary" : "bg-secondary border-border border"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-4" : "translate-x-0.5"
+          }`}
+        />
+      </button>
+    </label>
+  );
+}
+
+/**
+ * 成片包装面板（批6）：片头标题卡 / 片尾钩子卡开关 + 全片调色（启用 + 三预设）。
+ * 变更即时经上层持久化到 generationParams，主编辑器预览同步反映（预览=成片）。
+ */
+function FinishingPackagePanel({
+  titleCard,
+  endCard,
+  colorGrade,
+  onTitleCardsChange,
+  onColorGradeChange,
+}: {
+  titleCard: boolean;
+  endCard: boolean;
+  colorGrade: ColorGrade;
+  onTitleCardsChange: (title: boolean, end: boolean) => void;
+  onColorGradeChange: (next: ColorGrade) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      {/* 片头 / 片尾卡开关 */}
+      <div className="space-y-2">
+        <ToggleRow
+          label="片头标题卡（剧名 + 集数）"
+          checked={titleCard}
+          onChange={(v) => onTitleCardsChange(v, endCard)}
+        />
+        <ToggleRow
+          label="片尾钩子卡（下集悬念 + 追更）"
+          checked={endCard}
+          onChange={(v) => onTitleCardsChange(titleCard, v)}
+        />
+      </div>
+
+      {/* 全片调色 */}
+      <div className="border-border space-y-2 border-t pt-3">
+        <ToggleRow
+          label="全片调色（统一色调）"
+          checked={colorGrade.enabled}
+          onChange={(v) => onColorGradeChange({ ...colorGrade, enabled: v })}
+        />
+        {colorGrade.enabled && (
+          <div className="space-y-1.5 pl-1">
+            {LUT_PRESETS.map((preset) => {
+              const active = colorGrade.lutId === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() =>
+                    onColorGradeChange({ ...colorGrade, lutId: preset.id })
+                  }
+                  className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+                    active
+                      ? "border-primary bg-primary/10"
+                      : "border-border hover:bg-secondary/50"
+                  }`}
+                >
+                  <p className="text-sm font-medium">{preset.label}</p>
+                  <p className="text-muted-foreground text-xs">
+                    {preset.description}
+                  </p>
+                </button>
+              );
+            })}
+            <p className="text-muted-foreground pt-1 text-[10px]">
+              * 预览为近似效果，成片以导出为准
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ExportForm({
   onExport,
   onCancel,
   initialSubtitleStyle,
   initialWatermark,
+  initialColorGrade,
+  initialTitleCards,
+  isSeries,
+  onPersist,
 }: {
-  onExport: (options: {
-    format: string;
-    quality: string;
-    includeSubtitles: boolean;
-    includeAudio: boolean;
-    subtitleStyle: SubtitleStyle;
-    watermark: Watermark;
-  }) => void;
+  onExport: (options: ExportDialogOptions) => void;
   onCancel: () => void;
   initialSubtitleStyle?: SubtitleStyle;
   initialWatermark?: Watermark;
+  initialColorGrade?: ColorGrade;
+  initialTitleCards?: TitleCardsConfig;
+  isSeries: boolean;
+  onPersist: (patch: {
+    titleCards?: TitleCardsConfig;
+    colorGrade?: ColorGrade;
+    subtitleStyle?: SubtitleStyle;
+  }) => void;
 }) {
   /* ---- 基础导出选项（保持原有字段不破坏） ---- */
   const [format, setFormat] = useState("mp4");
@@ -417,6 +570,38 @@ function ExportForm({
     initialWatermark ?? DEFAULT_WATERMARK
   );
 
+  /* ---- 成片包装：全片调色 ---- */
+  const [colorGrade, setColorGrade] = useState<ColorGrade>(
+    initialColorGrade ?? DEFAULT_COLOR_GRADE
+  );
+
+  /* ---- 成片包装：片头/片尾卡开关（缺省按系列/单片契约解析成显式布尔） ---- */
+  const initialCards = resolveTitleCardsEnabled(initialTitleCards, isSeries);
+  const [titleCard, setTitleCard] = useState(initialCards.title);
+  const [endCard, setEndCard] = useState(initialCards.end);
+
+  // 字幕字体变更：写回 subtitleStyle.fontFamily + 持久化到 generationParams
+  // （让主编辑器预览字体同步）。
+  const handleFontChange = (fontFamily: string) => {
+    const next = { ...subtitleStyle, fontFamily };
+    setSubtitleStyle(next);
+    onPersist({ subtitleStyle: next });
+  };
+
+  // 片头/片尾卡开关：更新本地态 + 持久化到 generationParams.titleCards
+  // （主编辑器预览据此注入首尾卡）。
+  const handleTitleCardToggle = (title: boolean, end: boolean) => {
+    setTitleCard(title);
+    setEndCard(end);
+    onPersist({ titleCards: { title, end } });
+  };
+
+  // 全片调色变更：更新本地态 + 持久化到 generationParams.colorGrade（主编辑器预览近似染色）。
+  const handleColorGradeChange = (next: ColorGrade) => {
+    setColorGrade(next);
+    onPersist({ colorGrade: next });
+  };
+
   const handleExport = () => {
     onExport({
       format,
@@ -425,6 +610,9 @@ function ExportForm({
       includeAudio,
       subtitleStyle,
       watermark,
+      colorGrade,
+      titleCard,
+      endCard,
     });
   };
 
@@ -484,18 +672,48 @@ function ExportForm({
       {/* ---- 字幕样式（可折叠分节） ---- */}
       <CollapsibleSection title="字幕样式">
         {includeSubtitles ? (
-          <SubtitleStylePanel
-            value={subtitleStyle}
-            onChange={setSubtitleStyle}
-            // 导出表单里保持只读预览（无底板图 + 不可拖拽），字幕位置/字号在
-            // 时间轴字幕样式弹窗里可视化编辑，此处仅确认样式。
-            interactive={false}
-          />
+          <div className="space-y-4">
+            {/* 字体选择（批6）：内置白名单两款，落 subtitleStyle.fontFamily */}
+            <div>
+              <label className="text-muted-foreground mb-1 block text-sm">
+                字体
+              </label>
+              <select
+                value={subtitleStyle.fontFamily ?? DEFAULT_SUBTITLE_FONT_ID}
+                onChange={(e) => handleFontChange(e.target.value)}
+                className="bg-secondary focus:ring-primary w-full rounded-lg px-3 py-2 focus:ring-2 focus:outline-none"
+              >
+                {SUBTITLE_FONTS.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <SubtitleStylePanel
+              value={subtitleStyle}
+              onChange={setSubtitleStyle}
+              // 导出表单里保持只读预览（无底板图 + 不可拖拽），字幕位置/字号在
+              // 时间轴字幕样式弹窗里可视化编辑，此处仅确认样式。
+              interactive={false}
+            />
+          </div>
         ) : (
           <p className="text-muted-foreground text-sm">
             请先勾选「包含字幕」以配置字幕样式。
           </p>
         )}
+      </CollapsibleSection>
+
+      {/* ---- 成片包装（批6：片头尾卡 + 全片调色，可折叠分节） ---- */}
+      <CollapsibleSection title="成片包装">
+        <FinishingPackagePanel
+          titleCard={titleCard}
+          endCard={endCard}
+          colorGrade={colorGrade}
+          onTitleCardsChange={handleTitleCardToggle}
+          onColorGradeChange={handleColorGradeChange}
+        />
       </CollapsibleSection>
 
       {/* ---- 品牌水印（可折叠分节） ---- */}

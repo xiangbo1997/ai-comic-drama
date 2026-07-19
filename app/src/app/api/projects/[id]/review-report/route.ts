@@ -18,6 +18,12 @@ import {
   type ReviewScene,
   type ContinuitySummaryInput,
 } from "@/lib/review-report";
+import {
+  resolveTitleCardsEnabled,
+  TITLE_CARD_SEC,
+  END_CARD_SEC,
+  type TitleCardsConfig,
+} from "@/lib/title-cards";
 import { NextRequest, NextResponse } from "next/server";
 
 const log = createLogger("api:projects:[id]:review-report");
@@ -35,16 +41,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const userId = session.user.id;
     const { id } = await params;
 
-    // 项目归属校验
+    // 项目归属校验（连带取系列态 + generationParams，供红线总时长门禁计入卡片时长）
     const project = await prisma.project.findFirst({
       where: { id, userId },
-      select: { id: true },
+      select: { id: true, seriesId: true, generationParams: true },
     });
     if (!project) {
       return NextResponse.json({ error: "项目不存在" }, { status: 404 });
     }
 
-    // 分镜（按 order 升序；只取审片需要的字段）
+    // 分镜（按 order 升序；只取审片需要的字段，含红线门禁用的节拍/运镜/情绪字段）
     const scenes = await prisma.scene.findMany({
       where: { projectId: id },
       orderBy: { order: "asc" },
@@ -59,6 +65,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         videoUrl: true,
         audioUrl: true,
         videoLinkNext: true,
+        beatType: true,
+        isClimax: true,
+        cameraMovement: true,
+        actionBeat: true,
+        emotion: true,
       },
     });
     const reviewScenes: ReviewScene[] = scenes.map((s) => ({
@@ -72,7 +83,26 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       videoUrl: s.videoUrl,
       audioUrl: s.audioUrl,
       videoLinkNext: s.videoLinkNext,
+      beatType: s.beatType,
+      isClimax: s.isClimax,
+      cameraMovement: s.cameraMovement,
+      actionBeat: s.actionBeat,
+      emotion: s.emotion,
     }));
+
+    // 片头/片尾卡额外时长：与导出端同契约（系列默认开、非系列默认关，逐项已存配置优先）。
+    // 启用的卡片时长计入红线总时长门禁——与导出成片实际时长一致。
+    const isSeries = !!project.seriesId;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const genParams = (project.generationParams as Record<string, any>) ?? {};
+    const titleCardsConfig: TitleCardsConfig | null =
+      genParams.titleCards && typeof genParams.titleCards === "object"
+        ? (genParams.titleCards as TitleCardsConfig)
+        : null;
+    const cardsEnabled = resolveTitleCardsEnabled(titleCardsConfig, isSeries);
+    const cardExtraSec =
+      (cardsEnabled.title ? TITLE_CARD_SEC : 0) +
+      (cardsEnabled.end ? END_CARD_SEC : 0);
 
     const [hookType, continuitySummary] = await Promise.all([
       loadLatestHookType(id),
@@ -83,6 +113,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       scenes: reviewScenes,
       hookType,
       continuitySummary,
+      cardExtraSec,
     });
 
     return NextResponse.json({ report });

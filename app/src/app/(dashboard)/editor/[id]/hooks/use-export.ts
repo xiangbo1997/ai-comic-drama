@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
+import type { ColorGrade } from "@/lib/color-grade";
 
 interface ExportStatus {
   isExporting: boolean;
@@ -18,6 +19,12 @@ interface ExportOptions {
   includeAudio: boolean;
   subtitleStyle?: SubtitleStyle;
   watermark?: Watermark;
+  /** 全片 LUT 调色（批6，body 覆盖 generationParams.colorGrade） */
+  colorGrade?: ColorGrade;
+  /** 片头标题卡开关（批6，body 覆盖 generationParams.titleCards.title） */
+  titleCard?: boolean;
+  /** 片尾钩子卡开关（批6，body 覆盖 generationParams.titleCards.end） */
+  endCard?: boolean;
 }
 
 const INITIAL_STATUS: ExportStatus = {

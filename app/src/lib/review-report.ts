@@ -27,6 +27,28 @@ const SHOTS_PER_MIN_MAX = 25;
 /** 无对白空镜时长上限（秒）——source: shot-timing.ts softCeiling */
 const SILENT_SHOT_MAX_SEC = 8;
 
+/**
+ * ── 红果红线门禁阈值（来源：红果 2026 年 4 月《漫剧内容创作建议》）──
+ *
+ * 红果（番茄旗下短剧平台）对漫剧的硬性投流红线，机检可覆盖的部分固化为常量。
+ * 不涉视觉的项（画风统一/音画同步/角色跨镜一致）由 2.3 连贯性体检（AI 场记）覆盖，
+ * 本节末行注明分工。
+ */
+/** 单集总时长硬上限（秒）：超过判 bad（红果建议单集 ≤3 分钟） */
+const REDLINE_TOTAL_SEC_BAD = 180;
+/** 单集总时长告警线（秒）：超过判 warn（逼近上限，留投流余量） */
+const REDLINE_TOTAL_SEC_WARN = 168;
+/** 开场钩子窗口（秒）：前 N 秒内须有冲突/钩子镜（留存生死线） */
+const REDLINE_HOOK_WINDOW_SEC = 3;
+/** 情绪断档上限（秒）：任意连续 N 秒无情绪事件即告警 */
+const REDLINE_EMOTION_GAP_SEC = 30;
+/** 对白单句字数上限：超过给逐镜精简建议（竖屏一屏可读） */
+const REDLINE_DIALOGUE_MAX_CHARS = 15;
+/** 静止长镜时长下限（秒）：超过且无运动即给「加镜内运动」建议 */
+const REDLINE_STATIC_SHOT_SEC = 4;
+/** 逐镜 suggestion 最多列出条数（对白过长/静止长镜各自），超出汇总一条 */
+const REDLINE_SUGGESTION_LIMIT = 5;
+
 /** 报告参与体检的单个分镜（仅取审片需要的字段，与 types/scene.ts Scene 兼容） */
 export interface ReviewScene {
   id: string;
@@ -40,6 +62,16 @@ export interface ReviewScene {
   audioUrl?: string | null;
   /** 尾帧衔接下一镜：开启时要求下一镜已出图，否则衔接静默失效 */
   videoLinkNext?: boolean;
+  /** 叙事节拍类型（impact/reveal/emotional/calm）——红线门禁「开场钩子/情绪断档」用 */
+  beatType?: string | null;
+  /** 高潮镜标记——红线门禁「开场钩子/情绪断档」的情绪事件判定 */
+  isClimax?: boolean | null;
+  /** 运镜（static/zoom_in/...）——红线门禁「静止长镜缺运动」判定 */
+  cameraMovement?: string | null;
+  /** 运动节拍（镜内动作描述）——红线门禁「静止长镜缺运动」的动作判定 */
+  actionBeat?: string | null;
+  /** 情感标签（neutral/angry/...）——红线门禁「开场钩子/情绪断档」的情绪事件判定 */
+  emotion?: string | null;
 }
 
 /** 2.3 连贯性体检摘要（复用最近一次已完成 continuity_check 任务的结果） */
@@ -60,7 +92,7 @@ export type ReviewSectionStatus = "ok" | "warn" | "bad";
 
 /** 报告的一节 */
 export interface ReviewSection {
-  key: "pacing" | "hook" | "continuity" | "completeness";
+  key: "pacing" | "hook" | "continuity" | "completeness" | "redline";
   title: string;
   status: ReviewSectionStatus;
   /** 逐条陈述（每条一行） */
@@ -94,6 +126,12 @@ export interface AssembleReviewReportInput {
   hookType?: HookType | null;
   /** 2.3 连贯性摘要；从未运行过 continuity_check 时为空 */
   continuitySummary?: ContinuitySummaryInput | null;
+  /**
+   * 片头/片尾卡额外时长（秒）——红线总时长门禁须把启用的卡片时长计入单集总时长。
+   * 由 route 按 genParams.titleCards + isSeries 用 resolveTitleCardsEnabled 与
+   * TITLE_CARD_SEC/END_CARD_SEC 算好传入；缺省 0（无卡片）。
+   */
+  cardExtraSec?: number;
 }
 
 /**
@@ -121,8 +159,13 @@ export function assembleReviewReport(
     suggestions
   );
   const completeness = buildCompletenessSection(scenes, suggestions);
+  const redline = buildRedlineSection(
+    scenes,
+    input.cardExtraSec ?? 0,
+    suggestions
+  );
 
-  const sections = [pacing, hook, continuity, completeness];
+  const sections = [pacing, hook, continuity, completeness, redline];
   const grade = computeGrade(sections);
 
   return { grade, sections, suggestions };
@@ -402,4 +445,202 @@ function buildCompletenessSection(
         : "ok";
 
   return { key: "completeness", title: "素材完整性", status, lines };
+}
+
+/** 该分镜是否构成「情绪事件」：beatType 非空 / isClimax / emotion 非中性非空 */
+function isEmotionEvent(s: ReviewScene): boolean {
+  if (s.beatType && s.beatType.trim()) return true;
+  if (s.isClimax) return true;
+  const emo = (s.emotion ?? "").trim().toLowerCase();
+  return emo.length > 0 && emo !== "neutral";
+}
+
+/** 该分镜是否是「开场钩子/冲突镜」：beatType∈{impact,reveal} / isClimax / 强情绪 */
+function isHookShot(s: ReviewScene): boolean {
+  const beat = (s.beatType ?? "").trim().toLowerCase();
+  if (beat === "impact" || beat === "reveal") return true;
+  if (s.isClimax) return true;
+  const emo = (s.emotion ?? "").trim().toLowerCase();
+  return emo === "angry" || emo === "surprised" || emo === "fear";
+}
+
+/** 按中文句末标点切句（。！？!?；;），用于对白单句字数体检 */
+function splitDialogueSentences(text: string): string[] {
+  return text
+    .split(/[。！？!?；;]/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * ⑤ 红果红线节：平台硬性投流红线的机检门禁（阈值见文件头常量，
+ * source: 红果 2026 年 4 月《漫剧内容创作建议》）。
+ *
+ * 五道门禁：
+ *  1) 单集总时长（分镜和 + 启用卡片时长）>180s → bad；>168s → warn。
+ *  2) 开场 3s 内无冲突/钩子镜（前 3s 的镜无一为 impact/reveal/isClimax/强情绪）→ warn。
+ *  3) 任意连续 30s 无情绪事件 → warn（定位断档起始镜）。
+ *  4) 对白单句 >15 字 → 逐镜 suggestion（最多列 5 条，超出汇总一条）。
+ *  5) 单镜 >4s 且 cameraMovement∈{static,空} 且无 actionBeat → 逐镜「加镜内运动」建议。
+ *
+ * 节末注明：画风统一 / 音画同步 / 角色跨镜一致由连贯性体检（AI 场记）覆盖。
+ */
+function buildRedlineSection(
+  scenes: ReviewScene[],
+  cardExtraSec: number,
+  suggestions: ReviewSuggestion[]
+): ReviewSection {
+  const lines: string[] = [];
+
+  if (scenes.length === 0) {
+    return {
+      key: "redline",
+      title: "红果红线",
+      status: "warn",
+      lines: [
+        "尚无分镜，无法体检红线。",
+        "画风统一 / 音画同步 / 角色跨镜一致由连贯性体检（AI 场记）覆盖。",
+      ],
+    };
+  }
+
+  let badHit = false;
+  let warnHit = false;
+
+  // ① 单集总时长（含卡片）
+  const shotSec = scenes.reduce((sum, s) => sum + (s.duration || 0), 0);
+  const totalSec = shotSec + Math.max(0, cardExtraSec);
+  const cardNote =
+    cardExtraSec > 0 ? `（含片头尾卡 ${fmtSec(cardExtraSec)}s）` : "";
+  if (totalSec > REDLINE_TOTAL_SEC_BAD) {
+    badHit = true;
+    lines.push(
+      `单集总时长 ${fmtSec(totalSec)}s${cardNote} 超过红线上限 ${REDLINE_TOTAL_SEC_BAD}s，投流会被限制，必须删减。`
+    );
+    suggestions.push({
+      text: `单集总时长 ${fmtSec(totalSec)}s 超过 ${REDLINE_TOTAL_SEC_BAD}s 红线，建议删减次要分镜压到 ${REDLINE_TOTAL_SEC_BAD}s 内。`,
+    });
+  } else if (totalSec > REDLINE_TOTAL_SEC_WARN) {
+    warnHit = true;
+    lines.push(
+      `单集总时长 ${fmtSec(totalSec)}s${cardNote} 逼近红线上限 ${REDLINE_TOTAL_SEC_BAD}s，建议留投流余量。`
+    );
+  } else {
+    lines.push(`单集总时长 ${fmtSec(totalSec)}s${cardNote}，在红线范围内。`);
+  }
+
+  // ② 开场 3s 内须有冲突/钩子镜
+  let acc = 0;
+  let hookInWindow = false;
+  for (const s of scenes) {
+    if (acc >= REDLINE_HOOK_WINDOW_SEC) break;
+    if (isHookShot(s)) {
+      hookInWindow = true;
+      break;
+    }
+    acc += s.duration || 0;
+  }
+  if (!hookInWindow) {
+    warnHit = true;
+    const first = scenes[0];
+    lines.push(
+      `开场 ${REDLINE_HOOK_WINDOW_SEC}s 内无冲突/钩子镜（留存生死线），易流失。`
+    );
+    suggestions.push({
+      sceneId: first.id,
+      sceneOrder: first.order + 1,
+      text: `开场 ${REDLINE_HOOK_WINDOW_SEC}s 内应有冲突/悬念/强情绪镜，建议把首镜（镜 ${first.order + 1}）改为钩子镜或前置一记冲突。`,
+    });
+  }
+
+  // ③ 任意连续 30s 无情绪事件 → 断档
+  let gapStartOrder: number | null = null;
+  let gapSec = 0;
+  let gapReported = false;
+  for (const s of scenes) {
+    if (isEmotionEvent(s)) {
+      gapSec = 0;
+      gapStartOrder = null;
+      continue;
+    }
+    if (gapStartOrder === null) gapStartOrder = s.order;
+    gapSec += s.duration || 0;
+    if (gapSec >= REDLINE_EMOTION_GAP_SEC && !gapReported) {
+      warnHit = true;
+      gapReported = true;
+      const startScene = scenes.find((x) => x.order === gapStartOrder);
+      lines.push(
+        `存在连续约 ${fmtSec(gapSec)}s 无情绪事件的平淡段（自镜 ${(gapStartOrder ?? 0) + 1} 起），易掉节奏。`
+      );
+      suggestions.push({
+        sceneId: startScene?.id,
+        sceneOrder: (gapStartOrder ?? 0) + 1,
+        text: `自镜 ${(gapStartOrder ?? 0) + 1} 起连续 ${fmtSec(gapSec)}s 无情绪起伏，建议插入冲突/反转/情绪点提振节奏。`,
+      });
+    }
+  }
+
+  // ④ 对白单句 >15 字
+  const longDialogueScenes: ReviewScene[] = [];
+  for (const s of scenes) {
+    const dlg = s.dialogue?.trim();
+    if (!dlg) continue;
+    const hasLong = splitDialogueSentences(dlg).some(
+      (sent) => Array.from(sent).length > REDLINE_DIALOGUE_MAX_CHARS
+    );
+    if (hasLong) longDialogueScenes.push(s);
+  }
+  if (longDialogueScenes.length > 0) {
+    warnHit = true;
+    lines.push(
+      `${longDialogueScenes.length} 个分镜存在单句 >${REDLINE_DIALOGUE_MAX_CHARS} 字的长对白（竖屏一屏难读完）。`
+    );
+    const shown = longDialogueScenes.slice(0, REDLINE_SUGGESTION_LIMIT);
+    for (const s of shown) {
+      suggestions.push({
+        sceneId: s.id,
+        sceneOrder: s.order + 1,
+        text: `镜 ${s.order + 1} 对白单句超过 ${REDLINE_DIALOGUE_MAX_CHARS} 字，建议拆句或精简（竖屏字幕一屏可读）。`,
+      });
+    }
+    if (longDialogueScenes.length > REDLINE_SUGGESTION_LIMIT) {
+      suggestions.push({
+        text: `另有 ${longDialogueScenes.length - REDLINE_SUGGESTION_LIMIT} 个分镜对白单句过长，一并精简。`,
+      });
+    }
+  }
+
+  // ⑤ 静止长镜（>4s 且无运镜无动作）
+  const staticLongScenes = scenes.filter((s) => {
+    if ((s.duration || 0) <= REDLINE_STATIC_SHOT_SEC) return false;
+    const cam = (s.cameraMovement ?? "").trim().toLowerCase();
+    const isStatic = cam === "" || cam === "static";
+    const noAction = !(s.actionBeat && s.actionBeat.trim());
+    return isStatic && noAction;
+  });
+  if (staticLongScenes.length > 0) {
+    warnHit = true;
+    lines.push(
+      `${staticLongScenes.length} 个分镜 >${REDLINE_STATIC_SHOT_SEC}s 却无运镜也无镜内动作（易显呆滞）。`
+    );
+    const shown = staticLongScenes.slice(0, REDLINE_SUGGESTION_LIMIT);
+    for (const s of shown) {
+      suggestions.push({
+        sceneId: s.id,
+        sceneOrder: s.order + 1,
+        text: `镜 ${s.order + 1} 时长 ${fmtSec(s.duration)}s 但静止无动作，建议加镜内运动（运镜/角色动作/环境动态）。`,
+      });
+    }
+    if (staticLongScenes.length > REDLINE_SUGGESTION_LIMIT) {
+      suggestions.push({
+        text: `另有 ${staticLongScenes.length - REDLINE_SUGGESTION_LIMIT} 个静止长镜，一并补镜内运动。`,
+      });
+    }
+  }
+
+  // 分工声明：非机检可覆盖的视觉红线归属连贯性体检
+  lines.push("画风统一 / 音画同步 / 角色跨镜一致由连贯性体检（AI 场记）覆盖。");
+
+  const status: ReviewSectionStatus = badHit ? "bad" : warnHit ? "warn" : "ok";
+  return { key: "redline", title: "红果红线", status, lines };
 }

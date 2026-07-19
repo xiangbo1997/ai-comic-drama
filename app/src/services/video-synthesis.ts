@@ -28,9 +28,19 @@ import type {
   BackgroundMusic,
   SceneSfx,
 } from "@/types/export-style";
-import { resolveSubtitleXY, resolveSubtitleFontPx } from "@/types/export-style";
+import {
+  resolveSubtitleXY,
+  resolveSubtitleFontPx,
+  EMPHASIS_STYLE,
+} from "@/types/export-style";
 // 音效库（解析标签 → 实际音频文件 + 默认音量），与前端/解析层共用单一真源。
 import { getSfxById } from "@/lib/sfx-library";
+// 字体白名单（批6）：字幕/花字/卡片字体两端单一真源，摆脱 Arial 硬编码。
+import { resolveSubtitleFont, TITLE_FONT_ID } from "@/lib/subtitle-fonts";
+// 全片 LUT 调色（批6）：id → .cube 预设白名单，导出端 lut3d 统一色调。
+import { resolveLutPreset, type ColorGrade } from "@/lib/color-grade";
+// 片头/片尾卡（批6）：卡片文字行角色 → 卡片字幕样式映射。
+import type { CardLine } from "@/lib/title-cards";
 // 冲击表现力 / Ken Burns 运镜的共享参数（导出端与预览端读同一份，保证预览=成片）。
 import {
   SHAKE_PARAMS,
@@ -72,6 +82,12 @@ export interface SceneMedia {
   audioUrl?: string | null;
   dialogue?: string | null;
   narration?: string | null;
+  /**
+   * 片头/片尾卡（批6 成片包装）：非空时该分镜是卡片合成分镜，
+   * 字幕层不走对白逻辑，改为按行角色发卡片文字事件（见 generateSubtitleFile）。
+   * 由 export/route.ts 用 buildTitleCards 构造后注入 sceneMediaList 首/尾。
+   */
+  card?: { kind: "title" | "end"; lines: CardLine[] } | null;
 }
 
 export interface ExportOptions {
@@ -116,6 +132,18 @@ export interface ExportOptions {
    * 时仍关闭自动转场音效。
    */
   autoTransitionSfx?: boolean;
+  /**
+   * 金句花字分镜 id 列表（批6）：命中且有对白的分镜，其字幕改用大字号强调色
+   * pop 花字样式（Emphasis），动效强制 EMPHASIS_STYLE.animation，其余分镜行为不变。
+   * 缺省或空时无花字（存量零回归）。
+   */
+  emphasisSceneIds?: string[];
+  /**
+   * 全片 LUT 调色（批6）：enabled 且预设合法时，终混在 scale+pad 之后、字幕之前
+   * 插一记 lut3d 统一全片色调；缺省或未启用时不插（预览与导出存在近似色差，
+   * 显式开启才生效）。
+   */
+  colorGrade?: ColorGrade;
 }
 
 /**
@@ -803,6 +831,55 @@ async function downloadFile(url: string, filename: string): Promise<string> {
   return filePath;
 }
 
+/** 卡片文字行角色 → ASS Style 名映射（片头/片尾卡，批6） */
+const CARD_ROLE_TO_STYLE: Record<CardLine["role"], string> = {
+  title: "CardTitle",
+  sub: "CardSub",
+  hook: "CardHook",
+  cta: "CardCta",
+};
+
+/**
+ * 构建单张卡片（片头/片尾）的 ASS 字幕事件——整卡时长内一次性显示居中偏排文字。
+ *
+ * 卡片分镜是普通图片分镜（底图自带 Ken Burns 缓推），文字全部走字幕层：
+ *   - 每行一条 Dialogue，Style 按 role 映射（title→CardTitle 等）；
+ *   - 时间窗 = 整卡时长（cardStart ~ cardStart+cardDuration）；
+ *   - 位置 \an5\pos 居中偏排：title/hook 在画面高 45% 处（偏上，视觉重心），
+ *     sub/cta 在 58% 处（title 之下），x 恒居中；
+ *   - 入场用 \fad(300,200) 柔和淡入淡出。
+ *
+ * @param card         卡片描述（kind + lines）
+ * @param cardStart    卡片在成片时间轴上的起始秒
+ * @param cardDuration 卡片时长（秒）
+ * @param width,height 成片画面宽高（\pos 像素换算）
+ * @returns Dialogue 事件字符串数组（每行一条）
+ */
+function buildCardEvents(
+  card: { kind: "title" | "end"; lines: CardLine[] },
+  cardStart: number,
+  cardDuration: number,
+  width: number,
+  height: number
+): string[] {
+  const events: string[] = [];
+  const start = formatAssTime(cardStart);
+  const end = formatAssTime(cardStart + cardDuration);
+  const cx = Math.round(width * 0.5);
+  // 上排（title/hook）在 45% 高，下排（sub/cta）在 58% 高——上下分层不重叠
+  const topY = Math.round(height * 0.45);
+  const bottomY = Math.round(height * 0.58);
+
+  for (const line of card.lines) {
+    const styleName = CARD_ROLE_TO_STYLE[line.role];
+    const py = line.role === "title" || line.role === "hook" ? topY : bottomY;
+    // \an5 中心锚点 + \pos 居中偏排 + \fad 柔和进出；文本转义防注入
+    const text = `{\\an5\\pos(${cx},${py})\\fad(300,200)}${escapeAssText(line.text)}`;
+    events.push(`Dialogue: 0,${start},${end},${styleName},,0,0,0,,${text}`);
+  }
+  return events;
+}
+
 /**
  * 生成 ASS 字幕文件（取代旧 SRT）。
  *
@@ -817,6 +894,10 @@ async function downloadFile(url: string, filename: string): Promise<string> {
  * 按 scenes 顺序 index 对齐），而非从 scene.duration/speed 重算——因为
  * flow2api/Veo 返回的视频真实时长常与 DB 声明的 scene.duration 不符，
  * 若用声明值算时轴，字幕会与画面/配音逐镜累积错位。
+ *
+ * 批6 成片包装：
+ * - 卡片分镜（scene.card 非空）不走对白逻辑，改发卡片文字事件（buildCardEvents）；
+ * - 金句花字分镜（id ∈ emphasisSceneIds 且有对白）用 Emphasis 样式 + 强制 pop 动效。
  */
 async function generateSubtitleFile(
   scenes: SceneMedia[],
@@ -826,15 +907,28 @@ async function generateSubtitleFile(
   height: number,
   subtitleStyle?: SubtitleStyle,
   subtitlePositions?: SubtitlePosition[],
-  voiceDurations?: (number | undefined)[]
+  voiceDurations?: (number | undefined)[],
+  emphasisSceneIds?: string[]
 ): Promise<string> {
   const events: string[] = [];
   let currentTime = 0;
+  // 金句花字分镜集合（O(1) 命中判断）
+  const emphasisSet = new Set(emphasisSceneIds ?? []);
 
   for (let i = 0; i < scenes.length; i += 1) {
     const scene = scenes[i];
     // 字幕时轴用「实测有效时长」（变速+真实视频长度后），与画面/配音对齐
     const effDuration = effDurations[i];
+
+    // 卡片分镜：不走对白字幕，改发片头/片尾卡文字事件（整卡时长内显示）
+    if (scene.card) {
+      events.push(
+        ...buildCardEvents(scene.card, currentTime, effDuration, width, height)
+      );
+      currentTime += effDuration;
+      continue;
+    }
+
     // 配音真实音频秒长（有则字幕逐句节奏按它走完 + 末句停驻到镜末，见
     // allocateSubtitleWindows 的 voiceDuration 语义）
     const voiceDuration = voiceDurations?.[i];
@@ -849,16 +943,28 @@ async function generateSubtitleFile(
       );
       const px = Math.round(x * width);
       const py = Math.round(y * height);
+      // 金句花字分镜：仅有对白时生效（用 scene.dialogue 判定，旁白不上花字）。
+      const isEmphasis =
+        emphasisSet.has(scene.id) && Boolean(scene.dialogue?.trim());
+      // 花字用 Emphasis 样式（大字号），字号随之放大，需按放大后字号折行。
+      const effectiveFontSize = isEmphasis
+        ? (subtitleStyle?.fontSize ?? 24) * EMPHASIS_STYLE.fontScale
+        : subtitleStyle?.fontSize;
       // 手动折行到「与预览相同的宽度」——预览端字幕块 maxWidth:90% 画面宽，
       // 用 \pos 后 ASS 的自动换行宽度不可控（从 pos 到边缘），两端换行宽度
       // 不一致 → 行数不同 → 块高不同 → \an5 中心锚点下同一 y 坐标实际占位不同
       // → 长字幕在靠底位置一端溢出画面另一端不溢出（预览≠导出）。这里按
       // 字号估算每行最大字数，主动折行插 \N，与预览换行一致，块高一致。
-      const fontPx = resolveSubtitleFontPx(subtitleStyle?.fontSize, height);
+      const fontPx = resolveSubtitleFontPx(effectiveFontSize, height);
       // 中文近似全角等宽（≈fontPx），可用宽度取 90% 画面宽（对齐预览 maxWidth）
       const maxCharsPerLine = Math.max(6, Math.floor((width * 0.9) / fontPx));
-      // 入场动效：缺省 fade（与旧行为一致）。slideup 需要画面高换算像素位移。
-      const animation: SubtitleAnimation = subtitleStyle?.animation ?? "fade";
+      // 入场动效：花字强制 EMPHASIS_STYLE.animation（pop，视觉签名统一，忽略全局）；
+      // 其余分镜缺省 fade（与旧行为一致）。slideup 需要画面高换算像素位移。
+      const animation: SubtitleAnimation = isEmphasis
+        ? EMPHASIS_STYLE.animation
+        : (subtitleStyle?.animation ?? "fade");
+      // 花字用 Emphasis 样式，其余用 Default
+      const styleName = isEmphasis ? "Emphasis" : "Default";
       // 逐句化：把整段切成短句 + 按视觉宽度比例分配时间窗（与预览端同源），
       // 每句一条 Dialogue 事件，按所选动效构造 libass 覆盖标签让字幕「活起来」。
       const segments = splitSubtitleSegments(text);
@@ -879,7 +985,9 @@ async function generateSubtitleFile(
           height,
           win.end - win.start
         );
-        events.push(`Dialogue: 0,${start},${end},Default,,0,0,0,,${eventText}`);
+        events.push(
+          `Dialogue: 0,${start},${end},${styleName},,0,0,0,,${eventText}`
+        );
       }
     }
     currentTime += effDuration;
@@ -895,6 +1003,13 @@ async function generateSubtitleFile(
 /**
  * 构建 ASS 文件头（[Script Info] + [V4+ Styles] + [Events] 表头）。
  * 样式从 SubtitleStyle 映射；位置不在此声明（逐事件用 \pos 控制）。
+ *
+ * 批6 成片包装：
+ * - Default 的 Fontname 由 Arial 硬编码改为 resolveSubtitleFont(style.fontFamily)
+ *   的 assFontName（配合 buildSubtitleFilter 的 fontsdir 钉到仓库 fonts/ 目录，
+ *   中文字形两端可控）。
+ * - 追加 Emphasis（金句花字）与 CardTitle/CardSub/CardHook/CardCta（片头尾卡）
+ *   五个专用样式，字号全部经 resolveSubtitleFontPx 基准换算，不硬编码绝对像素。
  */
 function buildAssHeader(
   width: number,
@@ -921,6 +1036,33 @@ function buildAssHeader(
   const borderStyle = s.backgroundBox ? 3 : 1;
   // BackColour 用于 OpaqueBox 底框（半透明黑，alpha 80）
   const backColour = "&H80000000";
+  // 正文/字幕字体：白名单解析（替换旧 Arial 硬编码，中文字形两端可控）
+  const bodyFont = resolveSubtitleFont(style?.fontFamily).assFontName;
+  // 标题/花字/卡片字体：得意黑（显示型斜体，冲击力强）
+  const titleFont = resolveSubtitleFont(TITLE_FONT_ID).assFontName;
+
+  // ── 金句花字 Emphasis：正文字号 × fontScale、暖金主色、更粗描边、粗体 ──
+  const emphasisSize = Math.max(
+    1,
+    Math.round(fontSize * EMPHASIS_STYLE.fontScale)
+  );
+  const emphasisColor = hexToAssColor(EMPHASIS_STYLE.color);
+  const emphasisOutline = Math.max(
+    1,
+    Math.round(s.outlineWidth * EMPHASIS_STYLE.outlineScale)
+  );
+
+  // ── 片头/片尾卡样式组：字号全部以 fontSize 为基准按倍率派生（勿硬编码像素）──
+  // CardTitle 剧名大字，CardSub 集数，CardHook 钩子悬念，CardCta 追更贴字。
+  const cardTitleSize = resolveSubtitleFontPx(s.fontSize * 2.2, height);
+  const cardSubSize = resolveSubtitleFontPx(s.fontSize * 1.1, height);
+  const cardHookSize = resolveSubtitleFontPx(s.fontSize * 1.6, height);
+  const cardCtaSize = resolveSubtitleFontPx(s.fontSize * 0.95, height);
+  const whiteColor = hexToAssColor("#FFFFFF");
+  const blackOutline = hexToAssColor("#000000");
+  // 卡片描边加粗保证大字在任意底图上可读（正文描边宽 ×2，最小 2）
+  const cardOutline = Math.max(2, Math.round(s.outlineWidth * 2));
+
   // Alignment 用 5（中心）；逐事件 \an5\pos 会覆盖，这里仅作缺省
   return [
     "[Script Info]",
@@ -932,7 +1074,17 @@ function buildAssHeader(
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Default,Arial,${fontSize},${primary},&H000000FF,${outline},${backColour},${bold},0,0,0,100,100,0,0,${borderStyle},${s.outlineWidth},0,5,20,20,20,1`,
+    `Style: Default,${bodyFont},${fontSize},${primary},&H000000FF,${outline},${backColour},${bold},0,0,0,100,100,0,0,${borderStyle},${s.outlineWidth},0,5,20,20,20,1`,
+    // 金句花字：大字号 + 暖金 + 粗描边 + 粗体，BorderStyle 恒 1（描边，不套底框）
+    `Style: Emphasis,${bodyFont},${emphasisSize},${emphasisColor},&H000000FF,${blackOutline},${backColour},-1,0,0,0,100,100,0,0,1,${emphasisOutline},0,5,20,20,20,1`,
+    // 卡片标题：得意黑巨字，白字粗描边
+    `Style: CardTitle,${titleFont},${cardTitleSize},${whiteColor},&H000000FF,${blackOutline},${backColour},-1,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
+    // 卡片副标题（集数）
+    `Style: CardSub,${titleFont},${cardSubSize},${whiteColor},&H000000FF,${blackOutline},${backColour},0,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
+    // 卡片钩子悬念
+    `Style: CardHook,${titleFont},${cardHookSize},${whiteColor},&H000000FF,${blackOutline},${backColour},-1,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
+    // 卡片追更贴字（暖金强调色）
+    `Style: CardCta,${titleFont},${cardCtaSize},${emphasisColor},&H000000FF,${blackOutline},${backColour},0,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -1118,16 +1270,55 @@ function hexToAssColor(hex: string): string {
 /**
  * 构建字幕 filter 片段（ASS 文件，样式与定位已内嵌，无需 force_style）。
  * 仅在 includeSubtitles && subtitlePath 不为 null 时调用。
+ *
+ * 批6：追加 fontsdir 钉到仓库 fonts/ 目录（内置思源黑体 OTF / 得意黑 TTF 所在），
+ * 让 libass 从仓库自带字体加载，摆脱对系统字体的依赖（此前 Arial 硬编码时代
+ * 服务器无中文字体则字幕方框乱码）。转义方式与 assPath 完全一致。
  */
 function buildSubtitleFilter(subtitlePath: string): string {
   // 转义路径中的特殊字符（FFmpeg filter 语法要求）
-  const escapedPath = subtitlePath
+  const escapePath = (p: string): string =>
+    p.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/:/g, "\\:");
+
+  const escapedPath = escapePath(subtitlePath);
+  // 内置字体目录（绝对路径）：仓库 fonts/ 下的全字集 OTF/TTF
+  const fontsDir = escapePath(path.join(process.cwd(), "fonts"));
+
+  // ASS 文件用 ass filter（样式与逐条 \pos 定位全部内嵌在文件中，无需 force_style）；
+  // fontsdir 指定字体加载目录，与 ASS Style 的 Fontname（assFontName）配套。
+  return `ass='${escapedPath}':fontsdir='${fontsDir}'`;
+}
+
+/**
+ * 构建全片 LUT 调色滤镜片段（批6）：`lut3d='<.cube 绝对路径>'`。
+ *
+ * 治「跨 provider 每镜色温各异的素材拼接感」：终混时在 scale+pad 之后、字幕之前
+ * 统一染色（字幕/水印/贴图不受影响，因它们在染色之后叠加）。
+ *
+ * 优雅降级（不阻塞导出）：
+ *   - colorGrade 未启用 / 缺省 → 返回 null（不插滤镜）；
+ *   - lutId 白名单外（resolveLutPreset 返回 null）→ 返回 null；
+ *   - .cube 文件不存在（existsSync 失败）→ log.warn 后返回 null。
+ * 返回 null 时调用方不拼 lut3d，成片仍正常导出（只是无统一调色）。
+ *
+ * @returns lut3d 滤镜片段（如 `lut3d='/abs/vivid-anime.cube'`）或 null
+ */
+function buildColorGradeFilter(colorGrade?: ColorGrade): string | null {
+  if (!colorGrade?.enabled) return null;
+  const preset = resolveLutPreset(colorGrade.lutId);
+  if (!preset) return null;
+  // .cube 相对 app 运行目录（public/luts/x.cube）→ 拼绝对路径
+  const cubeAbsPath = path.join(process.cwd(), preset.cubeFile);
+  if (!existsSync(cubeAbsPath)) {
+    log.warn(`LUT .cube 文件不存在，跳过调色: ${cubeAbsPath}`);
+    return null;
+  }
+  // 转义方式与字幕路径一致（FFmpeg filter 语法要求）
+  const escaped = cubeAbsPath
     .replace(/\\/g, "\\\\")
     .replace(/'/g, "\\'")
     .replace(/:/g, "\\:");
-
-  // ASS 文件用 ass filter（样式与逐条 \pos 定位全部内嵌在文件中，无需 force_style）
-  return `ass='${escapedPath}'`;
+  return `lut3d='${escaped}'`;
 }
 
 /**
@@ -1800,7 +1991,8 @@ export async function synthesizeVideo(
         quality.height,
         options.subtitleStyle,
         options.subtitlePositions,
-        voiceDurations
+        voiceDurations,
+        options.emphasisSceneIds
       );
     }
 
@@ -1854,8 +2046,13 @@ export async function synthesizeVideo(
       let nextInputIndex = 1 + audioCount + (hasBgm ? 1 : 0);
 
       // ── 视频基链 ────────────────────────────────────────────────────
-      // [0:v] → scale+pad → 可选字幕 → [base]
+      // [0:v] → scale+pad → 可选 LUT 调色 → 可选字幕 → [base]
+      // LUT 在字幕之前：只染画面，字幕/水印/贴图（后续 overlay）不受染色影响。
       let videoChain = `[0:v]scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
+      const lutFilterWm = buildColorGradeFilter(options.colorGrade);
+      if (lutFilterWm) {
+        videoChain += `,${lutFilterWm}`;
+      }
       if (subtitlePath) {
         videoChain += `,${buildSubtitleFilter(subtitlePath)}`;
       }
@@ -1998,8 +2195,14 @@ export async function synthesizeVideo(
         sfxLabelsNoWm.push(...sfxBuilt.labels);
       }
 
-      // 构建视频滤镜（-vf 路径）
+      // 构建视频滤镜（-vf 路径）：scale+pad → 可选 LUT 调色 → 可选字幕
+      // LUT 在字幕之前：只染画面，字幕不受染色影响（与有水印路径同构）。
       let videoFilter = `scale=${quality.width}:${quality.height}:force_original_aspect_ratio=decrease,pad=${quality.width}:${quality.height}:(ow-iw)/2:(oh-ih)/2:black`;
+
+      const lutFilterNoWm = buildColorGradeFilter(options.colorGrade);
+      if (lutFilterNoWm) {
+        videoFilter += `,${lutFilterNoWm}`;
+      }
 
       // 添加字幕（带可选样式）
       if (subtitlePath) {

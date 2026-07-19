@@ -55,6 +55,12 @@ export interface SubtitleStyle {
    */
   animation?: SubtitleAnimation;
   /**
+   * 字幕字体（内置白名单 id，见 lib/subtitle-fonts.ts）。
+   * 可选字段：老配置无此字段时按默认思源黑体解析（替换旧 Arial 硬编码，
+   * 中文字形两端可控）。白名单外的值一律回退默认字体。
+   */
+  fontFamily?: string;
+  /**
    * 全片默认字幕位置的「自由归一化中心点」x（0-1，相对画面宽）。
    *
    * position 只能表达纵向三档（顶/中/底、横向恒居中）；当用户在字幕样式面板里
@@ -204,6 +210,29 @@ export function resolveSubtitleFontPx(
   const h = frameHeight > 0 ? frameHeight : SUBTITLE_FONT_BASE_HEIGHT;
   return Math.max(1, Math.round((base * h) / SUBTITLE_FONT_BASE_HEIGHT));
 }
+
+/**
+ * 金句花字样式常量（批6 成片包装）——预览端与导出端的单一真源。
+ *
+ * 解析层按克制纪律（每集 1-3 处）标注的金句分镜（generationParams.emphasis，
+ * sceneId 数组），其字幕以「大字号 + 强调色 + pop 弹入」花字渲染：
+ * - 导出端：ASS 专用 Emphasis 样式（fontSize × fontScale、强调色、粗体）+ pop 动效
+ * - 预览端：同倍率放大 + 同色 + pop CSS 动画
+ * 正文字幕禁用花字（仅金句分镜生效），改数值只动这一处。
+ */
+export const EMPHASIS_STYLE = {
+  /** 相对正文字号的放大倍率 */
+  fontScale: 1.5,
+  /** 花字主色（暖金，压得住深浅底） */
+  color: "#FFD24D",
+  /** 描边相对正文的放大倍率（大字需更粗描边保可读） */
+  outlineScale: 1.5,
+  /** 花字固定入场动效（视觉签名统一，不随全局 animation 变） */
+  animation: "pop" as SubtitleAnimation,
+} as const;
+
+/** generationParams.emphasis 的金句分镜数上限（克制纪律：每集 1-3 处，从宽钳制） */
+export const MAX_EMPHASIS_SCENES = 20;
 
 /**
  * 水印（Logo）配置
