@@ -97,6 +97,8 @@ export interface Project {
   seriesId?: string | null;
   /** 集数（1 起）；仅 seriesId 非空时有意义 */
   episodeNumber?: number | null;
+  /** 平台竖屏封面（确定性合成产物）；null=未生成，导出/列表卡回落首张分镜图 */
+  coverImageUrl?: string | null;
 }
 
 /** 项目详情（含关联数据，编辑器使用） */

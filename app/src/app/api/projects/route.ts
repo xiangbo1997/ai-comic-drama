@@ -78,7 +78,8 @@ export async function GET() {
       videoCount: vidMap.get(p.id) ?? 0,
       audioCount: audMap.get(p.id) ?? 0,
       speakableCount: speakableMap.get(p.id) ?? 0,
-      thumbnail: p.scenes[0]?.imageUrl || null,
+      // 缩略图：已合成的平台封面优先，否则首张有图分镜（渐进增强，老项目零回归）
+      thumbnail: p.coverImageUrl || p.scenes[0]?.imageUrl || null,
       createdAt: p.createdAt.toISOString(),
       updatedAt: p.updatedAt.toISOString(),
     }));

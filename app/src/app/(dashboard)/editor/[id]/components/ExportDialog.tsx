@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Image from "next/image";
 import {
   Loader2,
   Download,
@@ -8,6 +10,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   MapPin,
+  ImageIcon,
 } from "lucide-react";
 import {
   DEFAULT_SUBTITLE_STYLE,
@@ -46,6 +49,14 @@ interface ExportStatus {
   progress: number;
   error: string | null;
   videoUrl?: string | null;
+}
+
+/** 封面底图候选项（导出弹窗封面区块的底图下拉，白名单来源单一真源） */
+export interface CoverSourceCandidate {
+  /** 底图 URL（本项目分镜图 / 关联角色定妆图） */
+  url: string;
+  /** 展示标签（如「镜 3」「角色·林墨」） */
+  label: string;
 }
 
 /** 导出选项（含批6 成片包装：字幕字体已并入 subtitleStyle.fontFamily） */
@@ -93,6 +104,14 @@ interface ExportDialogProps {
     colorGrade?: ColorGrade;
     subtitleStyle?: SubtitleStyle;
   }) => void;
+  /** 封面底图候选（分镜图 + 角色定妆图，白名单来源） */
+  coverSourceCandidates: CoverSourceCandidate[];
+  /** 封面标题缺省值（项目名） */
+  coverDefaultTitle: string;
+  /** 封面副题缺省值（系列集数「第 N 集」，非系列为空串） */
+  coverDefaultSubtitle: string;
+  /** 已合成的封面 URL（null=未生成），作为封面预览初值 */
+  coverImageUrl?: string | null;
 }
 
 export function ExportDialog({
@@ -109,6 +128,10 @@ export function ExportDialog({
   initialTitleCards,
   isSeries,
   onPersist,
+  coverSourceCandidates,
+  coverDefaultTitle,
+  coverDefaultSubtitle,
+  coverImageUrl,
 }: ExportDialogProps) {
   // 下载视频：视频在 R2 跨域，前端直接 fetch 被 CORS 拦（Failed to fetch），
   // <a download> 对跨域资源也无效（变新标签打开）。改走同源下载代理
@@ -203,6 +226,11 @@ export function ExportDialog({
                 initialTitleCards={initialTitleCards}
                 isSeries={isSeries}
                 onPersist={onPersist}
+                projectId={projectId}
+                coverSourceCandidates={coverSourceCandidates}
+                coverDefaultTitle={coverDefaultTitle}
+                coverDefaultSubtitle={coverDefaultSubtitle}
+                coverImageUrl={coverImageUrl}
               />
             </div>
           )}
@@ -531,6 +559,179 @@ function FinishingPackagePanel({
   );
 }
 
+/**
+ * 平台封面区块（专属封面生成）：底图下拉（分镜图 / 角色定妆图）+ 标题/副题输入
+ * （预填缺省值）+「生成封面」按钮 + 生成后预览与「重新生成」。
+ * 调 POST /api/projects/[id]/cover（免费，不扣积分），成功后 invalidate 项目查询
+ * 让主编辑器/列表卡缩略图同步更新。
+ */
+function CoverPanel({
+  projectId,
+  candidates,
+  defaultTitle,
+  defaultSubtitle,
+  initialCoverUrl,
+}: {
+  projectId: string;
+  candidates: CoverSourceCandidate[];
+  defaultTitle: string;
+  defaultSubtitle: string;
+  initialCoverUrl?: string | null;
+}) {
+  const queryClient = useQueryClient();
+  // 底图选择：默认走后端缺省解析（主角定妆图优先），空串表示「自动」
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [title, setTitle] = useState(defaultTitle);
+  const [subtitle, setSubtitle] = useState(defaultSubtitle);
+  const [coverUrl, setCoverUrl] = useState<string | null>(
+    initialCoverUrl ?? null
+  );
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/cover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // 空串=让后端自动解析底图；标题/副题空则后端用缺省
+          sourceImageUrl: sourceUrl || undefined,
+          title: title.trim() || undefined,
+          subtitle: subtitle.trim() || undefined,
+        }),
+      });
+      const data = (await res.json()) as {
+        coverImageUrl?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.coverImageUrl) {
+        throw new Error(data.error || "封面生成失败");
+      }
+      return data.coverImageUrl;
+    },
+    onSuccess: (url) => {
+      setCoverUrl(url);
+      // 主编辑器/项目列表缩略图同步刷新
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+
+  const hasCandidates = candidates.length > 0;
+
+  return (
+    <div className="space-y-3">
+      {!hasCandidates && (
+        <p className="text-muted-foreground text-sm">
+          暂无可用底图，请先生成分镜图或角色定妆图。
+        </p>
+      )}
+
+      {hasCandidates && (
+        <>
+          {/* 底图选择 */}
+          <div>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              底图
+            </label>
+            <select
+              value={sourceUrl}
+              onChange={(e) => setSourceUrl(e.target.value)}
+              className="bg-secondary focus:ring-primary w-full rounded-lg px-3 py-2 focus:ring-2 focus:outline-none"
+            >
+              <option value="">自动（主角定妆图优先）</option>
+              {candidates.map((c) => (
+                <option key={c.url} value={c.url}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* 标题 */}
+          <div>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              主标题（剧名）
+            </label>
+            <input
+              type="text"
+              value={title}
+              maxLength={40}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={defaultTitle || "输入封面剧名"}
+              className="bg-secondary focus:ring-primary w-full rounded-lg px-3 py-2 focus:ring-2 focus:outline-none"
+            />
+          </div>
+
+          {/* 副题 */}
+          <div>
+            <label className="text-muted-foreground mb-1 block text-sm">
+              副标题（可选，如「第 N 集」）
+            </label>
+            <input
+              type="text"
+              value={subtitle}
+              maxLength={30}
+              onChange={(e) => setSubtitle(e.target.value)}
+              placeholder="留空则不显示副标题"
+              className="bg-secondary focus:ring-primary w-full rounded-lg px-3 py-2 focus:ring-2 focus:outline-none"
+            />
+          </div>
+
+          {/* 生成按钮 */}
+          <button
+            type="button"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+            className="bg-primary hover:bg-primary/90 flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:opacity-50"
+          >
+            {mutation.isPending ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <ImageIcon size={15} />
+            )}
+            {coverUrl ? "重新生成封面" : "生成封面"}
+          </button>
+
+          {mutation.isError && (
+            <p className="text-sm text-red-400">
+              {mutation.error instanceof Error
+                ? mutation.error.message
+                : "封面生成失败"}
+            </p>
+          )}
+
+          {/* 预览（竖屏，限高）：同源 /uploads 走 next/image，外链（R2）回退原生 img
+              （与 ProjectCard 缩略图同一约定，避开 remotePatterns 配置） */}
+          {coverUrl && (
+            <div className="flex flex-col items-center gap-1.5 pt-1">
+              <div className="border-border relative h-64 w-36 overflow-hidden rounded-lg border">
+                {coverUrl.startsWith("/") ? (
+                  <Image
+                    src={coverUrl}
+                    alt="封面预览"
+                    fill
+                    sizes="144px"
+                    className="object-cover"
+                  />
+                ) : (
+                  <img
+                    src={coverUrl}
+                    alt="封面预览"
+                    className="h-full w-full object-cover"
+                  />
+                )}
+              </div>
+              <p className="text-muted-foreground text-xs">
+                封面已生成，将用于成片片头与项目缩略图
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function ExportForm({
   onExport,
   onCancel,
@@ -540,6 +741,11 @@ function ExportForm({
   initialTitleCards,
   isSeries,
   onPersist,
+  projectId,
+  coverSourceCandidates,
+  coverDefaultTitle,
+  coverDefaultSubtitle,
+  coverImageUrl,
 }: {
   onExport: (options: ExportDialogOptions) => void;
   onCancel: () => void;
@@ -553,6 +759,11 @@ function ExportForm({
     colorGrade?: ColorGrade;
     subtitleStyle?: SubtitleStyle;
   }) => void;
+  projectId: string;
+  coverSourceCandidates: CoverSourceCandidate[];
+  coverDefaultTitle: string;
+  coverDefaultSubtitle: string;
+  coverImageUrl?: string | null;
 }) {
   /* ---- 基础导出选项（保持原有字段不破坏） ---- */
   const [format, setFormat] = useState("mp4");
@@ -703,6 +914,17 @@ function ExportForm({
             请先勾选「包含字幕」以配置字幕样式。
           </p>
         )}
+      </CollapsibleSection>
+
+      {/* ---- 专属封面（平台竖屏封面：已有图做底 + 大字剧名，可折叠分节） ---- */}
+      <CollapsibleSection title="专属封面">
+        <CoverPanel
+          projectId={projectId}
+          candidates={coverSourceCandidates}
+          defaultTitle={coverDefaultTitle}
+          defaultSubtitle={coverDefaultSubtitle}
+          initialCoverUrl={coverImageUrl}
+        />
       </CollapsibleSection>
 
       {/* ---- 成片包装（批6：片头尾卡 + 全片调色，可折叠分节） ---- */}

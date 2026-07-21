@@ -151,6 +151,10 @@ model Project {
   // Stage 1.9：生成参数（用户可调），结构参考 types/project.ts#GenerationParams
   // 默认 {} 对老项目完全兼容；字段缺失则回落到各 Agent 内部硬编码
   generationParams Json          @default("{}")
+  // 平台竖屏封面（红果/抖音审核链条覆盖封面）：已有分镜/定妆图做底 + 中文大字
+  // 标题的确定性合成产物（零 AI 成本，走 services/cover.ts）。为空时导出封面/
+  // 列表卡缩略图回落首张有图分镜（渐进增强，老项目零回归）。
+  coverImageUrl    String?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

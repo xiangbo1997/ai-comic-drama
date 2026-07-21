@@ -41,8 +41,9 @@ import { resolveDefaultMotion } from "@/lib/render-mode";
 import { resolveSubtitleFont, TITLE_FONT_ID } from "@/lib/subtitle-fonts";
 // 全片 LUT 调色（批6）：id → .cube 预设白名单，导出端 lut3d 统一色调。
 import { resolveLutPreset, type ColorGrade } from "@/lib/color-grade";
-// 片头/片尾卡（批6）：卡片文字行角色 → 卡片字幕样式映射。
-import type { CardLine } from "@/lib/title-cards";
+// 片头/片尾卡（批6）：卡片文字行角色 → 卡片字幕样式映射；
+// CARD_STYLE 为卡片/封面共用的字号倍率与配色单一真源。
+import { CARD_STYLE, type CardLine } from "@/lib/title-cards";
 // 冲击表现力 / Ken Burns 运镜的共享参数（导出端与预览端读同一份，保证预览=成片）。
 import {
   SHAKE_PARAMS,
@@ -1062,14 +1063,31 @@ function buildAssHeader(
 
   // ── 片头/片尾卡样式组：字号全部以 fontSize 为基准按倍率派生（勿硬编码像素）──
   // CardTitle 剧名大字，CardSub 集数，CardHook 钩子悬念，CardCta 追更贴字。
-  const cardTitleSize = resolveSubtitleFontPx(s.fontSize * 2.2, height);
-  const cardSubSize = resolveSubtitleFontPx(s.fontSize * 1.1, height);
-  const cardHookSize = resolveSubtitleFontPx(s.fontSize * 1.6, height);
-  const cardCtaSize = resolveSubtitleFontPx(s.fontSize * 0.95, height);
-  const whiteColor = hexToAssColor("#FFFFFF");
-  const blackOutline = hexToAssColor("#000000");
-  // 卡片描边加粗保证大字在任意底图上可读（正文描边宽 ×2，最小 2）
-  const cardOutline = Math.max(2, Math.round(s.outlineWidth * 2));
+  // 字号倍率 / 配色 / 描边倍率读 CARD_STYLE 单一真源（与平台封面共用）。
+  const cardTitleSize = resolveSubtitleFontPx(
+    s.fontSize * CARD_STYLE.titleScale,
+    height
+  );
+  const cardSubSize = resolveSubtitleFontPx(
+    s.fontSize * CARD_STYLE.subScale,
+    height
+  );
+  const cardHookSize = resolveSubtitleFontPx(
+    s.fontSize * CARD_STYLE.hookScale,
+    height
+  );
+  const cardCtaSize = resolveSubtitleFontPx(
+    s.fontSize * CARD_STYLE.ctaScale,
+    height
+  );
+  const whiteColor = hexToAssColor(CARD_STYLE.fillColor);
+  const blackOutline = hexToAssColor(CARD_STYLE.outlineColor);
+  const cardCtaColor = hexToAssColor(CARD_STYLE.ctaColor);
+  // 卡片描边加粗保证大字在任意底图上可读（正文描边宽 × outlineScale，最小 2）
+  const cardOutline = Math.max(
+    2,
+    Math.round(s.outlineWidth * CARD_STYLE.outlineScale)
+  );
 
   // Alignment 用 5（中心）；逐事件 \an5\pos 会覆盖，这里仅作缺省
   return [
@@ -1091,8 +1109,8 @@ function buildAssHeader(
     `Style: CardSub,${titleFont},${cardSubSize},${whiteColor},&H000000FF,${blackOutline},${backColour},0,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
     // 卡片钩子悬念
     `Style: CardHook,${titleFont},${cardHookSize},${whiteColor},&H000000FF,${blackOutline},${backColour},-1,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
-    // 卡片追更贴字（暖金强调色）
-    `Style: CardCta,${titleFont},${cardCtaSize},${emphasisColor},&H000000FF,${blackOutline},${backColour},0,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
+    // 卡片追更贴字（暖金强调色，读 CARD_STYLE.ctaColor 单一真源）
+    `Style: CardCta,${titleFont},${cardCtaSize},${cardCtaColor},&H000000FF,${blackOutline},${backColour},0,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

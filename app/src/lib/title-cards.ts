@@ -49,6 +49,37 @@ export const TITLE_CARD_SEC = 2;
 /** 片尾卡时长（秒）——钩子文案需要更长停留 */
 export const END_CARD_SEC = 2.5;
 
+/**
+ * 卡片 ASS 样式规格（批6 片头/片尾卡 + 平台封面共用的单一真源）。
+ *
+ * 字号以「正文字号（SubtitleStyle.fontSize，基于 1080 基准高）」为基准的倍率表达，
+ * 不硬编码绝对像素——导出端经 resolveSubtitleFontPx 按实际画面高线性换算，
+ * 跨分辨率视觉占比一致。颜色 / 描边倍率同样集中于此，改数值只动这一处。
+ *
+ * 消费方：
+ * - video-synthesis.buildAssHeader（片头/片尾卡的 CardTitle/CardSub/CardHook/CardCta 样式）
+ * - services/cover（平台封面的剧名主字 / 副题字号与颜色）
+ * 二者读同一份倍率，保证「封面剧名大字」与「片头卡剧名大字」字形字号一脉相承。
+ */
+export const CARD_STYLE = {
+  /** 剧名主字：正文字号 × 2.2（巨字冲击力） */
+  titleScale: 2.2,
+  /** 副标题（集数）：正文字号 × 1.1 */
+  subScale: 1.1,
+  /** 片尾钩子悬念：正文字号 × 1.6 */
+  hookScale: 1.6,
+  /** 片尾追更贴字：正文字号 × 0.95 */
+  ctaScale: 0.95,
+  /** 主字/副字通用白（粗黑描边压得住任意底图） */
+  fillColor: "#FFFFFF",
+  /** 描边黑 */
+  outlineColor: "#000000",
+  /** 追更贴字暖金强调色（与金句花字同色系） */
+  ctaColor: "#FFD24D",
+  /** 描边相对正文描边宽的放大倍率（大字需更粗描边保可读，最小 2px 由消费端钳制） */
+  outlineScale: 2,
+} as const;
+
 /** 卡片合成分镜的保留 id（真实分镜 id 为 cuid，双下划线前缀不会冲突） */
 export const TITLE_CARD_SCENE_ID = "__title-card__";
 export const END_CARD_SCENE_ID = "__end-card__";

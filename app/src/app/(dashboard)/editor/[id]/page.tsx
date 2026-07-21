@@ -430,6 +430,27 @@ export default function EditorPage() {
     isSeries,
   });
 
+  // 专属封面（平台竖屏封面）：底图候选 = 有图分镜（标注镜号）+ 关联角色定妆图，
+  // 与后端白名单来源（分镜 imageUrl ∪ 角色 canonicalImageUrl）对齐。
+  const coverSourceCandidates = [
+    ...project.characters
+      .filter((c) => !!c.character.canonicalImageUrl)
+      .map((c) => ({
+        url: c.character.canonicalImageUrl as string,
+        label: `角色 · ${c.character.name}`,
+      })),
+    ...project.scenes
+      .filter((s) => !!s.imageUrl)
+      .map((s) => ({
+        url: s.imageUrl as string,
+        label: `镜 ${s.order + 1}`,
+      })),
+  ];
+  const coverDefaultSubtitle =
+    isSeries && typeof project.episodeNumber === "number"
+      ? `第 ${project.episodeNumber} 集`
+      : "";
+
   return (
     // h-dvh 锁定视口高度（IDE 式布局）：三栏各自内部滚动（左栏根 / 中右栏
     // flex-1 区域均已带 overflow-y-auto）。此前 min-h-screen 让页面随内容撑高、
@@ -736,6 +757,11 @@ export default function EditorPage() {
         initialColorGrade={project.generationParams?.colorGrade}
         initialTitleCards={project.generationParams?.titleCards}
         isSeries={isSeries}
+        // 专属封面：底图候选 + 标题/副题缺省 + 已存封面 URL
+        coverSourceCandidates={coverSourceCandidates}
+        coverDefaultTitle={project.title}
+        coverDefaultSubtitle={coverDefaultSubtitle}
+        coverImageUrl={project.coverImageUrl}
         onPersist={(patch) =>
           editor.updateProject({
             generationParams: {
