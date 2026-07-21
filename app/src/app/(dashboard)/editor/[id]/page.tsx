@@ -509,6 +509,15 @@ export default function EditorPage() {
           onAspectRatioChange={(aspectRatio) =>
             editor.updateProject({ aspectRatio })
           }
+          renderStrategy={project.generationParams?.renderStrategy}
+          onRenderStrategyChange={(renderStrategy) =>
+            editor.updateProject({
+              generationParams: {
+                ...project.generationParams,
+                renderStrategy,
+              },
+            })
+          }
         />
       )}
 

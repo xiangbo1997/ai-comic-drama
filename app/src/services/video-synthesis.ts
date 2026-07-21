@@ -35,6 +35,8 @@ import {
 } from "@/types/export-style";
 // 音效库（解析标签 → 实际音频文件 + 默认音量），与前端/解析层共用单一真源。
 import { getSfxById } from "@/lib/sfx-library";
+// 混合出片成本路由：图片分镜默认运镜先按导演 cameraMovement 派生（双端同构单一真源）。
+import { resolveDefaultMotion } from "@/lib/render-mode";
 // 字体白名单（批6）：字幕/花字/卡片字体两端单一真源，摆脱 Arial 硬编码。
 import { resolveSubtitleFont, TITLE_FONT_ID } from "@/lib/subtitle-fonts";
 // 全片 LUT 调色（批6）：id → .cube 预设白名单，导出端 lut3d 统一色调。
@@ -82,6 +84,12 @@ export interface SceneMedia {
   audioUrl?: string | null;
   dialogue?: string | null;
   narration?: string | null;
+  /**
+   * 导演运镜（13 值枚举之一，与 CAMERA_MOVEMENTS 对齐）。
+   * 图片分镜无显式 SceneEffect.motion 时，默认运镜先按此值经 resolveDefaultMotion 派生，
+   * 映射不到再回落 zoomIn（尊重导演意图，双端同构走 lib/render-mode 单一真源）。
+   */
+  cameraMovement?: string | null;
   /**
    * 片头/片尾卡（批6 成片包装）：非空时该分镜是卡片合成分镜，
    * 字幕层不走对白逻辑，改为按行角色发卡片文字事件（见 generateSubtitleFile）。
@@ -1636,11 +1644,14 @@ async function sceneToVideoClip(
     // 用有效时长直接 -t 即可（无需 setpts）。
     //
     // Ken Burns 默认契约：图片分镜是「-loop 1 死图」的幻灯片感重灾区，故
-    //   - motion===undefined（用户从未配运镜）→ 默认轻推 zoomIn（杀死图感）；
+    //   - motion===undefined（用户从未配运镜）→ 默认运镜先按导演 cameraMovement 派生
+    //     （resolveDefaultMotion，映射不到再回落 zoomIn 杀死图感），尊重导演意图；
     //   - motion===null（用户显式关运镜）→ 不加运镜（纯静图，尊重用户）；
     //   - motion 有值 → 用该运镜。
     const imgMotion: SceneMotion | null =
-      motion === undefined ? "zoomIn" : motion;
+      motion === undefined
+        ? (resolveDefaultMotion(scene.cameraMovement) ?? "zoomIn")
+        : motion;
     const imgVf = buildClipVideoFilter(width, height, effect, 1, {
       isImage: true,
       motion: imgMotion,

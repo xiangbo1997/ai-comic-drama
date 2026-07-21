@@ -43,6 +43,13 @@ export interface Scene {
   cameraMovement?: string | null;
   /** 运动节拍：这一镜内"什么在动"（LLM 解析产出，喂视频 prompt） */
   actionBeat?: string | null;
+  /**
+   * 节拍类型：impact(打击)/reveal(揭秘)/emotional(情绪)/calm(平静)——解析层克制标注。
+   * 混合出片成本路由（lib/render-mode）据此判定该镜是否值得花钱生成视频。
+   */
+  beatType?: string | null;
+  /** 高潮镜标记（每集 1-2 镜）：混合出片时高潮镜恒走视频生成 */
+  isClimax?: boolean;
   /** 地点标签：同一物理地点的分镜共用同一短标签（LLM 解析产出，供场景锚定图分组） */
   locationKey?: string | null;
   /**
@@ -79,6 +86,8 @@ export type ScenePreview = Pick<
   | "audioUrl"
   | "dialogue"
   | "narration"
+  // 图片分镜默认 Ken Burns 运镜按导演运镜派生（预览端与导出端同构，走 lib/render-mode）
+  | "cameraMovement"
 >;
 
 /** 剧本解析结果中的场景 */

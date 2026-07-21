@@ -24,6 +24,8 @@ import type {
 } from "@/types/export-style";
 // 音效库（纯数据）：预览端按导出同源的触发时刻调度 <audio>（预览必须反映导出效果）
 import { getSfxById } from "@/lib/sfx-library";
+// 混合出片成本路由：图片分镜默认运镜先按导演 cameraMovement 派生（双端同构单一真源）。
+import { resolveDefaultMotion } from "@/lib/render-mode";
 import {
   resolveSubtitleXY,
   resolveSubtitleFontPx,
@@ -432,12 +434,13 @@ export function PreviewPlayer({
   // 当前镜内已播秒数（相对镜头起点）：flash 三角脉冲与 freeze 定格判定用，与画面同源。
   const curEffDur = effDurs[currentIndex] ?? currentScene?.duration ?? 0;
   const tInScene = progress * curEffDur;
-  // Ken Burns 运镜 CSS：图片分镜默认 zoomIn（motion===undefined 兜底，对齐导出端
-  // sceneToVideoClip 契约）；视频分镜不加运镜（自带运动）。铺满整镜有效时长。
+  // Ken Burns 运镜 CSS：图片分镜默认运镜先按导演 cameraMovement 派生
+  // （resolveDefaultMotion，映射不到再回落 zoomIn，对齐导出端 sceneToVideoClip 契约）；
+  // 视频分镜不加运镜（自带运动）。铺满整镜有效时长。
   const curIsImage = !!currentScene && !currentScene.videoUrl;
   const curMotion: SceneMotion | null = curIsImage
     ? curFx.motion === undefined
-      ? "zoomIn"
+      ? (resolveDefaultMotion(currentScene?.cameraMovement) ?? "zoomIn")
       : curFx.motion
     : null;
   const curMotionCss = getMotionAnimationCss(curMotion, curEffDur);

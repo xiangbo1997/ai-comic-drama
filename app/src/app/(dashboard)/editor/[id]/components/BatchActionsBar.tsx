@@ -9,6 +9,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
+import { summarizeRenderPlan } from "@/lib/render-mode";
 import type { BatchProgress } from "../hooks/use-generation-actions";
 import type { MediaConfigControls } from "./SceneList";
 import type { Scene } from "@/types";
@@ -103,6 +104,37 @@ export function BatchActionsBar({
       (s) => s.imageUrl && !s.videoUrl && s.videoStatus !== "PROCESSING"
     );
     if (targets.length === 0 || !batchGenerateVideosMutation) return;
+    batchGenerateVideosMutation.mutate({
+      scenes: targets,
+      videoConfigId: mediaConfig.video.selected,
+    });
+  };
+
+  /**
+   * 智能混合（经济）：只对「值得花钱生成视频」的镜（高动态/冲击/高潮，见 lib/render-mode）
+   * 生成视频，其余镜走图片运镜（零成本）。执行前展示摘要让用户确认。
+   * 与「批量视频」共用同一 mutation，仅缩小目标集——省钱语义清晰、逻辑不重复。
+   */
+  const handleSmartHybridVideos = () => {
+    setOpenConfigFor(null);
+    const candidates = scenes.filter(
+      (s) => s.imageUrl && !s.videoUrl && s.videoStatus !== "PROCESSING"
+    );
+    if (candidates.length === 0 || !batchGenerateVideosMutation) return;
+    const plan = summarizeRenderPlan(candidates);
+    if (plan.videoCount === 0) {
+      window.alert(
+        `按成本路由，当前 ${candidates.length} 个待生成镜均可用图片运镜承载，无需生成视频。`
+      );
+      return;
+    }
+    const videoIdSet = new Set(plan.videoSceneIds);
+    const targets = candidates.filter((s) => videoIdSet.has(s.id));
+    const confirmed = window.confirm(
+      `智能混合（经济）：将为 ${plan.videoCount}/${candidates.length} 镜生成视频，` +
+        `其余 ${plan.motionCount} 镜走图片运镜（零成本）。是否继续？`
+    );
+    if (!confirmed) return;
     batchGenerateVideosMutation.mutate({
       scenes: targets,
       videoConfigId: mediaConfig.video.selected,
@@ -252,6 +284,18 @@ export function BatchActionsBar({
                       showMultiSelectButton
                       size="sm"
                     />
+                    {/* 视频专属：智能混合（经济）入口——只对值得花钱的镜生成视频，
+                        其余走图片运镜（零成本）。默认「批量视频」仍为全部生成。 */}
+                    {kind === "video" && (
+                      <button
+                        onClick={handleSmartHybridVideos}
+                        disabled={anyBatchPending}
+                        className="border-border hover:bg-secondary/80 mt-3 w-full rounded-md border px-2 py-1.5 text-xs disabled:opacity-50"
+                        title="只对高动态/冲击/高潮镜生成视频，其余镜走图片运镜（省成本，约为纯视频路线的 1/2~1/3）"
+                      >
+                        智能混合（经济）
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

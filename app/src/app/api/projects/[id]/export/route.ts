@@ -223,6 +223,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       audioUrl: scene.audioUrl,
       dialogue: scene.dialogue,
       narration: scene.narration,
+      // 导演运镜：供图片分镜默认 Ken Burns 运镜按 resolveDefaultMotion 派生（尊重导演意图）
+      cameraMovement: scene.cameraMovement,
       card: null as {
         kind: "title" | "end";
         lines: { text: string; role: "title" | "sub" | "hook" | "cta" }[];
@@ -250,6 +252,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           audioUrl: null,
           dialogue: null,
           narration: null,
+          cameraMovement: null,
           card: { kind: intro.kind, lines: intro.lines },
         });
         introInjected = true;
@@ -268,6 +271,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           audioUrl: null,
           dialogue: null,
           narration: null,
+          cameraMovement: null,
           card: { kind: outro.kind, lines: outro.lines },
         });
         outroInjected = true;

@@ -58,6 +58,12 @@ export interface GenerationParams {
   titleCards?: TitleCardsConfig;
   /** 一键 AI 制片人审阅态（仅向导创建的项目有此字段；常规项目缺省） */
   producerReview?: ProducerReview;
+  /**
+   * 混合出片策略（一键管线 generate_videos 步骤读取）：
+   *   - "full"（缺省）：全部镜生成视频，行为不变；
+   *   - "hybrid"：按 lib/render-mode 只对高动态/冲击/高潮镜生成视频，其余镜走图片运镜（零成本）。
+   */
+  renderStrategy?: "full" | "hybrid";
 }
 
 /** 一键 AI 制片人审阅确认集（计划 §6 · 3.1） */

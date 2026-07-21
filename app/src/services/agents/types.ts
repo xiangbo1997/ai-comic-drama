@@ -56,6 +56,12 @@ export interface WorkflowConfig {
     styleStrength?: number;
     negativePreset?: string;
     customNegative?: string;
+    /**
+     * 混合出片策略：
+     *   - "full"（缺省）：全部镜生成视频，行为完全不变；
+     *   - "hybrid"：按 lib/render-mode 只对高动态/冲击/高潮镜生成视频，其余镜走图片运镜（零成本）。
+     */
+    renderStrategy?: "full" | "hybrid";
   };
   /** P3.5：四闭环策略（可选，缺省用 DEFAULT_CLOSED_LOOP_POLICIES） */
   closedLoops?: {

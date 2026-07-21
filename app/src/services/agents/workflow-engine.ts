@@ -33,6 +33,8 @@ import { loadSeriesMemoryDigest } from "@/lib/series-memory";
 import { parseStoryBible } from "@/types/series-bible";
 import { extractSeriesPalette } from "@/lib/series";
 import { buildVideoScenePrompt, getStylePaletteBaseline } from "@/lib/prompts";
+// 混合出片成本路由：hybrid 策略下按此判定某镜是否值得花钱生成视频（否则走图片运镜）。
+import { recommendRenderMode } from "@/lib/render-mode";
 import {
   directVideoScene,
   generateSceneVideoSegmented,
@@ -1001,14 +1003,34 @@ async function executeMediaGeneration(
   const ttsActiveFamily = normalizeVoiceFamily(ttsConfig?.protocol);
   const narratorVoiceId = resolveNarratorVoiceId(ttsActiveFamily);
 
+  // 混合出片策略（成本路由）：hybrid 时只对高动态/冲击/高潮镜生成视频，其余镜走图片
+  // 运镜（导出端 Ken Burns，零视频成本）。缺省 "full" 时行为完全不变。判据用 DB Scene
+  // 的 beatType/isClimax/cameraMovement（recommendRenderMode 单一真源）。
+  const isHybridRender =
+    ctx.config.generationParams?.renderStrategy === "hybrid";
+  let hybridSkippedCount = 0;
+
   for (const dbScene of dbScenes) {
     const sceneArtifact = scenes.find((s) => s.order === dbScene.order);
     if (!sceneArtifact || !dbScene.imageUrl) continue;
 
     const tasks: Promise<void>[] = [];
 
+    // 混合策略：本镜按成本路由判为「图片运镜可承载」→ 跳过视频生成。
+    // 跳过的镜不置 videoStatus=PROCESSING、不扣积分，图片分镜由导出端 zoompan 运镜。
+    const skipVideoForHybrid =
+      isHybridRender &&
+      recommendRenderMode({
+        beatType: dbScene.beatType,
+        isClimax: dbScene.isClimax,
+        cameraMovement: dbScene.cameraMovement,
+      }) === "motion";
+    if (skipVideoForHybrid) {
+      hybridSkippedCount += 1;
+    }
+
     // 视频生成
-    if (ctx.config.video) {
+    if (ctx.config.video && !skipVideoForHybrid) {
       // v2：从预查好的角色查表取场景角色上下文（参考图 / identityPrompt / seed），
       // 纯内存查表，无 DB 往返
       const charContext = buildSceneCharacterContext(
@@ -1301,11 +1323,20 @@ async function executeMediaGeneration(
     await Promise.allSettled(tasks);
   }
 
+  // 混合策略摘要：写明有多少镜按成本路由走了图片运镜（未生成视频），供 UI/日志追溯。
+  const videoDoneMessage = isHybridRender
+    ? `视频和配音生成完成（混合策略：${hybridSkippedCount} 镜按成本路由走图片运镜，未生成视频）`
+    : "视频和配音生成完成";
+  if (isHybridRender) {
+    log.info(
+      `[workflow] 混合出片：${hybridSkippedCount} 镜走图片运镜（跳过视频生成）`
+    );
+  }
   emitEvent({
     type: "step:completed",
     workflowRunId: ctx.workflowRunId,
     step: "generate_videos",
-    data: { message: "视频和配音生成完成" },
+    data: { message: videoDoneMessage },
     timestamp: new Date(),
   });
 }

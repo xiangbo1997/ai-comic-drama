@@ -595,6 +595,11 @@ function normalizeGenerationParams(
   if (normalizedProducerReview) {
     out.producerReview = normalizedProducerReview;
   }
+  // 混合出片策略（成本路由）：仅接受 "full" / "hybrid" 两个枚举值 —— 不加这段则
+  // 编辑器「混合出片（经济模式）」开关怎么存都进不了 DB，一键管线读不到策略。
+  if (src.renderStrategy === "full" || src.renderStrategy === "hybrid") {
+    out.renderStrategy = src.renderStrategy;
+  }
   return out;
 }
 
