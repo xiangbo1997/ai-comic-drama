@@ -49,6 +49,7 @@
     "@prisma/client": "^7.2.0",
     "@tanstack/react-query": "^5.90.16",
     "ai": "^6.0.168",
+    "archiver": "^8.0.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -72,6 +73,7 @@
   "devDependencies": {
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
+    "@types/archiver": "^8.0.0",
     "@types/bcryptjs": "^3.0.0",
     "@types/node": "^20",
     "@types/pg": "^8.16.0",
