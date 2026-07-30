@@ -9,11 +9,25 @@ import { chargeCredits } from "@/lib/credits";
 
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
-import { normalizeVoiceFamily, resolveDialogueVoiceId } from "@/lib/tts-voice";
+import {
+  normalizeVoiceFamily,
+  resolveDialogueVoiceId,
+  resolveNarratorVoiceId,
+} from "@/lib/tts-voice";
+import { z } from "zod";
 const log = createLogger("api:generate:tts");
 
 // TTS 成本：每100字 2积分
 const TTS_COST_PER_100_CHARS = 2;
+
+/**
+ * 配音文本类型：对白（角色声线）/ 旁白（说书人独立声线）。
+ *
+ * 此前本路由不区分二者，旁白一律走角色声线解析 → 旁白与角色对白同声（说书人
+ * 断链），而一键 workflow 早已用 resolveNarratorVoiceId 区分。缺省 "dialogue"
+ * 保持旧调用方行为不变（向后兼容）。
+ */
+const ttsKindSchema = z.enum(["dialogue", "narration"]).optional();
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,6 +54,7 @@ export async function POST(request: NextRequest) {
 
     // 注：原 returnUrl=false（直接返回音频 buffer）分支随异步化移除——
     // 全代码库无调用方使用；异步模式统一落盘后经轮询返回 audioUrl。
+    const body = await request.json();
     const {
       text,
       voiceId: voiceIdFromBody,
@@ -48,7 +63,17 @@ export async function POST(request: NextRequest) {
       projectId,
       sceneId,
       ttsConfigId,
-    } = await request.json();
+    } = body;
+
+    // 文本类型：非法值直接 400（不静默降级成对白，否则旁白又会用回角色声线）
+    const kindParsed = ttsKindSchema.safeParse(body.kind);
+    if (!kindParsed.success) {
+      return NextResponse.json(
+        { error: "kind 参数非法（仅支持 dialogue / narration）" },
+        { status: 400 }
+      );
+    }
+    const kind = kindParsed.data ?? "dialogue";
 
     // 提前解析激活 TTS 配置：既供下方角色声线跨厂商防污染判定（A4），也直接
     // 复用到后台 run，避免二次查询。缺失时 protocol 视为空家族。
@@ -58,12 +83,28 @@ export async function POST(request: NextRequest) {
     /*
      * voiceId 解析顺序：
      *   1) 请求显式传入的 voiceId（最高优先级，向后兼容）；
-     *   2) 根据 characterId 查 Character.voiceId（让同一角色跨场景音色稳定），
-     *      但须与激活 TTS 配置同厂商——见下方跨厂商防污染（A4）；
-     *   3) 兜底 "default"（由 provider 适配器各自映射到默认音色）。
+     *   2) kind==="narration" → 说书人独立声线（resolveNarratorVoiceId）：旁白不
+     *      与角色对白同声；非火山家族返回 undefined 走 provider 默认（见下方）；
+     *   3) kind==="dialogue" 时根据 characterId 查 Character.voiceId（让同一角色跨
+     *      场景音色稳定），但须与激活 TTS 配置同厂商——跨厂商防污染（A4）；
+     *   4) 兜底 "default"（由 provider 适配器各自映射到默认音色）。
      */
     let voiceId: string | undefined = voiceIdFromBody;
-    if (!voiceId && typeof characterId === "string" && characterId) {
+
+    // 旁白声线（与一键 workflow 的 synthesizeSceneAudio 同源）：此前本路由只认
+    // 对白声线，旁白被当对白解析成角色声线 → 手动路径旁白与角色同声（说书人断链）。
+    // 非火山家族无可靠预置旁白声线，返回 undefined 落到下方 "default"。
+    if (!voiceId && kind === "narration") {
+      voiceId = resolveNarratorVoiceId(activeFamily);
+    }
+
+    // 对白：查角色声线。旁白不进此分支——旁白用说书人声线，与场景选中角色无关。
+    if (
+      !voiceId &&
+      kind === "dialogue" &&
+      typeof characterId === "string" &&
+      characterId
+    ) {
       const character = await prisma.character.findUnique({
         where: { id: characterId },
         select: { voiceId: true, voiceProvider: true, userId: true },
@@ -160,7 +201,7 @@ export async function POST(request: NextRequest) {
       data: {
         type: "AUDIO_GENERATE",
         status: "PROCESSING",
-        input: { userId, text, voiceId, speed },
+        input: { userId, text, voiceId, speed, kind },
         projectId,
         sceneId,
         cost,

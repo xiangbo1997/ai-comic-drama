@@ -10,6 +10,10 @@ import {
   buildStoryboardPrompt,
 } from "@/lib/prompts/agent-prompts";
 import { createLogger } from "@/lib/logger";
+import {
+  buildEmotionPhrase,
+  inferEmotionIntensity,
+} from "@/lib/prompts/emotion-grammar";
 import { resolveLLMParams } from "./llm-params";
 import type {
   Agent,
@@ -102,8 +106,10 @@ export class StoryboardAgent implements Agent<
       if (batchResult.scenes.length > 0) {
         allScenes.push(...batchResult.scenes);
       } else {
-        // 降级：使用基础数据
-        allScenes.push(...this.buildFallbackScenes(batch, charRef));
+        // 降级：使用基础数据（画风透传，供情绪语法做漫画符号门控）
+        allScenes.push(
+          ...this.buildFallbackScenes(batch, charRef, ctx.config.style)
+        );
       }
     }
 
@@ -185,7 +191,8 @@ export class StoryboardAgent implements Agent<
   /** 降级方案：简单拼接 prompt */
   private buildFallbackScenes(
     scenes: StoryboardInput["script"]["scenes"],
-    charRef: Array<{ name: string; canonicalPrompt: string }>
+    charRef: Array<{ name: string; canonicalPrompt: string }>,
+    style?: string | null
   ): SceneArtifact[] {
     return scenes.map((s, idx) => {
       const charPrompts = s.characters
@@ -195,11 +202,20 @@ export class StoryboardAgent implements Agent<
         })
         .join(", ");
 
+      // 情绪语法替代原 `${emotion} mood` 写法：后者正是 emotion-grammar.ts 文件头
+      // 点名要消灭的「只标注不画出」——高潮镜因此被渲染成平静插画。改用夸张表情词 +
+      // 漫画符号（画风门控，写实/油画自动无符号），与手动路径同源。
+      const emotionPhrase = buildEmotionPhrase(
+        s.emotion,
+        inferEmotionIntensity(s.emotion, s.shotType),
+        style
+      );
+
       const imagePrompt = [
         charPrompts,
         s.description,
         `${s.shotType} shot`,
-        `${s.emotion} mood`,
+        emotionPhrase,
         "masterpiece, best quality, highly detailed",
       ]
         .filter(Boolean)

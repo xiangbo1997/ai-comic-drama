@@ -35,6 +35,8 @@ import { extractSeriesPalette } from "@/lib/series";
 import { buildVideoScenePrompt, getStylePaletteBaseline } from "@/lib/prompts";
 // 混合出片成本路由：hybrid 策略下按此判定某镜是否值得花钱生成视频（否则走图片运镜）。
 import { recommendRenderMode } from "@/lib/render-mode";
+// 剪辑裁剪豁免：与手动路径共用同一判据（高潮/冲击/动作镜保完整动作弧线）。
+import { isTrimExemptShot } from "@/lib/shot-timing";
 import {
   directVideoScene,
   generateSceneVideoSegmented,
@@ -1144,6 +1146,9 @@ async function executeMediaGeneration(
         hasLastFrame: !!intraShotLastFrame,
         // 有对白 + 景别看得清嘴 → lip flap 口型指令（批3）
         hasDialogue: !!sceneArtifact.dialogue?.trim(),
+        // 冲击节拍高能动作指令（批4）：SceneArtifact 无此字段，取 DB 已落库值，
+        // 与手动路径 route.ts 对等（缺失时 impact 镜会被模型渲成缓慢漂移）。
+        beatType: dbScene.beatType,
       });
       const videoCost = estimateVideoCost(
         sceneArtifact.duration,
@@ -1172,14 +1177,24 @@ async function executeMediaGeneration(
           userId: ctx.userId,
           projectId: ctx.projectId,
           sceneId: dbScene.id,
+          // 剪辑裁剪豁免（对齐手动路径 api/generate/video）：此前 workflow 不传此字段，
+          // 分段器恒裁到叙事目标 → 高潮 / 冲击 / 动作镜被砍尾（动作弧线半途截断）。
+          // 判据用 DB Scene 已落库的强信号（isClimax/beatType）+ 情绪/动作启发式。
+          exemptFromTrim: isTrimExemptShot({
+            emotion: dbScene.emotion,
+            actionBeat: direction?.actionBeat ?? dbScene.actionBeat,
+            targetDuration: sceneArtifact.duration,
+            isClimax: dbScene.isClimax,
+            beatType: dbScene.beatType,
+          }),
         })
           .then(async (segResult) => {
-            const isMultiSegment = segResult.segments.length > 1;
-            // 单段路径返回 provider 临时 URL，转存自有存储（对齐手动路径，修复
-            // flow2api 临时受限域名 URL 浏览器够不到 / 会过期的问题）。多段路径
-            // 已是拼接后上传的自有 URL，无需再转存。
+            // 转存判据用 isSelfHosted（对齐手动路径）：单段【裁剪】路径虽然
+            // segments.length===1，但产物已由分段器上传到自有存储
+            // （isSelfHosted=true）——按段数判会把自有 URL 再下载上传一遍，
+            // 白烧带宽并在存储里留下孤儿文件。
             let videoUrl = segResult.videoUrl;
-            if (!isMultiSegment && isStorageConfigured()) {
+            if (!segResult.isSelfHosted && isStorageConfigured()) {
               try {
                 videoUrl = await uploadFileFromUrl(segResult.videoUrl, {
                   fileName: `scene_${dbScene.id}_${Date.now()}.mp4`,

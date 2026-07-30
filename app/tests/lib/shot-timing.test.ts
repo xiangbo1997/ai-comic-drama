@@ -163,4 +163,44 @@ describe("isTrimExemptShot — 裁剪豁免（批2）", () => {
       })
     ).toBe(false);
   });
+
+  describe("强信号（解析层落库标注）优先于情绪启发式", () => {
+    it("isClimax=true 豁免，即使其余判据全为常规值", () => {
+      expect(
+        isTrimExemptShot({
+          emotion: "neutral",
+          actionBeat: null,
+          targetDuration: 3,
+          isClimax: true,
+        })
+      ).toBe(true);
+    });
+
+    it("beatType=impact 豁免，大小写不敏感且容忍空白", () => {
+      expect(isTrimExemptShot({ beatType: "impact" })).toBe(true);
+      expect(isTrimExemptShot({ beatType: "IMPACT" })).toBe(true);
+      expect(isTrimExemptShot({ beatType: " impact " })).toBe(true);
+    });
+
+    it("其它 beatType 不构成豁免（仍回落启发式）", () => {
+      expect(isTrimExemptShot({ beatType: "setup", emotion: "neutral" })).toBe(
+        false
+      );
+      // 非 impact 节拍但情绪快 → 启发式仍豁免
+      expect(isTrimExemptShot({ beatType: "setup", emotion: "angry" })).toBe(
+        true
+      );
+    });
+
+    it("强信号缺失/为假时不改变原启发式结论", () => {
+      expect(
+        isTrimExemptShot({
+          emotion: "neutral",
+          targetDuration: 3,
+          isClimax: false,
+          beatType: null,
+        })
+      ).toBe(false);
+    });
+  });
 });

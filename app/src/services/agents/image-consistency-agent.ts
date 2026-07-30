@@ -12,6 +12,10 @@ import {
 import { ObserverAgent } from "./observer-agent";
 import { runClosedLoop } from "./closed-loop";
 import { createLogger } from "@/lib/logger";
+import {
+  buildEmotionPhrase,
+  inferEmotionIntensity,
+} from "@/lib/prompts/emotion-grammar";
 import type {
   Agent,
   AgentResult,
@@ -66,7 +70,15 @@ export class ImageConsistencyAgent implements Agent<
       { imageUrl: string; strategy: string }
     >(
       {
-        initialState: { prompt: input.scene.imagePrompt },
+        initialState: {
+          prompt: this.augmentImagePrompt(
+            input.scene.imagePrompt,
+            input.scene.emotion,
+            input.scene.shotType,
+            ctx.config.style,
+            input.aspectRatio
+          ),
+        },
         maxRounds,
         workflowStep: "generate_images",
         taskLabel: `正在生成场景 ${input.scene.id} 的图像`,
@@ -169,6 +181,66 @@ export class ImageConsistencyAgent implements Agent<
       attempts: result.rounds,
       tokensUsed: totalTokens,
     };
+  }
+
+  /**
+   * 确定性追加漫剧化关键帧三特性（与手动路径 buildEnhancedPrompt 对等）。
+   *
+   * 断裂背景：手动出图走 lib/prompt-builder 的 buildEnhancedPrompt，把「情绪语法」
+   * （夸张表情 + 漫画符号）与「9:16 竖屏构图基线」确定性拼进 prompt；自动 workflow
+   * 直接用 LLM 产出的 imagePrompt，这两项全部缺失——同一部剧手动出的高潮镜有夸张
+   * 表演，一键出的却是平静插画。
+   *
+   * 为什么不复用 buildEnhancedPrompt：它要求 SceneAnalysis（角色动作/环境/光线的
+   * 结构化分析结果），而本 Agent 只有 LLM 的成品 imagePrompt，没有可拆解的结构。
+   * 故这里只补「与 SceneAnalysis 无关、纯由 emotion/shotType/画幅 派生」的两段，
+   * 其余段落（风格锚定/角色特征/质量词）由 LLM 的 imagePrompt 与 orchestrator 负责。
+   *
+   * 段序对齐手动路径：镜头语言（竖屏构图）在前、情绪在后。
+   *
+   * 去重：LLM 的 imagePrompt 可能已自带竖屏/夸张表情类描述，重复叠加会稀释权重
+   * （与「角色提示词加权」同类的语义稀释问题）。故各段先做关键词探测，命中即跳过——
+   * 宁可少加一次，也不制造前后矛盾或权重内耗的重复段。
+   */
+  private augmentImagePrompt(
+    imagePrompt: string,
+    emotion?: string | null,
+    shotType?: string | null,
+    style?: string | null,
+    aspectRatio?: "1:1" | "9:16" | "16:9"
+  ): string {
+    const parts: string[] = [];
+    const lower = imagePrompt.toLowerCase();
+
+    // 1. 9:16 竖屏构图基线（与 prompt-builder.ts 同一文案，保持两路径一致）
+    if (
+      aspectRatio === "9:16" &&
+      !lower.includes("vertical composition") &&
+      !lower.includes("竖屏")
+    ) {
+      parts.push(
+        "vertical composition, subject in upper two-thirds, strong vertical depth"
+      );
+    }
+
+    // 2. 情绪语法：强度由 emotion × 景别推断（SceneArtifact 无 isClimax 字段，
+    //    与手动路径 Scene 未持久化 emotionIntensity 时的兜底同一函数）。
+    //    画风门控在 buildEmotionPhrase 内部完成（写实/油画自动无漫画符号）。
+    const alreadyExaggerated =
+      lower.includes("exaggerated") ||
+      lower.includes("夸张") ||
+      lower.includes("impact frame");
+    if (!alreadyExaggerated) {
+      const emotionPhrase = buildEmotionPhrase(
+        emotion,
+        inferEmotionIntensity(emotion, shotType),
+        style
+      );
+      if (emotionPhrase) parts.push(emotionPhrase);
+    }
+
+    if (parts.length === 0) return imagePrompt;
+    return [imagePrompt, ...parts].join(", ");
   }
 
   /** 根据 Observer 反馈优化 prompt */

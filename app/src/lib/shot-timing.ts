@@ -143,19 +143,33 @@ function clamp(n: number): number {
  *
  * 常规漫剧单镜 1–4s 快切，provider 返回的 5–8s 片段应被裁到叙事目标时长。
  * 但高潮 / 动作 / 大动态镜需要完整时长承载动作弧线，不应被砍尾——否则动作
- * 半途截断（挥拳到一半、转身没转完）。判据（无 LLM，纯启发式）：
+ * 半途截断（挥拳到一半、转身没转完）。判据分两层：
+ *
+ * 强信号（解析层已落库的显式标注，优先级最高，命中即豁免）：
+ * - isClimax === true：解析层判定的高潮镜，成片的情绪顶点，必须保完整时长。
+ * - beatType === "impact"：冲击节拍（爆点/反转瞬间），动作弧线不容截断。
+ *
+ * 启发式（强信号缺失时的兜底，沿用原判据）：
  * - 快节奏情绪（angry/surprised/fear）：冲突 / 反转瞬间，动作往往需要完整呈现。
  * - actionBeat 存在且非空：LLM/导演标注了「这一镜什么在动」，说明是动作镜。
  * - 叙事目标时长本就较长（≥6s）：长镜是刻意设计（长台词 / 慢推），不该裁。
  *
- * 这些判据都在解析层 / DB 可得，故豁免决策放在 route（有 scene 数据）而非
- * segmented-video（只有秒数）。缺省不豁免（裁剪，恢复快节奏）。
+ * 这些判据都在解析层 / DB 可得，故豁免决策放在调用方（route / workflow，二者
+ * 都有 scene 数据）而非 segmented-video（只有秒数）。缺省不豁免（裁剪，恢复快节奏）。
  */
 export function isTrimExemptShot(input: {
   emotion?: string | null;
   actionBeat?: string | null;
   targetDuration?: number | null;
+  /** 解析层落库的高潮标记（强信号，命中直接豁免） */
+  isClimax?: boolean | null;
+  /** 解析层落库的节拍类型（强信号，"impact" 直接豁免） */
+  beatType?: string | null;
 }): boolean {
+  // 强信号优先：显式标注比情绪启发式可靠得多
+  if (input.isClimax === true) return true;
+  if (input.beatType?.trim().toLowerCase() === "impact") return true;
+
   const fastEmotion = input.emotion ? FAST_EMOTIONS.has(input.emotion) : false;
   const hasActionBeat = Boolean(input.actionBeat?.trim());
   const isLongShot =

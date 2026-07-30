@@ -406,6 +406,10 @@ export function useGenerationActions(
           emotion: scene.emotion,
           duration: scene.duration,
           hasLastFrame: !!lastFrameImage,
+          // 服务端仅在 LLM 导演成功时重建全字段 prompt；无 LLM 配置 / 导演失败
+          // 时沿用本客户端 prompt，缺这两项会让口型指令与冲击高能指令静默丢失。
+          hasDialogue: !!scene.dialogue?.trim(),
+          beatType: scene.beatType,
         }),
         // 发送真实时长（1–60，客户端仅做安全钳制）：服务端按模型能力规划分段，
         // 超过单段时长自动拆成 N 段无缝拼接（不再在客户端预先压成 5/10/15 档）。
@@ -424,6 +428,9 @@ export function useGenerationActions(
 
   const requestAudio = async (scene: Scene, ttsConfigId?: string) => {
     const text = scene.dialogue || scene.narration;
+    // 文本类型必须与上面 text 的取值分支严格同源：dialogue 非空时念的是对白，
+    // 否则念的是旁白。服务端据此给旁白配说书人独立声线（与一键 workflow 对等）。
+    const kind = scene.dialogue?.trim() ? "dialogue" : "narration";
     // 优先用场景所选角色的 characterId，由服务端查 Character.voiceId 解析音色；
     // 找不到再走默认音色（保持原有行为）
     const characterId =
@@ -434,6 +441,7 @@ export function useGenerationActions(
       "/api/generate/tts",
       {
         text,
+        kind,
         characterId,
         // 分镜级语速（SceneEditor 可调，0.5–2.0），未设置回落 1.0
         speed: scene.ttsSpeed ?? 1.0,

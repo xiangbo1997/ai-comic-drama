@@ -540,6 +540,9 @@ export async function POST(request: NextRequest) {
                 emotion: true,
                 actionBeat: true,
                 cameraMovement: true,
+                // 强信号：解析层落库的高潮/节拍标记，优先于情绪启发式判豁免
+                isClimax: true,
+                beatType: true,
               },
             });
             const effectiveActionBeat =
@@ -548,6 +551,8 @@ export async function POST(request: NextRequest) {
               emotion: sceneMeta?.emotion ?? null,
               actionBeat: effectiveActionBeat,
               targetDuration: duration,
+              isClimax: sceneMeta?.isClimax ?? null,
+              beatType: sceneMeta?.beatType ?? null,
             });
             // cameraMovement 来源：导演增强 > DB 解析层 > 派生（video-prompt 兜底）
             const cameraMovementSource = directed?.direction.cameraMovement

@@ -136,6 +136,8 @@ export function useMultiGenerate({
             // 统一视频 prompt 构建器（与单张视频同源）；身份前缀由 provider 单独 prepend
             prompt: buildVideoScenePrompt({
               description: selectedScene!.description,
+              // 运动节拍：与单张视频同款透传（缺失会让「这一镜什么在动」丢失，画面偏静止）
+              actionBeat: selectedScene!.actionBeat,
               style: project.style,
               shotType: selectedScene!.shotType,
               cameraAngle: selectedScene!.cameraAngle,
@@ -144,6 +146,10 @@ export function useMultiGenerate({
               emotion: selectedScene!.emotion,
               duration: selectedScene!.duration,
               hasLastFrame: !!lastFrameImage,
+              // 服务端仅在 LLM 导演成功时重建全字段 prompt；无 LLM 配置 / 导演失败
+              // 时沿用本客户端 prompt，缺这两项会让口型指令与冲击高能指令静默丢失。
+              hasDialogue: !!selectedScene!.dialogue?.trim(),
+              beatType: selectedScene!.beatType,
             }),
             duration: clampSceneDuration(selectedScene!.duration),
             aspectRatio: videoAspectRatio,
@@ -187,6 +193,8 @@ export function useMultiGenerate({
     async (configs: MultiGenerateConfig[], mode: GenerateMode) => {
       const text = selectedScene?.dialogue || selectedScene?.narration;
       if (!text) return;
+      // 文本类型与上面 text 的取值分支严格同源（与单张配音同口径）：旁白走说书人声线
+      const kind = selectedScene?.dialogue?.trim() ? "dialogue" : "narration";
       onCloseAudio();
 
       // 通过 characterId 让服务端从 Character.voiceId 解析音色
@@ -201,6 +209,7 @@ export function useMultiGenerate({
           "/api/generate/tts",
           {
             text,
+            kind,
             characterId,
             speed: selectedScene?.ttsSpeed ?? 1.0,
             projectId,
