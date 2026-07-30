@@ -516,6 +516,27 @@ export const SFX_TAGS: string[] = [
 ];
 
 /**
+ * 生成解析层 prompt 里的「可用音效标签清单」文本块。
+ *
+ * 此前 prompts/script-parse.ts 里是一份手写副本，与本库扩容脱节——新增的 5 个分类
+ * 与 6 条素材（comedy-boing / comedy-rimshot / comedy-fall-whistle /
+ * comedy-scream-fall / suspense-drone / combat-bomb）压根不在清单里，LLM 永远不会
+ * 标注它们，扩容白做。改为从本库程序化生成，「单一真源」才名副其实：
+ * 往 SFX_LIBRARY 追加一条，解析层立刻认得。
+ *
+ * 输出按分类分行（分类 id + 中文标签 + 该类具体音效 id/标签），比原扁平清单更
+ * 结构化：既告诉 LLM「可以只给分类 id 让系统兜底选」，也给出精确 id 供其挑选。
+ */
+export function buildSfxTagListForPrompt(): string {
+  return SFX_CATEGORIES.map((category) => {
+    const entries = listSfxByCategory(category.id)
+      .map((s) => `${s.id}(${s.label})`)
+      .join("、");
+    return `     · ${category.id}（${category.label}）：${entries}`;
+  }).join("\n");
+}
+
+/**
  * 把「解析标签」解析为具体音效条目。
  * - 命中具体 id → 直接返回该音效；
  * - 命中分类 id → 返回该分类第一个音效（兜底）；

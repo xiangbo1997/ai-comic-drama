@@ -21,6 +21,7 @@ import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { contentSafetyMiddleware } from "@/lib/content-safety";
 import { resolveCoverSource } from "@/lib/cover";
 import { generateProjectCover } from "@/services/cover";
+import { deleteFile } from "@/services/storage";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createLogger } from "@/lib/logger";
@@ -96,6 +97,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         id: true,
         title: true,
         episodeNumber: true,
+        // 旧封面 URL：新封面落库成功后删除它，避免反复重生成堆积存储孤儿
+        coverImageUrl: true,
         scenes: {
           orderBy: { order: "asc" },
           select: { imageUrl: true },
@@ -164,6 +167,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       where: { id },
       data: { coverImageUrl },
     });
+
+    // 旧封面清理：新封面已落库成功才删（顺序不可颠倒——先删后落库若落库失败，
+    // 项目就指向一个已被删除的 URL）。fire-and-forget + 失败仅记日志，对齐
+    // cleanupProjectMedia 策略：孤儿文件可后续批量清理，不该阻塞用户拿到新封面。
+    // 同 URL（理论上不会，文件名带时间戳）跳过，避免自删新封面。
+    const previousCover = project.coverImageUrl;
+    if (previousCover && previousCover !== coverImageUrl) {
+      void deleteFile(previousCover).catch((err) =>
+        log.warn(`旧封面清理失败 (project=${id})，留为存储孤儿:`, err)
+      );
+    }
 
     return NextResponse.json({ coverImageUrl });
   } catch (error) {

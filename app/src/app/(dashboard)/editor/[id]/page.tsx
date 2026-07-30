@@ -414,7 +414,8 @@ export default function EditorPage() {
   // 成片包装（批6）：片头/片尾卡预览注入。
   // - isSeries：有 seriesId 即系列（决定卡片缺省开关，与导出端契约一致）；
   // - 底图：片头取首个有图分镜、片尾取末个有图分镜（无图则纯黑底）；
-  // - hookText：客户端拿不到圣经，传 null → buildTitleCards 用通用追更文案兜底。
+  // - hookText：项目 GET 已回传本集 endingHook（series.episodeEndingHook，与导出端
+  //   共用 resolveEpisodeEndingHook），取不到才由 buildTitleCards 用通用追更文案兜底。
   const isSeries = !!project.seriesId;
   const scenesWithImage = project.scenes.filter((s) => s.imageUrl);
   const coverImageUrl = scenesWithImage[0]?.imageUrl ?? null;
@@ -423,7 +424,7 @@ export default function EditorPage() {
   const titleCards = buildTitleCards({
     projectTitle: project.title,
     episodeNumber: project.episodeNumber,
-    hookText: null,
+    hookText: project.series?.episodeEndingHook ?? null,
     coverImageUrl,
     endImageUrl,
     config: project.generationParams?.titleCards,

@@ -46,4 +46,9 @@ export interface ProjectSeriesInfo {
   episodes: SeriesEpisodeRef[];
   /** 系列记忆摘要（有归档时非 null，供编辑器展示 + 刷新入口） */
   bibleSummary?: SeriesBibleSummary | null;
+  /**
+   * 本集在故事圣经里的结尾钩子（预览端片尾钩子卡文案；null=用通用追更文案兜底）。
+   * 与导出端共用 lib/series.resolveEpisodeEndingHook，保证预览/导出同文案。
+   */
+  episodeEndingHook?: string | null;
 }

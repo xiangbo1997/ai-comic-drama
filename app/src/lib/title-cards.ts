@@ -179,3 +179,48 @@ export function buildTitleCards(input: BuildTitleCardsInput): {
 
   return { intro, outro };
 }
+
+/**
+ * 按「分镜保留掩码」重建转场数组（导出端滤掉无媒体分镜后的索引对齐修复）。
+ *
+ * 背景：transitions 是索引对齐数组——第 k 项 = 第 k 与 k+1 个分镜之间的 gap。
+ * 编辑器/预览端按【全量分镜】索引维护它，导出端却先滤掉无图无视频的分镜再合成，
+ * 长度与语义都会整体错位（用户配在第 5 镜后的转场跑到第 3 镜后）。
+ *
+ * gap 合并语义：被滤掉的第 k 镜，其「入边 gap(k-1)」与「出边 gap(k)」在保留序列里
+ * 合并成同一条边，此时【保留前一个 gap 的配置、丢弃被删镜自身出边的配置】——
+ * 因为前一个 gap 的「上游镜」在保留序列里没变，用户对它的配置仍然成立；而被删镜的
+ * 出边配置描述的是一个已不存在的镜的离场，语义已失效。
+ *
+ * 首镜被滤掉时其出边 gap(0) 直接丢弃（前面没有可保留的 gap）。
+ *
+ * 入参 transitions 允许短于「全量镜数 - 1」（用户只配了前几个 gap）。这类缺位
+ * 在输出里以 undefined 占位保留索引对齐，合成端 `options.transitions?.[k]` 本就
+ * 按缺项回落默认转场，语义与修复前一致。
+ *
+ * @param transitions 全量分镜索引下的转场数组（长度语义 = 全量镜数 - 1，允许短缺）
+ * @param keepMask 与全量分镜等长的保留掩码（true = 该镜进入导出）
+ * @returns 保留序列索引下的转场数组（长度 = 保留镜数 - 1）
+ */
+export function remapTransitionsByKeepMask<T>(
+  transitions: readonly (T | undefined)[],
+  keepMask: readonly boolean[]
+): (T | undefined)[] {
+  const out: (T | undefined)[] = [];
+  // pendingGap：上一个「保留镜」的出边配置。遇到被滤掉的镜时不覆盖它
+  // （= 保留前一个 gap 的配置、丢弃被删镜的出边）。
+  let pendingGap: T | undefined;
+  let hasPending = false;
+
+  for (let i = 0; i < keepMask.length; i += 1) {
+    if (!keepMask[i]) continue; // 被滤掉的镜：其出边 transitions[i] 丢弃，pendingGap 不变
+    // 该镜保留：若已攒下一条 gap 配置，说明它与「上一个保留镜」之间成边，落盘。
+    if (hasPending) out.push(pendingGap);
+    // 本镜的出边成为下一条待定 gap（末镜的出边最终不会被落盘）。
+    pendingGap = transitions[i];
+    hasPending = true;
+  }
+
+  // 循环结束时的 pendingGap 是「最后一个保留镜的出边」，保留序列里它后面没有镜，丢弃。
+  return out;
+}

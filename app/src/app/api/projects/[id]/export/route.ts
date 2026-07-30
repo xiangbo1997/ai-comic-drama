@@ -16,10 +16,12 @@ import {
 import { resolveLutPreset, type ColorGrade } from "@/lib/color-grade";
 import {
   buildTitleCards,
+  remapTransitionsByKeepMask,
   TITLE_CARD_SCENE_ID,
   END_CARD_SCENE_ID,
   type TitleCardsConfig,
 } from "@/lib/title-cards";
+import { resolveEpisodeEndingHook } from "@/lib/series";
 import { parseStoryBible } from "@/types/series-bible";
 
 import { createLogger } from "@/lib/logger";
@@ -149,9 +151,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       };
     }
 
-    // 检查是否有足够的内容可以导出
+    // 检查是否有足够的内容可以导出。
+    // keepMask 与全量分镜等长，记录每个镜是否进入导出——转场按全量索引对齐，
+    // 滤镜后必须按这份掩码重建（见下方 remapTransitionsByKeepMask）。
+    const keepMask = project.scenes.map(
+      (s: Scene) => !!(s.videoUrl || s.imageUrl)
+    );
     const scenesWithContent = project.scenes.filter(
-      (s: Scene) => s.videoUrl || s.imageUrl
+      (_: Scene, i: number) => keepMask[i]
     );
     if (scenesWithContent.length === 0) {
       return NextResponse.json(
@@ -184,16 +191,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // 片尾钩子文案：系列项目取本集在故事圣经里的 endingHook；取不到 → null
     // （buildTitleCards 会给通用追更文案）。用 parseStoryBible 容错解析，永不抛错。
+    // resolveEpisodeEndingHook 与项目 GET（回传给预览端）共用，保证预览/导出同文案。
     let hookText: string | null = null;
-    if (
-      project.series?.storyBible &&
-      typeof project.episodeNumber === "number"
-    ) {
-      const bible = parseStoryBible(project.series.storyBible);
-      const ep = bible.episodes.find(
-        (e) => e.episodeNumber === project.episodeNumber
+    if (project.series?.storyBible) {
+      hookText = resolveEpisodeEndingHook(
+        parseStoryBible(project.series.storyBible),
+        project.episodeNumber
       );
-      hookText = ep?.endingHook?.trim() ? ep.endingHook : null;
     }
 
     // 卡片底图：片头取首个有图分镜、片尾取末个有图分镜（卡片是普通图片分镜，
@@ -280,14 +284,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    // 转场索引位移（批6）：options.transitions 是「第 k 项 = 第 k 与 k+1 镜之间」
-    // 的索引对齐数组。注入片头卡后须在最前 unshift 一项（片头卡与首镜之间），
-    // 注入片尾卡后须在末尾 push 一项（末镜与片尾卡之间）——仅当 resolvedTransitions
-    // 已是数组时才做；为 undefined 时保持 undefined（全片默认硬切含卡片边界，零回归）。
+    // 转场索引对齐修复：options.transitions 是「第 k 项 = 第 k 与 k+1 镜之间」
+    // 的索引对齐数组，编辑器/预览端按【全量分镜】索引维护它，导出端却先滤掉无
+    // 媒体分镜。两步顺序不可颠倒：
+    //   ① 按 keepMask 重建（滤掉的镜其出边 gap 丢弃、保留前一个 gap 的配置）；
+    //   ② 再叠加片头/片尾卡的边界位移（unshift/push）。
+    // 仅当 resolvedTransitions 已是数组时才做；为 undefined 时保持 undefined
+    //（全片默认硬切含卡片边界，零回归）。
     let resolvedTransitionsWithCards = resolvedTransitions;
     if (Array.isArray(resolvedTransitionsWithCards)) {
       const cardTransition = { type: "fadeblack", duration: 0.3 };
-      resolvedTransitionsWithCards = [...resolvedTransitionsWithCards];
+      resolvedTransitionsWithCards = remapTransitionsByKeepMask(
+        resolvedTransitionsWithCards,
+        keepMask
+      );
       if (introInjected) {
         resolvedTransitionsWithCards.unshift({ ...cardTransition });
       }

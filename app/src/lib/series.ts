@@ -195,6 +195,26 @@ function lastEpisodeBefore(bible: SeriesStoryBible, currentEpisode?: number) {
   return before.length > 0 ? before[before.length - 1] : null;
 }
 
+/**
+ * 取「本集」在故事圣经里的结尾钩子文案（片尾钩子卡的文案来源）。
+ *
+ * 导出端与项目 GET（供预览端）必须走同一份逻辑，否则预览看到的是兜底通用文案、
+ * 导出出来的是真钩子，违反「预览必须反映导出效果」。集数缺省或圣经里没有本集
+ * 条目/钩子为空 → 返回 null，由 buildTitleCards 用通用追更文案兜底。
+ *
+ * @param bible 已 parseStoryBible 容错解析过的圣经
+ * @param episodeNumber 本集集数（非数字/缺省 → null）
+ */
+export function resolveEpisodeEndingHook(
+  bible: SeriesStoryBible,
+  episodeNumber: number | null | undefined
+): string | null {
+  if (typeof episodeNumber !== "number") return null;
+  const ep = bible.episodes.find((e) => e.episodeNumber === episodeNumber);
+  const hook = ep?.endingHook?.trim();
+  return hook ? hook : null;
+}
+
 /** 截断到预算上限（超限加省略号，保留可读性） */
 function clampDigest(text: string, max: number): string {
   if (text.length <= max) return text;
