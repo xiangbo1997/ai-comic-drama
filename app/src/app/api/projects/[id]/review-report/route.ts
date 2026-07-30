@@ -72,29 +72,43 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         emotion: true,
       },
     });
-    const reviewScenes: ReviewScene[] = scenes.map((s) => ({
-      id: s.id,
-      order: s.order,
-      duration: s.duration,
-      shotType: s.shotType,
-      dialogue: s.dialogue,
-      narration: s.narration,
-      imageUrl: s.imageUrl,
-      videoUrl: s.videoUrl,
-      audioUrl: s.audioUrl,
-      videoLinkNext: s.videoLinkNext,
-      beatType: s.beatType,
-      isClimax: s.isClimax,
-      cameraMovement: s.cameraMovement,
-      actionBeat: s.actionBeat,
-      emotion: s.emotion,
-    }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const genParams = (project.generationParams as Record<string, any>) ?? {};
+
+    // 逐镜倍速表（generationParams.sceneEffects[].speed）：审片报告的所有时长判据
+    // 都必须按成片实际时长评估，而非 DB 声明的 scene.duration——导出端把变速镜的
+    // 画面压到 duration/speed（video-synthesis 的 declaredDuration），2 倍速的 10s 镜
+    // 成片只有 5s。不换算会让「总时长/空镜/对白超时/红线」四类判据全部读到虚高时长。
+    const speedBySceneId = buildSceneSpeedMap(genParams.sceneEffects);
+
+    const reviewScenes: ReviewScene[] = scenes.map((s) => {
+      const speed = speedBySceneId.get(s.id) ?? 1;
+      return {
+        id: s.id,
+        order: s.order,
+        // 与 video-synthesis.ts 的 declaredDuration 同公式（duration / speed）
+        duration: s.duration / speed,
+        // 语音朗读判据须与画面同轴：配音在成片阶段也挂了 atempo（同一 speed），
+        // 故朗读时长同样除 speed，让「对白超时」两边都在成片轴上比较。
+        speechSpeed: speed,
+        shotType: s.shotType,
+        dialogue: s.dialogue,
+        narration: s.narration,
+        imageUrl: s.imageUrl,
+        videoUrl: s.videoUrl,
+        audioUrl: s.audioUrl,
+        videoLinkNext: s.videoLinkNext,
+        beatType: s.beatType,
+        isClimax: s.isClimax,
+        cameraMovement: s.cameraMovement,
+        actionBeat: s.actionBeat,
+        emotion: s.emotion,
+      };
+    });
 
     // 片头/片尾卡额外时长：与导出端同契约（系列默认开、非系列默认关，逐项已存配置优先）。
     // 启用的卡片时长计入红线总时长门禁——与导出成片实际时长一致。
     const isSeries = !!project.seriesId;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const genParams = (project.generationParams as Record<string, any>) ?? {};
     const titleCardsConfig: TitleCardsConfig | null =
       genParams.titleCards && typeof genParams.titleCards === "object"
         ? (genParams.titleCards as TitleCardsConfig)
@@ -124,6 +138,31 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * 从 generationParams.sceneEffects 建「分镜 id → 倍速」表。
+ *
+ * 校验与导出端 video-synthesis.ts 的 resolveSceneEffect 保持同一契约：非数值/NaN 视为
+ * 1（不变速），有效值夹到 [0.25, 4]——两端读同一份配置却用不同的容错口径会让报告与
+ * 成片时长不符（报告说 5s，成片 4s）。倍速为 1 的项不入表（默认即 1，省内存）。
+ *
+ * @param raw generationParams.sceneEffects（未知结构，逐项防御式读取）
+ * @returns sceneId → speed 映射（仅含 speed≠1 的项）
+ */
+function buildSceneSpeedMap(raw: unknown): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!Array.isArray(raw)) return map;
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const { sceneId, speed } = item as { sceneId?: unknown; speed?: unknown };
+    if (typeof sceneId !== "string" || !sceneId) continue;
+    const n = Number(speed);
+    if (speed == null || Number.isNaN(n)) continue;
+    const clamped = Math.min(4, Math.max(0.25, n));
+    if (clamped !== 1) map.set(sceneId, clamped);
+  }
+  return map;
 }
 
 /**

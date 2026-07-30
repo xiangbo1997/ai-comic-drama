@@ -191,8 +191,24 @@ function safeFolderName(title: string): string {
   return (cleaned || "剪映草稿").slice(0, 60);
 }
 
-/** 使用说明.txt 内容（解压/兼容/边界说明） */
-function buildReadme(): string {
+/**
+ * 使用说明.txt 内容（解压/兼容/边界说明）。
+ *
+ * @param photoShotCount 静态图片镜数量——混合出片后图片镜是主力形态，本平台成片会给
+ *   图片镜自动加 Ken Burns 缓推运镜，而草稿导出明确不含运镜（见「本草稿不包含」），
+ *   故需在此点名提示用户在剪映里补动画，避免「草稿里的图片镜是死图」的困惑。
+ * @param videoShotCount 视频镜数量（用于对照说明）
+ */
+function buildReadme(photoShotCount: number, videoShotCount: number): string {
+  // 图片镜提示行：无图片镜时不出现（避免无意义噪音）
+  const photoNote =
+    photoShotCount > 0
+      ? [
+          `- 其中 ${photoShotCount} 个镜为静态图片（另有 ${videoShotCount} 个视频镜）。本平台成片会自动`,
+          "  给图片镜加缓推运镜（Ken Burns），剪映草稿不含该运镜——建议在剪映里为这些",
+          "  片段添加「动画」或用关键帧做缩放，避免静态图看起来像死图。",
+        ]
+      : [];
   return [
     "剪映草稿使用说明",
     "================",
@@ -213,6 +229,7 @@ function buildReadme(): string {
     "",
     "【本草稿包含】",
     "- 逐镜视频/图片（视频轨）",
+    ...photoNote,
     "- 逐镜配音（配音音轨）",
     "- 全片背景音乐（背景音乐音轨，若项目已配置）",
     "- 逐句字幕（文本轨，白字居中，可在剪映里自由重排样式/位置）",
@@ -268,17 +285,32 @@ export async function assembleJianyingDraft(
     let cursorUs = 0; // 视频轨累计起点（μs），逐镜闭合无缝
 
     for (const scene of usableScenes) {
-      const shotDurationUs = secondsToMicros(scene.duration);
+      const declaredDurationUs = secondsToMicros(scene.duration);
+      // 本镜在时间轴上实际占用的时长（μs）。视频镜以 ffprobe 实测为准（见下），
+      // 图片/探测失败回退声明值；配音窗与字幕窗都由此派生，故三者恒同轴。
+      let shotDurationUs = declaredDurationUs;
+      // 本镜时间轴时长对应的秒数（字幕分配窗按秒计算，与 shotDurationUs 同源）
+      let shotDurationSec = scene.duration;
 
       // 视频优先，否则图片
       if (scene.videoUrl) {
         const fileName = await downloader.fetch(scene.videoUrl, "video");
         const filePath = downloader.pathOf(fileName);
-        // 视频实测时长（秒→μs）；失败回退声明时长
-        let realDurationUs = shotDurationUs;
+        // 视频实测时长（秒→μs）；失败回退声明时长。
+        //
+        // 时间轴基准取实测值而非声明值：成片契约是「ffprobe 实长即分镜时长」
+        // （见 video-synthesis 的 effectiveDuration），草稿必须同轴，否则
+        // ① 时间轴与成片长度不符；② 实长 < 声明值时 lib 层会把 speedRatio 设为
+        // source/target < 1 把视频慢放拉伸（画面变慢）。用实测值后 source==target，
+        // speedRatio 自然归 1，视频原速播放。
+        let realDurationUs = declaredDurationUs;
         try {
           const durSec = await getMediaDuration(filePath);
-          if (durSec > 0) realDurationUs = secondsToMicros(durSec);
+          if (durSec > 0) {
+            realDurationUs = secondsToMicros(durSec);
+            shotDurationUs = realDurationUs;
+            shotDurationSec = durSec;
+          }
         } catch {
           log.warn(`视频时长探测失败，回退声明值: ${fileName}`);
         }
@@ -341,13 +373,14 @@ export async function assembleJianyingDraft(
         });
       }
 
-      // 字幕：dialogue 优先，无则 narration；复用同一真源切句 + 分配窗
+      // 字幕：dialogue 优先，无则 narration；复用同一真源切句 + 分配窗。
+      // 分配窗用 shotDurationSec（时间轴实际时长）而非 scene.duration，与视频/配音同轴。
       const subtitleText = scene.dialogue?.trim() || scene.narration?.trim();
       if (subtitleText) {
         const pieces = splitSubtitleSegments(subtitleText);
         const windows = allocateSubtitleWindows(
           pieces,
-          scene.duration,
+          shotDurationSec,
           voiceDurationSec
         );
         for (const w of windows) {
@@ -407,9 +440,12 @@ export async function assembleJianyingDraft(
       JSON.stringify(metaInfo, null, 4),
       "utf-8"
     );
+    // 使用说明：按实际镜别构成生成（图片镜需提示在剪映里补运镜/动画）
+    const photoShotCount = videoShots.filter((s) => s.kind === "photo").length;
+    const videoShotCount = videoShots.length - photoShotCount;
     await writeFile(
       path.join(draftDir, "使用说明.txt"),
-      buildReadme(),
+      buildReadme(photoShotCount, videoShotCount),
       "utf-8"
     );
 

@@ -315,3 +315,67 @@ describe("buildDraftMetaInfo", () => {
     expect((meta.draft_materials as unknown[]).length).toBe(7);
   });
 });
+
+describe("buildJianyingDraft — 时间轴用实测时长（A1 变速一致性）", () => {
+  it("durationUs = 素材实长时 speed 归 1（原速播放，不慢放拉伸）", () => {
+    // 服务层按「ffprobe 实长即分镜时长」把 durationUs 取为实测值 → source==target
+    const input = makeInput({
+      videoShots: [
+        {
+          kind: "video",
+          materialFileName: "real.mp4",
+          materialWidth: 1080,
+          materialHeight: 1920,
+          materialDurationUs: secondsToMicros(2.4),
+          startUs: 0,
+          durationUs: secondsToMicros(2.4), // 实长即时间轴时长
+        },
+      ],
+      voiceClips: [],
+      bgm: undefined,
+      subtitles: [],
+    });
+    const draft = buildJianyingDraft(input);
+    const seg = draft.tracks[0].segments[0];
+    const source = seg.source_timerange as { start: number; duration: number };
+    const target = seg.target_timerange as { start: number; duration: number };
+    expect(source.duration).toBe(secondsToMicros(2.4));
+    expect(target.duration).toBe(secondsToMicros(2.4));
+    // 不变式 source = target × speed 下 speed 恰为 1
+    expect(seg.speed).toBe(1);
+    // speed 素材与片段 speed 同值
+    const speeds = draft.materials.speeds as Record<string, unknown>[];
+    expect(speeds[0].speed).toBe(1);
+    // 全片时长 = 实测时长
+    expect(draft.duration).toBe(secondsToMicros(2.4));
+  });
+
+  it("探测失败回退声明值且声明值 > 实长 → 仍走慢放兜底（不破坏剪映时间不变式）", () => {
+    const input = makeInput({
+      videoShots: [
+        {
+          kind: "video",
+          materialFileName: "fallback.mp4",
+          materialWidth: 1080,
+          materialHeight: 1920,
+          materialDurationUs: secondsToMicros(2),
+          startUs: 0,
+          durationUs: secondsToMicros(4), // 回退声明值
+        },
+      ],
+      voiceClips: [],
+      bgm: undefined,
+      subtitles: [],
+    });
+    const draft = buildJianyingDraft(input);
+    const seg = draft.tracks[0].segments[0];
+    const source = seg.source_timerange as { start: number; duration: number };
+    const target = seg.target_timerange as { start: number; duration: number };
+    // 不变式：source = target × speed
+    expect(source.duration).toBeCloseTo(
+      target.duration * (seg.speed as number),
+      0
+    );
+    expect(seg.speed).toBeCloseTo(0.5, 6);
+  });
+});

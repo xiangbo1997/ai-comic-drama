@@ -63,7 +63,11 @@ export interface DraftVideoShot {
   materialDurationUs: number;
   /** 镜头在视频轨上的起点（μs，逐镜累加，闭合无缝） */
   startUs: number;
-  /** 镜头时长（μs，= scene.duration；即 target_timerange.duration） */
+  /**
+   * 镜头时长（μs，即 target_timerange.duration）。
+   * 视频镜 = ffprobe 实测素材时长（对齐成片契约「实长即分镜时长」，探测失败回退
+   * scene.duration）；图片镜 = scene.duration。
+   */
   durationUs: number;
 }
 
@@ -385,6 +389,10 @@ export function buildJianyingDraft(
     // 让短视频铺满整个镜头且首尾对齐——这与参考库 pyJianYingDraft 完全一致。若强行 speed=1.0
     // 会破坏该不变式（source≠target*speed），剪映可能只播 source 段后留空档而非铺满。
     // 图片素材（source==target）speed 恒为 1。
+    //
+    // 注：服务层已把视频镜的 durationUs 取为 ffprobe 实测时长（成片契约「实长即分镜时长」），
+    // 故正常路径下 source==target、speedRatio 归 1（原速播放）；此分支只在探测失败回退声明值
+    // 且声明值 > 实长时才触发慢放，属兜底而非常态。
     const speedRatio =
       shot.durationUs > 0 ? sourceDurationUs / shot.durationUs : 1;
 

@@ -631,3 +631,77 @@ describe("assembleReviewReport · 红果红线门禁", () => {
     expect(redline.lines.some((l) => l.includes("AI 场记"))).toBe(true);
   });
 });
+
+describe("assembleReviewReport · 变速换算（speechSpeed）", () => {
+  it("朗读时长按 speechSpeed 除算 → 2 倍速下不再误报对白超时", () => {
+    // 12 汉字 ≈ 4.8s 朗读；成片轴时长 3s（= DB 6s / 2 倍速）。
+    // 配音同样被 atempo 压到 2.4s < 3s，故不应判超时。
+    const s = scene({
+      id: "fast",
+      order: 0,
+      duration: 3,
+      speechSpeed: 2,
+      dialogue: "一二三四五六七八九十甲乙",
+    });
+    const report = assembleReviewReport({
+      scenes: [s],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const pacing = findSection(report, "pacing");
+    expect(pacing.lines.some((l) => l.includes("配音会被截断"))).toBe(false);
+  });
+
+  it("同一台词在 speechSpeed=1 下仍判超时（证明差异来自倍速换算而非文本）", () => {
+    const s = scene({
+      id: "normal",
+      order: 0,
+      duration: 3,
+      speechSpeed: 1,
+      dialogue: "一二三四五六七八九十甲乙",
+    });
+    const report = assembleReviewReport({
+      scenes: [s],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const pacing = findSection(report, "pacing");
+    expect(pacing.status).toBe("bad");
+    expect(pacing.lines.some((l) => l.includes("配音会被截断"))).toBe(true);
+  });
+
+  it("speechSpeed 缺省/非正 → 按 1 处理（零回归）", () => {
+    const dialogue = "一二三四五六七八九十甲乙";
+    const base = { order: 0, duration: 3, dialogue };
+    const missing = assembleReviewReport({
+      scenes: [scene({ id: "m", ...base })],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    const zero = assembleReviewReport({
+      scenes: [scene({ id: "z", ...base, speechSpeed: 0 })],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    // 两者都等价于 speechSpeed=1 → 同样判超时
+    expect(findSection(missing, "pacing").status).toBe("bad");
+    expect(findSection(zero, "pacing").status).toBe("bad");
+  });
+
+  it("慢放（speechSpeed<1）拉长朗读时长 → 可触发超时", () => {
+    // 6 汉字 ≈ 2.4s；0.5 倍速下朗读 4.8s > 成片轴 4s → 超时
+    const s = scene({
+      id: "slow",
+      order: 0,
+      duration: 4,
+      speechSpeed: 0.5,
+      dialogue: "一二三四五六",
+    });
+    const report = assembleReviewReport({
+      scenes: [s],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+    });
+    expect(findSection(report, "pacing").status).toBe("bad");
+  });
+});

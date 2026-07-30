@@ -450,35 +450,58 @@ function buildKenBurnsFilter(
 }
 
 /**
+ * ── 冲击滤镜的时间坐标系约定（变速 × 冲击窗对齐，务必先读）──
+ *
+ * buildClipVideoFilter 的链序是：画面(scale/pad 或 KenBurns) → FX → 冲击 → setpts=PTS/speed
+ * → fps。冲击滤镜挂在 setpts **之前**，其表达式里的 `t`（以及 enable 的 `t`）读的是
+ * **源时间轴**；setpts 之后源时刻 t 会出现在成片时刻 t/speed。
+ *
+ * 所以「源轴窗口 D 秒」在成片里只持续 D/speed 秒。预览端按成片轴计时
+ * （preview-player 的 tInScene = progress × effDur，effDur 已除过 speed），窗口是常量
+ * SHAKE/FLASH_PARAMS.durationSec。要让两端一致，源轴窗口必须写成 durationSec × speed
+ * ——这样成片轴上表现出的窗口恰为 durationSec，与预览相同。
+ *
+ * 因此本组 build*Filter 一律接收 speed 并把窗口秒数（及频率相位）换算到源轴：
+ *   - 窗长：dur × speed（衰减/脉冲/enable 区间都用它）
+ *   - 频率：f / speed（源轴上放慢频率，成片轴回到 f Hz，震屏手感不随倍速漂移）
+ * speed=1 时所有换算为恒等，行为与改动前完全一致（零回归）。
+ */
+
+/**
  * 构建冲击「震屏」滤镜片段：放大 + 裁剪窗按共享正弦公式抖动（落在镜头前 durationSec）。
  *
  * 与预览端 CSS 读同一份 SHAKE_PARAMS（幅度/频率/衰减），逐帧位移用与 shakeOffsetAt
- * 相同的正弦×线性衰减公式表达（ffmpeg 用 t 时间变量）。窗外（t≥durationSec）位移
+ * 相同的正弦×线性衰减公式表达（ffmpeg 用 t 时间变量）。窗外（t≥窗长）位移
  * 表达式自然归 0（衰减因子 max(0,1-t/dur) 为 0），画面归位。
  *
  * @param width      画面宽
  * @param height     画面高
  * @param intensity  档位（light/heavy）
+ * @param speed      该镜倍速（窗长/频率按源轴换算，见上方坐标系约定）
  * @returns scale + crop 抖动滤镜片段
  */
 function buildShakeFilter(
   width: number,
   height: number,
-  intensity: "light" | "heavy"
+  intensity: "light" | "heavy",
+  speed: number
 ): string {
   const cfg = SHAKE_PARAMS[intensity];
-  const dur = SHAKE_PARAMS.durationSec;
+  // 源轴窗长 = 成片轴窗长 × speed（setpts 之后被压缩回 durationSec）
+  const dur = SHAKE_PARAMS.durationSec * speed;
   const pad = SHAKE_PARAMS.zoomPad;
+  // 源轴频率 = 目标频率 / speed（变速后回到目标 Hz，抖动手感不随倍速变化）
+  const freqHz = cfg.frequencyHz / speed;
   // 振幅按画面高相对 1080 基准缩放（参数以 @1080 定义），跨分辨率视觉一致
   const ampPx = (cfg.amplitudePx * height) / 1080;
   const upW = Math.round(width * pad);
   const upH = Math.round(height * pad);
-  // 衰减因子：max(0,1-t/dur)，窗外为 0；正弦项 sin(2π f t)
-  const decay = `max(0\\,1-t/${dur})`;
-  const sine = `sin(2*PI*${cfg.frequencyHz}*t)`;
+  // 衰减因子：max(0,1-t/dur)，窗外为 0；正弦项 sin(2π f t)（t/dur/f 均为源轴量）
+  const decay = `max(0\\,1-t/${dur.toFixed(4)})`;
+  const sine = `sin(2*PI*${freqHz.toFixed(4)}*t)`;
   const offset = `(${ampPx.toFixed(2)})*${decay}*${sine}`;
   // 裁剪窗中心 = 放大余量中点 ± 抖动位移；x/y 各自抖动（y 用 cos 相位差制造二维晃动）
-  const cosine = `cos(2*PI*${cfg.frequencyHz}*t)`;
+  const cosine = `cos(2*PI*${freqHz.toFixed(4)}*t)`;
   const offsetY = `(${ampPx.toFixed(2)})*${decay}*${cosine}`;
   return (
     `scale=${upW}:${upH},` +
@@ -491,15 +514,20 @@ function buildShakeFilter(
  *
  * 与预览端白色覆盖层读同一份 FLASH_PARAMS。用 eq=brightness 配 enable 时间窗；
  * brightness 表达式用「三角脉冲 × 峰值」，与 flashIntensityAt 同形（前半升后半降）。
+ *
+ * @param speed 该镜倍速——窗长按源轴换算（见上方坐标系约定），使成片轴脉冲恒为
+ *   FLASH_PARAMS.durationSec，与预览端一致。
  */
-function buildFlashFilter(): string {
-  const dur = FLASH_PARAMS.durationSec;
+function buildFlashFilter(speed: number): string {
+  // 源轴窗长 = 成片轴窗长 × speed（eq 的 enable/brightness 都读源轴 t）
+  const dur = FLASH_PARAMS.durationSec * speed;
   const half = dur / 2;
   const peak = FLASH_PARAMS.peakBrightness;
   // 三角脉冲：t<half 时 t/half，否则 1-(t-half)/half；乘峰值亮度
-  const tri = `if(lt(t\\,${half})\\,t/${half}\\,1-(t-${half})/${half})`;
+  const halfExpr = half.toFixed(4);
+  const tri = `if(lt(t\\,${halfExpr})\\,t/${halfExpr}\\,1-(t-${halfExpr})/${halfExpr})`;
   const bright = `${peak}*${tri}`;
-  return `eq=brightness='${bright}':enable='between(t,0,${dur})'`;
+  return `eq=brightness='${bright}':enable='between(t,0,${dur.toFixed(4)})'`;
 }
 
 /**
@@ -509,15 +537,23 @@ function buildFlashFilter(): string {
  * 内容，再用 tpad 克隆末帧补回 tailSec，净时长守恒。分镜过短（≤ tailSec×2）时跳过定格
  * （返回空串，调用方不拼），避免把整镜冻死。
  *
- * @param durationSec 分镜有效时长（秒）
+ * 坐标系（见上方约定）：trim/tpad 挂在 setpts 之前，其秒数是**源轴**量，故源轴上
+ * 定格 tail×speed 秒，经 setpts 压缩后成片轴恰为 tailSec（与预览端 isFreezeTailAt
+ * 的常量 tailSec 一致）。入参 durationSec 是成片轴有效时长，先乘回 speed 换算源轴。
+ *
+ * @param durationSec 分镜成片轴有效时长（秒，= scene.duration / speed）
+ * @param speed       该镜倍速
  * @returns trim+tpad 滤镜片段；分镜过短时返回空串
  */
-function buildFreezeFilter(durationSec: number): string {
-  const tail = FREEZE_PARAMS.tailSec;
-  // 定格段需小于镜长，且留出至少 tail 的动态铺垫，否则整镜近乎全冻，跳过
-  if (durationSec <= tail * 2) return "";
-  const keep = durationSec - tail;
-  // 保留前 keep 秒动态 → tpad 克隆末帧补 tail 秒 → 净时长回到 durationSec
+function buildFreezeFilter(durationSec: number, speed: number): string {
+  // 源轴量：镜长与定格段都乘回 speed（trim/tpad 在 setpts 之前，读源轴秒数）
+  const srcDuration = durationSec * speed;
+  const tail = FREEZE_PARAMS.tailSec * speed;
+  // 定格段需小于镜长，且留出至少 tail 的动态铺垫，否则整镜近乎全冻，跳过。
+  // 该判据在源轴与成片轴上等价（两边同乘 speed），阈值语义不随倍速漂移。
+  if (srcDuration <= tail * 2) return "";
+  const keep = srcDuration - tail;
+  // 保留前 keep 秒动态 → tpad 克隆末帧补 tail 秒 → 源轴净时长回到 srcDuration
   return `trim=0:${keep.toFixed(3)},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${tail.toFixed(3)}`;
 }
 
@@ -1540,16 +1576,18 @@ function buildClipVideoFilter(
 
   if (effect) parts.push(effect);
 
-  // 冲击重音（在滤镜之后、变速之前）：shake/flash 落镜头前窗；freeze 在镜尾定格
+  // 冲击重音（在滤镜之后、变速之前）：shake/flash 落镜头前窗；freeze 在镜尾定格。
+  // 三者都挂在 setpts 之前 → 表达式读源时间轴，故窗口秒数须按 speed 换算到源轴
+  // （见 build*Filter 上方的坐标系约定），使成片轴上的窗口与预览端常量窗一致。
   const impact = motionImpact?.impact ?? null;
   if (impact === "shake") {
     // 图片轻震、视频重震：图片是静止画，轻震即够；视频动态画配重震更有力
     const intensity = motionImpact?.isImage ? "light" : "heavy";
-    parts.push(buildShakeFilter(width, height, intensity));
+    parts.push(buildShakeFilter(width, height, intensity, speed));
   } else if (impact === "flash") {
-    parts.push(buildFlashFilter());
+    parts.push(buildFlashFilter(speed));
   } else if (impact === "freeze") {
-    const freeze = buildFreezeFilter(motionImpact?.durationSec ?? 0);
+    const freeze = buildFreezeFilter(motionImpact?.durationSec ?? 0, speed);
     if (freeze) parts.push(freeze);
   }
 
@@ -1660,6 +1698,10 @@ async function sceneToVideoClip(
 
     // 图片场景：滤镜照常应用，但变速对静态图无意义（画面不动），
     // 用有效时长直接 -t 即可（无需 setpts）。
+    //
+    // 冲击窗坐标系：此分支不挂 setpts，源轴即成片轴（-t 已是 declaredDuration =
+    // duration/speed），故 speed 传 1——冲击窗无需换算，直接是成片轴常量窗。
+    // 若哪天图片分支改成「按原时长生成 + setpts 压缩」，这里必须改传 speed。
     //
     // Ken Burns 默认契约：图片分镜是「-loop 1 死图」的幻灯片感重灾区，故
     //   - motion===undefined（用户从未配运镜）→ 默认运镜先按导演 cameraMovement 派生
@@ -1917,14 +1959,31 @@ export async function synthesizeVideo(
             `audio_${scene.order}.mp3`
           );
           audioInputs.push("-i", audioPath);
-          audioFilters.push(
-            `[${audioIndex + 1}:a]adelay=${Math.round(currentTime * 1000)}|${Math.round(currentTime * 1000)}[a${audioIndex}]`
+          // 配音变速：该镜配了 speed 时，画面已被 setpts（视频镜）或 -t 压缩
+          // （图片镜，declaredDuration = duration/speed），配音是成片阶段的独立
+          // 输入流，必须在此同步 atempo，否则「画面 2 倍速、配音原速」→ 音画失步
+          // 且配音溢出到下一镜。视频镜片段内的 [0:a]atempo 只作用于视频自带音轨，
+          // 与这条 TTS 配音流无关，故两处都要挂。
+          const { speed: voiceSpeed } = resolveSceneEffect(
+            scene.id,
+            options.sceneEffects
           );
+          const delayMs = Math.round(currentTime * 1000);
+          const tempoChain =
+            voiceSpeed !== 1 ? buildAtempoChain(voiceSpeed) : [];
+          // 先变速再 adelay：atempo 只压缩流自身长度，adelay 的偏移量是成片时间轴
+          // 绝对值，顺序颠倒会把延迟本身也一起压缩掉。
+          const chain = [...tempoChain, `adelay=${delayMs}|${delayMs}`].join(
+            ","
+          );
+          audioFilters.push(`[${audioIndex + 1}:a]${chain}[a${audioIndex}]`);
           audioIndex++;
-          // 探测配音真实时长供字幕对齐（探测失败留 undefined，字幕回退按镜时长分配）
+          // 探测配音真实时长供字幕对齐（探测失败留 undefined，字幕回退按镜时长分配）。
+          // 变速后成片里的配音实长 = 源实长 / speed，字幕逐句节奏须按变速后的值分配，
+          // 否则末句会被推到镜外（与 declaredDuration = duration/speed 同公式）。
           try {
             const probed = await getMediaDuration(audioPath);
-            if (probed > 0) voiceDurations[i] = probed;
+            if (probed > 0) voiceDurations[i] = probed / voiceSpeed;
           } catch {
             // ffprobe 失败不阻塞导出，该镜字幕退化为按 effDuration 分配
           }

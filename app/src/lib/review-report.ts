@@ -15,6 +15,12 @@
  *   合理镜频区间；低于 15 = 镜头偏长拖沓，高于 25 = 碎切疲劳。
  *
  * 等级复用 2.3 的 A/B/C/D 思路：按「异常节」数量降级（见 computeGrade 注释）。
+ *
+ * ── 时间轴约定 ──
+ * 本文件的 duration 一律是「成片轴」时长（已按逐镜倍速换算，= DB scene.duration / speed），
+ * 由 route 层从 generationParams.sceneEffects 取 speed 算好后传入；台词朗读时长同样按
+ * speechSpeed 换算（导出端给配音挂了同一 speed 的 atempo）。故本文件内不出现任何倍速逻辑，
+ * 所有阈值都直接对着成片实际秒数比较。
  */
 
 import { estimateSpeechSeconds } from "@/lib/shot-timing";
@@ -53,7 +59,18 @@ const REDLINE_SUGGESTION_LIMIT = 5;
 export interface ReviewScene {
   id: string;
   order: number;
+  /**
+   * 分镜「成片轴」时长（秒）——已按倍速换算（= DB scene.duration / speed），
+   * 由 route 层用 generationParams.sceneEffects 算好传入。本文件所有时长判据
+   * （总时长/空镜/对白超时/红线）一律读此字段，无需再关心倍速。
+   */
   duration: number;
+  /**
+   * 该镜倍速（缺省 1）。仅用于把「台词朗读时长」换算到成片轴——导出端给配音挂了
+   * 同一 speed 的 atempo（见 video-synthesis 的配音 buildAtempoChain），故朗读
+   * 时长也须除 speed，才能与已换算的 duration 在同一时间轴上比较。
+   */
+  speechSpeed?: number;
   shotType?: string | null;
   dialogue?: string | null;
   narration?: string | null;
@@ -257,13 +274,12 @@ function buildPacingSection(
     }
   }
 
-  // 对白朗读超时（对白+旁白朗读时长 > duration → 配音被截断）
+  // 对白朗读超时（对白+旁白朗读时长 > duration → 配音被截断）。
+  // 朗读时长按 speechSpeed 换算到成片轴（duration 已换算），保持判据两边同轴。
   const overrun = scenes
     .map((s) => ({
       scene: s,
-      speech:
-        estimateSpeechSeconds(s.dialogue ?? "") +
-        estimateSpeechSeconds(s.narration ?? ""),
+      speech: sceneSpeechSeconds(s),
     }))
     .filter((x) => x.speech > (x.scene.duration || 0));
   if (overrun.length > 0) {
@@ -299,6 +315,20 @@ function buildPacingSection(
 /** 有对白或旁白 */
 function hasSpeech(s: ReviewScene): boolean {
   return Boolean(s.dialogue?.trim()) || Boolean(s.narration?.trim());
+}
+
+/**
+ * 该镜「成片轴」台词朗读时长（秒）= (对白+旁白朗读时长) / speechSpeed。
+ *
+ * 导出端配音与画面挂同一 speed，故朗读时长与 duration 必须同除 speed 才可比较；
+ * speechSpeed 缺省/非正时按 1（不变速）处理，行为与未接入倍速时完全一致。
+ */
+function sceneSpeechSeconds(s: ReviewScene): number {
+  const raw =
+    estimateSpeechSeconds(s.dialogue ?? "") +
+    estimateSpeechSeconds(s.narration ?? "");
+  const speed = s.speechSpeed && s.speechSpeed > 0 ? s.speechSpeed : 1;
+  return raw / speed;
 }
 
 /**
