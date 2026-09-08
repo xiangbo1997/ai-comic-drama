@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { contentSafetyMiddleware } from "@/lib/content-safety";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
 import { chatCompletion } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { getUserImageConfig, getUserLLMConfig } from "@/lib/ai-config";
@@ -17,9 +16,7 @@ import {
 } from "@/lib/prompt-builder";
 import {
   orchestrateImageGeneration,
-  normalizeCandidateCount,
   pickRecommendedIndex,
-  mergeSimilarityScores,
   scoreCandidate,
 } from "@/services/generation";
 import type {
@@ -27,6 +24,12 @@ import type {
   CharacterRole,
   CandidateScore,
 } from "@/services/generation";
+// 请求归一化 + 落库事务已提取（纯结构拆分，行为与事务边界不变）
+import {
+  normalizeImageRequest,
+  IMAGE_COST,
+} from "@/services/generation/image-request/normalize";
+import { persistImageResult } from "@/services/generation/image-request/persist";
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 import {
@@ -35,15 +38,8 @@ import {
   type AnalysisCacheKeyInput,
 } from "@/lib/cache/analysis-cache";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
-import { chargeCredits } from "@/lib/credits";
 
 const log = createLogger("api:generate:image");
-
-// 图像生成成本（积分）
-const IMAGE_COST = {
-  normal: 1, // 普通生成
-  withRef: 3, // 带参考图（角色一致性）
-};
 
 /**
  * 三视图参考资产排序：isCanonical desc（定妆图优先）→ qualityScore desc（高分优先）
@@ -96,34 +92,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 请求体解析 / 归一化（字段收窄 + 档位合法化 + 成本预估 + 参考图排序去重）
     const {
       prompt,
       referenceImage,
-      // Stage 修复：客户端三视图会传 referenceImages 数组（front/side/back），
-      // 此前未解构导致多张参考图被丢弃，三视图锁形象在服务端实质失效。
-      referenceImages,
       aspectRatio,
       style,
       projectId,
       sceneId,
       imageConfigId,
-      // Stage 1.3 引入：客户端可显式传入 negativePrompt。orchestrator 将在 Stage 1.4
-      // 正式消费（目前先记录，便于观察管线是否打通）。
       negativePrompt,
-      // 迭代式生成：iterate=true 时 referenceImages 是「上一版整图」，
-      // note 是用户追加指令（"改成夜晚"）——note 会被提权到 finalPrompt 最前，
-      // iterate 透传给 orchestrator 切换 reference_edit 措辞。
       note,
       iterate,
-      // AI 场记修复：前镜当前图作迭代一致性锚图，orchestrator 按 provider 能力门控注入。
       iterationAnchorUrl,
-      // 多候选抽卡档位（批次 2 · 1.4A）：1 / 2 / 4，缺省 1。
-      // count=1 时行为与单发生成完全一致（零回归）；2/4 张并行生成后 VLM 择优。
-      count,
-    } = await request.json();
-
-    // 档位合法化：仅放行 1 / 2 / 4，非法值回落 1（零回归基石）
-    const candidateCount = normalizeCandidateCount(count);
+      candidateCount,
+      explicitRefs,
+      cost,
+      rawInput,
+    } = normalizeImageRequest(await request.json());
 
     if (!prompt) {
       return NextResponse.json(
@@ -162,17 +148,6 @@ export async function POST(request: NextRequest) {
 
     // 使用净化后的提示词
     const safePrompt = safetyCheck.sanitizedText || prompt;
-
-    // 成本预估（编排器使用参考图时成本更高，此处做保守预扣）
-    const hasExplicitRef = !!(
-      referenceImage ||
-      (Array.isArray(referenceImages) && referenceImages.length > 0)
-    );
-    // 单张预估成本；多候选按 candidateCount × 单价做前置余额校验（实际按成功张数扣费）
-    const perImageCost = hasExplicitRef
-      ? IMAGE_COST.withRef
-      : IMAGE_COST.normal;
-    const cost = perImageCost * candidateCount;
 
     // 检查积分（多候选需 ≥ count × 单张预估）
     const user = await prisma.user.findUnique({
@@ -224,11 +199,10 @@ export async function POST(request: NextRequest) {
           style,
           imageConfigId,
           // 迭代式生成：留痕用户追加指令与迭代标记，便于排查
-          note: note ?? null,
-          iterate: iterate ?? false,
+          note: rawInput.note,
+          iterate: rawInput.iterate,
           // AI 场记修复：留痕迭代一致性锚图（审计留痕）
-          iterationAnchorUrl:
-            typeof iterationAnchorUrl === "string" ? iterationAnchorUrl : null,
+          iterationAnchorUrl: rawInput.iterationAnchorUrl,
           // 多候选档位（便于排查抽卡请求）
           count: candidateCount,
         },
@@ -464,8 +438,12 @@ export async function POST(request: NextRequest) {
 
               // 系列记忆（既定场景/道具/角色状态）：续集时注入分析 prompt，保证
               // 跨集视觉一致。空圣经/非系列返回 null。digest 变化必须进 cache key。
-              const seriesContext =
-                (await loadSeriesMemoryDigest(projectId, "scene")) || undefined;
+              // projectId 缺省时无系列上下文可查（拆分前 projectId 为 any，
+              // 传 undefined 进去也只会查不到项目返回 null，语义等价）。
+              const seriesContext = projectId
+                ? (await loadSeriesMemoryDigest(projectId, "scene")) ||
+                  undefined
+                : undefined;
 
               // 场景分析缓存（a7 P1-4）：同分镜重复生成时内容不变，跳过
               // 这次 ~1024 tokens 的 LLM 往返。key 按场景内容+角色名+相邻镜描述+
@@ -573,20 +551,16 @@ export async function POST(request: NextRequest) {
         // （复用角色端 buildCharacterPromptWithCustom 的成熟提权句式）。
         // 必须拼进传给 orchestrator 的 prompt，note 才会进 enhancedPrompt→进
         // cacheKey，同一分镜换 note 不会误命中旧缓存返回旧图（缓存正确性）。
-        const iterationNote = typeof note === "string" ? note.trim() : "";
+        // note 已在 normalizeImageRequest 里 trim（语义同拆分前的 iterationNote）。
+        const iterationNote = note;
         const finalPrompt = iterationNote
           ? `User instruction (highest priority, must follow): ${iterationNote}. ${composedPrompt}`
           : composedPrompt;
 
         // 通过编排器生成【一张】候选图（统一策略选择 + 验证 + 重试 + 上传）。
         // Stage 1.4：把客户端传入的 negativePrompt 与 referenceImage 透传给 orchestrator。
-        // 客户端显式指定的 referenceImage 作为 referenceImages 列表第一项优先生效。
-        const explicitRefs =
-          Array.isArray(referenceImages) && referenceImages.length > 0
-            ? referenceImages
-            : referenceImage
-              ? [referenceImage]
-              : undefined;
+        // 客户端显式指定的 referenceImage 作为 referenceImages 列表第一项优先生效
+        // （explicitRefs 由 normalizeImageRequest 排序去重后给出）。
 
         // candidateIndex：多候选抽卡时每张走不同 seed 与不同缓存 key，
         // 否则第 2 张起全部命中第 1 张写入的缓存，用户为同一张图付 N 倍积分
@@ -611,14 +585,9 @@ export async function POST(request: NextRequest) {
             negativePrompt: negativePrompt || undefined,
             referenceImages: explicitRefs,
             // 迭代模式：参考图是上一版整图，切换 reference_edit 为迭代友好措辞
-            iterate: iterate === true,
+            iterate,
             // 迭代一致性锚（AI 场记修复）：前镜当前图，orchestrator 按 provider 能力门控注入
-            iterationAnchorUrl:
-              iterate === true &&
-              typeof iterationAnchorUrl === "string" &&
-              iterationAnchorUrl.trim()
-                ? iterationAnchorUrl.trim()
-                : undefined,
+            iterationAnchorUrl: iterate ? iterationAnchorUrl : undefined,
             // 朝向感知三视图选择：分镜画面线索透传，orchestrator 据此挑对应朝向参考图
             sceneFacingHints: sceneFacingHints || undefined,
           });
@@ -718,114 +687,21 @@ export async function POST(request: NextRequest) {
         );
 
         // R1：将「任务完成 + 场景更新 + N 条 attempt + 扣费」包进同一事务，保证原子性。
-        // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
-        // 余额不足会抛错并自动回滚本次写入。
-        // R2：扣费时机为「生成成功后」，失败张从未被扣（按成功张数计），无需退款。
-        const candidatesOutput = await prisma.$transaction(async (tx) => {
-          const candidates: Array<{
-            attemptId: string;
-            imageUrl: string;
-            vlmScore: number | null;
-            recommended: boolean;
-          }> = [];
-
-          // 如果有场景ID，更新场景为选中张 + 为每张候选落一条 GenerationAttempt。
-          // 无 sceneId（罕见的无分镜生成）时不落 attempt（无版本历史意义），
-          // 但仍返回候选（此时 attemptId 为空字符串占位，前端点选走 sceneId 分支）。
-          if (projectId && sceneId) {
-            await tx.scene.updateMany({
-              where: { id: sceneId },
-              data: { imageUrl, imageStatus: "COMPLETED" },
-            });
-
-            // 多候选：同分镜旧版本先取消 isCurrent；本次 N 张按顺序 attemptNumber 递增，
-            // 仅「推荐张」置为当前版本（写 Scene.imageUrl 的那张）。
-            const priorCount = await tx.generationAttempt.count({
-              where: { sceneId },
-            });
-            await tx.generationAttempt.updateMany({
-              where: { sceneId, isCurrent: true },
-              data: { isCurrent: false },
-            });
-
-            for (let i = 0; i < successes.length; i++) {
-              const c = successes[i];
-              const isRecommended = i === recommendedIdx;
-              // VLM 分数合并进 similarityScores（保留人脸校验等既有键，不整字段覆盖）
-              const mergedScores = mergeSimilarityScores(
-                {
-                  faceCount: c.result.validation?.faceCount ?? undefined,
-                },
-                scores[i]
-              );
-              const attempt = await tx.generationAttempt.create({
-                data: {
-                  taskId: task.id,
-                  sceneId,
-                  attemptNumber: priorCount + 1 + i,
-                  provider: imageConfig?.protocol ?? "unknown",
-                  model: imageConfig?.model ?? "",
-                  strategy: c.result.strategy,
-                  referenceAssetIds: [],
-                  note: iterationNote || null,
-                  outputUrl: c.imageUrl,
-                  similarityScores: mergedScores as Prisma.InputJsonValue,
-                  passedValidation: c.result.validation?.passed ?? null,
-                  faceCount: c.result.validation?.faceCount ?? null,
-                  failureReason: c.result.validation?.reason || null,
-                  // 推荐张即当前版本（写 Scene.imageUrl 的那张）
-                  isCurrent: isRecommended,
-                },
-              });
-              candidates.push({
-                attemptId: attempt.id,
-                imageUrl: c.imageUrl,
-                vlmScore: scores[i].vlmScore,
-                recommended: isRecommended,
-              });
-            }
-          } else {
-            // 无分镜：仅回传候选列表（无 attempt 落库）
-            for (let i = 0; i < successes.length; i++) {
-              candidates.push({
-                attemptId: "",
-                imageUrl: successes[i].imageUrl,
-                vlmScore: scores[i].vlmScore,
-                recommended: i === recommendedIdx,
-              });
-            }
-          }
-
-          // 更新任务状态：output 保持向后兼容形状 + 追加 candidates
-          await tx.generationTask.update({
-            where: { id: task.id },
-            data: {
-              status: "COMPLETED",
-              output: {
-                imageUrl,
-                cost: actualCost,
-                strategy: chosenResult.strategy,
-                attemptCount: chosenResult.attemptCount,
-                candidates,
-              },
-              completedAt: new Date(),
-              cost: actualCost,
-            },
-          });
-
-          // 扣减积分（按成功张数 × 单张成本，事务内扣费+记流水+余额校验）
-          await chargeCredits(tx, {
-            userId,
-            amount: actualCost,
-            type: "GENERATE_IMAGE",
-            source: "generate:image",
-            sourceId: task.id,
-            note: sceneId
-              ? `场景 ${sceneId} 图像生成（${successes.length} 张，策略 ${chosenResult.strategy}）`
-              : `图像生成（${successes.length} 张，策略 ${chosenResult.strategy}）`,
-          });
-
-          return candidates;
+        // 事务体已提取到 services/generation/image-request/persist.ts（操作与顺序不变）。
+        const candidatesOutput = await persistImageResult({
+          taskId: task.id,
+          userId,
+          projectId,
+          sceneId,
+          successes,
+          scores,
+          recommendedIdx,
+          imageUrl,
+          chosenResult,
+          actualCost,
+          provider: imageConfig?.protocol ?? "unknown",
+          model: imageConfig?.model ?? "",
+          iterationNote,
         });
 
         log.info("Image candidates generated", {
