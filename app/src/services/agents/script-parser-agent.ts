@@ -4,7 +4,11 @@
  */
 
 import { z } from "zod";
-import { chatCompletion } from "@/services/ai";
+import {
+  chatCompletion,
+  isTruncatedOutputError,
+  type TruncatedOutputError,
+} from "@/services/ai";
 import {
   SCRIPT_PARSER_SYSTEM,
   buildScriptParserUserPrompt,
@@ -70,6 +74,23 @@ const ScriptArtifactSchema = z.object({
 const MAX_ATTEMPTS = 3;
 
 /**
+ * 截断重试时 maxTokens 的上限。
+ *
+ * 项目内无「按模型查上限」的能力表，故取一个对主流模型普遍安全的保守值：
+ * 16384 是绝大多数 chat 模型都支持的输出上限，超过它反而可能被上游直接 400。
+ */
+const MAX_TOKENS_CEILING = 16384;
+
+/**
+ * 截断时追加给 LLM 的指令：在提高 maxTokens 之外，同时要求它压缩输出，
+ * 双管齐下避免第二轮再次撞顶（分镜数是输出长度的主导项）。
+ */
+const TRUNCATION_HINT =
+  "\n\n【重要】上一次输出因超长被截断，导致 JSON 不完整。本次请在保证结构完整的前提下压缩输出：" +
+  "合并相邻的同质分镜、缩短每个 description 到 30 字以内、减少分镜总数，" +
+  "务必输出【完整闭合】的 JSON。";
+
+/**
  * 从 LLM 响应中提取 JSON
  * Hotfix 2026-05-20：使用 parseLooseJSON 容错（处理 trailing comma / 智能引号 /
  * 单引号 / 注释 / 控制字符等 LLM 常见输出不规范），失败仍由 Zod 接住做语义校验。
@@ -132,6 +153,12 @@ export class ScriptParserAgent implements Agent<
      * 真实场景大多是 LLM 上游超时或网络抖动。
      */
     let lastNonZodError: string | null = null;
+    /**
+     * 上一轮是否死于「输出被 maxTokens 截断」。
+     * 截断的成因与「格式写错」完全不同——原样重试必然再次截断，白烧一轮 token。
+     * 故下一轮必须换策略：翻倍 maxTokens + 明确要求 LLM 压缩输出。
+     */
+    let lastWasTruncated = false;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       ctx.emit({
@@ -177,12 +204,13 @@ export class ScriptParserAgent implements Agent<
               },
               {
                 role: "user" as const,
-                content: buildScriptParserRepairPrompt(
-                  lastRawOutput,
-                  lastZodError
-                    ? formatZodErrors(lastZodError)
-                    : (lastNonZodError ?? "JSON parse failed")
-                ),
+                content:
+                  buildScriptParserRepairPrompt(
+                    lastRawOutput,
+                    lastZodError
+                      ? formatZodErrors(lastZodError)
+                      : (lastNonZodError ?? "JSON parse failed")
+                  ) + (lastWasTruncated ? TRUNCATION_HINT : ""),
               },
             ];
 
@@ -191,9 +219,19 @@ export class ScriptParserAgent implements Agent<
           defaultTemperature: 0.3,
           defaultMaxTokens: 8192,
         });
+        // 截断专用退避：上一轮撞了 maxTokens 顶，本轮翻倍（封顶 MAX_TOKENS_CEILING），
+        // 配合上面的 TRUNCATION_HINT 一起改变请求，绝不重发同一个必然失败的请求。
+        const effectiveMaxTokens = lastWasTruncated
+          ? Math.min(llmParams.maxTokens * 2, MAX_TOKENS_CEILING)
+          : llmParams.maxTokens;
+        if (lastWasTruncated) {
+          log.info(
+            `上轮输出被截断，第 ${attempt} 轮提高 maxTokens：${llmParams.maxTokens} → ${effectiveMaxTokens} 并要求压缩输出`
+          );
+        }
         const response = await chatCompletion(messages, {
           temperature: llmParams.temperature,
-          maxTokens: llmParams.maxTokens,
+          maxTokens: effectiveMaxTokens,
           config: ctx.config.llm,
         });
 
@@ -223,13 +261,27 @@ export class ScriptParserAgent implements Agent<
         }
 
         lastZodError = result.error;
+        // 本轮拿到了完整响应（只是结构不合格）→ 清除截断标记，避免误抬 maxTokens
+        lastWasTruncated = false;
         log.warn(
           `Attempt ${attempt} validation failed: ${formatZodErrors(result.error)}`
         );
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn(`Attempt ${attempt} failed: ${message}`);
-        lastRawOutput = message;
+        // 截断与其它失败分流：截断走「翻倍 maxTokens + 要求压缩」，
+        // 其余（超时/网络/JSON 格式）沿用既有自修复。
+        lastWasTruncated = isTruncatedOutputError(err);
+        if (lastWasTruncated) {
+          // 残缺文本仍作为修复轮的 assistant 上文（让模型看到自己被切在哪），
+          // 比塞错误字符串更有信息量。
+          lastRawOutput = (err as TruncatedOutputError).partialContent;
+          // 截断的病因是「太长」而非「字段写错」：清掉上一轮的 Zod 错误，
+          // 避免修复 prompt 拿着过期的字段报错，把模型引向错误方向。
+          lastZodError = null;
+        } else {
+          lastRawOutput = message;
+        }
         lastNonZodError = message;
       }
     }

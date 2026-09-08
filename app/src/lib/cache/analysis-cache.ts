@@ -18,7 +18,9 @@ import { createLogger } from "../logger";
 const log = createLogger("lib:analysis-cache");
 
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
-const KEY_PREFIX = "acache:scene:";
+// v2：key 形状变更（纳入 continuityLighting）。旧 key 的缓存值缺少光线承接维度，
+// 直接沿用会让同地点相邻镜命中不含光线指令的旧分析，故换前缀作废旧缓存。
+const KEY_PREFIX = "acache:scene:v2:";
 
 export interface AnalysisCacheKeyInput {
   sceneDescription: string;
@@ -35,6 +37,11 @@ export interface AnalysisCacheKeyInput {
    * 必须纳入 key，否则圣经变化后仍命中旧分析（stale）。
    */
   seriesContext?: string;
+  /**
+   * 同地点光线承接基调（来自前镜 lighting / colorPalette）：会改变分析 prompt 的
+   * 光线指令，必须纳入 key，否则光线基调变化后仍命中旧分析（stale）。
+   */
+  continuityLighting?: string;
 }
 
 function normalize(s: string): string {
@@ -51,6 +58,7 @@ function buildKey(input: AnalysisCacheKeyInput): string {
     input.prevSceneDescription ? normalize(input.prevSceneDescription) : "",
     input.nextSceneDescription ? normalize(input.nextSceneDescription) : "",
     input.seriesContext ? normalize(input.seriesContext) : "",
+    input.continuityLighting ? normalize(input.continuityLighting) : "",
   ].join("\n");
   const hash = createHash("sha256").update(parts).digest("hex");
   return `${KEY_PREFIX}${hash}`;

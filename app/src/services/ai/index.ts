@@ -30,6 +30,10 @@ export type {
   TTSOptions,
 };
 
+// 类型化错误从门面转出：调用方（如 ScriptParserAgent）统一从 @/services/ai 引入，
+// 无需知道 providers 内部结构。实现在 ./errors 以避免 provider→index 循环引用。
+export { TruncatedOutputError, isTruncatedOutputError } from "./errors";
+
 const log = createLogger("services:ai");
 
 // ============ LLM 服务 ============

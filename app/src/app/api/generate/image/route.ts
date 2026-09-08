@@ -29,7 +29,11 @@ import type {
 } from "@/services/generation";
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
-import { getAnalysisCache, setAnalysisCache } from "@/lib/cache/analysis-cache";
+import {
+  getAnalysisCache,
+  setAnalysisCache,
+  type AnalysisCacheKeyInput,
+} from "@/lib/cache/analysis-cache";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
 import { chargeCredits } from "@/lib/credits";
 
@@ -466,6 +470,9 @@ export async function POST(request: NextRequest) {
               // 场景分析缓存（a7 P1-4）：同分镜重复生成时内容不变，跳过
               // 这次 ~1024 tokens 的 LLM 往返。key 按场景内容+角色名+相邻镜描述+
               // 系列记忆 digest 哈希（任一变化会改变分析指令，故纳入 key）。
+              // satisfies：内联字面量做超额属性检查——未来在 buildKey 里漏哈希
+              // 某字段、或此处拼错字段名，都会在 type-check 阶段直接失败，
+              // 而不是静默产出「少了一个维度」的 key（continuityLighting 曾如此丢失）。
               const analysisCacheKey = {
                 sceneDescription: scene.description,
                 dialogue: scene.dialogue || undefined,
@@ -476,7 +483,7 @@ export async function POST(request: NextRequest) {
                 nextSceneDescription,
                 continuityLighting,
                 seriesContext,
-              };
+              } satisfies AnalysisCacheKeyInput;
               let analysisResponse = await getAnalysisCache(analysisCacheKey);
 
               if (!analysisResponse) {
@@ -581,8 +588,11 @@ export async function POST(request: NextRequest) {
               ? [referenceImage]
               : undefined;
 
-        const generateOneCandidate = async () => {
+        // candidateIndex：多候选抽卡时每张走不同 seed 与不同缓存 key，
+        // 否则第 2 张起全部命中第 1 张写入的缓存，用户为同一张图付 N 倍积分
+        const generateOneCandidate = async (candidateIndex: number) => {
           const result = await orchestrateImageGeneration({
+            candidateIndex,
             prompt: finalPrompt,
             sceneId,
             projectId,
@@ -644,7 +654,7 @@ export async function POST(request: NextRequest) {
         for (let i = 0; i < candidateCount; i += CONCURRENCY) {
           const batch = Array.from(
             { length: Math.min(CONCURRENCY, candidateCount - i) },
-            () => generateOneCandidate()
+            (_, k) => generateOneCandidate(i + k)
           );
           const batchResults = await Promise.allSettled(batch);
           settled.push(...batchResults);

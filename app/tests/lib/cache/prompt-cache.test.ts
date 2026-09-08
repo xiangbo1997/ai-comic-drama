@@ -36,6 +36,26 @@ describe("buildCacheKey()", () => {
     });
     expect(a).toBe(b);
   });
+
+  // 多候选付费正确性：同 prompt 不同 seed 必须是不同 key，否则第 2..N 张
+  // 候选会命中第 1 张的缓存，用户按 N 张付费只得到 1 张不同的图。
+  it("seed 不同 → key 不同（多候选不共用缓存）", () => {
+    const a = buildCacheKey({ prompt: "x", model: "m", seed: 1 });
+    const b = buildCacheKey({ prompt: "x", model: "m", seed: 2 });
+    expect(a).not.toBe(b);
+  });
+
+  it("seed 相同 → key 相同（命中路径与写入路径同构）", () => {
+    const a = buildCacheKey({ prompt: "x", model: "m", seed: 42 });
+    const b = buildCacheKey({ prompt: "x", model: "m", seed: 42 });
+    expect(a).toBe(b);
+  });
+
+  it("缺省 seed 与显式 seed=0 分属不同 key", () => {
+    const none = buildCacheKey({ prompt: "x", model: "m" });
+    const zero = buildCacheKey({ prompt: "x", model: "m", seed: 0 });
+    expect(none).not.toBe(zero);
+  });
 });
 
 describe("getPromptCache / setPromptCache (memory fallback)", () => {

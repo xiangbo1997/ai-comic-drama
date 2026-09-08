@@ -11,6 +11,8 @@
  * 实现相邻镜无缝衔接。只有空间/时间连续的相邻镜适合衔接；跳切强开会出现变形 morph。
  */
 
+import { parseLooseJSONArray } from "@/lib/json-repair";
+
 /** 参与判断的单个分镜（仅取衔接判定需要的字段） */
 export interface LinkCandidateScene {
   id: string;
@@ -117,19 +119,6 @@ ${lines.join("\n\n")}
 }
 
 /**
- * 从 LLM 原始文本中提取 JSON 数组（宽松：容忍代码围栏或前后杂字）。
- * 找不到合法数组时抛错，供路由转 502（不臆造结果）。
- */
-function extractJsonArray(raw: string): unknown {
-  const start = raw.indexOf("[");
-  const end = raw.lastIndexOf("]");
-  if (start < 0 || end < 0 || end < start) {
-    throw new Error("LLM 输出中未找到 JSON 数组");
-  }
-  return JSON.parse(raw.slice(start, end + 1));
-}
-
-/**
  * 防御式解析 LLM 输出，映射回衔接建议。
  *
  * - 解析失败（非合法 JSON / 非数组）→ 抛错（路由转 502）。
@@ -143,10 +132,9 @@ export function parseLinkSuggestOutput(
   raw: string,
   candidates: LinkCandidatePair[]
 ): LinkSuggestion[] {
-  const parsed = extractJsonArray(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error("LLM 输出不是 JSON 数组");
-  }
+  // 收口到 lib/json-repair：数组断言 + trailing comma / 智能引号 / 单引号等
+  // LLM 常见瑕疵的容错，替代原先本地那份只会 JSON.parse 的 extractJsonArray。
+  const parsed = parseLooseJSONArray(raw);
 
   const suggestions: LinkSuggestion[] = [];
   const seen = new Set<number>();

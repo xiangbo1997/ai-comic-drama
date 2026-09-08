@@ -4,7 +4,7 @@
  * 目的：重复 prompt（相同 model / 参数 / 参考图）直接命中已有图像 URL，不再花费外部 API 积分。
  *
  * 设计：
- * - Key：`sha256(normalize(prompt) + model + style + aspectRatio + refImageHash + negativeHash)`
+ * - Key：`sha256(normalize(prompt) + model + style + aspectRatio + refImageHash + negativeHash + seed)`
  * - Value：`{ imageUrl, strategy, createdAt }` JSON 序列化
  * - TTL：默认 7 天（`PROMPT_CACHE_TTL` 可覆盖）
  * - 存储：Redis 存在 → Redis；否则内存 Map（进程独立，主要给开发用）
@@ -38,6 +38,12 @@ export interface PromptCacheKeyInput {
   aspectRatio?: string;
   referenceImages?: string[];
   negativePrompt?: string;
+  /**
+   * 生成种子。多候选（count=2/4）时每张候选的 seed 不同，若不纳入 key，
+   * 第 2..N 张会全部命中第 1 张写入的缓存 → 用户按 N 张付费却拿到 N 张同图。
+   * 缺省（undefined）代表「provider 默认随机」，与显式 seed 分属不同 key。
+   */
+  seed?: number;
 }
 
 export interface CachedImage {
@@ -63,6 +69,8 @@ export function buildCacheKey(input: PromptCacheKeyInput): string {
       .sort()
       .join("|"),
     input.negativePrompt ? normalize(input.negativePrompt) : "",
+    // seed 参与哈希：区分同 prompt 不同种子的候选图（缺省与 0 必须区分开）
+    input.seed === undefined ? "" : String(input.seed),
   ].join("\n");
   const hash = createHash("sha256").update(parts).digest("hex");
   return `${KEY_PREFIX}${hash}`;

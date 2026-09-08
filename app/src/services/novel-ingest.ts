@@ -36,6 +36,21 @@ export const COMPRESS_CONCURRENCY = 4;
 /** 聚合去重叠触发阈值：拼接后总长超过此值才做一次轻量 LLM 聚合 */
 const AGGREGATE_THRESHOLD = 12000;
 
+/**
+ * 聚合去重叠的输入上限（字）。
+ *
+ * 聚合是【单次】LLM 调用、输出封顶 8192 tokens（中文约 8–12k 字）。输入远超
+ * 该量时，模型物理上无法完整复述，返回的必然是被截断的前半本——一旦回填就是
+ * 静默丢书。超过上限即跳过聚合，保留拼接原文（代价仅为块间 400 字重叠冗余）。
+ */
+const AGGREGATE_MAX_INPUT = 15000;
+
+/**
+ * 聚合结果的最低保留比例。低于此比例视为截断/过度摘要，丢弃结果保留原文。
+ * 聚合的职责是「去掉块间重叠」（预期只减少几个百分点），正常绝不会腰斩。
+ */
+const AGGREGATE_MIN_RETAIN_RATIO = 0.6;
+
 /** 单块压缩失败的重试次数（首次失败后重试 1 次，仍失败则原文降级） */
 const CHUNK_RETRY = 1;
 
@@ -398,24 +413,44 @@ export async function compressNovel(
   let joined = compressedChunks.map((c) => c.text).join("\n\n");
 
   // 聚合去重叠：只在拼接后仍较长时做一次，权衡「一次额外 LLM 往返」vs「400 字重叠冗余」。
+  //
+  // 双重护栏（避免这一步把整本书吃掉）：
+  // ① 输入上限：聚合是【单次】调用且输出封顶 8192 tokens，正文远超该上限时
+  //    模型只能返回被截断的前半本——那不是「去重叠」，是丢书。超上限直接跳过，
+  //    宁可保留 400 字/块的重叠冗余（下游解析无害），也不丢内容。
+  // ② 输出下限：即便在上限内，返回值若显著短于输入（<60%），基本可判定为截断
+  //    或摘要化改写，同样丢弃、保留拼接原文。
   if (joined.length > AGGREGATE_THRESHOLD) {
-    try {
-      const aggregated = await chatCompletion(
-        [
-          { role: "system", content: AGGREGATE_SYSTEM_PROMPT },
-          { role: "user", content: joined },
-        ],
-        { config: llmConfig, temperature: 0.2, maxTokens: 8192 }
+    if (joined.length > AGGREGATE_MAX_INPUT) {
+      log.warn(
+        `拼接正文 ${joined.length} 字超过聚合输入上限 ${AGGREGATE_MAX_INPUT}，跳过聚合去重叠（避免单次调用截断丢失正文）`
       );
-      const result = aggregated.trim();
-      if (result.length > 0) {
-        joined = result;
-      } else {
-        log.warn("聚合去重叠返回空，保留拼接结果");
+    } else {
+      try {
+        const aggregated = await chatCompletion(
+          [
+            { role: "system", content: AGGREGATE_SYSTEM_PROMPT },
+            { role: "user", content: joined },
+          ],
+          { config: llmConfig, temperature: 0.2, maxTokens: 8192 }
+        );
+        const result = aggregated.trim();
+        const minAcceptable = Math.floor(
+          joined.length * AGGREGATE_MIN_RETAIN_RATIO
+        );
+        if (result.length === 0) {
+          log.warn("聚合去重叠返回空，保留拼接结果");
+        } else if (result.length < minAcceptable) {
+          log.warn(
+            `聚合去重叠结果异常短（${result.length} < ${minAcceptable} 字，疑似截断），保留拼接结果`
+          );
+        } else {
+          joined = result;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn(`聚合去重叠失败，保留拼接结果：${message}`);
       }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.warn(`聚合去重叠失败，保留拼接结果：${message}`);
     }
   }
 

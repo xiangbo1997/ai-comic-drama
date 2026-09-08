@@ -6,6 +6,7 @@ import {
 } from "@/lib/ai-config";
 import { contentSafetyMiddleware } from "@/lib/content-safety";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { probeMediaDurationFromUrl } from "@/services/video-synthesis";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { NextRequest, NextResponse } from "next/server";
@@ -22,6 +23,7 @@ import {
   clampSceneDuration,
 } from "@/services/generation";
 import type { VideoDirection } from "@/services/generation";
+import { SegmentedVideoError } from "@/services/generation/segmented-video";
 import { getVideoModelCapability } from "@/services/ai/video-capabilities";
 import { buildPreviousEpisodeRecap } from "@/lib/series";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
@@ -505,16 +507,23 @@ export async function POST(request: NextRequest) {
         // 排障留痕：把尾帧来源回填 GenerationTask.input（不阻塞生成，失败忽略）
         if (tailFrameSource === "intra_shot") {
           try {
+            // 合并式回填：读已有 input 展开后只覆盖本次变化的字段。
+            // 逐字段重列会在未来新增字段时静默丢失既有键（含鉴权用的 userId），
+            // 故改为 spread-merge，保证 create 时写入的字段一个不少。
+            const existing = await prisma.generationTask.findUnique({
+              where: { id: task.id },
+              select: { input: true },
+            });
+            const existingInput =
+              existing?.input && typeof existing.input === "object"
+                ? (existing.input as Record<string, unknown>)
+                : {};
             await prisma.generationTask.update({
               where: { id: task.id },
               data: {
                 input: {
-                  userId,
-                  imageUrl,
-                  prompt,
-                  duration,
+                  ...existingInput,
                   lastFrameImage: effectiveLastFrame ?? null,
-                  identityPrompt: safeIdentityPrompt ?? null,
                   tailFrameSource,
                 },
               },
@@ -672,7 +681,12 @@ export async function POST(request: NextRequest) {
                 videoUrl,
                 cost,
                 duration: resolvedDuration,
-                segments: segResult.segments,
+                // 展开成纯字面量：Prisma 的 InputJsonValue 不接受带命名接口的
+                // 数组（缺少 index signature），映射一次即可满足。
+                segments: segResult.segments.map((s) => ({
+                  url: s.url,
+                  seconds: s.seconds,
+                })),
               },
               completedAt: new Date(),
             },
@@ -703,12 +717,43 @@ export async function POST(request: NextRequest) {
           });
         });
       } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+
+        // 部分失败留痕：多段链式生成中途失败时，已完成段真实烧掉了 provider
+        // 配额但成片不存在。把这些段落到 task.output 供运维对账 / 手工续跑，
+        // 否则任务只剩一个 FAILED 状态、已消耗的额度无从追溯。
+        // 计费语义不变：失败路径依旧不扣费。
+        const segmentedError =
+          error instanceof SegmentedVideoError ? error : null;
+        const partialOutput: Prisma.InputJsonValue | undefined = segmentedError
+          ? {
+              partialSegments: segmentedError.completedSegments.map((s) => ({
+                url: s.url,
+                seconds: s.seconds,
+              })),
+              error: errorMessage,
+              failedSegmentIndex: segmentedError.failedSegmentIndex,
+              totalSegments: segmentedError.totalSegments,
+            }
+          : undefined;
+        if (segmentedError) {
+          log.warn("视频分段部分失败，已完成段落留痕", {
+            sceneId,
+            taskId: task.id,
+            completedSegments: segmentedError.completedSegments.length,
+            failedSegmentIndex: segmentedError.failedSegmentIndex,
+            totalSegments: segmentedError.totalSegments,
+          });
+        }
+
         // 更新任务状态为失败（后台任务不再向 HTTP 层抛错，落库供轮询读取）
         await prisma.generationTask.update({
           where: { id: task.id },
           data: {
             status: "FAILED",
-            error: error instanceof Error ? error.message : "Unknown error",
+            error: errorMessage,
+            ...(partialOutput ? { output: partialOutput } : {}),
             completedAt: new Date(),
           },
         });

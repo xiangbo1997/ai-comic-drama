@@ -4,6 +4,7 @@
 
 import type { LLMProvider } from "../types";
 import { trimUrl, fetchWithError, pluckPath } from "./base";
+import { TruncatedOutputError } from "../errors";
 
 export const claudeLLM: LLMProvider = {
   async chatCompletion(messages, config, options) {
@@ -39,6 +40,24 @@ export const claudeLLM: LLMProvider = {
     const data = await response.json();
     // 安全取值：Claude 触发 content_filter 或返回 error 对象时无 content 数组，
     // 裸下标会崩；pluckPath 在缺失处给可读错误
-    return pluckPath<string>(data, ["content", 0, "text"], "Claude 对话响应");
+    const text = pluckPath<string>(
+      data,
+      ["content", 0, "text"],
+      "Claude 对话响应"
+    );
+
+    // 截断检测：Claude 的对应信号是 stop_reason==="max_tokens"（语义同 OpenAI
+    // 的 finish_reason==="length"）。见 errors.ts 说明——不抛错则上层会拿半截
+    // JSON 原样重试，必然复现。
+    const stopReason = (data as { stop_reason?: string | null })?.stop_reason;
+    if (stopReason === "max_tokens") {
+      throw new TruncatedOutputError({
+        finishReason: stopReason,
+        requestedMaxTokens: options.maxTokens,
+        partialContent: text,
+      });
+    }
+
+    return text;
   },
 };

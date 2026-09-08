@@ -80,6 +80,13 @@ export interface OrchestratorRequest {
   /** 迭代一致性锚图（前镜当前图）；仅 iterate=true 时有效，provider 支持多参考图才注入 */
   iterationAnchorUrl?: string;
   /**
+   * 候选序号（多候选出图 count=2/4 时逐张递增，从 0 起）。
+   * 参与 identity seed 偏移与缓存 key，保证 N 张候选各自 seed 不同、
+   * 不会共用同一条缓存（否则用户按 N 张付费只得到 1 张不同的图）。
+   * 缺省 0 = 单张生成，行为与既有一致（零回归）。
+   */
+  candidateIndex?: number;
+  /**
    * 朝向线索：分镜画面描述 / 镜头角度 / 构图。
    * orchestrator 据此推断角色朝向，从三视图 referenceAssets 里挑对应朝向的代表图
    * （朝向感知三视图选择）。缺省时朝向按默认 front 处理（零回归）。

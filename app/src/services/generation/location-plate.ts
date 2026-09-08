@@ -16,6 +16,7 @@
  */
 
 import { getStylePack } from "@/lib/prompts/style-packs";
+import { parseLooseJSONArray } from "@/lib/json-repair";
 
 /** 分镜里参与地点聚合的最小字段 */
 export interface LocationScene {
@@ -103,16 +104,6 @@ function clamp(text: string | null | undefined, max: number): string {
   return t.length > max ? t.slice(0, max) : t;
 }
 
-/** 从 LLM 原始文本中提取 JSON 数组（宽松：容忍代码围栏或前后杂字）。找不到抛错。 */
-function extractJsonArray(raw: string): unknown {
-  const start = raw.indexOf("[");
-  const end = raw.lastIndexOf("]");
-  if (start < 0 || end < 0 || end < start) {
-    throw new Error("LLM 输出中未找到 JSON 数组");
-  }
-  return JSON.parse(raw.slice(start, end + 1));
-}
-
 // ========== 地点描述汇总（describe） ==========
 
 /** 待描述的地点：地点标签 + 该地点各分镜的画面描述样本 */
@@ -165,8 +156,8 @@ export function parseDescribeOutput(
   raw: string,
   targets: DescribeTarget[]
 ): DescribeResult[] {
-  const parsed = extractJsonArray(raw);
-  if (!Array.isArray(parsed)) throw new Error("LLM 输出不是 JSON 数组");
+  // 收口到 lib/json-repair（含数组断言 + LLM 常见格式瑕疵容错）
+  const parsed = parseLooseJSONArray(raw);
 
   const validKeys = new Set(targets.map((t) => t.locationKey));
   const seen = new Set<string>();
@@ -232,8 +223,8 @@ export function parseLabelOutput(
   raw: string,
   scenes: LabelScene[]
 ): LabelResult[] {
-  const parsed = extractJsonArray(raw);
-  if (!Array.isArray(parsed)) throw new Error("LLM 输出不是 JSON 数组");
+  // 收口到 lib/json-repair（含数组断言 + LLM 常见格式瑕疵容错）
+  const parsed = parseLooseJSONArray(raw);
 
   const seen = new Set<number>();
   const results: LabelResult[] = [];

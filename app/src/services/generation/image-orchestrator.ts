@@ -18,7 +18,11 @@ import {
 import { inferFacing, pickAssetUrlForFacing, type Facing } from "./facing";
 import { resolveEnvironmentAnchor } from "./environment-anchor";
 import { resolveSceneCharacterLooks } from "./scene-looks";
-import { getPromptCache, setPromptCache } from "@/lib/cache/prompt-cache";
+import {
+  getPromptCache,
+  setPromptCache,
+  type PromptCacheKeyInput,
+} from "@/lib/cache/prompt-cache";
 import { createLogger } from "@/lib/logger";
 import type { SceneCharacterInfo } from "./types";
 import type {
@@ -225,7 +229,34 @@ export async function orchestrateImageGeneration(
     }
   }
 
-  const cacheKeyInput = {
+  // 角色一致性 seed：基于主角色 ID 哈希得到稳定值，跨镜头同角色复用。
+  // 没有主角色（纯环境镜头）时不传 seed，让 provider 走默认随机。
+  //
+  // 多候选偏移（candidateIndex）：同一请求出 N 张候选时，每张必须用不同 seed，
+  // 否则 N 张同 prompt 同 seed 出的是同一张图，且缓存 key 相同会让第 2..N 张
+  // 直接命中第 1 张的缓存——用户按 N 张付费却只拿到 1 张不同的图（P0）。
+  const primaryCharId = request.characters?.[0]?.id;
+  const candidateIndex = request.candidateIndex ?? 0;
+  const baseSeed =
+    typeof primaryCharId === "string" && primaryCharId.length > 0
+      ? (hashStringToSeed(primaryCharId) + candidateIndex) % 0x7fffffff
+      : undefined;
+
+  /**
+   * 每次尝试的 seed：首次用身份 seed（一致性最强）；重试时加偏移换随机性——
+   * 保持参考图（身份锚）不变但换种子，避免同 seed+同 prompt 死磕重复失败
+   * （feat-creative P1）。
+   */
+  const seedForAttempt = (attempt: number): number | undefined =>
+    baseSeed === undefined
+      ? undefined
+      : (baseSeed + (attempt - 1)) % 0x7fffffff;
+
+  /**
+   * 缓存 key：seed 必须参与，否则多候选/重试的不同 seed 会共享同一条缓存。
+   * 命中路径与写入路径共用本函数，保证读写 key 严格同构。
+   */
+  const cacheKeyInputFor = (attempt: number): PromptCacheKeyInput => ({
     prompt: effectivePrompt,
     model: request.imageConfig.model,
     style: request.style,
@@ -233,10 +264,13 @@ export async function orchestrateImageGeneration(
     referenceImages:
       effectiveRefUrls ?? (effectiveRefUrl ? [effectiveRefUrl] : []),
     negativePrompt: request.negativePrompt,
-  };
+    seed: seedForAttempt(attempt),
+  });
 
-  // 缓存命中路径：跳过生成但仍要通过 face-validator 把关
-  const cached = await getPromptCache(cacheKeyInput);
+  // 缓存命中路径：跳过生成但仍要通过 face-validator 把关。
+  // 只查「第 1 次尝试」的 key——命中即等价于跳过第 1 次生成。
+  const firstAttemptCacheKey = cacheKeyInputFor(1);
+  const cached = await getPromptCache(firstAttemptCacheKey);
   if (cached?.imageUrl) {
     log.debug("Prompt cache hit", { sceneId: request.sceneId });
     const validation = await validateFaceConsistency(
@@ -261,22 +295,8 @@ export async function orchestrateImageGeneration(
   let lastValidation: ValidationResult | undefined;
   let imageUrl = "";
 
-  // 角色一致性 seed：基于主角色 ID 哈希得到稳定值，跨镜头同角色复用。
-  // 没有主角色（纯环境镜头）时不传 seed，让 provider 走默认随机。
-  const primaryCharId = request.characters?.[0]?.id;
-  const baseSeed =
-    typeof primaryCharId === "string" && primaryCharId.length > 0
-      ? hashStringToSeed(primaryCharId)
-      : undefined;
-
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    // 失败换策略：首次用身份 seed（一致性最强）；重试时在身份 seed 上
-    // 加偏移换随机性——保持参考图（身份锚）不变但换种子，避免同 seed+同
-    // prompt 死磕重复失败（feat-creative P1）。
-    const seed =
-      baseSeed === undefined
-        ? undefined
-        : (baseSeed + (attempt - 1)) % 0x7fffffff;
+    const seed = seedForAttempt(attempt);
     imageUrl = await generateImage({
       prompt: effectivePrompt,
       referenceImage: effectiveRefUrl,
@@ -298,7 +318,8 @@ export async function orchestrateImageGeneration(
     if (lastValidation.passed || !lastValidation.shouldRetry) {
       // 只缓存通过验证的结果；验证放行但 passed=false 的边缘情况也放行但不缓存
       if (lastValidation.passed) {
-        void setPromptCache(cacheKeyInput, {
+        // 写入本次 attempt 的 key（与读取路径同构：attempt=1 时即命中路径的 key）
+        void setPromptCache(cacheKeyInputFor(attempt), {
           imageUrl,
           strategy: decision.strategy,
         });

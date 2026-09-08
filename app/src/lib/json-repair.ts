@@ -53,8 +53,33 @@ export function parseLooseJSON(text: string): unknown {
 }
 
 /**
+ * 解析 LLM 输出中的 JSON【数组】。
+ *
+ * 与 parseLooseJSON 的差别只在「契约」：调用方明确要一个数组，故这里在宽松解析
+ * 之上再断言 Array.isArray，把「LLM 返回了对象/字符串」这类错误在此处拦下，
+ * 而不是让调用方各自零散判断。
+ *
+ * 取代 suggest-links.ts / location-plate.ts 里两份逐字相同的 extractJsonArray：
+ * 那两份只做 indexOf("[") + JSON.parse，对 trailing comma / 智能引号 / 单引号
+ * 等常见 LLM 瑕疵一概崩溃；改走本函数即免费获得 repairJSON 的全部容错。
+ *
+ * @throws SyntaxError 解析失败，或解析结果不是数组
+ */
+export function parseLooseJSONArray(text: string): unknown[] {
+  const parsed = parseLooseJSON(text);
+  if (!Array.isArray(parsed)) {
+    throw new SyntaxError(
+      `LLM 输出解析后不是 JSON 数组（实际类型：${
+        parsed === null ? "null" : typeof parsed
+      }）`
+    );
+  }
+  return parsed;
+}
+
+/**
  * 从可能含有 markdown / 散文 / code fence 的文本中提取 JSON 片段。
- * 优先级：```json``` 代码块 > ``` 代码块 > 第一个 { 到最后一个 } 的子串
+ * 优先级：```json``` 代码块 > ``` 代码块 > 裸的 {...} 或 [...]（取先出现者）
  */
 function extractJSONCandidate(text: string): string {
   // 优先匹配 ```json ... ```（LLM 最常用的包装）
@@ -65,19 +90,25 @@ function extractJSONCandidate(text: string): string {
   const plainFenceMatch = text.match(/```\s*([\s\S]*?)```/);
   if (plainFenceMatch) return plainFenceMatch[1].trim();
 
-  // 退到第一个 { 到最后一个 }（贪婪匹配，处理嵌套）
+  // 退到裸结构：取 { 与 [ 中【先出现】的那个作为起点。
+  //
+  // 必须比先后而非固定偏好 {：对象数组 `[{"a":1}]` 里 { 也存在，若无条件优先
+  // 花括号就只会截出内层的 `{"a":1}`，把数组悄悄变成对象（parseLooseJSONArray
+  // 会因此误报「不是数组」）。
   const firstBrace = text.indexOf("{");
   const lastBrace = text.lastIndexOf("}");
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    return text.slice(firstBrace, lastBrace + 1);
-  }
-
-  // 退到第一个 [ 到最后一个 ]（处理裸数组）
   const firstBracket = text.indexOf("[");
   const lastBracket = text.lastIndexOf("]");
-  if (firstBracket !== -1 && lastBracket > firstBracket) {
-    return text.slice(firstBracket, lastBracket + 1);
+  const hasObject = firstBrace !== -1 && lastBrace > firstBrace;
+  const hasArray = firstBracket !== -1 && lastBracket > firstBracket;
+
+  if (hasObject && hasArray) {
+    return firstBracket < firstBrace
+      ? text.slice(firstBracket, lastBracket + 1)
+      : text.slice(firstBrace, lastBrace + 1);
   }
+  if (hasObject) return text.slice(firstBrace, lastBrace + 1);
+  if (hasArray) return text.slice(firstBracket, lastBracket + 1);
 
   // 兜底：返回原文，让 JSON.parse 自己抛错
   return text.trim();
@@ -104,12 +135,22 @@ function repairJSON(text: string): string {
   repaired = repaired.replace(/[“”＂]/g, '"').replace(/[‘’＇]/g, "'");
 
   // 规则 2：把"key 用单引号""字符串值用单引号"转成双引号
-  // 仅在引号成对出现且不影响嵌套时替换（保守做法：只替换明显的 'xxx' 模式）
-  repaired = repaired.replace(/'([^'\\]*(\\.[^'\\]*)*)'/g, (match, inner) => {
-    // 内层若已包含未转义双引号，转换会破坏 JSON —— 跳过
-    if (/(?<!\\)"/.test(inner)) return match;
-    return `"${inner}"`;
-  });
+  //
+  // 关键：必须先跳过【已经在双引号字符串内部】的区域，否则合法 JSON 里的
+  // 撇号会被误配对改写 —— 例如 {"a":"it's fine","b":"o'clock"} 中的两个 '
+  // 会被当成一对单引号字符串，产出 {"a":"it"s fine","b":"o"clock"}，把原本
+  // 能解析的内容改坏。故用一个交替正则整体扫描：先吃掉完整的双引号串（原样
+  // 保留），剩下的裸 'xxx' 才做替换。
+  repaired = repaired.replace(
+    /"(?:[^"\\]|\\.)*"|'([^'\\]*(?:\\.[^'\\]*)*)'/g,
+    (match, inner: string | undefined) => {
+      // 命中的是双引号字符串（inner 为 undefined）→ 原样保留，撇号不受影响
+      if (inner === undefined) return match;
+      // 内层若已包含未转义双引号，转换会破坏 JSON —— 跳过
+      if (/(?<!\\)"/.test(inner)) return match;
+      return `"${inner}"`;
+    }
+  );
 
   // 规则 3：trailing comma 在 ] 或 } 前
   repaired = repaired.replace(/,(\s*[\]}])/g, "$1");

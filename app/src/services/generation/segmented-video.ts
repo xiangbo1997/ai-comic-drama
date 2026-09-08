@@ -99,7 +99,47 @@ export interface SegmentedVideoResult {
    */
   isSelfHosted: boolean;
   /** 各段元数据（排障 / GenerationTask.output 留痕） */
-  segments: Array<{ url: string; seconds: number }>;
+  segments: SegmentMeta[];
+}
+
+/** 单段元数据（排障 / 部分失败留痕） */
+export interface SegmentMeta {
+  url: string;
+  seconds: number;
+}
+
+/**
+ * 分段视频「部分失败」错误。
+ *
+ * 多段链式生成中第 N 段失败时，前 N-1 段已经真实消耗了 provider 配额并落了
+ * 自有存储；若只抛裸 Error，这些片段在 GenerationTask 里毫无痕迹，运维无法
+ * 对账已烧掉的额度、也无从手工续跑。故把已完成段的元数据挂在错误上，由
+ * route 的 catch 落到 task.output.partialSegments。
+ *
+ * 不改变计费语义：失败仍然不扣费，本类仅承载排障信息。
+ */
+export class SegmentedVideoError extends Error {
+  readonly completedSegments: SegmentMeta[];
+  /** 失败发生在第几段（0 起） */
+  readonly failedSegmentIndex: number;
+  /** 计划总段数 */
+  readonly totalSegments: number;
+
+  constructor(
+    message: string,
+    params: {
+      completedSegments: SegmentMeta[];
+      failedSegmentIndex: number;
+      totalSegments: number;
+      cause?: unknown;
+    }
+  ) {
+    super(message, { cause: params.cause });
+    this.name = "SegmentedVideoError";
+    this.completedSegments = params.completedSegments;
+    this.failedSegmentIndex = params.failedSegmentIndex;
+    this.totalSegments = params.totalSegments;
+  }
 }
 
 /** 连贯性子句（k>1 段复用同一 prompt 时追加，提示模型从当前帧顺滑续接） */
@@ -287,34 +327,56 @@ export async function generateSceneVideoSegmented(
   });
 
   const buffers: Buffer[] = [];
-  const segmentMeta: Array<{ url: string; seconds: number }> = [];
+  const segmentMeta: SegmentMeta[] = [];
   let nextFirstFrame = args.imageUrl;
 
   for (let i = 0; i < total; i += 1) {
     const seg = plan.segments[i];
     const isLast = i === total - 1;
 
-    // 生成该段 → 得到 provider 的（临时）视频 URL
-    const rawUrl = await generateOneSegment(seg, nextFirstFrame, isLast);
+    try {
+      // 生成该段 → 得到 provider 的（临时）视频 URL
+      const rawUrl = await generateOneSegment(seg, nextFirstFrame, isLast);
 
-    // 下载该段字节 + 实测时长（供拼接与总时长）
-    const { buffer, seconds } = await downloadSegment(rawUrl);
-    buffers.push(buffer);
-    segmentMeta.push({
-      url: rawUrl,
-      seconds: seconds > 0 ? seconds : seg.targetSeconds,
-    });
-
-    // 为下一段准备首帧：提取本段末帧 → 上传得自有 URL（storage 门面）
-    if (!isLast) {
-      const frameBuffer = await extractLastFrame(buffer);
-      nextFirstFrame = await uploadFile(frameBuffer, {
-        fileName: `scene_${args.sceneId ?? "unknown"}_seg${i}_lastframe_${Date.now()}.jpg`,
-        contentType: "image/jpeg",
-        fileType: "image",
-        userId: args.userId,
-        projectId: args.projectId,
+      // 下载该段字节 + 实测时长（供拼接与总时长）
+      const { buffer, seconds } = await downloadSegment(rawUrl);
+      buffers.push(buffer);
+      segmentMeta.push({
+        url: rawUrl,
+        seconds: seconds > 0 ? seconds : seg.targetSeconds,
       });
+
+      // 为下一段准备首帧：提取本段末帧 → 上传得自有 URL（storage 门面）
+      if (!isLast) {
+        const frameBuffer = await extractLastFrame(buffer);
+        nextFirstFrame = await uploadFile(frameBuffer, {
+          fileName: `scene_${args.sceneId ?? "unknown"}_seg${i}_lastframe_${Date.now()}.jpg`,
+          contentType: "image/jpeg",
+          fileType: "image",
+          userId: args.userId,
+          projectId: args.projectId,
+        });
+      }
+    } catch (err) {
+      // 部分失败：前 i 段已真实消耗 provider 配额，把它们的元数据挂到错误上
+      // 抛出，route 落到 task.output.partialSegments 供运维对账/手工续跑。
+      const message = err instanceof Error ? err.message : String(err);
+      log.error("分段视频生成中断", {
+        sceneId: args.sceneId,
+        failedSegmentIndex: i,
+        totalSegments: total,
+        completedSegments: segmentMeta.length,
+        error: message,
+      });
+      throw new SegmentedVideoError(
+        `分段视频第 ${i + 1}/${total} 段生成失败：${message}`,
+        {
+          completedSegments: segmentMeta,
+          failedSegmentIndex: i,
+          totalSegments: total,
+          cause: err,
+        }
+      );
     }
   }
 

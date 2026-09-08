@@ -12,6 +12,7 @@ import {
 } from "./base";
 import { safeFetch, safeDownload } from "@/lib/url-guard";
 import { withRetry, isConnectionPhaseError } from "@/lib/retry";
+import { TruncatedOutputError } from "../errors";
 
 // 支持的图像生成模型列表
 const SUPPORTED_IMAGE_MODELS = [
@@ -109,11 +110,28 @@ export const openaiCompatibleLLM: LLMProvider = {
     const data = await response.json();
     // 安全取值：中转站返回错误对象/非标准结构（无 choices）时裸下标必崩；
     // 这是全项目 LLM 主路径，pluckPath 在缺失处给可读错误（含响应片段）
-    return pluckPath<string>(
+    const content = pluckPath<string>(
       data,
       ["choices", 0, "message", "content"],
       "LLM 对话响应"
     );
+
+    // 截断检测：finish_reason==="length" 表示输出撞到 max_tokens 上限被切断，
+    // 此时 content 是半截文本（常见为不闭合的 JSON）。若照常返回，调用方只会
+    // 看到「JSON 解析失败」并原样重试 → 必然再次截断，白烧 token。
+    // 显式抛类型化错误，让上层改用不同策略（提高 maxTokens / 缩短输出要求）。
+    const finishReason = (
+      data as { choices?: Array<{ finish_reason?: string | null }> }
+    )?.choices?.[0]?.finish_reason;
+    if (finishReason === "length") {
+      throw new TruncatedOutputError({
+        finishReason,
+        requestedMaxTokens: options.maxTokens,
+        partialContent: content,
+      });
+    }
+
+    return content;
   },
 };
 

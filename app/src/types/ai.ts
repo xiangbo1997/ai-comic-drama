@@ -10,6 +10,12 @@ export interface AIServiceConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /**
+   * 协议标识。语义上应为 AIProviderProtocol，但此处仍为 string：
+   * 值来自 DB（UserAIConfig.apiProtocol / AIProvider.apiProtocol）这一开放输入，
+   * 收窄需要在 lib/ai-config.ts 装配处加一道运行时白名单校验（把未知协议显式
+   * 拒绝而非静默当 openai 处理）。该文件属其它工作流，留待收口后再改此处类型。
+   */
   protocol: string;
   authType?: AuthType;
   /**
@@ -117,7 +123,13 @@ export interface TTSOptions {
 /** AI 服务类别 — 与 Prisma enum AICategory 对齐 */
 export type AICategory = "LLM" | "IMAGE" | "VIDEO" | "TTS";
 
-/** AI Provider 协议类型 */
+/**
+ * AI Provider 协议类型。
+ *
+ * 单一真源：必须与 `services/ai/provider-factory.ts` 四个 get*Provider 的
+ * switch case 一一对应。新增 provider 时两处同步补齐，否则该协议在类型层
+ * 不可见（曾漏掉 flow2api / fish-audio / runway 三个已在跑的协议）。
+ */
 export type AIProviderProtocol =
   | "openai"
   | "claude"
@@ -127,6 +139,9 @@ export type AIProviderProtocol =
   | "fal"
   | "siliconflow"
   | "proxy-unified"
+  | "flow2api"
+  | "runway"
   | "volcengine"
   | "elevenlabs"
-  | "gpt-sovits";
+  | "gpt-sovits"
+  | "fish-audio";
