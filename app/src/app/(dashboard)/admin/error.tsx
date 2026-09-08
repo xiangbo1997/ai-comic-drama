@@ -9,6 +9,7 @@
  */
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
 export default function AdminError({
@@ -18,6 +19,7 @@ export default function AdminError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const router = useRouter();
   useEffect(() => {
     console.error("[admin] 页面渲染异常:", error);
   }, [error]);
@@ -36,7 +38,7 @@ export default function AdminError({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => window.location.assign("/admin")}
+          onClick={() => router.push("/admin")}
         >
           返回仪表盘
         </Button>
