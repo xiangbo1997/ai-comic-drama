@@ -11,12 +11,29 @@ import type {
   TTSOptions,
 } from "@/types";
 
+/**
+ * Provider 请求级选项：承载跨全部 provider 的传输层控制参数。
+ *
+ * 目前只有 signal —— 由门面 `withTimeout` 持有的 AbortSignal，逐层透传到
+ * 各 provider 的 fetch 与轮询循环。超时时真正断开底层连接，而非仅让外层
+ * await 提前 reject（后者会留下悬挂 socket 继续占用上游资源）。
+ * 可选：未传时 provider 行为与加签名前完全一致。
+ */
+export interface ProviderRequestOptions {
+  signal?: AbortSignal;
+}
+
 /** LLM Provider 接口 */
 export interface LLMProvider {
   chatCompletion(
     messages: LLMMessage[],
     config: AIServiceConfig,
-    options: { temperature: number; maxTokens: number; model?: string }
+    options: {
+      temperature: number;
+      maxTokens: number;
+      model?: string;
+      signal?: AbortSignal;
+    }
   ): Promise<string>;
 }
 
@@ -24,7 +41,8 @@ export interface LLMProvider {
 export interface ImageProvider {
   generateImage(
     options: ImageGenerationOptions,
-    config: AIServiceConfig
+    config: AIServiceConfig,
+    requestOptions?: ProviderRequestOptions
   ): Promise<string>;
 }
 
@@ -32,7 +50,8 @@ export interface ImageProvider {
 export interface VideoProvider {
   generateVideo(
     options: VideoGenerationOptions,
-    config: AIServiceConfig
+    config: AIServiceConfig,
+    requestOptions?: ProviderRequestOptions
   ): Promise<string>;
 }
 
@@ -40,7 +59,8 @@ export interface VideoProvider {
 export interface TTSProvider {
   synthesizeSpeech(
     options: TTSOptions,
-    config: AIServiceConfig
+    config: AIServiceConfig,
+    requestOptions?: ProviderRequestOptions
   ): Promise<Buffer>;
 }
 

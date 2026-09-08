@@ -7,7 +7,7 @@ import { trimUrl, fetchWithError } from "./base";
 import { isLLMModel } from "./openai-compatible";
 
 export const grokImage: ImageProvider = {
-  async generateImage(options, config) {
+  async generateImage(options, config, requestOptions) {
     const { prompt } = options;
     const { apiKey, baseUrl, model } = config;
 
@@ -37,6 +37,7 @@ export const grokImage: ImageProvider = {
           prompt,
           n: 1,
         }),
+        signal: requestOptions?.signal,
       },
       "Grok 图像生成失败",
       "submit" // 非幂等图像生成提交：只重试 429/连接前失败，防重复出图浪费上游配额

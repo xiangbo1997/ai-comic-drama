@@ -15,6 +15,7 @@
 
 import { safeFetch } from "@/lib/url-guard";
 import { createLogger } from "@/lib/logger";
+import { isAbortError, mergeSignals } from "../abort";
 
 const log = createLogger("services:ai:flow2api");
 
@@ -154,6 +155,8 @@ export async function requestFlow2apiGeneration(params: {
   content: unknown;
   timeoutMs: number;
   label: string;
+  /** 门面层下传的中止信号；与本模块自身的 timeoutMs 合并，任一触发即断连 */
+  signal?: AbortSignal;
 }): Promise<string> {
   let lastError: Error | undefined;
   for (let attempt = 0; attempt <= IMAGE_LOAD_RETRIES; attempt++) {
@@ -161,6 +164,10 @@ export async function requestFlow2apiGeneration(params: {
       return await requestFlow2apiGenerationOnce(params);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+      // 已被中止时不再重试：外部时间预算已耗尽，重试只会拖长失败反馈
+      if (isAbortError(error) || params.signal?.aborted) {
+        throw error;
+      }
       if (
         attempt < IMAGE_LOAD_RETRIES &&
         isTransientImageLoadError(error.message)
@@ -187,12 +194,21 @@ async function requestFlow2apiGenerationOnce(params: {
   content: unknown;
   timeoutMs: number;
   label: string;
+  signal?: AbortSignal;
 }): Promise<string> {
   const { baseUrl, apiKey, model, content, timeoutMs, label } = params;
   const url = flow2apiChatUrl(baseUrl);
 
+  // 本模块自身的超时 controller 与门面下传的 signal 合并：
+  // 任一触发都断开 SSE 连接。区分二者是为了给出正确的错误文案 ——
+  // 自身超时说「flow2api 超时」，外部中止则原样冒泡由门面翻译。
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let selfTimedOut = false;
+  const timer = setTimeout(() => {
+    selfTimedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const signal = mergeSignals(controller.signal, params.signal);
 
   let response: Response;
   try {
@@ -210,14 +226,19 @@ async function requestFlow2apiGenerationOnce(params: {
         stream: true,
         messages: [{ role: "user", content }],
       }),
-      signal: controller.signal,
+      signal,
     });
   } catch (err) {
     clearTimeout(timer);
-    if ((err as Error).name === "AbortError") {
-      throw new Error(
-        `flow2api ${label}生成超时（>${Math.round(timeoutMs / 60_000)} 分钟）`
-      );
+    if (isAbortError(err)) {
+      // 只有「本模块自身超时」才翻译成 flow2api 超时文案；
+      // 外部中止（门面超时/取消）原样冒泡，由门面统一翻译成其超时消息。
+      if (selfTimedOut) {
+        throw new Error(
+          `flow2api ${label}生成超时（>${Math.round(timeoutMs / 60_000)} 分钟）`
+        );
+      }
+      throw err;
     }
     throw new Error(`flow2api 网络请求失败: ${(err as Error).message}`);
   }
@@ -290,6 +311,14 @@ async function requestFlow2apiGenerationOnce(params: {
         }
       }
     }
+  } catch (err) {
+    // 流读取途中被中止：自身超时翻译成 flow2api 文案，外部中止原样冒泡
+    if (isAbortError(err) && selfTimedOut) {
+      throw new Error(
+        `flow2api ${label}生成超时（>${Math.round(timeoutMs / 60_000)} 分钟）`
+      );
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
     try {

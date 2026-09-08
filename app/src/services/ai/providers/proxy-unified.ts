@@ -30,7 +30,7 @@ function aspectRatioToSize(aspect?: string): string {
 }
 
 export const proxyUnifiedImage: ImageProvider = {
-  async generateImage(options, config) {
+  async generateImage(options, config, requestOptions) {
     const {
       prompt,
       referenceImage,
@@ -106,6 +106,7 @@ export const proxyUnifiedImage: ImageProvider = {
           aspect_ratio: aspectRatio,
           ...(typeof seed === "number" ? { seed } : {}),
         }),
+        signal: requestOptions?.signal,
       },
       "中转站图像生成失败",
       "submit" // 非幂等图像生成提交：只重试 429/连接前失败，防重复出图浪费上游配额
@@ -140,7 +141,7 @@ export const proxyUnifiedImage: ImageProvider = {
 };
 
 export const proxyUnifiedVideo: VideoProvider = {
-  async generateVideo(options, config) {
+  async generateVideo(options, config, requestOptions) {
     const { imageUrl, prompt = "gentle camera movement" } = options;
     // 请求时长就近吸附到通用档位，防越界值直达中转站
     const duration = nearestVideoDuration(options.duration, PROXY_DURATIONS);
@@ -160,6 +161,7 @@ export const proxyUnifiedVideo: VideoProvider = {
           prompt,
           duration,
         }),
+        signal: requestOptions?.signal,
       },
       "视频生成失败",
       "submit" // 非幂等视频生成提交（挂满整段生成）：只重试 429/连接前失败，防重复生成翻倍配额

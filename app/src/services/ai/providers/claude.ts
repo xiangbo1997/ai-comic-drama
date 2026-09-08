@@ -33,6 +33,7 @@ export const claudeLLM: LLMProvider = {
             content: m.content,
           })),
         }),
+        signal: options.signal,
       },
       "Claude API error"
     );

@@ -89,7 +89,7 @@ function extractImageUrl(content: string): string | null {
 }
 
 export const flow2apiImage: ImageProvider = {
-  async generateImage(options, config) {
+  async generateImage(options, config, requestOptions) {
     const {
       prompt,
       referenceImage,
@@ -143,6 +143,7 @@ export const flow2apiImage: ImageProvider = {
       // 图片通常 10-60s；2K/4K 放大可到数分钟，给 10 分钟上限
       timeoutMs: timeoutMs ?? 600_000,
       label: "图像",
+      signal: requestOptions?.signal,
     });
 
     const imageUrl = extractImageUrl(finalContent);

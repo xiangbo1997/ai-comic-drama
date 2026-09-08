@@ -21,6 +21,7 @@ import {
 } from "./provider-factory";
 import { createLogger } from "@/lib/logger";
 import { observeLLM } from "@/lib/observability/langfuse";
+import { TimeoutAbortError, throwIfAborted } from "./abort";
 
 export type {
   LLMMessage,
@@ -33,6 +34,9 @@ export type {
 // 类型化错误从门面转出：调用方（如 ScriptParserAgent）统一从 @/services/ai 引入，
 // 无需知道 providers 内部结构。实现在 ./errors 以避免 provider→index 循环引用。
 export { TruncatedOutputError, isTruncatedOutputError } from "./errors";
+
+// 超时中止错误同样从门面转出：调用方需要区分「超时」与「上游报错」以决定是否重试。
+export { TimeoutAbortError, isTimeoutAbortError } from "./abort";
 
 const log = createLogger("services:ai");
 
@@ -47,9 +51,9 @@ const log = createLogger("services:ai");
  * Hotfix2B 异步化后总耗时不再受 CF 100s 约束，但 45s 单次超时仍偏激进 ——
  * 剧本解析在 8K maxTokens 下输出 5K+ tokens 实测常态需要 60-90s。
  *
- * 策略：用 Promise.race 在 facade 层包一层超时，让 provider 调用快速
- * fail（不取消底层 fetch，只让 await 提前 reject），上层重试机制（如
- * ScriptParserAgent 的 3 轮自修复）因此能进入下一轮。
+ * 策略：withTimeout 在 facade 层持有 AbortController，超时即 abort 底层
+ * fetch（见其文档），让 provider 调用快速 fail 且不留悬挂连接，上层重试
+ * 机制（如 ScriptParserAgent 的 3 轮自修复）因此能进入下一轮。
  *
  * 默认 120 秒：覆盖 LLM 中转站慢路径 + 输出 8K tokens 的 P99 边界。
  *   - 短任务（chat 1K maxTokens）正常 5-20 秒，120s 完全留余量
@@ -77,26 +81,47 @@ const DEFAULT_VIDEO_TIMEOUT_MS = 300_000;
  */
 const DEFAULT_IMAGE_TIMEOUT_MS = 180_000;
 
+/**
+ * 超时包裹：**真正中止**底层请求，而不只是让 await 提前 reject。
+ *
+ * 旧实现（Promise.race 语义）只 reject 外层 Promise，底层 fetch 的 socket
+ * 仍挂在上游直到 TCP 层自己超时：并发额度被提前释放但连接还活着，卡死的
+ * 上游会持续占用连接池/内存，且请求真的被上游处理完后还会白白扣一次配额。
+ *
+ * 现在 withTimeout 持有 AbortController：
+ * 1. 把 signal 传给 fn，由各 provider 透传到 fetch / 轮询循环；
+ * 2. 超时触发 abort → 底层连接立即断开；
+ * 3. 无论成功/失败/超时都 clearTimeout，不留悬挂定时器。
+ *
+ * 中止后 fetch 抛的是 AbortError（信息量为零），这里统一翻译回既有的
+ * `${reason} (${timeoutMs}ms)` 文案，保持对上层与用户可见的错误语义不变。
+ * 注意：只有「本次超时」触发的 abort 才翻译；调用方传入的外部 signal 触发
+ * 的中止不属于超时，原样冒泡。
+ */
 function withTimeout<T>(
-  promise: Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   reason = "LLM call timeout"
 ): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${reason} (${timeoutMs}ms)`));
-    }, timeoutMs);
-    promise.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (err) => {
-        clearTimeout(timer);
-        reject(err);
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  return (async () => {
+    try {
+      return await fn(controller.signal);
+    } catch (error) {
+      if (timedOut) {
+        throw new TimeoutAbortError(`${reason} (${timeoutMs}ms)`);
       }
-    );
-  });
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
 }
 
 export async function chatCompletion(
@@ -125,39 +150,42 @@ export async function chatCompletion(
       },
       tags: ["llm"],
     },
-    async () => {
-      // 内层 provider 调用 Promise（不强制取消底层 fetch，只让 await 提前 reject）
-      const providerCall = (async () => {
-        if (config) {
-          const protocol = config.protocol || "openai";
-          const provider = getLLMProvider(protocol);
-          return provider.chatCompletion(messages, config, {
-            temperature,
-            maxTokens,
-            model: options.model,
-          });
-        }
+    async () =>
+      // signal 由 withTimeout 持有并下传到 provider 的 fetch：超时即断连，
+      // 不再留悬挂 socket 占用上游资源
+      withTimeout(
+        async (signal) => {
+          if (config) {
+            const protocol = config.protocol || "openai";
+            const provider = getLLMProvider(protocol);
+            return provider.chatCompletion(messages, config, {
+              temperature,
+              maxTokens,
+              model: options.model,
+              signal,
+            });
+          }
 
-        // 回退到环境变量配置（兼容旧代码）
-        const baseUrl =
-          process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
-        const apiKey = process.env.DEEPSEEK_API_KEY;
-        const model = options.model || "deepseek-chat";
+          // 回退到环境变量配置（兼容旧代码）
+          const baseUrl =
+            process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
+          const apiKey = process.env.DEEPSEEK_API_KEY;
+          const model = options.model || "deepseek-chat";
 
-        if (!apiKey) {
-          throw new Error("未配置 LLM 服务，请在 AI 模型配置页面添加配置");
-        }
+          if (!apiKey) {
+            throw new Error("未配置 LLM 服务，请在 AI 模型配置页面添加配置");
+          }
 
-        const provider = getLLMProvider("openai");
-        return provider.chatCompletion(
-          messages,
-          { apiKey, baseUrl: `${baseUrl}/v1`, model, protocol: "openai" },
-          { temperature, maxTokens, model }
-        );
-      })();
-
-      return withTimeout(providerCall, timeoutMs, "LLM chatCompletion timeout");
-    },
+          const provider = getLLMProvider("openai");
+          return provider.chatCompletion(
+            messages,
+            { apiKey, baseUrl: `${baseUrl}/v1`, model, protocol: "openai" },
+            { temperature, maxTokens, model, signal }
+          );
+        },
+        timeoutMs,
+        "LLM chatCompletion timeout"
+      ),
     (result) => ({
       output: result,
       usage: {
@@ -253,9 +281,10 @@ export async function generateImage(
       tags: ["image"],
     },
     async () =>
-      // 加超时包裹：卡死的上游不再钉住后台任务直到僵尸回收
+      // 加超时包裹：卡死的上游不再钉住后台任务直到僵尸回收；
+      // signal 下传到 provider，超时即断连而非仅 reject
       withTimeout(
-        _generateImageInner(options),
+        (signal) => _generateImageInner(options, signal),
         options.timeoutMs ?? DEFAULT_IMAGE_TIMEOUT_MS,
         "image generation timeout"
       ),
@@ -264,7 +293,8 @@ export async function generateImage(
 }
 
 async function _generateImageInner(
-  options: ImageGenerationOptions
+  options: ImageGenerationOptions,
+  signal?: AbortSignal
 ): Promise<string> {
   const { prompt, referenceImage, aspectRatio = "9:16", config } = options;
 
@@ -273,11 +303,15 @@ async function _generateImageInner(
     const provider = getImageProvider(protocol, config.baseUrl);
 
     try {
-      return await provider.generateImage(options, config);
+      return await provider.generateImage(options, config, { signal });
     } catch (error) {
       if (!shouldFallbackToEnvReplicate(config)) {
         throw error;
       }
+
+      // 已被中止（超时/上层取消）时不再兜底：兜底调用会在已耗尽的时间预算外
+      // 重新发起一次生成，既拖长失败反馈又白烧一次 Replicate 配额。
+      throwIfAborted(signal);
 
       log.warn(
         "Configured image provider failed, falling back to env Replicate",
@@ -312,30 +346,36 @@ export async function generateVideo(
       metadata: { protocol: config?.protocol ?? "env", timeoutMs },
       tags: ["video"],
     },
-    async () => {
-      // 用 withTimeout 包裹 provider 调用，防止上游 API 卡死导致请求无限挂起
-      const providerCall = (async () => {
-        if (config) {
-          const protocol = config.protocol || "runway";
-          const provider = getVideoProvider(protocol, config.baseUrl);
-          return provider.generateVideo(options, config);
-        }
+    async () =>
+      // 用 withTimeout 包裹 provider 调用，防止上游 API 卡死导致请求无限挂起；
+      // signal 下传后超时会真正断开提交连接并终止轮询循环
+      withTimeout(
+        async (signal) => {
+          if (config) {
+            const protocol = config.protocol || "runway";
+            const provider = getVideoProvider(protocol, config.baseUrl);
+            return provider.generateVideo(options, config, { signal });
+          }
 
-        const apiKey = process.env.RUNWAY_API_KEY;
-        if (!apiKey) {
-          throw new Error("未配置视频生成服务，请在 AI 模型配置页面添加配置");
-        }
-        const provider = getVideoProvider("runway");
-        return provider.generateVideo(options, {
-          apiKey,
-          baseUrl: "",
-          model: "",
-          protocol: "runway",
-        });
-      })();
-
-      return withTimeout(providerCall, timeoutMs, "视频生成超时");
-    },
+          const apiKey = process.env.RUNWAY_API_KEY;
+          if (!apiKey) {
+            throw new Error("未配置视频生成服务，请在 AI 模型配置页面添加配置");
+          }
+          const provider = getVideoProvider("runway");
+          return provider.generateVideo(
+            options,
+            {
+              apiKey,
+              baseUrl: "",
+              model: "",
+              protocol: "runway",
+            },
+            { signal }
+          );
+        },
+        timeoutMs,
+        "视频生成超时"
+      ),
     (url) => ({ output: url })
   );
 }
@@ -353,7 +393,7 @@ export async function synthesizeSpeech(options: TTSOptions): Promise<Buffer> {
     const protocol = config.protocol || "volcengine";
     const provider = getTTSProvider(protocol, config.baseUrl);
     return withTimeout(
-      provider.synthesizeSpeech(options, config),
+      (signal) => provider.synthesizeSpeech(options, config, { signal }),
       DEFAULT_TTS_TIMEOUT_MS,
       "语音合成超时"
     );
@@ -362,12 +402,17 @@ export async function synthesizeSpeech(options: TTSOptions): Promise<Buffer> {
   // 回退到环境变量：火山引擎
   const provider = getTTSProvider("volcengine");
   return withTimeout(
-    provider.synthesizeSpeech(options, {
-      apiKey: "",
-      baseUrl: "",
-      model: "",
-      protocol: "volcengine",
-    }),
+    (signal) =>
+      provider.synthesizeSpeech(
+        options,
+        {
+          apiKey: "",
+          baseUrl: "",
+          model: "",
+          protocol: "volcengine",
+        },
+        { signal }
+      ),
     DEFAULT_TTS_TIMEOUT_MS,
     "语音合成超时"
   );

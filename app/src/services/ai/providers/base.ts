@@ -10,6 +10,7 @@ import {
   isConnectionPhaseError,
   parseRetryAfter,
 } from "@/lib/retry";
+import { isAbortError, throwIfAborted } from "../abort";
 
 /** 移除 URL 末尾斜杠 */
 export function trimUrl(url: string): string {
@@ -123,6 +124,8 @@ export async function fetchWithError(
   try {
     return await withRetry(
       async () => {
+        // 已被中止（门面超时/上层取消）时立即退出，别再发起新一轮请求
+        throwIfAborted(init.signal ?? undefined);
         const response = await safeFetch(url, init);
         if (response.ok) return response;
 
@@ -144,6 +147,10 @@ export async function fetchWithError(
       },
       {
         shouldRetry: (err) => {
+          // 主动中止（门面超时/上层取消）绝不重试：上游本来就卡死，重试必然
+          // 再次超时，只会把失败反馈拖长一个退避周期。放在最前面短路，
+          // 因为 AbortError 也可能被误判成瞬时断流。
+          if (isAbortError(err)) return false;
           if (err instanceof RetryableHttpError) {
             return err.retryAfterMs != null
               ? { delayMs: err.retryAfterMs }

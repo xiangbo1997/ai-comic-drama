@@ -22,21 +22,27 @@ async function falPollResult(
   model: string,
   requestId: string,
   apiKey: string,
-  options: { intervalMs?: number; timeoutMs?: number; label: string }
+  options: {
+    intervalMs?: number;
+    timeoutMs?: number;
+    label: string;
+    signal?: AbortSignal;
+  }
 ): Promise<Record<string, unknown>> {
   const headers = { Authorization: `Key ${apiKey}` };
+  const { signal } = options;
 
   const step = async (): Promise<PollStep<Record<string, unknown>>> => {
     const statusResponse = await fetch(
       `${FAL_QUEUE_BASE}/${model}/requests/${requestId}/status`,
-      { headers }
+      { headers, signal }
     );
     const status = await statusResponse.json();
 
     if (status.status === "COMPLETED") {
       const resultResponse = await fetch(
         `${FAL_QUEUE_BASE}/${model}/requests/${requestId}`,
-        { headers }
+        { headers, signal }
       );
       const result = (await resultResponse.json()) as Record<string, unknown>;
       return { done: true, result };
@@ -60,11 +66,13 @@ async function falPollResult(
     intervalMs: options.intervalMs,
     timeoutMs: options.timeoutMs,
     timeoutLabel: options.label,
+    signal,
   });
 }
 
 export const falImage: ImageProvider = {
-  async generateImage(options, config) {
+  async generateImage(options, config, requestOptions) {
+    const signal = requestOptions?.signal;
     const {
       prompt,
       referenceImage,
@@ -96,6 +104,7 @@ export const falImage: ImageProvider = {
           ? { negative_prompt: negativePrompt.trim() }
           : {}),
       }),
+      signal,
     });
 
     if (!response.ok) {
@@ -120,6 +129,7 @@ export const falImage: ImageProvider = {
       {
         intervalMs: 2000,
         label: "Fal.ai 图像生成",
+        signal,
       }
     );
     return (
@@ -129,7 +139,8 @@ export const falImage: ImageProvider = {
 };
 
 export const falVideo: VideoProvider = {
-  async generateVideo(options, config) {
+  async generateVideo(options, config, requestOptions) {
+    const signal = requestOptions?.signal;
     const { imageUrl, prompt = "gentle camera movement" } = options;
     // 请求时长就近吸附到 Fal 合法档位，防越界值直达上游 API
     const duration = nearestVideoDuration(options.duration, FAL_DURATIONS);
@@ -146,6 +157,7 @@ export const falVideo: VideoProvider = {
         prompt,
         duration,
       }),
+      signal,
     });
 
     if (!response.ok) {
@@ -165,6 +177,7 @@ export const falVideo: VideoProvider = {
       intervalMs: 5000,
       timeoutMs: 600_000,
       label: "Fal.ai 视频生成",
+      signal,
     });
     const video = result as {
       video?: { url?: string };

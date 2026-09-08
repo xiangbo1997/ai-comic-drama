@@ -34,6 +34,7 @@ export const geminiLLM: LLMProvider = {
             ? { parts: [{ text: systemMessage.content }] }
             : undefined,
         }),
+        signal: options.signal,
       },
       "Gemini API error"
     );

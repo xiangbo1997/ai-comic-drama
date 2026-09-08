@@ -5,7 +5,8 @@
 import type { ImageProvider } from "../types";
 
 export const replicateImage: ImageProvider = {
-  async generateImage(options, config) {
+  async generateImage(options, config, requestOptions) {
+    const signal = requestOptions?.signal;
     if (!config.apiKey || !config.apiKey.trim()) {
       throw new Error(
         "Replicate API Key 未配置或为空。请前往「设置 > AI 模型配置 > 图像生成」补全 Replicate Provider 的 API Key。"
@@ -36,6 +37,8 @@ export const replicateImage: ImageProvider = {
             output_format: "webp",
             ...(typeof seed === "number" ? { seed } : {}),
           },
+          // SDK 原生支持 signal：门面超时会中止 Replicate 的等待/轮询
+          signal,
         }
       );
       return output as unknown as string;
@@ -56,6 +59,7 @@ export const replicateImage: ImageProvider = {
             ? { negative_prompt: negativePrompt.trim() }
             : {}),
         },
+        signal,
       }
     );
 

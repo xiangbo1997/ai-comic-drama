@@ -7,7 +7,7 @@ import { trimUrl } from "../base";
 import { mapEmotionToElevenLabs } from "@/lib/tts-emotion";
 
 export const elevenlabsTTS: TTSProvider = {
-  async synthesizeSpeech(options, config) {
+  async synthesizeSpeech(options, config, requestOptions) {
     const {
       text,
       voiceId = "zh_female_shuangkuaisisi_moon_bigtts",
@@ -43,6 +43,7 @@ export const elevenlabsTTS: TTSProvider = {
         model_id: "eleven_multilingual_v2",
         voice_settings: voiceSettings,
       }),
+      signal: requestOptions?.signal,
     });
 
     if (!response.ok) {

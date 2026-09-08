@@ -11,7 +11,8 @@ import { nearestVideoDuration } from "@/services/generation/video-segmenter";
 const RUNWAY_DURATIONS = [5, 10] as const;
 
 export const runwayVideo: VideoProvider = {
-  async generateVideo(options, config) {
+  async generateVideo(options, config, requestOptions) {
+    const signal = requestOptions?.signal;
     const { imageUrl, prompt = "gentle camera movement" } = options;
     // 请求时长就近吸附到 Runway 合法档位，防越界值直达上游 API
     const duration = nearestVideoDuration(options.duration, RUNWAY_DURATIONS);
@@ -37,6 +38,7 @@ export const runwayVideo: VideoProvider = {
           duration,
           ratio: "9:16",
         }),
+        signal,
       },
       "Runway API error",
       "submit" // 非幂等视频生成提交（提交后返回 taskId 再轮询）：只重试 429/连接前失败，防重复提交
@@ -56,6 +58,7 @@ export const runwayVideo: VideoProvider = {
         `https://api.dev.runwayml.com/v1/tasks/${taskId}`,
         {
           headers: { Authorization: `Bearer ${apiKey}` },
+          signal,
         }
       );
       const result = await statusResponse.json();
@@ -85,6 +88,7 @@ export const runwayVideo: VideoProvider = {
       intervalMs: 5000,
       timeoutMs: 600_000,
       timeoutLabel: "Runway 视频生成",
+      signal,
     });
   },
 };

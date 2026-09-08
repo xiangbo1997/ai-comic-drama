@@ -16,6 +16,7 @@ import { spawn } from "node:child_process";
 import { createLogger } from "@/lib/logger";
 import type { TTSProvider } from "../../types";
 import { trimUrl } from "../base";
+import { isAbortError, mergeSignals } from "../../abort";
 
 const log = createLogger("services:ai:tts:gpt-sovits");
 
@@ -169,7 +170,7 @@ interface SovitsErrorBody {
 }
 
 export const gptSovitsTTS: TTSProvider = {
-  async synthesizeSpeech(options, config) {
+  async synthesizeSpeech(options, config, requestOptions) {
     const { text, voiceId, speed } = options;
 
     const voice = resolveSovitsVoice(voiceId, config.extraConfig);
@@ -195,8 +196,16 @@ export const gptSovitsTTS: TTSProvider = {
       headers.Authorization = `Bearer ${config.apiKey}`;
     }
 
+    // 自身 5 分钟上限与门面下传的 signal 合并：任一触发都断开连接。
+    // selfTimedOut 用于区分错误文案——自身超时说 GPT-SoVITS 超时，
+    // 外部中止原样冒泡由门面翻译成其超时消息。
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    let selfTimedOut = false;
+    const timeout = setTimeout(() => {
+      selfTimedOut = true;
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+    const signal = mergeSignals(controller.signal, requestOptions?.signal);
 
     let response: Response;
     try {
@@ -204,13 +213,16 @@ export const gptSovitsTTS: TTSProvider = {
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal,
       });
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(
-          `GPT-SoVITS 合成超时（${REQUEST_TIMEOUT_MS / 1000} 秒未返回）`
-        );
+      if (isAbortError(error)) {
+        if (selfTimedOut) {
+          throw new Error(
+            `GPT-SoVITS 合成超时（${REQUEST_TIMEOUT_MS / 1000} 秒未返回）`
+          );
+        }
+        throw error;
       }
       throw error;
     } finally {

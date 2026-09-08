@@ -13,6 +13,7 @@ import {
 import { safeFetch, safeDownload } from "@/lib/url-guard";
 import { withRetry, isConnectionPhaseError } from "@/lib/retry";
 import { TruncatedOutputError } from "../errors";
+import { isAbortError, throwIfAborted } from "../abort";
 
 // 支持的图像生成模型列表
 const SUPPORTED_IMAGE_MODELS = [
@@ -103,6 +104,7 @@ export const openaiCompatibleLLM: LLMProvider = {
           temperature: options.temperature,
           max_tokens: options.maxTokens,
         }),
+        signal: options.signal,
       },
       "LLM API error"
     );
@@ -274,7 +276,8 @@ async function generateImageWithEdits(
   prompt: string,
   size: string,
   references: string[],
-  seed?: number
+  seed?: number,
+  signal?: AbortSignal
 ): Promise<string> {
   const url = `${trimUrl(baseUrl)}/images/edits`;
   // 步骤 C：拼锚定语（仅在参考图存在时）
@@ -306,6 +309,7 @@ async function generateImageWithEdits(
         Authorization: `Bearer ${apiKey}`,
       },
       body: form,
+      signal,
     });
   };
 
@@ -317,7 +321,8 @@ async function generateImageWithEdits(
   const response = await withRetry(buildRequest, {
     maxRetries: 2,
     baseDelayMs: 1000,
-    shouldRetry: isConnectionPhaseError,
+    // 中止（门面超时/上层取消）不重试：上游已卡死，重试必然再次超时
+    shouldRetry: (err) => !isAbortError(err) && isConnectionPhaseError(err),
   });
 
   if (!response.ok) {
@@ -343,7 +348,8 @@ async function generateImageWithEdits(
 }
 
 export const openaiCompatibleImage: ImageProvider = {
-  async generateImage(options, config) {
+  async generateImage(options, config, requestOptions) {
+    const signal = requestOptions?.signal;
     const {
       prompt,
       aspectRatio = "9:16",
@@ -384,7 +390,8 @@ export const openaiCompatibleImage: ImageProvider = {
           prompt,
           size,
           refs.slice(0, 4), // 与 chatgpt2api §4.2 一致：n/image 上限 4
-          seed
+          seed,
+          signal
         );
       } catch (err) {
         // 若 edits 端点不可用（部分中转不实现），退回普通文生图避免硬失败
@@ -393,7 +400,8 @@ export const openaiCompatibleImage: ImageProvider = {
           msg.includes("/images/edits") &&
           (msg.includes("HTTP 404") || msg.includes("404"))
         ) {
-          // 落回 generations
+          // 落回 generations；但若已被中止则不再兜底重发（时间预算已耗尽）
+          throwIfAborted(signal);
         } else {
           throw err;
         }
@@ -416,6 +424,7 @@ export const openaiCompatibleImage: ImageProvider = {
         n: 1,
         ...(typeof seed === "number" ? { seed } : {}),
       }),
+      signal,
     });
 
     if (!response.ok) {

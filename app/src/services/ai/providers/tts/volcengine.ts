@@ -2,8 +2,9 @@
  * 火山引擎 TTS Provider
  */
 
-import type { TTSProvider } from "../../types";
+import type { TTSProvider, ProviderRequestOptions } from "../../types";
 import type { AIServiceConfig, TTSOptions } from "@/types";
+import { isAbortError } from "../../abort";
 import { resolveVolcengineCredentials } from "./volcengine-config";
 import { mapEmotionToVolcengine } from "@/lib/tts-emotion";
 import { createLogger } from "@/lib/logger";
@@ -30,8 +31,9 @@ async function callVolcengineTTS(params: {
   token: string;
   appId?: string;
   emotion?: string;
+  signal?: AbortSignal;
 }): Promise<Buffer> {
-  const { text, voiceId, speed, token, appId, emotion } = params;
+  const { text, voiceId, speed, token, appId, emotion, signal } = params;
 
   const response = await fetch("https://openspeech.bytedance.com/api/v1/tts", {
     method: "POST",
@@ -59,6 +61,7 @@ async function callVolcengineTTS(params: {
         operation: "query",
       },
     }),
+    signal,
   });
 
   const result = await response.json();
@@ -76,7 +79,12 @@ async function callVolcengineTTS(params: {
 }
 
 export const volcengineTTS: TTSProvider = {
-  async synthesizeSpeech(options: TTSOptions, config: AIServiceConfig) {
+  async synthesizeSpeech(
+    options: TTSOptions,
+    config: AIServiceConfig,
+    requestOptions?: ProviderRequestOptions
+  ) {
+    const signal = requestOptions?.signal;
     const {
       text,
       voiceId = "zh_female_shuangkuaisisi_moon_bigtts",
@@ -100,8 +108,14 @@ export const volcengineTTS: TTSProvider = {
         token,
         appId,
         emotion,
+        signal,
       });
     } catch (err) {
+      // 中止（门面超时/上层取消）不做无情绪重试：时间预算已耗尽，
+      // 重试只会再撞一次中止，白白多打一次上游。
+      if (isAbortError(err) || signal?.aborted) {
+        throw err;
+      }
       // 情绪属增强项：带情绪失败（部分声线不支持 emotion）时不带情绪重试一次，
       // 绝不因情绪合成失败阻断配音。无情绪时直接抛出原错误。
       if (emotion) {
@@ -109,7 +123,14 @@ export const volcengineTTS: TTSProvider = {
           emotion,
           error: err instanceof Error ? err.message : String(err),
         });
-        return await callVolcengineTTS({ text, voiceId, speed, token, appId });
+        return await callVolcengineTTS({
+          text,
+          voiceId,
+          speed,
+          token,
+          appId,
+          signal,
+        });
       }
       throw err;
     }

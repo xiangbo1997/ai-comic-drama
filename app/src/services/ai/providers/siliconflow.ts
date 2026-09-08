@@ -6,7 +6,7 @@ import type { ImageProvider } from "../types";
 import { fetchWithError, ASPECT_RATIO_TO_SIZE_SF } from "./base";
 
 export const siliconflowImage: ImageProvider = {
-  async generateImage(options, config) {
+  async generateImage(options, config, requestOptions) {
     const {
       prompt,
       referenceImage,
@@ -39,6 +39,7 @@ export const siliconflowImage: ImageProvider = {
             ? { negative_prompt: negativePrompt.trim() }
             : {}),
         }),
+        signal: requestOptions?.signal,
       },
       "SiliconFlow image generation error",
       "submit" // 非幂等图像生成提交：只重试 429/连接前失败，防重复出图浪费上游配额

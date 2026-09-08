@@ -7,7 +7,7 @@ import { trimUrl } from "../base";
 import { safeFetch } from "@/lib/url-guard";
 
 export const openaiCompatibleTTS: TTSProvider = {
-  async synthesizeSpeech(options, config) {
+  async synthesizeSpeech(options, config, requestOptions) {
     const {
       text,
       voiceId = "zh_female_shuangkuaisisi_moon_bigtts",
@@ -31,6 +31,7 @@ export const openaiCompatibleTTS: TTSProvider = {
         voice,
         speed,
       }),
+      signal: requestOptions?.signal,
     });
 
     if (!response.ok) {

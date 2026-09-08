@@ -183,7 +183,7 @@ function buildVideoPrompt(prompt: string, identityPrompt?: string): string {
 }
 
 export const flow2apiVideo: VideoProvider = {
-  async generateVideo(options, config) {
+  async generateVideo(options, config, requestOptions) {
     const {
       prompt = "gentle camera movement",
       imageUrl,
@@ -224,6 +224,7 @@ export const flow2apiVideo: VideoProvider = {
       content: buildMultimodalContent(finalPrompt, imageInputs),
       timeoutMs: 1800_000, // 30 分钟
       label: "视频",
+      signal: requestOptions?.signal,
     });
 
     const videoUrl = extractVideoUrl(finalContent);
