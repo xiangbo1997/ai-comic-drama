@@ -190,8 +190,9 @@ model ProjectLocation {
   updatedAt   DateTime @updatedAt
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  // 注：不再单列 @@index([projectId])——@@unique([projectId, locationKey])
+  // 的最左前缀已覆盖按 projectId 的查询，多一个索引只增写放大
   @@unique([projectId, locationKey])
-  @@index([projectId])
 }
 
 // 短剧创作脚本：承载「世界观→结构化脚本」+「九宫格分镜表」+「一键九宫格图」
@@ -218,7 +219,9 @@ model ShortDramaScript {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([projectId])
+  // 按项目取最近打磨的脚本（projectId 过滤 + updatedAt 排序）走覆盖索引，
+  // 免掉排序阶段
+  @@index([projectId, updatedAt])
 }
 
 enum ProjectStatus {

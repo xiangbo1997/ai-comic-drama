@@ -1,12 +1,33 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { deleteFile } from "@/services/storage";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:characters:[id]");
 
 interface RouteParams {
   params: Promise<{ id: string }>;
+}
+
+/**
+ * 删除角色后清理其图片文件（R2 或本地盘，由 storage.deleteFile 门面分派）。
+ * 后台执行，失败仅记日志（孤儿文件可后续批量清理），与
+ * projects/[id]/route.ts 的 cleanupProjectMedia 同模式。
+ */
+async function cleanupCharacterMedia(
+  characterId: string,
+  urls: string[]
+): Promise<void> {
+  const results = await Promise.allSettled(urls.map((u) => deleteFile(u)));
+  const failed = results.filter((r) => r.status === "rejected").length;
+  if (failed > 0) {
+    log.warn(
+      `角色 ${characterId} 删除后清理存储：${urls.length} 个文件中 ${failed} 个失败（孤儿）`
+    );
+  } else {
+    log.info(`角色 ${characterId} 删除后清理 ${urls.length} 个图片文件完成`);
+  }
 }
 
 // 获取单个角色
@@ -185,9 +206,18 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // 验证角色归属
+    // 验证角色归属，同时取出全部图片 URL 用于删库后清理存储。
+    // referenceAssets / looks 都是 onDelete: Cascade 随角色删除的从属资产，
+    // 其文件为该角色独有（换装定妆照按 characterId+outfitKey 唯一），不存在
+    // 跨角色共享，可安全清理。
     const existing = await prisma.character.findFirst({
       where: { id, userId: session.user.id },
+      select: {
+        canonicalImageUrl: true,
+        referenceImages: true,
+        referenceAssets: { select: { url: true } },
+        looks: { select: { imageUrl: true } },
+      },
     });
 
     if (!existing) {
@@ -196,6 +226,13 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         { status: 404 }
       );
     }
+
+    const mediaUrls = [
+      existing.canonicalImageUrl,
+      ...existing.referenceImages,
+      ...existing.referenceAssets.map((a) => a.url),
+      ...existing.looks.map((l) => l.imageUrl),
+    ].filter((u): u is string => Boolean(u));
 
     // 事务：删角色 + 清理各分镜 selectedCharacterIds 数组中的悬垂 ID。
     // selectedCharacterId（单选）有 onDelete: SetNull 自动清；但
@@ -209,6 +246,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       `,
       prisma.character.delete({ where: { id } }),
     ]);
+
+    // 存储清理：fire-and-forget，不阻塞响应；失败仅记日志（成孤儿文件，
+    // 可后续批量清理）。去重后清理（三视图常同 URL 同时挂 referenceImages
+    // 与 canonicalImageUrl）。
+    const uniqueUrls = [...new Set(mediaUrls)];
+    if (uniqueUrls.length > 0) {
+      void cleanupCharacterMedia(id, uniqueUrls);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

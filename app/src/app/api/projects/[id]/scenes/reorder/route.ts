@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { createLogger } from "@/lib/logger";
@@ -69,15 +70,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 在事务中批量更新每个分镜的 order 为其在数组中的索引
-    await prisma.$transaction(
-      sceneIds.map((sceneId, index) =>
-        prisma.scene.update({
-          where: { id: sceneId, projectId: id },
-          data: { order: index },
-        })
+    // 单条 UPDATE ... FROM (VALUES ...) 批量改 order：原实现每个分镜发一条
+    // UPDATE（拖 50 个分镜即 50 次往返 + 50 个行锁持有到事务末尾），这里压成
+    // 一次往返。id 与 order 全部走 Prisma.sql 参数化（无字符串拼接），
+    // projectId 条件保留归属校验，双保险防越权改他人分镜。
+    const values = Prisma.join(
+      sceneIds.map(
+        (sceneId, index) => Prisma.sql`(${sceneId}, ${index}::integer)`
       )
     );
+    await prisma.$executeRaw`
+      UPDATE "Scene" AS s
+      SET "order" = v.ord
+      FROM (VALUES ${values}) AS v(id, ord)
+      WHERE s.id = v.id AND s."projectId" = ${id}
+    `;
 
     return NextResponse.json({ success: true });
   } catch (error) {

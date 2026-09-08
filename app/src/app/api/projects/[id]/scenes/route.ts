@@ -370,111 +370,116 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
     const oldSceneIdToOrder = new Map(oldScenes.map((s) => [s.id, s.order]));
 
-    // 事务化「删旧 + 建新」：中断则整体回滚，不会出现「删了旧的但新的
-    // 没建成」的半残状态导致分镜全丢（arch-data P0-1）。
-    await prisma.$transaction([
-      prisma.scene.deleteMany({ where: { projectId: id } }),
-      ...(sceneData.length > 0
-        ? [prisma.scene.createMany({ data: sceneData })]
-        : []),
-    ]);
-
-    // createMany 不返回记录，按 order 回读新建分镜返回前端
-    const createdScenes = await prisma.scene.findMany({
-      where: { projectId: id },
-      orderBy: { order: "asc" },
-    });
-
-    // 把分镜级配置（字幕位置/贴图/滤镜/转场）从旧 sceneId 重写到新 sceneId，
-    // 避免用户精调成果在重解析后静默丢失、孤儿数据滞留。
-    const orderToNewSceneId = new Map(
-      createdScenes.map((s) => [s.order, s.id])
-    );
-    const { next: remappedParams, changed } = remapGenerationParams(
-      project.generationParams as GenerationParams | null,
-      oldSceneIdToOrder,
-      orderToNewSceneId
-    );
-
-    // 聚合脚本直转携带的分镜间转场（批2）：短剧/一键制片两条路径都经此，
-    // 单点收口。有转场时覆盖 transitions（脚本转场即本次重建的权威来源；
-    // remap 截断的旧转场按顺序失效，脚本产出的新转场取而代之）。
-    const aggregatedTransitions = aggregateSceneTransitions(scenes);
-    let nextParams = remappedParams;
-    let paramsChanged = changed;
-    if (aggregatedTransitions) {
-      nextParams = { ...remappedParams, transitions: aggregatedTransitions };
-      paramsChanged = true;
-    }
-
-    // 聚合解析层音效标注（批1）：同转场，脚本产出即本次重建的权威来源
-    const aggregatedSfx = aggregateSceneSfx(scenes, orderToNewSceneId);
-    if (aggregatedSfx) {
-      nextParams = { ...nextParams, sfx: aggregatedSfx };
-      paramsChanged = true;
-    }
-
-    // 聚合解析层金句花字标注（批6）：同音效，脚本产出即本次重建的权威来源
-    const aggregatedEmphasis = aggregateSceneEmphasis(
-      scenes,
-      orderToNewSceneId
-    );
-    if (aggregatedEmphasis) {
-      nextParams = { ...nextParams, emphasis: aggregatedEmphasis };
-      paramsChanged = true;
-    }
-
-    // beatType → 默认冲击效果（批4）：impact 镜默认震屏（+缺音效时补一记重击），
-    // reveal 镜默认定格。仅对「该镜没有既存 sceneEffects 条目」的分镜补默认——
-    // 重解析桥接来的用户精调优先，不覆盖。
-    const beatEffects: SceneEffect[] = [];
-    const beatSfx: SceneSfx[] = [];
-    const existingEffectIds = new Set(
-      (nextParams.sceneEffects ?? []).map((e) => e.sceneId)
-    );
-    const sfxSceneIds = new Set((aggregatedSfx ?? []).map((s) => s.sceneId));
-    scenes.forEach((raw, i) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const beat = (raw as any)?.beatType;
-      const sceneId = orderToNewSceneId.get(i);
-      if (!sceneId || existingEffectIds.has(sceneId)) return;
-      if (beat === "impact") {
-        beatEffects.push({ sceneId, impact: "shake" });
-        // 打击镜缺音效时补一记重击（解析层已标 sfx 的不重复）
-        if (!sfxSceneIds.has(sceneId)) {
-          beatSfx.push({ sceneId, sfxId: "hit-punch", offsetSec: 0 });
-        }
-      } else if (beat === "reveal") {
-        beatEffects.push({ sceneId, impact: "freeze" });
+    // 事务化「删旧 + 建新 + 回写 generationParams」：中断则整体回滚，不会
+    // 出现「删了旧的但新的没建成」导致分镜全丢（arch-data P0-1），也不会
+    // 出现「分镜已重建但 generationParams 仍指向旧 sceneId」的半残状态——
+    // 后者会让用户精调的贴图/滤镜/逐镜字幕位置全部失联（原 update 在事务
+    // 外，事务提交后崩溃即复现）。
+    const createdScenes = await prisma.$transaction(async (tx) => {
+      await tx.scene.deleteMany({ where: { projectId: id } });
+      if (sceneData.length > 0) {
+        await tx.scene.createMany({ data: sceneData });
       }
-    });
-    if (beatEffects.length > 0) {
-      nextParams = {
-        ...nextParams,
-        sceneEffects: [...(nextParams.sceneEffects ?? []), ...beatEffects],
-        ...(beatSfx.length > 0
-          ? { sfx: [...(nextParams.sfx ?? []), ...beatSfx] }
-          : {}),
-      };
-      paramsChanged = true;
-    }
 
-    if (paramsChanged) {
-      await prisma.project.update({
-        where: { id },
-        data: {
-          generationParams: nextParams as unknown as Prisma.InputJsonValue,
-        },
+      // createMany 不返回记录，按 order 回读新建分镜返回前端
+      const scenesAfter = await tx.scene.findMany({
+        where: { projectId: id },
+        orderBy: { order: "asc" },
       });
-      log.info(
-        `Updated generationParams for project ${id}` +
-          (aggregatedTransitions ? " (aggregated scene transitions)" : "") +
-          (aggregatedSfx ? ` (aggregated ${aggregatedSfx.length} sfx)` : "") +
-          (aggregatedEmphasis
-            ? ` (aggregated ${aggregatedEmphasis.length} emphasis)`
-            : "")
+
+      // 把分镜级配置（字幕位置/贴图/滤镜/转场）从旧 sceneId 重写到新 sceneId，
+      // 避免用户精调成果在重解析后静默丢失、孤儿数据滞留。
+      const orderToNewSceneId = new Map(
+        scenesAfter.map((s) => [s.order, s.id])
       );
-    }
+      const { next: remappedParams, changed } = remapGenerationParams(
+        project.generationParams as GenerationParams | null,
+        oldSceneIdToOrder,
+        orderToNewSceneId
+      );
+
+      // 聚合脚本直转携带的分镜间转场（批2）：短剧/一键制片两条路径都经此，
+      // 单点收口。有转场时覆盖 transitions（脚本转场即本次重建的权威来源；
+      // remap 截断的旧转场按顺序失效，脚本产出的新转场取而代之）。
+      const aggregatedTransitions = aggregateSceneTransitions(scenes);
+      let nextParams = remappedParams;
+      let paramsChanged = changed;
+      if (aggregatedTransitions) {
+        nextParams = { ...remappedParams, transitions: aggregatedTransitions };
+        paramsChanged = true;
+      }
+
+      // 聚合解析层音效标注（批1）：同转场，脚本产出即本次重建的权威来源
+      const aggregatedSfx = aggregateSceneSfx(scenes, orderToNewSceneId);
+      if (aggregatedSfx) {
+        nextParams = { ...nextParams, sfx: aggregatedSfx };
+        paramsChanged = true;
+      }
+
+      // 聚合解析层金句花字标注（批6）：同音效，脚本产出即本次重建的权威来源
+      const aggregatedEmphasis = aggregateSceneEmphasis(
+        scenes,
+        orderToNewSceneId
+      );
+      if (aggregatedEmphasis) {
+        nextParams = { ...nextParams, emphasis: aggregatedEmphasis };
+        paramsChanged = true;
+      }
+
+      // beatType → 默认冲击效果（批4）：impact 镜默认震屏（+缺音效时补一记重击），
+      // reveal 镜默认定格。仅对「该镜没有既存 sceneEffects 条目」的分镜补默认——
+      // 重解析桥接来的用户精调优先，不覆盖。
+      const beatEffects: SceneEffect[] = [];
+      const beatSfx: SceneSfx[] = [];
+      const existingEffectIds = new Set(
+        (nextParams.sceneEffects ?? []).map((e) => e.sceneId)
+      );
+      const sfxSceneIds = new Set((aggregatedSfx ?? []).map((s) => s.sceneId));
+      scenes.forEach((raw, i) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const beat = (raw as any)?.beatType;
+        const sceneId = orderToNewSceneId.get(i);
+        if (!sceneId || existingEffectIds.has(sceneId)) return;
+        if (beat === "impact") {
+          beatEffects.push({ sceneId, impact: "shake" });
+          // 打击镜缺音效时补一记重击（解析层已标 sfx 的不重复）
+          if (!sfxSceneIds.has(sceneId)) {
+            beatSfx.push({ sceneId, sfxId: "hit-punch", offsetSec: 0 });
+          }
+        } else if (beat === "reveal") {
+          beatEffects.push({ sceneId, impact: "freeze" });
+        }
+      });
+      if (beatEffects.length > 0) {
+        nextParams = {
+          ...nextParams,
+          sceneEffects: [...(nextParams.sceneEffects ?? []), ...beatEffects],
+          ...(beatSfx.length > 0
+            ? { sfx: [...(nextParams.sfx ?? []), ...beatSfx] }
+            : {}),
+        };
+        paramsChanged = true;
+      }
+
+      if (paramsChanged) {
+        await tx.project.update({
+          where: { id },
+          data: {
+            generationParams: nextParams as unknown as Prisma.InputJsonValue,
+          },
+        });
+        log.info(
+          `Updated generationParams for project ${id}` +
+            (aggregatedTransitions ? " (aggregated scene transitions)" : "") +
+            (aggregatedSfx ? ` (aggregated ${aggregatedSfx.length} sfx)` : "") +
+            (aggregatedEmphasis
+              ? ` (aggregated ${aggregatedEmphasis.length} emphasis)`
+              : "")
+        );
+      }
+
+      return scenesAfter;
+    });
 
     return NextResponse.json(createdScenes, { status: 201 });
   } catch (error) {
