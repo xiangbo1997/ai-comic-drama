@@ -56,13 +56,24 @@ export function SuggestLinksDialog({
   // sceneId → 序号（镜 N，1 起）映射，供理由行展示
   const orderMap = new Map(scenes.map((s, i) => [s.id, i + 1]));
 
+  // loading/suggestions 的「起手复位」提到渲染期做（React 官方的渲染中调整 state
+  // 写法）：同步键与下方 effect 的依赖一致，故复位时机不变；留在 effect 里会被
+  // react-hooks/set-state-in-effect 判为级联渲染。异步回填仍在 effect 的 then 里。
+  const fetchKey = `${open}::${projectId}`;
+  const [fetchedKey, setFetchedKey] = useState<string | null>(null);
+  if (fetchKey !== fetchedKey) {
+    setFetchedKey(fetchKey);
+    if (open) {
+      setLoading(true);
+      setSuggestions(null);
+    }
+  }
+
   // 打开弹窗即拉建议（open 由外部按钮控制，onOpenChange 不会为外部开启触发，
   // 故用 effect 监听 open）。竞态守卫：卸载/关闭后不再 setState。
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setLoading(true);
-    setSuggestions(null);
     suggestLinks(projectId)
       .then((res) => {
         if (!active) return;

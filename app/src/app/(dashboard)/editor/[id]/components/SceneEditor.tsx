@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Image as ImageIcon,
   Loader2,
@@ -155,20 +155,25 @@ export function SceneEditor({
   // 立即提交全部待落库字段（卸载 / 切换分镜前调用），提交后清空两张表。
   // fire 内部只调 onUpdateScene（父级 mutation），不触碰本组件 state，
   // 故在渲染期间调用也不会触发「渲染中更新自身」的告警。
-  const flushPendingCommits = () => {
+  // 只读写两个 useRef（引用恒定），不闭包任何 props/state，故用空依赖 useCallback
+  // 即可保持引用稳定且永不过期——原先额外用 flushRef 转发「最新的 flush」是多余的，
+  // 且那次渲染期间写 ref 会被 react-hooks/refs 拦下，这里一并去掉。
+  const flushPendingCommits = useCallback(() => {
     debounceRefs.current.forEach((timer) => clearTimeout(timer));
     debounceRefs.current.clear();
     const pending = Array.from(pendingCommitsRef.current.values());
     pendingCommitsRef.current.clear();
     pending.forEach((fire) => fire());
-  };
-  // 用 ref 持有最新的 flush，供仅在卸载时执行一次的清理函数调用
-  const flushRef = useRef(flushPendingCommits);
-  flushRef.current = flushPendingCommits;
-  useEffect(() => () => flushRef.current(), []);
+  }, []);
+  // 卸载时（如点返回项目列表）立即提交尚未落库的编辑
+  useEffect(() => () => flushPendingCommits(), [flushPendingCommits]);
   // 渲染期间按 scene.id 同步草稿（切换分镜时重置为新分镜内容）
   if (scene && scene.id !== draftSceneId) {
-    // 重置草稿前先把上一镜未落库的编辑全部提交，否则草稿被覆盖即丢失
+    // 重置草稿前先把上一镜未落库的编辑全部提交，否则草稿被覆盖即丢失。
+    // 必须同步发生在这里：草稿一旦被下面几行重置，上一镜未落库的编辑就丢了，
+    // 挪进 effect 会晚一帧（重置已发生）。fire 内部只调父级 onUpdateScene，
+    // 不触碰本组件 state，故渲染期调用是安全的。
+    // eslint-disable-next-line react-hooks/refs -- 保持切镜前同步 flush 的时机，改用 effect 会导致最后一次编辑丢失
     flushPendingCommits();
     setDraftSceneId(scene.id);
     setDraft({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Zap, Clock } from "lucide-react";
 import {
@@ -99,10 +99,16 @@ export function MultiGenerateDialog({
 
   const preference: Preference | undefined = prefData?.preference;
 
-  // 初始化选中状态和模式
+  // 初始化选中状态和模式。
+  // 用 React 官方「渲染期间调整 state」写法替代 effect 内 setState：以
+  // (isOpen, 配置数, 偏好模式) 三元组为同步键，任一变化即重算一次默认选中与模式，
+  // 触发条件与原 effect 的依赖数组完全一致，只是少了一轮级联渲染。
   const configsLength = configs.length;
   const preferredMode = preference?.concurrencyMode;
-  useEffect(() => {
+  const initKey = `${isOpen}::${configsLength}::${preferredMode ?? ""}`;
+  const [initedKey, setInitedKey] = useState<string | null>(null);
+  if (initKey !== initedKey) {
+    setInitedKey(initKey);
     if (isOpen && configsLength > 0) {
       // 默认选中默认配置
       const defaultConfig = configs.find((c) => c.isDefault) || configs[0];
@@ -113,8 +119,7 @@ export function MultiGenerateDialog({
     if (preferredMode) {
       setMode(preferredMode);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, configsLength, preferredMode]);
+  }
 
   // 切换选中状态
   const toggleConfig = (configId: string) => {

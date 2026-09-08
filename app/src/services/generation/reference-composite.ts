@@ -13,7 +13,7 @@
  * data:/相对路径/http 三态处理与 openai-compatible.fetchImageBlob 同源。
  */
 
-import sharp from "sharp";
+import sharp, { type OverlayOptions } from "sharp";
 import { safeDownload } from "@/lib/url-guard";
 import { createLogger } from "@/lib/logger";
 
@@ -113,7 +113,7 @@ async function buildCell(
   const label = cell.label?.trim();
   const cellHeight = CELL_HEIGHT + (label ? LABEL_HEIGHT : 0);
 
-  const layers: sharp.OverlayOptions[] = [
+  const layers: OverlayOptions[] = [
     // 图片垂直居中放在上部 CELL_HEIGHT 区域
     {
       input: resizedBuf,
@@ -161,7 +161,7 @@ export async function composeReferenceGrid(
   const totalWidth =
     built.reduce((sum, b) => sum + b.width, 0) + GUTTER * (built.length - 1);
 
-  const layers: sharp.OverlayOptions[] = [];
+  const layers: OverlayOptions[] = [];
   let x = 0;
   for (const b of built) {
     layers.push({ input: b.buffer, left: x, top: 0 });

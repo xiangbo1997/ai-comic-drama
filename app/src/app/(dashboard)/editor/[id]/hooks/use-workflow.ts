@@ -36,7 +36,11 @@ export function useWorkflow(
   const eventSourceRef = useRef<EventSource | null>(null);
   const workflowIdRef = useRef<string | null>(null);
   const onCompleteRef = useRef(onComplete);
-  onCompleteRef.current = onComplete;
+  // 渲染期间写 ref 会被 react-hooks/refs 拦下（且并发渲染下不安全）；改为提交后
+  // 同步最新回调。SSE 事件必然发生在提交之后，取到的仍是最新 onComplete。
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
   // 清理 SSE 连接
   const closeSSE = useCallback(() => {
@@ -47,6 +51,23 @@ export function useWorkflow(
   }, []);
 
   useEffect(() => closeSSE, [closeSSE]);
+
+  // 拉取 workflow 最终状态。必须声明在 subscribeEvents 之前：后者在回调里引用它，
+  // 先用后声明会被 react-hooks 判为「访问未声明变量」（拿不到后续更新）。
+  const fetchStatus = useCallback(async (workflowRunId: string) => {
+    try {
+      const res = await fetch(`/api/workflow/${workflowRunId}`);
+      if (res.ok) {
+        const data = (await res.json()) as WorkflowStatus;
+        setStatus(data);
+        if (data.status === "COMPLETED" || data.status === "FAILED") {
+          setIsRunning(false);
+        }
+      }
+    } catch {
+      // 静默失败
+    }
+  }, []);
 
   // 订阅 SSE 事件
   const subscribeEvents = useCallback(
@@ -89,23 +110,8 @@ export function useWorkflow(
         }
       };
     },
-    [closeSSE]
+    [closeSSE, fetchStatus]
   );
-
-  const fetchStatus = async (workflowRunId: string) => {
-    try {
-      const res = await fetch(`/api/workflow/${workflowRunId}`);
-      if (res.ok) {
-        const data = (await res.json()) as WorkflowStatus;
-        setStatus(data);
-        if (data.status === "COMPLETED" || data.status === "FAILED") {
-          setIsRunning(false);
-        }
-      }
-    } catch {
-      // 静默失败
-    }
-  };
 
   const start = useCallback(
     async (text: string, options?: WorkflowStartOptions) => {
@@ -145,7 +151,7 @@ export function useWorkflow(
         setError(err instanceof Error ? err.message : "启动 workflow 失败");
       }
     },
-    [projectId, subscribeEvents]
+    [projectId, subscribeEvents, fetchStatus]
   );
 
   const cancel = useCallback(async () => {

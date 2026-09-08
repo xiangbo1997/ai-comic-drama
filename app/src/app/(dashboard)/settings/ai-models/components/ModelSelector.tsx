@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Check, RefreshCw, ChevronDown } from "lucide-react";
 import type {
   AIProvider,
@@ -42,15 +42,20 @@ export function ModelSelector({
   const [hasCustomUrl, setHasCustomUrl] = useState(false);
   const [hasFetchedRemote, setHasFetchedRemote] = useState(false);
 
-  useEffect(() => {
-    if (hasFetchedRemote) return;
-
-    const updatedModels = provider.models.map((m) => ({
-      ...m,
-      availability: "unknown" as ModelAvailability,
-    }));
-    setModels(updatedModels);
-  }, [provider.models, hasFetchedRemote]);
+  // provider.models 变化时把预置模型同步进本地列表（尚未远程拉取过才同步，
+  // 拉过之后本地列表是远端结果，不能被预置覆盖）。
+  // 用 React 官方「渲染期间调整 state」写法替代 effect 内 setState：同一次渲染
+  // 即得到新列表，少一轮级联渲染，生效时机与原 effect 一致。
+  const [syncedModels, setSyncedModels] = useState(provider.models);
+  if (!hasFetchedRemote && syncedModels !== provider.models) {
+    setSyncedModels(provider.models);
+    setModels(
+      provider.models.map((m) => ({
+        ...m,
+        availability: "unknown" as ModelAvailability,
+      }))
+    );
+  }
 
   const fetchModels = async () => {
     setLoading(true);

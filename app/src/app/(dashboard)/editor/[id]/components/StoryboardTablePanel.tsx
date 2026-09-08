@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Grid3x3, Loader2, ImageIcon } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { StoryboardCell, StoryboardTableArtifact } from "@/types";
@@ -36,14 +36,17 @@ export function StoryboardTablePanel({
   const [imageConfigId, setImageConfigId] = useState<string | undefined>();
 
   // 远端分镜表变化时同步本地（生成完成后）。
-  // 依赖用 storyboard 内容的序列化——生成分镜表（POST）只更新 storyboard 不 bump
-  // version，若仅依赖 script.version 则新分镜表到了 props 也不会同步到本地 cells，
+  // 同步键用 storyboard 内容的序列化——生成分镜表（POST）只更新 storyboard 不 bump
+  // version，若仅看 script.version 则新分镜表到了 props 也不会同步到本地 cells，
   // 界面空白需手动刷新。改为监听 storyboard 实际内容（9 格数据量小，序列化开销可忽略）。
-  const remoteCellsKey = JSON.stringify(remoteCells);
-  useEffect(() => {
+  // 用 React 官方的「渲染期间调整 state」写法替代 effect 内 setState：同一次渲染即
+  // 拿到新值，比 effect 少一轮级联渲染，时机与原来一致（都在 props 变化后立即生效）。
+  const syncKey = `${script.id}::${JSON.stringify(remoteCells)}`;
+  const [syncedKey, setSyncedKey] = useState(syncKey);
+  if (syncKey !== syncedKey) {
+    setSyncedKey(syncKey);
     setCells(remoteCells);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [script.id, remoteCellsKey]);
+  }
 
   const hasCells = cells.length === 9;
 

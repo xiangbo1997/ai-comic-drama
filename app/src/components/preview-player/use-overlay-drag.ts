@@ -70,9 +70,14 @@ export function useOverlayDrag({
   const wheelCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 切换分镜时无条件清乐观值——dragXY 只属于上一个分镜，不能带到新分镜。
-  useEffect(() => {
+  // 用 React 官方「渲染期间调整 state」写法替代 effect 内 setState：切镜的同一次
+  // 渲染就清掉旧落点，比 effect 更早（effect 要等提交后），杜绝新分镜首帧沿用
+  // 上一镜坐标的闪现。
+  const [dragSceneId, setDragSceneId] = useState(currentScene?.id);
+  if (dragSceneId !== currentScene?.id) {
+    setDragSceneId(currentScene?.id);
     setDragXY(null);
-  }, [currentScene?.id]);
+  }
 
   // 贴图拖拽乐观值收尾：松手后 dragSticker「钉」住落点（防落库往返期间闪回）。
   // 当 props.stickers 里该贴图坐标已回流确认（浮点容差）→ 清空，交还 props。
@@ -83,6 +88,7 @@ export function useOverlayDrag({
     const settled =
       Math.abs(confirmed.x - dragSticker.x) < 0.001 &&
       Math.abs(confirmed.y - dragSticker.y) < 0.001;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 必须等 stickers prop 回流才清乐观值；改在渲染期比对会在落库往返期间提前清空，贴图闪回旧位
     if (settled) setDragSticker(null);
     // 只在 props 回流（stickers 变化）时比对；把 dragSticker 列进依赖会在拖拽
     // 每帧 setDragSticker 后重复比对，与未回流的旧 props 相较必然不 settled。
@@ -102,6 +108,7 @@ export function useOverlayDrag({
     const settled =
       Math.abs(resolved.x - dragXY.x) < 0.001 &&
       Math.abs(resolved.y - dragXY.y) < 0.001;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 必须等 subtitlePositions prop 回流才清乐观值；改在渲染期比对会在落库往返期间提前清空，字幕闪回旧位
     if (settled) setDragXY(null);
     // 同上：只在 props 回流（subtitlePositions 变化）时比对，避免拖拽期间
     // dragXY 自身变化反复触发比对；currentScene/subtitleStyle 只作读取来源。
@@ -112,6 +119,7 @@ export function useOverlayDrag({
   // 回流确认（fontSize 已等于该值）→ 清空，把控制权交还 props，避免乐观值滞留。
   useEffect(() => {
     if (dragFontSize !== null && subtitleStyle?.fontSize === dragFontSize) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 必须等 subtitleStyle.fontSize 回流确认才清乐观字号；改在渲染期比对会在落库往返期间提前清空，字号闪回旧值
       setDragFontSize(null);
     }
     // 同上：只在 props 回流（subtitleStyle.fontSize 变化）时判定是否已确认；

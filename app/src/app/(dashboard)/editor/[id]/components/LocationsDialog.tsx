@@ -78,11 +78,20 @@ export function LocationsDialog({
     null
   );
 
+  // loading 的「起手置位」提到渲染期做（React 官方的渲染中调整 state 写法）：
+  // 同步键与下方 effect 的依赖一致，故置位时机不变；留在 effect 里会被
+  // react-hooks/set-state-in-effect 判为级联渲染。异步回填仍在 effect 的 then 里。
+  const fetchKey = `${open}::${projectId}`;
+  const [fetchedKey, setFetchedKey] = useState<string | null>(null);
+  if (fetchKey !== fetchedKey) {
+    setFetchedKey(fetchKey);
+    if (open) setLoading(true);
+  }
+
   // 打开即拉；竞态守卫（关闭/卸载后不再 setState）
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setLoading(true);
     fetchLocations(projectId)
       .then((res) => {
         if (!active) return;
