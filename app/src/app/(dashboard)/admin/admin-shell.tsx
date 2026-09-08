@@ -14,6 +14,7 @@ import {
   Coins,
   LayoutDashboard,
   Receipt,
+  ScrollText,
   Settings,
   ShieldCheck,
   Users,
@@ -30,6 +31,7 @@ const navItems = [
   { href: "/admin/credits", label: "积分流水", icon: Coins, exact: false },
   { href: "/admin/settings", label: "系统设置", icon: Settings, exact: false },
   { href: "/admin/ops", label: "运维", icon: Wrench, exact: false },
+  { href: "/admin/audit", label: "审计日志", icon: ScrollText, exact: false },
 ];
 
 export default function AdminShell({

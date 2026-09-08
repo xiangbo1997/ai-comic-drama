@@ -1,54 +1,56 @@
 /**
- * Admin Metrics API（Stage 3.6）
+ * Admin Metrics API（保留兼容）
  *
  * GET /api/admin/metrics
  *
- * 返回：
- * - 最近 workflow：近 20 条 WorkflowRun 概要（状态、耗时、所属项目）
- * - 生成统计：近 7 天的 task 统计（按 type 分组的成功/失败计数）
+ * 原始的仪表盘数据源。仪表盘已改用 `/api/admin/dashboard`（一次聚合出用户 /
+ * 积分 / 收入 / 生成成功率等全部首屏指标），本端点保留原有契约不变，供尚未
+ * 迁移的调用方与外部脚本使用。
  *
- * 注：原「队列状态」指标已随 BullMQ 死代码一并移除——生产从未走队列，
- * 所有生成都是同步路径 + GenerationTask 轮询，队列计数恒为空只会误导。
+ * 保留而非删除的理由：这是个已发布的只读端点，删掉会静默打断外部拨测脚本；
+ * 它的两个查询也正是 dashboard 端点的子集，维护成本接近于零。
  *
  * 仅管理员可访问（`User.role` 为 ADMIN/SUPER_ADMIN）；非管理员返回 404 伪装。
  */
 
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+
 import { requireAdmin } from "@/lib/admin";
+import { daysAgo } from "@/lib/admin-dashboard";
 import { createLogger } from "@/lib/logger";
+import { prisma } from "@/lib/prisma";
 
 const log = createLogger("api:admin:metrics");
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   const gate = await requireAdmin();
   if (gate.response) return gate.response;
 
   try {
-    // 最近 workflow
-    const recentWorkflows = await prisma.workflowRun.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: {
-        id: true,
-        projectId: true,
-        status: true,
-        currentStep: true,
-        error: true,
-        startedAt: true,
-        completedAt: true,
-        createdAt: true,
-      },
-    });
-
-    // 近 7 天 task 统计
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const taskStats = await prisma.generationTask.groupBy({
-      by: ["type", "status"],
-      where: { createdAt: { gte: sevenDaysAgo } },
-      _count: true,
-      _sum: { cost: true },
-    });
+    const [recentWorkflows, taskStats] = await Promise.all([
+      prisma.workflowRun.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          projectId: true,
+          status: true,
+          currentStep: true,
+          error: true,
+          startedAt: true,
+          completedAt: true,
+          createdAt: true,
+        },
+      }),
+      prisma.generationTask.groupBy({
+        by: ["type", "status"],
+        where: { createdAt: { gte: daysAgo(7) } },
+        _count: true,
+        _sum: { cost: true },
+      }),
+    ]);
 
     return NextResponse.json({
       recentWorkflows,
