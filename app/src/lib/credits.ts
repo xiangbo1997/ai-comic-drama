@@ -117,6 +117,12 @@ export async function chargeCredits(
  * 3. 写一条 type=REFUND、delta 为正的流水（带 balanceAfter 快照）
  *
  * 本函数内部开启 prisma.$transaction，调用方无需再包事务。
+ *
+ * ⚠️ 当前**零调用方**，这是有意保留、不是死代码：现行计费模型是「生成成功
+ * 后才扣费」（chargeCredits 在成功分支里跑），失败路径根本没扣过钱，自然无
+ * 需退款。本函数为「预扣费模型」预留——若将来改为下单即扣、失败再退（并发
+ * 高时更能防超卖），退款入口必须走这里以保证事务 + 流水 + 幂等三件套一致。
+ * 请勿因「没人调用」而删除；届时重写一遍只会漏掉幂等判据。
  */
 export async function refundCredits(p: {
   userId: string;

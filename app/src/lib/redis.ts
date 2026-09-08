@@ -91,10 +91,3 @@ export async function createRedisSubscriber(): Promise<Redis | null> {
     return null;
   }
 }
-
-/**
- * 生产环境强制要求 Redis。开发环境允许缺失（走内存降级）。
- */
-export function isProductionWithoutRedis(): boolean {
-  return process.env.NODE_ENV === "production" && !process.env.REDIS_URL;
-}

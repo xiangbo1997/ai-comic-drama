@@ -448,24 +448,6 @@ export function sanitizeText(text: string): string {
 }
 
 /**
- * 检查并净化文本
- */
-export function checkAndSanitize(text: string): ContentCheckResult {
-  const safetyCheck = checkTextSafety(text);
-
-  if (!safetyCheck.safe) {
-    return safetyCheck;
-  }
-
-  const sanitized = sanitizeText(text);
-
-  return {
-    safe: true,
-    sanitizedText: sanitized,
-  };
-}
-
-/**
  * 检查图片生成提示词是否安全（本地检测）
  */
 export function checkImagePromptSafety(prompt: string): ContentCheckResult {
@@ -553,33 +535,4 @@ export async function contentSafetyMiddleware(
   }
 
   return { safe: true, sanitizedText: sanitizeText(text), riskLevel: "pass" };
-}
-
-/**
- * 图片内容审核（用于生成后的图片检查）
- */
-export async function checkImageContent(
-  imageUrl: string
-): Promise<ImageCheckResult> {
-  if (aliyunService.isConfigured()) {
-    return aliyunService.checkImage(imageUrl);
-  }
-
-  // 如果没有配置专业API，返回通过
-  return { safe: true, riskLevel: "pass" };
-}
-
-/**
- * 获取内容安全服务状态
- */
-export function getContentSafetyStatus(): {
-  aliyun: boolean;
-  tencent: boolean;
-  localOnly: boolean;
-} {
-  return {
-    aliyun: aliyunService.isConfigured(),
-    tencent: tencentService.isConfigured(),
-    localOnly: !aliyunService.isConfigured() && !tencentService.isConfigured(),
-  };
 }

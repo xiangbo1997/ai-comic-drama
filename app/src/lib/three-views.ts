@@ -53,11 +53,3 @@ export function getThreeViewUrls(
     Boolean(url)
   );
 }
-
-/** 是否拥有完整三视图（正/侧/背都有） */
-export function hasCompleteThreeViews(
-  assets: PosedAsset[] | undefined | null
-): boolean {
-  const views = extractThreeViews(assets);
-  return Boolean(views.front && views.side && views.back);
-}

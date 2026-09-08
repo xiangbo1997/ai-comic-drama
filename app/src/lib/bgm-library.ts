@@ -233,8 +233,3 @@ export const BGM_TRACKS: BgmTrack[] = [
 export function getBgmTracksByCategory(categoryId: string): BgmTrack[] {
   return BGM_TRACKS.filter((t) => t.category === categoryId);
 }
-
-/** 按 id 取单曲 */
-export function getBgmTrackById(id: string): BgmTrack | undefined {
-  return BGM_TRACKS.find((t) => t.id === id);
-}
