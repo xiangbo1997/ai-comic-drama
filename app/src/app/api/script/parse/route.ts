@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSystemConfigs } from "@/lib/system-config";
 import { auth } from "@/lib/auth";
 import { checkTextSafety } from "@/lib/content-safety";
 import { getUserLLMConfig } from "@/lib/ai-config";
@@ -19,10 +20,13 @@ const log = createLogger("api:script:parse");
 
 /**
  * 脚本解析积分成本：多轮 LLM 调用按文本长度计费。
- * 每 1000 字 1 积分，最低 2 积分（整数，避免浮点脏数据）。
+ * 每 1000 字的单价与保底价均走系统配置（默认「每 1000 字 1 积分、最低 2 积分」）。
  */
-function scriptParseCost(text: string): number {
-  return Math.max(2, Math.ceil(text.length / 1000));
+async function scriptParseCost(text: string): Promise<number> {
+  const config = await getSystemConfigs();
+  const byLength =
+    Math.ceil(text.length / 1000) * config.COST_SCRIPT_PARSE_PER_1000_CHARS;
+  return Math.max(config.COST_SCRIPT_PARSE_MIN, byLength);
 }
 
 /**
@@ -261,7 +265,7 @@ async function runScriptParseTask(
     // 解析成功后扣费（收口到 chargeCredits：事务 + 流水 + 幂等）。
     // 时机为成功后，失败路径不扣；以 taskId 作幂等锚点。
     // 扣费失败不阻断已交付的解析结果（产物对用户有效）。
-    const cost = scriptParseCost(text);
+    const cost = await scriptParseCost(text);
     try {
       await prisma.$transaction(async (tx) => {
         const existing = await tx.creditTransaction.findFirst({

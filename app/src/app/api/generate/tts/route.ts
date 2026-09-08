@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getSystemConfig } from "@/lib/system-config";
 import { getUserTTSConfig } from "@/lib/ai-config";
 import { prisma } from "@/lib/prisma";
 import { synthesizeSpeech } from "@/services/ai";
@@ -18,7 +19,6 @@ import { z } from "zod";
 const log = createLogger("api:generate:tts");
 
 // TTS 成本：每100字 2积分
-const TTS_COST_PER_100_CHARS = 2;
 
 /**
  * 配音文本类型：对白（角色声线）/ 旁白（说书人独立声线）。
@@ -153,9 +153,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 计算成本
+    // 计算成本；每 100 字单价走系统配置（后台可调）
     const charCount = text.length;
-    const cost = Math.ceil(charCount / 100) * TTS_COST_PER_100_CHARS;
+    const ttsRate = await getSystemConfig("COST_TTS_PER_100_CHARS");
+    const cost = Math.ceil(charCount / 100) * ttsRate;
 
     // 检查积分
     const user = await prisma.user.findUnique({

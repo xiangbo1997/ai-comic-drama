@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getSystemConfig } from "@/lib/system-config";
 import { getUserLLMConfig } from "@/lib/ai-config";
 import { chatCompletion } from "@/services/ai";
 import { NextRequest, NextResponse } from "next/server";
@@ -17,7 +18,6 @@ const MAX_NAME_LENGTH = 100;
  * 外貌描述生成积分成本：单次 LLM 调用（maxTokens 200），定额 1 积分。
  * 输入已被 MAX_NAME_LENGTH 封顶，成本波动小，定额即可。
  */
-const GENERATE_DESCRIPTION_COST = 1;
 
 // 根据角色信息生成外貌描述
 export async function POST(request: NextRequest) {
@@ -102,6 +102,10 @@ export async function POST(request: NextRequest) {
     // 故 sourceId 用 randomUUID() 作流水唯一标识（不具幂等语义，也无需——
     // 每次 POST 都是一次独立的付费调用，天然无重放）。
     // 余额不足 → 400，与其他生成类端点的错误语义一致。
+    // 单价走系统配置（后台可调）
+    const GENERATE_DESCRIPTION_COST = await getSystemConfig(
+      "COST_GENERATE_DESCRIPTION"
+    );
     try {
       await prisma.$transaction(async (tx) => {
         await chargeCredits(tx, {

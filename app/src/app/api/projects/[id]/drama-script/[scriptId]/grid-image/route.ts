@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSystemConfig } from "@/lib/system-config";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -16,8 +17,6 @@ const log = createLogger("api:drama-script:grid-image");
 interface RouteParams {
   params: Promise<{ id: string; scriptId: string }>;
 }
-
-const GRID_COST = 5; // 九宫格合成图积分成本（对齐 generate-reference 带参考图档）
 
 const BodySchema = z.object({
   imageConfigId: z.string().max(255).optional(),
@@ -72,7 +71,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 积分预检
+    // 积分预检；单价走系统配置（后台可调）
+    const GRID_COST = await getSystemConfig("COST_GRID_IMAGE");
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { credits: true },

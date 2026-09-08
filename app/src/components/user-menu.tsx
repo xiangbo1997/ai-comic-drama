@@ -3,7 +3,7 @@
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { useState, useRef, useEffect } from "react";
-import { LogOut, User, CreditCard, Settings } from "lucide-react";
+import { LogOut, User, CreditCard, Settings, ShieldCheck } from "lucide-react";
 
 export function UserMenu() {
   const { data: session, status } = useSession();
@@ -23,6 +23,9 @@ export function UserMenu() {
   if (status === "loading") {
     return <div className="bg-secondary h-8 w-8 animate-pulse rounded-full" />;
   }
+
+  const role = session?.user?.role;
+  const isAdminRole = role === "ADMIN" || role === "SUPER_ADMIN";
 
   if (!session?.user) {
     return (
@@ -93,6 +96,18 @@ export function UserMenu() {
               <Settings size={16} />
               设置
             </Link>
+            {/* 后台入口只对管理员显示。这只是**入口显隐**，不是权限判据——
+                真正的闸门在 (dashboard)/admin/layout.tsx 与各 admin API。 */}
+            {isAdminRole && (
+              <Link
+                href="/admin"
+                className="text-foreground hover:bg-secondary flex items-center gap-3 px-4 py-2 text-sm transition"
+                onClick={() => setIsOpen(false)}
+              >
+                <ShieldCheck size={16} />
+                后台管理
+              </Link>
+            )}
           </div>
 
           {/* Logout */}

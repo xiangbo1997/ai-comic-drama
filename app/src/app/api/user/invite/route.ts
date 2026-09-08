@@ -1,11 +1,10 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { getSystemConfig } from "@/lib/system-config";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:user:invite");
-
-const INVITE_REWARD = 50; // 邀请奖励积分
 
 // 获取邀请信息
 export async function GET() {
@@ -36,7 +35,9 @@ export async function GET() {
     const completedCount = invitations.filter(
       (i) => i.status === "COMPLETED"
     ).length;
-    const totalEarned = completedCount * INVITE_REWARD;
+    // 邀请奖励额度走系统配置（与 lib/auth.ts 发放时读同一个键）
+    const inviteReward = await getSystemConfig("INVITE_REWARD");
+    const totalEarned = completedCount * inviteReward;
 
     return NextResponse.json({
       inviteCode: user.inviteCode,
@@ -95,7 +96,7 @@ export async function POST(request: NextRequest) {
       inviter: {
         name: inviter.name || inviter.email?.split("@")[0] || "用户",
       },
-      reward: INVITE_REWARD,
+      reward: await getSystemConfig("INVITE_REWARD"),
     });
   } catch (error) {
     log.error("Validate invite code error:", error);

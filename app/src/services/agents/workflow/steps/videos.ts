@@ -6,6 +6,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
+import { getVideoTierCosts } from "@/lib/system-config";
 import { getUserTTSConfig } from "@/lib/ai-config";
 import { normalizeVoiceFamily, resolveNarratorVoiceId } from "@/lib/tts-voice";
 import { buildVideoScenePrompt } from "@/lib/prompts";
@@ -100,6 +101,10 @@ export async function executeMediaGeneration(
   const isHybridRender =
     ctx.config.generationParams?.renderStrategy === "hybrid";
   let hybridSkippedCount = 0;
+
+  // 视频档位单价走系统配置（与手动路径 api/generate/video 同源）；
+  // 循环外读一次，避免逐镜重复查配置
+  const videoTierCosts = await getVideoTierCosts();
 
   for (const dbScene of dbScenes) {
     const sceneArtifact = scenes.find((s) => s.order === dbScene.order);
@@ -241,7 +246,8 @@ export async function executeMediaGeneration(
       });
       const videoCost = estimateVideoCost(
         sceneArtifact.duration,
-        videoCapability
+        videoCapability,
+        videoTierCosts
       );
       tasks.push(
         generateSceneVideoSegmented({

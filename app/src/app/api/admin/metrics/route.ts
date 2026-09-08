@@ -10,25 +10,19 @@
  * 注：原「队列状态」指标已随 BullMQ 死代码一并移除——生产从未走队列，
  * 所有生成都是同步路径 + GenerationTask 轮询，队列计数恒为空只会误导。
  *
- * 仅管理员可访问（`ADMIN_EMAILS` 白名单）；非管理员返回 404 伪装。
+ * 仅管理员可访问（`User.role` 为 ADMIN/SUPER_ADMIN）；非管理员返回 404 伪装。
  */
 
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isAdmin } from "@/lib/admin";
+import { requireAdmin } from "@/lib/admin";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("api:admin:metrics");
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return new NextResponse(null, { status: 404 });
-  }
-  if (!isAdmin(session)) {
-    return new NextResponse(null, { status: 404 });
-  }
+  const gate = await requireAdmin();
+  if (gate.response) return gate.response;
 
   try {
     // 最近 workflow

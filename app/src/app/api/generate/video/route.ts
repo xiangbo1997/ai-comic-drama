@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { getVideoTierCosts } from "@/lib/system-config";
 import {
   getUserVideoConfig,
   getUserLLMConfig,
@@ -381,7 +382,13 @@ export async function POST(request: NextRequest) {
     // 这是「下单估算」：余额预检、task.cost、202 响应都用它，是告知用户的金额上限。
     // 实扣金额在生成成功后按真实交付时长重算（见 run() 内 chargedCost）。
     const plan = planVideoSegments(duration, capability);
-    const estimatedCost = estimateVideoCost(duration, capability);
+    // 档位单价走系统配置（后台可调）；估算与实扣共用同一份，避免中途改价对不上
+    const videoTierCosts = await getVideoTierCosts();
+    const estimatedCost = estimateVideoCost(
+      duration,
+      capability,
+      videoTierCosts
+    );
 
     // 检查积分
     const user = await prisma.user.findUnique({
@@ -672,7 +679,11 @@ export async function POST(request: NextRequest) {
         // 目标（resolvedDuration < duration），此前仍按下单估算扣费＝多收。改为按
         // 实际时长重算，并用 resolveFinalVideoCost 封顶到下单估算——实测时长若反向
         // 偏大（provider 超时长/拼接略长），也绝不超过事前告知用户的金额。
-        const actualCost = estimateVideoCost(resolvedDuration, capability);
+        const actualCost = estimateVideoCost(
+          resolvedDuration,
+          capability,
+          videoTierCosts
+        );
         const chargedCost = resolveFinalVideoCost(estimatedCost, actualCost);
         if (chargedCost !== estimatedCost) {
           log.info("视频计费按实际交付时长下调", {

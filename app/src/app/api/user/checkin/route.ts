@@ -1,12 +1,11 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { grantCredits } from "@/lib/credits";
+import { getSystemConfig } from "@/lib/system-config";
 import { NextResponse } from "next/server";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:user:checkin");
-
-const CHECKIN_CREDITS = 5;
 
 // 获取签到状态
 export async function GET() {
@@ -77,7 +76,7 @@ export async function GET() {
       monthlyCheckins: monthlyCheckins.map(
         (c) => c.date.toISOString().split("T")[0]
       ),
-      creditsPerCheckin: CHECKIN_CREDITS,
+      creditsPerCheckin: await getSystemConfig("CHECKIN_CREDITS"),
     });
   } catch (error) {
     log.error("Get checkin status error:", error);
@@ -118,6 +117,8 @@ export async function POST() {
     }
 
     // 创建签到记录并增加积分（同一事务内，经统一积分服务记流水）
+    // 签到额度走系统配置，运营可在后台调整
+    const CHECKIN_CREDITS = await getSystemConfig("CHECKIN_CREDITS");
     const userId = session.user.id;
     await prisma.$transaction(async (tx) => {
       await tx.checkin.create({

@@ -39,12 +39,21 @@ export interface VideoSegmentPlan {
   estimatedTotalSeconds: number;
 }
 
-/** 视频档位积分成本表（与既有 VIDEO_COST 一致，作为唯一真源） */
+/**
+ * 视频档位积分成本表——**兜底默认值**。
+ *
+ * 运行时单价由 `lib/system-config.ts` 的 `COST_VIDEO_TIER_5S/10S/15S` 决定，
+ * 由 route / workflow 读配置后作为 `tierCosts` 参数传入。本表仅在未传参时
+ * 使用（保持本模块为无 IO 纯函数、可独立单测），值与配置默认值一致。
+ */
 const TIER_COST: Record<number, number> = {
   5: 10,
   10: 20,
   15: 30,
 };
+
+/** 档位单价入参：调用方从系统配置读出后传入 */
+export type VideoTierCosts = Record<number, number>;
 
 /**
  * Veo 类「无档位」段的计费档：每段（~8s）按 10s 档计 20 积分。
@@ -174,9 +183,12 @@ export function planVideoSegments(
 /**
  * 单档位成本（积分）。无匹配档位（Veo 无档位段）按 10s 档计。
  */
-function tierCost(tier: number | undefined): number {
-  if (tier === undefined) return TIER_COST[TIERLESS_SEGMENT_TIER];
-  return TIER_COST[tier] ?? TIER_COST[TIERLESS_SEGMENT_TIER];
+function tierCost(
+  tier: number | undefined,
+  costs: VideoTierCosts = TIER_COST
+): number {
+  if (tier === undefined) return costs[TIERLESS_SEGMENT_TIER];
+  return costs[tier] ?? costs[TIERLESS_SEGMENT_TIER];
 }
 
 /**
@@ -185,15 +197,17 @@ function tierCost(tier: number | undefined): number {
  *
  * @param requestedSeconds 分镜时长
  * @param cap 模型能力
+ * @param tierCosts 档位单价（缺省用内置兜底表；服务端应传系统配置里的值）
  * @returns 总积分成本
  */
 export function estimateVideoCost(
   requestedSeconds: number,
-  cap: VideoModelCapability
+  cap: VideoModelCapability,
+  tierCosts: VideoTierCosts = TIER_COST
 ): number {
   const plan = planVideoSegments(requestedSeconds, cap);
   return plan.segments.reduce(
-    (sum, seg) => sum + tierCost(seg.requestDuration),
+    (sum, seg) => sum + tierCost(seg.requestDuration, tierCosts),
     0
   );
 }

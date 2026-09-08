@@ -4,7 +4,7 @@ import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Gift, Loader2, Mail, Lock, User } from "lucide-react";
+import { Gift, Loader2, Mail, Lock, ShieldAlert, User } from "lucide-react";
 
 function LoginContent() {
   const searchParams = useSearchParams();
@@ -28,6 +28,10 @@ function LoginContent() {
   } | null>(null);
 
   const inviteCode = searchParams.get("invite");
+
+  // 被封禁用户从 (dashboard) 布局踢回来时带 ?banned=1，给出明确说明，
+  // 否则用户只会看到自己「莫名其妙被登出」
+  const isBanned = searchParams.get("banned") === "1";
 
   // 中间件把未登录用户踢来登录页时带上了 callbackUrl，此前登录成功
   // 一律硬跳 /projects，深链（分享的编辑器链接等）与会话续期全部丢现场。
@@ -155,6 +159,19 @@ function LoginContent() {
         </Link>
         <p className="text-muted-foreground mt-2">一键将小说转化为漫剧视频</p>
       </div>
+
+      {/* Banned Banner */}
+      {isBanned && (
+        <div className="border-destructive/30 bg-destructive/10 mb-6 flex items-center gap-3 rounded-xl border p-4">
+          <ShieldAlert size={24} className="text-destructive shrink-0" />
+          <div>
+            <p className="text-foreground font-medium">账号已被封禁</p>
+            <p className="text-muted-foreground text-sm">
+              该账号暂时无法使用。如有疑问请联系客服 support@aicomic.com。
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Invite Banner */}
       {inviteInfo?.valid && (

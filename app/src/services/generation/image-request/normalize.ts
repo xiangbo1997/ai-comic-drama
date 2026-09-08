@@ -8,11 +8,24 @@
 
 import { normalizeCandidateCount } from "@/services/generation";
 
-/** 图像生成成本（积分） */
+/**
+ * 图像生成成本（积分）。
+ *
+ * ⚠️ 这里是**兜底默认值**，不是真源：运行时单价由 `lib/system-config.ts` 的
+ * `COST_IMAGE_NORMAL` / `COST_IMAGE_WITH_REF` 决定，route 读配置后作为
+ * `costs` 参数传进 normalizeImageRequest。本常量仅在未显式传参时使用
+ * （保持纯函数可独立测试，且值与配置默认值一致）。
+ */
 export const IMAGE_COST = {
   normal: 1, // 普通生成
   withRef: 3, // 带参考图（角色一致性）
 };
+
+/** 单价入参：由调用方从系统配置读出后传入 */
+export interface ImageCosts {
+  normal: number;
+  withRef: number;
+}
 
 /** 原始请求体（客户端可传字段，全部按 unknown 收，由本模块归一化） */
 export interface ImageRequestBody {
@@ -124,7 +137,8 @@ function asAspectRatio(value: unknown): "1:1" | "9:16" | "16:9" | undefined {
  * prompt 缺失时返回 prompt 为空串，由 route 统一返回 400（错误映射留在 route）。
  */
 export function normalizeImageRequest(
-  body: ImageRequestBody
+  body: ImageRequestBody,
+  costs: ImageCosts = IMAGE_COST
 ): NormalizedImageRequest {
   const prompt = typeof body.prompt === "string" ? body.prompt : "";
   const referenceImage = asOptionalString(body.referenceImage);
@@ -143,7 +157,7 @@ export function normalizeImageRequest(
     (referenceImages && referenceImages.length > 0)
   );
   // 单张预估成本；多候选按 candidateCount × 单价做前置余额校验（实际按成功张数扣费）
-  const perImageCost = hasExplicitRef ? IMAGE_COST.withRef : IMAGE_COST.normal;
+  const perImageCost = hasExplicitRef ? costs.withRef : costs.normal;
   const cost = perImageCost * candidateCount;
 
   // 显式参考图：数组优先；否则单张。按序去重，避免同一张图重复占参考位

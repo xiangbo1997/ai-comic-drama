@@ -13,6 +13,7 @@
  */
 
 import { auth } from "@/lib/auth";
+import { getSystemConfig } from "@/lib/system-config";
 import { getUserImageConfig } from "@/lib/ai-config";
 import { prisma } from "@/lib/prisma";
 import { generateImage } from "@/services/ai";
@@ -34,7 +35,6 @@ interface RouteParams {
 }
 
 // 空景板 = 一张普通图（无参考图 / 无角色一致性），按普通图单价扣 1 积分
-const PLATE_COST = 1;
 
 /** Project.aspectRatio 是自由字符串，收敛到生成端支持的枚举（默认 9:16，同项目默认）。 */
 function normalizeAspectRatio(value: string): "1:1" | "9:16" | "16:9" {
@@ -78,7 +78,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 积分预检（后台成功后才真正扣费）
+    // 积分预检（后台成功后才真正扣费）；单价走系统配置（后台可调）
+    const PLATE_COST = await getSystemConfig("COST_LOCATION_PLATE");
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { credits: true },
@@ -151,6 +152,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       aspectRatio: normalizeAspectRatio(project.aspectRatio),
       style: project.style,
       imageConfig,
+      cost: PLATE_COST,
     }).catch((err) => {
       log.error(`Background plate task ${task.id} unhandled:`, err);
     });
@@ -178,6 +180,8 @@ async function runPlateTask(p: {
   aspectRatio: "1:1" | "9:16" | "16:9";
   style: string;
   imageConfig: Awaited<ReturnType<typeof getUserImageConfig>>;
+  /** 本次任务定价：由 POST 在建任务时读配置，后台沿用同一数值避免中途改价对不上 */
+  cost: number;
 }): Promise<void> {
   try {
     let imageUrl = await generateImage({
@@ -208,7 +212,7 @@ async function runPlateTask(p: {
       });
       await chargeCredits(tx, {
         userId: p.userId,
-        amount: PLATE_COST,
+        amount: p.cost,
         type: "GENERATE_IMAGE",
         source: "location:plate",
         sourceId: p.taskId,
@@ -218,7 +222,7 @@ async function runPlateTask(p: {
         where: { id: p.taskId },
         data: {
           status: "COMPLETED",
-          output: { imageUrl, cost: PLATE_COST },
+          output: { imageUrl, cost: p.cost },
           completedAt: new Date(),
         },
       });

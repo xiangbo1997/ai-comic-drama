@@ -12,16 +12,38 @@ import { prisma } from "@/lib/prisma";
  * 分层约束：本模块属于 lib 层，仅依赖 @/lib/prisma，不反向依赖 services/app。
  */
 
-/** 扣费类型（生成类业务） */
+/**
+ * 扣费类型（生成类业务 + 管理员手工扣减）
+ *
+ * ADMIN_DEDUCT：后台管理员手工扣减用户积分（补扣、纠错）。与 GENERATE_* 一样
+ * **不进幂等索引**——同一管理员可以对同一用户多次扣减。
+ */
 export type ChargeType =
   | "GENERATE_IMAGE"
   | "GENERATE_VIDEO"
   | "GENERATE_TTS"
   | "GENERATE_REFERENCE"
-  | "GENERATE_SCRIPT";
+  | "GENERATE_SCRIPT"
+  | "ADMIN_DEDUCT";
 
-/** 发放类型（充值/订阅/签到/邀请奖励） */
-export type GrantType = "PAYMENT" | "SUBSCRIPTION" | "CHECKIN" | "INVITE";
+/**
+ * 发放类型（充值/订阅/签到/邀请奖励 + 管理员手工发放）
+ *
+ * ADMIN_GRANT：后台管理员手工发放积分（补偿、活动奖励）。
+ *
+ * ⚠️ ADMIN_GRANT **不在** `prisma/sql/credit-idempotency-index.sql` 的幂等类型
+ * 白名单里，这是有意的：管理员完全可能对同一用户反复发放，若纳入
+ * `@@unique([userId, type, sourceId])` 约束，第二次发放会被 P2002 静默吞掉，
+ * 表现为「点了没反应但也不报错」。代价是调用方**必须为每次发放生成唯一的
+ * sourceId**（如 cuid / `admin-grant-${Date.now()}`），否则流水无法定位到具体
+ * 那一次操作。真正的防重复提交靠前端按钮禁用 + 审计日志追溯。
+ */
+export type GrantType =
+  | "PAYMENT"
+  | "SUBSCRIPTION"
+  | "CHECKIN"
+  | "INVITE"
+  | "ADMIN_GRANT";
 
 /**
  * 积分不足异常

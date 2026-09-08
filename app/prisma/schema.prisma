@@ -8,17 +8,24 @@ datasource db {
 
 // 用户表
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
+  id            String     @id @default(cuid())
+  email         String     @unique
   password      String? // 密码哈希（邮箱登录）
   name          String?
   image         String?
   emailVerified DateTime?
-  credits       Int       @default(300) // 初始积分（覆盖一次含一致性的完整 5 镜创作，保障首次成功体验）
-  inviteCode    String    @unique @default(cuid()) // 用户专属邀请码
+  credits       Int        @default(300) // 初始积分（覆盖一次含一致性的完整 5 镜创作，保障首次成功体验）
+  // 角色与账号状态（后台管理 RBAC）：role 决定能否进入 /admin，
+  // status=BANNED 时登录直接被拒（见 lib/auth.ts authorize）
+  role          UserRole   @default(USER)
+  status        UserStatus @default(ACTIVE)
+  bannedAt      DateTime? // 封禁时间（解封时置空）
+  banReason     String? // 封禁原因（展示给管理员，非用户）
+  lastLoginAt   DateTime? // 最近一次成功登录时间
+  inviteCode    String     @unique @default(cuid()) // 用户专属邀请码
   invitedBy     String? // 邀请人ID
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   accounts             Account[]
   sessions             Session[]
@@ -35,6 +42,63 @@ model User {
   customProviders      AIProvider[] // 用户自定义的 AI 提供商
   workflowRuns         WorkflowRun[]
   creditTransactions   CreditTransaction[] // 积分流水
+  auditLogs            AdminAuditLog[]           @relation("AuditActor") // 作为操作者产生的审计日志
+
+  @@index([role])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// 用户角色（RBAC）
+// USER：普通用户；ADMIN：后台管理员；SUPER_ADMIN：可改系统配置/角色的超管
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+// 账号状态：BANNED 时禁止登录，已签发的 JWT 在角色复查窗口（5 分钟）内失效
+enum UserStatus {
+  ACTIVE
+  BANNED
+}
+
+// 后台操作审计日志
+//
+// 所有管理员写操作（改角色、封禁、增减积分、改系统配置、运维动作）都必须
+// 经 lib/admin-audit.ts 的 writeAuditLog 落一条记录，before/after 存变更前后
+// 快照，便于事后追责与回滚参考。
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  actorId    String // 操作者（管理员）用户 ID
+  action     String // 动作标识，命名约定 <target>.<verb>，如 user.role.update
+  targetType String // 操作对象类型：user/order/credit/system_config/ai_provider/ops
+  targetId   String? // 操作对象 ID（系统级动作可为空）
+  before     Json? // 变更前快照
+  after      Json? // 变更后快照
+  note       String? // 操作备注/理由
+  ip         String? // 操作来源 IP
+  createdAt  DateTime @default(now())
+
+  actor User @relation("AuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+}
+
+// 系统运行时配置（键值对）
+//
+// 与 env 的分工：env 管「部署期不变的凭据/开关」，本表管「运营期可调的数值」
+// （初始积分、各类生成单价、签到奖励等）。键的合法集合、类型与取值范围由
+// lib/system-config.ts 的 SYSTEM_CONFIG_DEFS 单一声明，本表只存被改过的键；
+// 缺行时读取方自动回落到代码里的默认值。
+model SystemConfig {
+  key         String   @id
+  value       Json
+  description String?
+  updatedById String? // 最后修改人（管理员用户 ID，不建外键避免删号阻塞）
+  updatedAt   DateTime @updatedAt
 }
 
 // 积分流水表（统一积分服务的审计账本）

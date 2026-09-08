@@ -22,5 +22,11 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
+  // 封禁用户即便手里有未过期的 JWT 也不得进入应用。status 由 jwt callback
+  // 周期性回库刷新（5 分钟窗口），故封禁最迟一个窗口后生效。
+  if (session.user.status === "BANNED") {
+    redirect("/login?banned=1");
+  }
+
   return <DashboardShell>{children}</DashboardShell>;
 }

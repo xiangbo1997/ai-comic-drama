@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { generateImage } from "@/services/ai";
 import { uploadFileFromUrl, isStorageConfigured } from "@/services/storage";
 import { createLogger } from "@/lib/logger";
+import { getSystemConfig } from "@/lib/system-config";
 import { chargeCredits } from "@/lib/credits";
 import {
   buildCharacterBasePrompt,
@@ -24,9 +25,13 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-const PER_VIEW_COST = 3;
 const POSES = ["front", "side", "back"] as const;
-const THREE_VIEW_COST = PER_VIEW_COST * POSES.length; // 9
+
+/** 三视图总价 = 每视角单价（系统配置） × 视角数（当前 3） */
+async function resolveThreeViewCost(): Promise<number> {
+  const perView = await getSystemConfig("COST_THREE_VIEWS_PER_VIEW");
+  return perView * POSES.length;
+}
 
 const BodySchema = z.object({
   imageConfigId: z.string().max(255).optional(),
@@ -91,6 +96,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     // 积分预检（后台成功后才真正扣费）
+    const THREE_VIEW_COST = await resolveThreeViewCost();
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { credits: true },
@@ -139,7 +145,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       imageConfig,
       anchorImageUrl,
       style,
-      customPrompt
+      customPrompt,
+      THREE_VIEW_COST
     ).catch((err) => {
       log.error(`Background three-views task ${task.id} unhandled:`, err);
     });
@@ -165,7 +172,9 @@ async function runThreeViewsTask(
   imageConfig: Awaited<ReturnType<typeof getUserImageConfig>>,
   anchorImageUrl: string | undefined,
   style: string | undefined,
-  customPrompt: string | undefined
+  customPrompt: string | undefined,
+  /** 本次任务的总价：由 POST 在建任务时定价，后台沿用同一数值避免中途改价对不上 */
+  THREE_VIEW_COST: number
 ): Promise<void> {
   try {
     // style 命中完整画风包时，basePrompt 尾部会带上「画风基线」块（定妆规则 + 色彩系统）

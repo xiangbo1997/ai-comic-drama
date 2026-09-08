@@ -4,6 +4,7 @@
  */
 
 import { auth } from "@/lib/auth";
+import { getSystemConfig } from "@/lib/system-config";
 import { getUserLLMConfig } from "@/lib/ai-config";
 import { chatCompletion } from "@/services/ai";
 import {
@@ -29,7 +30,6 @@ const MAX_SCENE_DESCRIPTION = 4000;
  * 与 script/parse 的按字计费不同——本端点输入已被 MAX_SCENE_DESCRIPTION 封顶，
  * 成本波动小，定额即可。
  */
-const ANALYZE_SCENE_COST = 1;
 
 export async function POST(request: NextRequest) {
   try {
@@ -115,6 +115,8 @@ export async function POST(request: NextRequest) {
     // 故 sourceId 用 randomUUID() 作流水唯一标识（不具幂等语义，也无需——
     // 每次 POST 都是一次独立的付费调用，天然无重放）。
     // 余额不足 → 400，与其他生成类端点的错误语义一致。
+    // 单价走系统配置（后台可调）
+    const ANALYZE_SCENE_COST = await getSystemConfig("COST_ANALYZE_SCENE");
     try {
       await prisma.$transaction(async (tx) => {
         await chargeCredits(tx, {

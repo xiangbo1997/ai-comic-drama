@@ -18,7 +18,7 @@
  *      多余行连同其 outputUrl 文件一起删——该表按 sceneId 关联时随 Scene 永存，
  *      是增长最快的表，也是第三条存储孤儿路径。
  *
- * 鉴权：管理员 session（ADMIN_EMAILS）或 x-cron-secret 头匹配 CRON_SECRET
+ * 鉴权：管理员 session（User.role）或 x-cron-secret 头匹配 CRON_SECRET
  * （供无 session 的定时器使用）。两者都不满足返回 404 伪装。
  */
 
@@ -26,7 +26,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isAdmin } from "@/lib/admin";
+import { resolveAdmin, type AdminUser } from "@/lib/admin";
+import { writeAuditLog, requestIp } from "@/lib/admin-audit";
 import { createLogger } from "@/lib/logger";
 import { pruneSceneAttempts } from "@/lib/cleanup/attempt-retention";
 
@@ -50,16 +51,27 @@ const ORDER_EXPIRE_MS = 24 * 60 * 60 * 1000;
 // 僵尸阈值：15 分钟无更新仍 PROCESSING/RUNNING 视为已死（同轮询端点阈值）
 const ZOMBIE_MS = 15 * 60 * 1000;
 
-async function authorize(request: NextRequest): Promise<boolean> {
+/**
+ * 双通道鉴权：cron 密钥（无 session 的定时器）或管理员 session。
+ *
+ * 返回 null 表示拒绝；返回 `{ admin }` 时 admin 可能为 null——那是 cron 通道，
+ * 没有操作者身份，故不写审计日志（写了 actorId 也没得填）。
+ */
+async function authorize(
+  request: NextRequest
+): Promise<{ admin: AdminUser | null } | null> {
   const secret = process.env.CRON_SECRET;
   const provided = request.headers.get("x-cron-secret");
-  if (secret && provided && secretMatches(provided, secret)) return true;
-  const session = await auth();
-  return isAdmin(session);
+  if (secret && provided && secretMatches(provided, secret)) {
+    return { admin: null };
+  }
+  const admin = await resolveAdmin(await auth());
+  return admin ? { admin } : null;
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await authorize(request))) {
+  const authorized = await authorize(request);
+  if (!authorized) {
     return new NextResponse(null, { status: 404 });
   }
 
@@ -147,6 +159,19 @@ export async function POST(request: NextRequest) {
       prunedAttemptFiles: pruned?.deletedFiles ?? 0,
     };
     log.info("Cleanup completed", summary);
+
+    // 人工触发才记审计（cron 通道无操作者身份）
+    if (authorized.admin) {
+      await writeAuditLog(prisma, {
+        actorId: authorized.admin.id,
+        action: "ops.cleanup",
+        targetType: "ops",
+        after: summary,
+        note: "手动触发数据清理",
+        ip: requestIp(request),
+      });
+    }
+
     return NextResponse.json({ ok: true, ...summary });
   } catch (error) {
     log.error("Cleanup failed:", error);

@@ -25,10 +25,8 @@ import type {
   CandidateScore,
 } from "@/services/generation";
 // 请求归一化 + 落库事务已提取（纯结构拆分，行为与事务边界不变）
-import {
-  normalizeImageRequest,
-  IMAGE_COST,
-} from "@/services/generation/image-request/normalize";
+import { normalizeImageRequest } from "@/services/generation/image-request/normalize";
+import { getSystemConfigs } from "@/lib/system-config";
 import { persistImageResult } from "@/services/generation/image-request/persist";
 import { createLogger } from "@/lib/logger";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
@@ -92,6 +90,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 单价走系统配置（后台可调）；normalize 与后续实扣共用同一份，
+    // 保证「预估成本」与「实扣成本」始终同源
+    const sysConfig = await getSystemConfigs();
+    const imageCosts = {
+      normal: sysConfig.COST_IMAGE_NORMAL,
+      withRef: sysConfig.COST_IMAGE_WITH_REF,
+    };
+
     // 请求体解析 / 归一化（字段收窄 + 档位合法化 + 成本预估 + 参考图排序去重）
     const {
       prompt,
@@ -109,7 +115,7 @@ export async function POST(request: NextRequest) {
       explicitRefs,
       cost,
       rawInput,
-    } = normalizeImageRequest(await request.json());
+    } = normalizeImageRequest(await request.json(), imageCosts);
 
     if (!prompt) {
       return NextResponse.json(
@@ -681,8 +687,8 @@ export async function POST(request: NextRequest) {
           (sum, c) =>
             sum +
             (c.result.strategy === "reference_edit"
-              ? IMAGE_COST.withRef
-              : IMAGE_COST.normal),
+              ? imageCosts.withRef
+              : imageCosts.normal),
           0
         );
 
