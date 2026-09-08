@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { encrypt, decrypt, maskApiKey } from "@/lib/encryption";
+import {
+  encrypt,
+  decrypt,
+  maskApiKey,
+  encryptExtraConfig,
+} from "@/lib/encryption";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
 
 import { createLogger } from "@/lib/logger";
@@ -139,6 +144,10 @@ export async function POST(request: Request) {
     // 加密 API Key
     const { encrypted, iv } = encrypt(apiKey);
 
+    // 加密 extraConfig 中的凭据（accessToken / secretKey 等），与 apiKey 同等级别。
+    // upsert 的 update/create 两个分支共用同一份密文，避免加密两次产生不同 IV。
+    const encryptedExtraConfig = encryptExtraConfig(extraConfig);
+
     // 如果设置为默认，先取消该分类下其他配置的默认状态
     if (isDefault) {
       await prisma.userAIConfig.updateMany({
@@ -165,7 +174,7 @@ export async function POST(request: Request) {
         customBaseUrl: customBaseUrl || null,
         apiProtocol: apiProtocol || null,
         customModels: customModels || null,
-        extraConfig: extraConfig || undefined,
+        extraConfig: encryptedExtraConfig,
         selectedModel: selectedModel || undefined,
         isDefault: isDefault || false,
         authType: effectiveAuthType,
@@ -181,7 +190,7 @@ export async function POST(request: Request) {
         customBaseUrl: customBaseUrl || null,
         apiProtocol: apiProtocol || null,
         customModels: customModels || null,
-        extraConfig: extraConfig || undefined,
+        extraConfig: encryptedExtraConfig,
         selectedModel: selectedModel || undefined,
         isDefault: isDefault || false,
         authType: effectiveAuthType,

@@ -4,8 +4,9 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { decrypt } from "@/lib/encryption";
+import { decrypt, decryptExtraConfig } from "@/lib/encryption";
 import { assertSafeUrl } from "@/lib/url-guard";
+import { isAIProviderProtocol } from "@/types/ai";
 import type { AIServiceConfig } from "@/types";
 
 export type { AIServiceConfig };
@@ -45,13 +46,22 @@ export function isUsingPlatformFallback(
  * 把 UserAIConfig.extraConfig（jsonb，类型未知）安全收窄为 Record<string,string>。
  * 只保留值为字符串的条目（GPT-SoVITS 的 refAudioPath / promptText 等都是字符串）；
  * 无任何字符串条目时返回 undefined，避免下游拿到空对象误判"已配置"。
+ *
+ * 先经 decryptExtraConfig 还原敏感键（accessToken / secretKey 等在库中是
+ * enc:v1: 密文）：这里是所有生成路径读取 extraConfig 的唯一收口，解密一次后
+ * 下游 provider 全部看到明文，无需各自感知加密。
  */
 function narrowExtraConfig(raw: unknown): Record<string, string> | undefined {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+  const decrypted = decryptExtraConfig(raw);
+  if (
+    typeof decrypted !== "object" ||
+    decrypted === null ||
+    Array.isArray(decrypted)
+  ) {
     return undefined;
   }
   const result: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw)) {
+  for (const [key, value] of Object.entries(decrypted)) {
     if (typeof value === "string") {
       result[key] = value;
     }
@@ -97,12 +107,23 @@ async function assembleServiceConfig(
     await assertSafeUrl(config.customBaseUrl);
   }
 
+  // 协议白名单校验（唯一收口）：apiProtocol 在 DB 里是开放字符串，用户自建
+  // provider 可以填任意值。不校验的话未知协议会被 provider-factory 的 switch
+  // default 静默当 openai 处理，表现为「配了 X 协议却按 OpenAI 发请求」的
+  // 难排查故障。空串是合法的历史配置形态（下游按 baseUrl 推断），放行。
+  const rawProtocol =
+    config.apiProtocol || config.provider.apiProtocol || defaultProtocol;
+  if (rawProtocol !== "" && !isAIProviderProtocol(rawProtocol)) {
+    throw new Error(
+      `未知的 AI 协议「${rawProtocol}」，请在 AI 模型设置中检查该配置的协议类型`
+    );
+  }
+
   return {
     apiKey: decrypt(config.apiKey, config.apiKeyIv),
     baseUrl,
     model: config.selectedModel || fallbackModel,
-    protocol:
-      config.apiProtocol || config.provider.apiProtocol || defaultProtocol,
+    protocol: rawProtocol,
     authType:
       (config.authType as "API_KEY" | "CHATGPT_TOKEN" | "OAUTH") || "API_KEY",
     extraConfig: narrowExtraConfig(config.extraConfig),

@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { encrypt, decrypt, maskApiKey } from "@/lib/encryption";
+import {
+  encrypt,
+  decrypt,
+  maskApiKey,
+  encryptExtraConfig,
+  decryptExtraConfig,
+} from "@/lib/encryption";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
 import {
   maskExtraConfig,
@@ -56,8 +62,9 @@ export async function GET(
       apiKeyMasked: config.apiKey
         ? maskApiKey(decrypt(config.apiKey, config.apiKeyIv))
         : null,
-      // 掩码 extraConfig 中的凭据（accessToken / secretKey 等），与 apiKey 同策略
-      extraConfig: maskExtraConfig(config.extraConfig),
+      // 先解密再掩码：库中敏感值是 enc:v1: 密文，直接掩码等于把密文前后缀
+      // 回吐给前端（既无意义，也会让 PUT 的「掩码即未编辑」判据失效）。
+      extraConfig: maskExtraConfig(decryptExtraConfig(config.extraConfig)),
     });
   } catch (error) {
     log.error("Get config error:", error);
@@ -121,22 +128,21 @@ export async function PUT(
       // 浅合并：只覆盖本次提交的键，保留其余既有 extraConfig 字段。
       // 前端表单只回填了部分字段就保存时，整体覆盖会抹掉未回填的键
       // （如火山 appId/accessToken、SoVITS refAudioPath），故与现存对象 merge。
+      // 合并与掩码还原都在明文空间进行：库中敏感值是 enc:v1: 密文，若拿密文与
+      // 客户端提交的掩码串比对，永远判不出「未编辑」，真凭据会被掩码覆盖。
       const existingExtra =
-        existingConfig.extraConfig &&
-        typeof existingConfig.extraConfig === "object" &&
-        !Array.isArray(existingConfig.extraConfig)
-          ? (existingConfig.extraConfig as Record<string, unknown>)
-          : {};
+        decryptExtraConfig(existingConfig.extraConfig) ?? {};
       // GET 已把 accessToken / secretKey 等掩码后下发；客户端原样回传时说明该字段
       // 未编辑，须还原库中真值，否则掩码串会把真凭据覆盖掉（同 apiKey 的保留语义）。
       const restoredExtra = preserveMaskedExtraConfig(
         extraConfig,
         existingExtra
       );
-      updateData.extraConfig = {
+      // 落库前统一加密敏感键（含本次未编辑、从库中还原出来的明文值）
+      updateData.extraConfig = encryptExtraConfig({
         ...existingExtra,
         ...(restoredExtra as Record<string, unknown>),
-      };
+      });
     }
 
     if (selectedModel !== undefined) {

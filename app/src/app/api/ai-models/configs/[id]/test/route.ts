@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { decrypt } from "@/lib/encryption";
+import { decrypt, decryptExtraConfig } from "@/lib/encryption";
 import { assertSafeUrl } from "@/lib/url-guard";
 import {
   testProviderConnectivity,
@@ -86,7 +86,12 @@ export async function POST(
 
     // 解密 API Key
     const apiKey = decrypt(config.apiKey, config.apiKeyIv);
-    const extraConfig = config.extraConfig as Record<string, string> | null;
+    // extraConfig 里的 accessToken / secretKey 等在库中是 enc:v1: 密文，
+    // 必须解密后再交给连通性测试，否则火山 / 百度 / Kling 一律测出鉴权失败。
+    const extraConfig = decryptExtraConfig(config.extraConfig) as Record<
+      string,
+      string
+    > | null;
 
     // 优先使用请求体中的参数，否则使用保存的配置
     const effectiveModelId = bodyModelId || config.selectedModel;

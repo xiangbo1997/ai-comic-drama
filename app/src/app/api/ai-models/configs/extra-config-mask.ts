@@ -8,29 +8,17 @@
  *
  * 策略与 apiKey 一致：读时掩码，写时若客户端回传的仍是掩码值则保留库中原值
  * （前端表单只回填部分字段就保存的场景很常见，不能用掩码把真密钥覆盖掉）。
- * 本次不改动静态加密（at-rest）语义。
+ *
+ * 静态加密（at-rest）由 lib/encryption 的 encryptExtraConfig /
+ * decryptExtraConfig 负责；本文件只处理「对外展示」这一层，入参必须已是明文
+ * （调用方先解密再掩码），否则掩码的是密文，PUT 的「掩码即未编辑」判据会失效。
  */
 
-import { maskApiKey } from "@/lib/encryption";
+import { maskApiKey, isSensitiveExtraKey } from "@/lib/encryption";
 
-/** 显式敏感键名单（大小写敏感，覆盖各 provider 的既有命名） */
-const SENSITIVE_EXTRA_KEYS = [
-  "accessToken",
-  "secretKey",
-  "apiSecret",
-  "token",
-  "appSecret",
-];
-
-/** 兜底模式：任何含 secret / token 或以 key 结尾的键都按凭据处理 */
-const SENSITIVE_EXTRA_KEY_PATTERN = /secret|token|key$/i;
-
-/** 判定 extraConfig 的某个键是否承载凭据 */
-export function isSensitiveExtraKey(key: string): boolean {
-  return (
-    SENSITIVE_EXTRA_KEYS.includes(key) || SENSITIVE_EXTRA_KEY_PATTERN.test(key)
-  );
-}
+// 敏感键判据的单一真源在 lib/encryption（加密与掩码必须同一套判据，否则会出现
+// 「加密了但不掩码」或「掩码了但明文落库」的错配）。此处转出供既有调用方使用。
+export { isSensitiveExtraKey };
 
 /** 把 unknown 收敛为扁平对象；非对象 / 数组返回 null（调用方原样透传） */
 function asPlainObject(value: unknown): Record<string, unknown> | null {

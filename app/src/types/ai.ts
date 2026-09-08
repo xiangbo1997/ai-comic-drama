@@ -11,12 +11,15 @@ export interface AIServiceConfig {
   baseUrl: string;
   model: string;
   /**
-   * 协议标识。语义上应为 AIProviderProtocol，但此处仍为 string：
-   * 值来自 DB（UserAIConfig.apiProtocol / AIProvider.apiProtocol）这一开放输入，
-   * 收窄需要在 lib/ai-config.ts 装配处加一道运行时白名单校验（把未知协议显式
-   * 拒绝而非静默当 openai 处理）。该文件属其它工作流，留待收口后再改此处类型。
+   * 协议标识。值来自 DB（UserAIConfig.apiProtocol / AIProvider.apiProtocol）
+   * 这一开放输入，由 lib/ai-config.ts 装配处的 isAIProviderProtocol 白名单校验
+   * 把关：未知协议显式抛错，而非静默当 openai 处理。
+   *
+   * 空串是合法值且必须保留：视频 / TTS 的历史配置没有显式 protocol，
+   * provider-factory 对空协议会退化为按 baseUrl 推断（见 getVideoProvider /
+   * getTTSProvider 的 baseUrl 兼容分支）。收窄成纯枚举会把这批旧配置打死。
    */
-  protocol: string;
+  protocol: AIProviderProtocol | "";
   authType?: AuthType;
   /**
    * provider 特有的扩展配置：来自 UserAIConfig.extraConfig（jsonb）。
@@ -130,18 +133,36 @@ export type AICategory = "LLM" | "IMAGE" | "VIDEO" | "TTS";
  * switch case 一一对应。新增 provider 时两处同步补齐，否则该协议在类型层
  * 不可见（曾漏掉 flow2api / fish-audio / runway 三个已在跑的协议）。
  */
-export type AIProviderProtocol =
-  | "openai"
-  | "claude"
-  | "gemini"
-  | "grok"
-  | "replicate"
-  | "fal"
-  | "siliconflow"
-  | "proxy-unified"
-  | "flow2api"
-  | "runway"
-  | "volcengine"
-  | "elevenlabs"
-  | "gpt-sovits"
-  | "fish-audio";
+export const AI_PROVIDER_PROTOCOLS = [
+  "openai",
+  "claude",
+  "gemini",
+  "grok",
+  "replicate",
+  "fal",
+  "siliconflow",
+  "proxy-unified",
+  "flow2api",
+  "runway",
+  "volcengine",
+  "elevenlabs",
+  "gpt-sovits",
+  "fish-audio",
+] as const;
+
+export type AIProviderProtocol = (typeof AI_PROVIDER_PROTOCOLS)[number];
+
+/**
+ * 运行时白名单校验：DB 里的 apiProtocol 是开放字符串（用户可自建 provider），
+ * 装配 AIServiceConfig 前必须过这道闸，否则未知协议会被 provider-factory 的
+ * switch default 静默当 openai 处理，表现为"配了 X 协议却按 OpenAI 发请求"
+ * 的难排查故障。
+ */
+export function isAIProviderProtocol(
+  value: unknown
+): value is AIProviderProtocol {
+  return (
+    typeof value === "string" &&
+    (AI_PROVIDER_PROTOCOLS as readonly string[]).includes(value)
+  );
+}
