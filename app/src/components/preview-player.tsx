@@ -1,14 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import {
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
-  Volume2,
-  VolumeX,
-} from "lucide-react";
 import type { ScenePreview } from "@/types";
 import type {
   SubtitleStyle,
@@ -16,29 +8,18 @@ import type {
   Watermark,
   Sticker,
   Transition,
-  TransitionType,
   SceneEffect,
   SceneEffectId,
   BackgroundMusic,
   SceneSfx,
 } from "@/types/export-style";
-// 音效库（纯数据）：预览端按导出同源的触发时刻调度 <audio>（预览必须反映导出效果）
-import { getSfxById } from "@/lib/sfx-library";
 // 混合出片成本路由：图片分镜默认运镜先按导演 cameraMovement 派生（双端同构单一真源）。
 import { resolveDefaultMotion } from "@/lib/render-mode";
 import {
-  resolveSubtitleXY,
   resolveSubtitleFontPx,
-  SUBTITLE_FONT_BASE_HEIGHT,
   SUBTITLE_QUICK_POSITIONS,
 } from "@/types/export-style";
-// 逐句字幕切分 + 时间窗分配（与导出端 video-synthesis 共用同一权威实现，
-// 保证「逐句显示 + 淡入」在预览与成片两端时轴一致——预览=导出调试窗口）。
-import {
-  splitSubtitleSegments,
-  allocateSubtitleWindows,
-  typewriterDelays,
-} from "@/lib/subtitle-segments";
+import { typewriterDelays } from "@/lib/subtitle-segments";
 import type { SubtitleAnimation } from "@/types/export-style";
 // 字幕动效关键帧 + CSS 简写（与字幕样式面板共用同一实现，时序读 SUBTITLE_ANIM，
 // 与导出端 ASS 标签对齐——预览=成片）。
@@ -46,18 +27,12 @@ import {
   SUBTITLE_KEYFRAMES_CSS,
   getSubtitleAnimationCss,
 } from "@/lib/subtitle-css";
-// 剪映式拖角改字号的纯函数（与时间轴字幕样式面板共用同一实现，保证两处手感一致）
-import { resizeFontFromDistance } from "@/lib/subtitle-resize";
-import { SceneFilterDefs, sceneFilterCss } from "./scene-filters";
+import { SceneFilterDefs } from "./scene-filters";
 // 转场进度→样式映射 + 黑/白覆盖层（纯函数，与导出端 xfade 语义同源，抽出便于单测）
 import {
   transitionCurrentLayerStyle,
   transitionOverlay,
 } from "./preview-transitions";
-// 贴图时间窗判定（纯函数，与导出端 prepareStickers 同源，左闭右开）
-import { isStickerVisibleAt } from "./preview-sticker-window";
-// BGM 音量包络（纯函数，近似导出端 buildBgmFilter 的 fadeIn/fadeOut/ducking）
-import { bgmVolumeAt } from "./preview-bgm-envelope";
 // 冲击表现力 / Ken Burns 运镜的预览端 CSS（关键帧 + 映射函数），数值读共享常量，
 // 与导出端 ffmpeg 滤镜同参数（预览=成片）。
 import {
@@ -67,19 +42,38 @@ import {
   flashOverlayOpacityAt,
   isFreezeTailAt,
 } from "./preview-impact-css";
-import type { SceneMotion, SceneImpact } from "@/types/export-style";
+import type { SceneMotion } from "@/types/export-style";
 // 成片包装（批6）：字幕字体 / 金句花字 / 全片 LUT / 片头片尾卡，
 // 均与导出端共用同一份契约常量（预览=成片的单一真源）。
-import { resolveSubtitleFont, TITLE_FONT_ID } from "@/lib/subtitle-fonts";
 import { EMPHASIS_STYLE } from "@/types/export-style";
 import { resolveLutPreset } from "@/lib/color-grade";
 import type { ColorGrade } from "@/lib/color-grade";
+import { isCardSceneId } from "@/lib/title-cards";
+import type { CardSpec } from "@/lib/title-cards";
+// ── 抽出的纯函数 helper 与 hook（零行为变更的结构化拆分）──────────────
 import {
-  TITLE_CARD_SCENE_ID,
-  END_CARD_SCENE_ID,
-  isCardSceneId,
-} from "@/lib/title-cards";
-import type { CardSpec, CardLineRole } from "@/lib/title-cards";
+  aspectRatioToCss,
+  emptyAspectClass,
+  resolveEffect,
+  resolveTransition,
+  injectTitleCards,
+  computeDurations,
+  overallProgressAt,
+  watermarkPositionClass,
+} from "./preview-player/helpers";
+import { useMediaRegistry } from "./preview-player/use-media-registry";
+import { usePlaybackClock } from "./preview-player/use-playback-clock";
+import { useTransitionBuffer } from "./preview-player/use-transition-buffer";
+import { useStageHeight } from "./preview-player/use-stage-height";
+import { useOverlayDrag } from "./preview-player/use-overlay-drag";
+import { useBgm } from "./preview-player/use-bgm";
+import { useSfxScheduler } from "./preview-player/use-sfx-scheduler";
+import { useSubtitleTimeline } from "./preview-player/use-subtitle-timeline";
+import { CardOverlay } from "./preview-player/card-overlay";
+import { SubtitleOverlay } from "./preview-player/subtitle-overlay";
+import { StickerLayer } from "./preview-player/sticker-layer";
+import { MediaLayers } from "./preview-player/media-layers";
+import { PlayerControls } from "./preview-player/player-controls";
 
 interface PreviewPlayerProps {
   scenes: ScenePreview[];
@@ -146,67 +140,6 @@ interface PreviewPlayerProps {
   titleCards?: { intro: CardSpec | null; outro: CardSpec | null };
 }
 
-/**
- * 把 aspectRatio 字符串（"9:16" / "1:1" / "16:9"）转成 CSS aspect-ratio 值。
- * 用于「画面框」声明式锁定成片比例——框即成片画布，字幕拖拽以此为坐标基准，
- * 与导出 ASS \pos(x*W,y*H) 像素级对齐（W/H 同比例，归一化坐标落点一致）。
- * 非法值回退 16/9。
- */
-function aspectRatioToCss(aspectRatio: string): string {
-  const [w, h] = aspectRatio.split(":").map((n) => Number(n));
-  if (w > 0 && h > 0) return `${w} / ${h}`;
-  return "16 / 9";
-}
-
-/**
- * 解析某分镜的滤镜 id / 变速 / 运镜 / 冲击（与导出侧 resolveSceneEffect 等价）。
- * motion 保留 undefined（未配置）与 null（显式关）区分：图片分镜的默认 zoomIn
- * 契约由渲染处按 isImage && motion===undefined 兜底（对齐导出端 sceneToVideoClip）。
- */
-function resolveEffect(
-  sceneId: string,
-  effects?: SceneEffect[]
-): {
-  effect: SceneEffectId | null;
-  speed: number;
-  motion: SceneMotion | null | undefined;
-  impact: SceneImpact | null;
-} {
-  const found = effects?.find((e) => e.sceneId === sceneId);
-  const speed =
-    found?.speed != null && !isNaN(Number(found.speed))
-      ? Math.min(4, Math.max(0.25, Number(found.speed)))
-      : 1;
-  return {
-    effect: found?.effect ?? null,
-    speed,
-    motion: found ? (found.motion ?? null) : undefined,
-    impact: found?.impact ?? null,
-  };
-}
-
-/**
- * 解析某衔接的转场类型与时长（与导出端 video-synthesis.resolveTransition 同源）。
- *
- * 剪辑节奏回归（批2）：无任何存储转场配置时默认硬切（none），而非旧 fade 0.3s
- * ——与导出端「无存储配置默认硬切」保持一致（预览必须反映导出效果的铁律）。
- * 一旦有存储配置就逐项尊重（缺项回落 fade，存量兼容）。"none" 视为无转场。
- */
-function resolveTransition(
-  index: number,
-  transitions?: Transition[]
-): { type: TransitionType; duration: number } {
-  const hasStored = Array.isArray(transitions) && transitions.length > 0;
-  const t = transitions?.[index];
-  // 缺省转场：有存储配置回落 fade（兼容），无存储配置回落 none（硬切）。
-  const type = t?.type ?? (hasStored ? "fade" : "none");
-  const duration =
-    type === "none"
-      ? 0
-      : Math.min(2, Math.max(0.1, Number(t?.duration ?? 0.3)));
-  return { type, duration };
-}
-
 export function PreviewPlayer({
   scenes: rawScenes,
   aspectRatio,
@@ -234,102 +167,32 @@ export function PreviewPlayer({
   const [showSubtitles, setShowSubtitles] = useState(true);
   // 转场进度 0-1：>0 表示正在向下一镜叠化（驱动双层透明度/位移）
   const [transitionT, setTransitionT] = useState(0);
-  // 字幕拖拽态：拖拽中实时落点（归一化），用于无延迟跟手；松手时回调落库
-  const [dragXY, setDragXY] = useState<{ x: number; y: number } | null>(null);
-  // 贴图拖拽态：拖拽中实时落点（归一化锚点 x/y），跟手渲染；松手落库后由
-  // effect 等 stickers prop 回流再清（同字幕 dragXY 防闪回模式）。
-  const [dragSticker, setDragSticker] = useState<{
-    id: string;
-    x: number;
-    y: number;
-  } | null>(null);
   // 快捷位置浮层开关
   const [showQuickPos, setShowQuickPos] = useState(false);
-  // 画面框实际像素高：用于把字号从 1080 基准缩放到当前预览尺寸，
-  // 使「预览字号 ≈ 成片字号」。由 ResizeObserver 实时跟踪（响应式/拖窗）。
-  const [stageHeight, setStageHeight] = useState(0);
-  // 字幕拖角改字号：字幕块 ref（算中心像素）+ 交互态（按下时到中心的距离与起始字号）。
-  // 与时间轴字幕样式面板同一套逻辑，字号写回全片 subtitleStyle（两处一致）。
-  const subtitleBoxRef = useRef<HTMLParagraphElement>(null);
-  const resizeRef = useRef<{ startDist: number; startFont: number } | null>(
-    null
-  );
-  // 拖角改字号的「本地乐观字号」：updateProject 无 optimistic 且 onSuccess 会
-  // invalidate→refetch，高频拖动时字号会被服务器旧值刷回（看似放不大/闪回）。
-  // 故拖动中用此本地值即时渲染，松手才落库一次；落库回流后清空（同位置拖拽 dragXY）。
-  const [dragFontSize, setDragFontSize] = useState<number | null>(null);
-  // 滚轮缩放字号的防抖落库计时器：滚动中只更新本地乐观值，停止 400ms 后落库一次
-  // （避免每滚一格发一个 PATCH）。
-  const wheelCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 各视频分镜的「真实时长」（sceneId → 秒），由 <video> 的 onLoadedMetadata 填充。
-  // provider 常忽略请求时长返回 ~8s 片段，DB 的 scene.duration（LLM 估算，默认 3s）
-  // 与真实长度不符——用真实值驱动计时器，避免播放到一半跳镜/循环。
-  const [measuredDurs, setMeasuredDurs] = useState<Record<string, number>>({});
-  // 各分镜配音的「真实音频时长」（sceneId → 秒），由 <audio> 的 onLoadedMetadata
-  // 填充。字幕逐句节奏据此对齐（跟着语音走完 + 末句停驻到镜末），与导出端
-  // generateSubtitleFile 探测 audioUrl 时长的语义一致（预览必须反映导出效果）。
-  const [measuredAudioDurs, setMeasuredAudioDurs] = useState<
-    Record<string, number>
-  >({});
 
-  // 按 sceneId 缓存已挂载的 <video> DOM 节点。两层媒体从「单一 keyed 数组」
-  // 渲染，key=scene.id：currentIndex 前进时，原「下一镜」节点被 React 依 key
-  // 复用为「当前镜」，同一 DOM 节点播放不中断（消除切镜 remount 卡顿）。
-  // 所有播放/暂停/静音都据此表按 scene.id 直接取节点（不再用角色 ref，
-  // 避免角色互换后 ref 指向失效 + effect 时序竞态）。
-  const videoElsRef = useRef<Map<string, HTMLVideoElement>>(new Map());
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const bgmRef = useRef<HTMLAudioElement>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  // 媒体元素登记表 + 实测时长（无 effect，故调用位置不影响 effect 顺序）
+  const {
+    measuredDurs,
+    measuredAudioDurs,
+    videoElsRef,
+    audioRef,
+    bgmRef,
+    handleLoadedMetadata,
+    handleAudioLoadedMetadata,
+    getVideoRefCb,
+  } = useMediaRegistry();
+
   // 画面框（成片比例画布）：字幕拖拽以此为坐标基准（归一化换算用其 rect），
   // 与导出端画面分辨率同坐标系，确保「拖到哪 = 导出到哪」。
   const stageRef = useRef<HTMLDivElement>(null);
 
   // 片头/片尾卡注入（批6）：把非 null 的卡片包成「虚拟图片分镜」，intro 前置、
-  // outro 后置到时间轴。卡片底图 → ScenePreview.imageUrl（走既有图片渲染 + Ken
-  // Burns 缓推），durationSec → duration；无对白/旁白 → 天然不出普通字幕。
-  // 用保留 sceneId（__title-card__/__end-card__），下方按 isCardSceneId 关联卡片文字层。
-  // 卡片文字（CardSpec.lines）单独查表渲染，故不塞进 ScenePreview。
-  //
-  // 所有既有播放/计时/进度/转场逻辑都以 `scenes`（下面重绑为有效数组）为准，
-  // 虚拟分镜天然融入无需改动；cardSpecById 供卡片文字覆盖层查询。
-  const { scenes, cardSpecById } = useMemo(() => {
-    const intro = titleCards?.intro ?? null;
-    const outro = titleCards?.outro ?? null;
-    if (!intro && !outro) {
-      return { scenes: rawScenes, cardSpecById: new Map<string, CardSpec>() };
-    }
-    const cardMap = new Map<string, CardSpec>();
-    const list: ScenePreview[] = [];
-    if (intro) {
-      cardMap.set(TITLE_CARD_SCENE_ID, intro);
-      list.push({
-        id: TITLE_CARD_SCENE_ID,
-        order: -1,
-        duration: intro.durationSec,
-        imageUrl: intro.imageUrl,
-        videoUrl: null,
-        audioUrl: null,
-        dialogue: null,
-        narration: null,
-      });
-    }
-    list.push(...rawScenes);
-    if (outro) {
-      cardMap.set(END_CARD_SCENE_ID, outro);
-      list.push({
-        id: END_CARD_SCENE_ID,
-        order: rawScenes.length,
-        duration: outro.durationSec,
-        imageUrl: outro.imageUrl,
-        videoUrl: null,
-        audioUrl: null,
-        dialogue: null,
-        narration: null,
-      });
-    }
-    return { scenes: list, cardSpecById: cardMap };
-  }, [rawScenes, titleCards]);
+  // outro 后置到时间轴。所有既有播放/计时/进度/转场逻辑都以 `scenes`（下面重绑为
+  // 有效数组）为准，虚拟分镜天然融入无需改动；cardSpecById 供卡片文字覆盖层查询。
+  const { scenes, cardSpecById } = useMemo(
+    () => injectTitleCards(rawScenes, titleCards),
+    [rawScenes, titleCards]
+  );
 
   const currentScene = scenes[currentIndex];
   const nextScene =
@@ -398,32 +261,10 @@ export function PreviewPlayer({
   // 原 effDur/totalDuration/calculateOverallProgress 每次各自 O(n×m) 遍历
   // sceneEffects.find，33fps 下每秒上千次 find。改为 useMemo 一次性算好
   // 每镜有效时长 + 前缀和，渲染期只做 O(1) 数组下标查。
-  const { effDurs, prefixDurations, totalDuration } = useMemo(() => {
-    // sceneId → speed 查表，消除逐镜 find
-    const speedById = new Map<string, number>();
-    for (const e of sceneEffects ?? []) {
-      const raw = Number(e.speed);
-      speedById.set(
-        e.sceneId,
-        raw && raw > 0 ? Math.min(4, Math.max(0.25, raw)) : 1
-      );
-    }
-    const durs = scenes.map((s) => {
-      const speed = speedById.get(s.id) ?? 1;
-      // 有视频的分镜用「真实时长」（onLoadedMetadata 实测），回退 DB 声明值；
-      // 图片分镜无真实媒体长度，仍用 s.duration。真实时长同样受变速影响。
-      const base = s.videoUrl ? (measuredDurs[s.id] ?? s.duration) : s.duration;
-      return base / speed;
-    });
-    // 前缀和：prefix[i] = 前 i 个镜的有效时长之和（用于整体进度，去掉内层循环）
-    const prefix: number[] = [0];
-    for (let i = 0; i < durs.length; i++) prefix.push(prefix[i] + durs[i]);
-    return {
-      effDurs: durs,
-      prefixDurations: prefix,
-      totalDuration: prefix[prefix.length - 1] ?? 0,
-    };
-  }, [scenes, sceneEffects, measuredDurs]);
+  const { effDurs, prefixDurations, totalDuration } = useMemo(
+    () => computeDurations(scenes, sceneEffects, measuredDurs),
+    [scenes, sceneEffects, measuredDurs]
+  );
 
   // ── 冲击表现力 / Ken Burns 运镜（预览端，与导出端 ffmpeg 同参数）─────────────
   // 当前镜内已播秒数（相对镜头起点）：flash 三角脉冲与 freeze 定格判定用，与画面同源。
@@ -457,248 +298,83 @@ export function PreviewPlayer({
   const sceneIndex = currentSceneId
     ? scenes.findIndex((s) => s.id === currentSceneId)
     : -1;
-  useEffect(() => {
-    if (sceneIndex !== -1 && sceneIndex !== currentIndex) {
-      setCurrentIndex(sceneIndex);
-      setProgress(0);
-    }
-    // 仅当外部选中项变化时才跟随跳镜；把 currentIndex 列进依赖会让内部
-    // 自然播放推进的切镜被这里立刻拽回外部选中的那一镜。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sceneIndex]);
 
-  // 当前镜「有效时长 / 转场时长」的最新值镜像（毫秒）。
-  // 计时器 effect 刻意不依赖 measuredDurs / transitions（依赖变了会重启定时器，
-  // 进度跳回起点），故把最新值经这个廉价 effect 写进 ref，供 30ms tick 现取，
-  // 使「预览必须反映导出效果」在实测时长回填/转场时长编辑时也成立。
-  const curDurationMsRef = useRef(0);
-  const curTransitionMsRef = useRef(0);
-  useEffect(() => {
-    curDurationMsRef.current =
-      (effDurs[currentIndex] ?? currentScene?.duration ?? 0) * 1000;
-    curTransitionMsRef.current = curTransition.duration * 1000;
-  }, [effDurs, currentIndex, currentScene?.duration, curTransition.duration]);
-
-  // 播放控制：进度按「有效时长」计时；进入末尾转场窗口后驱动双层叠化
-  useEffect(() => {
-    if (isPlaying && currentScene) {
-      // 该镜右侧转场时长（末镜无转场）
-      const hasNext = currentIndex < scenes.length - 1;
-      const startTime = Date.now();
-
-      timerRef.current = setInterval(() => {
-        // 时长与转场时长每 tick 从 ref 现取（而非闭包快照）：视频
-        // onLoadedMetadata 回填实测时长、或用户在播放中改转场时长时，当前这一镜
-        // 立刻按新值计时，无需重启定时器（重启会让进度跳回起点）。
-        const durationMs = curDurationMsRef.current;
-        const tdMs = hasNext ? curTransitionMsRef.current : 0;
-        const elapsed = Date.now() - startTime;
-        const sceneProgress =
-          durationMs > 0 ? Math.min(elapsed / durationMs, 1) : 1;
-        setProgress(sceneProgress);
-
-        // 转场叠化：进入 [durationMs - tdMs, durationMs] 窗口时，
-        // transitionT 从 0 线性升到 1（驱动下一镜淡入/当前镜淡出）
-        if (tdMs > 0) {
-          const remain = durationMs - elapsed;
-          if (remain <= tdMs) {
-            setTransitionT(Math.min(1, (tdMs - remain) / tdMs));
-          }
-        }
-
-        if (sceneProgress >= 1) {
-          if (hasNext) {
-            setCurrentIndex((prev) => prev + 1);
-            setProgress(0);
-            setTransitionT(0);
-            emitSceneChange(scenes[currentIndex + 1].id);
-          } else {
-            // 播放结束，回到片头：清空音效已触发集合，否则下一轮播放
-            // sfxFiredRef 仍是满的，整片一个音效都不响。
-            setIsPlaying(false);
-            setProgress(0);
-            setTransitionT(0);
-            setCurrentIndex(0);
-            sfxFiredRef.current = new Set();
-            sfxLastElapsedRef.current = 0;
-          }
-        }
-      }, 30);
-
-      // 播放当前镜视频：从 videoElsRef 表按 scene.id 直接取节点，不依赖
-      // videoRef.current（角色 ref 由另一 effect 同步，运行时机晚于本 effect，
-      // 此处直接查表避免时序竞态）。切镜后原「下一镜」节点经 keyed 复用为当前镜，
-      // 已在播；对已在播元素再调 play() 无副作用（不重置进度）。
-      if (currentScene.videoUrl) {
-        const el = videoElsRef.current.get(currentScene.id);
-        if (el) {
-          // 预览必须反映导出效果（铁律）：分镜变速在导出端由 atempo+setpts 实现，
-          // 预览端此前从不设 playbackRate → 视频恒 1x 播放，但计时器按「有效时长
-          // (真实时长/speed)」提前切镜，导致 speed>1 时预览被提前切走、speed<1 时
-          // 没播完就切 = 预览节奏≠成片。这里把视频播放速率对齐变速倍率。
-          // TTS 配音（audioRef）保持 1x：导出端配音不变速（atempo 仅作用于视频自带音轨）。
-          el.playbackRate = curFx.speed;
-          el.play().catch(() => {});
-        }
-      }
-
-      // 播放音频
-      if (audioRef.current && currentScene.audioUrl) {
-        audioRef.current.play().catch(() => {});
-      }
-
-      // 播放背景音乐（循环，让用户在预览里听到导出后的 BGM）。
-      // 音量不在此写死——由下方「BGM 包络」effect 按整片进度做 fadeIn/fadeOut/
-      // ducking，起播瞬时音量也由该 effect 立即算好（避免首帧突然满音量）。
-      if (bgmRef.current && backgroundMusic?.enabled && backgroundMusic.url) {
-        bgmRef.current.play().catch(() => {});
-      }
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-      // 暂停当前镜视频（同样查表，避免依赖角色 ref 时序）
-      if (currentScene?.videoUrl) {
-        videoElsRef.current.get(currentScene.id)?.pause();
-      }
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      if (bgmRef.current) {
-        bgmRef.current.pause();
-      }
-    }
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
-    };
-    // 时长/转场时长刻意不入依赖（改则重启定时器、进度跳回起点），
-    // 改由上方 curDurationMsRef / curTransitionMsRef 在 tick 内现取最新值。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, currentIndex, currentScene, scenes, emitSceneChange]);
-
-  // 手动切换分镜时重置转场进度
-  useEffect(() => {
-    setTransitionT(0);
-  }, [currentIndex]);
-
-  // 定格冲击（批4）：镜尾 tailSec 内暂停当前镜视频画面（近似导出端「镜内定格」，
-  // 图片镜本就静止天然成立）。离开定格窗（回退/切镜）且仍在播放时恢复。
-  // 计时器与音频不动——定格只冻画面，时轴与配音照常走（与导出端 trim+tpad 净时长守恒一致）。
-  useEffect(() => {
-    if (!currentScene?.videoUrl) return;
-    const el = videoElsRef.current.get(currentScene.id);
-    if (!el) return;
-    if (curFreezeActive && isPlaying) {
-      el.pause();
-    } else if (isPlaying && el.paused) {
-      el.play().catch(() => {});
-    }
-  }, [curFreezeActive, isPlaying, currentScene]);
-
-  // 转场预播：转场窗口开始（transitionT>0）时起播「下一镜」底层视频（静音），
-  // 让叠化淡入时看到真实运动画面而非冻结首帧。转场未完成即结束（手动跳镜/暂停
-  // 令 transitionT 归 0）时，暂停并把底层视频复位到起点，下次转场从头播。
-  // 说明：正常播完切镜时 currentIndex 前进、该底层节点经 keyed 复用变为当前镜，
-  // 已在播不需复位；此处的复位只作用于「转场中断」这一路径。
-  useEffect(() => {
-    // 直接查表取「下一镜」视频节点，不依赖 nextVideoRef 时序（同 play 控制）。
-    const nextEl = nextScene?.videoUrl
-      ? videoElsRef.current.get(nextScene.id)
-      : undefined;
-    if (!nextEl) return;
-    if (transitionT > 0 && isPlaying) {
-      // 转场预播下一镜时同样对齐其变速倍率（预览=成片），与当前镜播放速率同源
-      nextEl.playbackRate = nextFx.speed;
-      // play() 的 promise 拒绝（如自动播放策略）吞掉，不阻断预览
-      nextEl.play().catch(() => {});
-    } else if (transitionT === 0) {
-      // 转场结束/未开始：暂停并复位底层视频，下次转场从头播
-      nextEl.pause();
-      try {
-        nextEl.currentTime = 0;
-      } catch {
-        // 某些浏览器在 metadata 未就绪时设 currentTime 抛错，忽略即可
-      }
-    } else {
-      // 转场进行中但已暂停（transitionT>0 且 !isPlaying）：暂停底层但不复位，
-      // 恢复播放时能接着叠化，避免底层继续无声播放。
-      nextEl.pause();
-    }
-  }, [transitionT, isPlaying, nextScene, nextFx.speed]);
-
-  // 跟踪画面框实际像素高 → 驱动字号等比缩放（响应式布局/拖窗都实时更新）。
-  // ResizeObserver 比 window.resize 更准：框高随容器内缩规则变化，非仅窗口尺寸。
-  useEffect(() => {
-    const el = stageRef.current;
-    if (!el) return;
-    const update = () => setStageHeight(el.getBoundingClientRect().height);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
+  // SFX 已触发集合的重置入口：计时器播完归零时需要清空，但 useSfxScheduler
+  // 的三个 effect 必须留在 effect 序列最后（顺序即时序契约），故经这个恒定 ref
+  // 做前向引用；ref 只在 effect / 计时器回调里读写，不在渲染期访问。
+  const resetSfxProgressRef = useRef<() => void>(() => {});
+  const resetSfxProgress = useCallback(() => {
+    resetSfxProgressRef.current();
   }, []);
 
-  // 切换分镜时无条件清乐观值——dragXY 只属于上一个分镜，不能带到新分镜。
-  useEffect(() => {
-    setDragXY(null);
-  }, [currentScene?.id]);
+  // ── effect 1~4：外部选中同步 / 时长镜像 ref / 30ms 计时器 / 手动切镜重置转场 ──
+  usePlaybackClock({
+    scenes,
+    currentScene,
+    currentIndex,
+    setCurrentIndex,
+    progress,
+    setProgress,
+    transitionT,
+    setTransitionT,
+    isPlaying,
+    setIsPlaying,
+    sceneIndex,
+    curEffDuration: effDurs[currentIndex] ?? currentScene?.duration ?? 0,
+    curTransitionDuration: curTransition.duration,
+    curSpeed: curFx.speed,
+    emitSceneChange,
+    videoElsRef,
+    audioRef,
+    bgmRef,
+    backgroundMusic,
+    resetSfxProgress,
+  });
 
-  // 贴图拖拽乐观值收尾：松手后 dragSticker「钉」住落点（防落库往返期间闪回）。
-  // 当 props.stickers 里该贴图坐标已回流确认（浮点容差）→ 清空，交还 props。
-  useEffect(() => {
-    if (!dragSticker) return;
-    const confirmed = stickers?.find((s) => s.id === dragSticker.id);
-    if (!confirmed) return;
-    const settled =
-      Math.abs(confirmed.x - dragSticker.x) < 0.001 &&
-      Math.abs(confirmed.y - dragSticker.y) < 0.001;
-    if (settled) setDragSticker(null);
-    // 只在 props 回流（stickers 变化）时比对；把 dragSticker 列进依赖会在拖拽
-    // 每帧 setDragSticker 后重复比对，与未回流的旧 props 相较必然不 settled。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stickers]);
+  // ── effect 5~6：镜尾定格 / 转场预播下一镜 ──
+  useTransitionBuffer({
+    currentScene,
+    nextScene,
+    isPlaying,
+    transitionT,
+    nextSpeed: nextFx.speed,
+    curFreezeActive,
+    videoElsRef,
+  });
 
-  // 拖拽乐观值收尾：松手后 dragXY 暂时“钉”住落点（避免落库往返期间字幕闪回）。
-  // 当 props.subtitlePositions 已回流确认该坐标（浮点容差比较）→ 清 dragXY，
-  // 把控制权交还 props，避免乐观值永久滞留。
-  useEffect(() => {
-    if (!dragXY || !currentScene) return;
-    const resolved = resolveSubtitleXY(
-      currentScene.id,
-      subtitleStyle,
-      subtitlePositions
-    );
-    const settled =
-      Math.abs(resolved.x - dragXY.x) < 0.001 &&
-      Math.abs(resolved.y - dragXY.y) < 0.001;
-    if (settled) setDragXY(null);
-    // 同上：只在 props 回流（subtitlePositions 变化）时比对，避免拖拽期间
-    // dragXY 自身变化反复触发比对；currentScene/subtitleStyle 只作读取来源。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subtitlePositions]);
+  // ── effect 7：ResizeObserver 跟踪画面框高 ──
+  const stageHeight = useStageHeight(stageRef);
 
-  // 拖角改字号乐观值收尾：松手后 dragFontSize「钉」住松手字号；当 subtitleStyle
-  // 回流确认（fontSize 已等于该值）→ 清空，把控制权交还 props，避免乐观值滞留。
-  useEffect(() => {
-    if (dragFontSize !== null && subtitleStyle?.fontSize === dragFontSize) {
-      setDragFontSize(null);
-    }
-    // 同上：只在 props 回流（subtitleStyle.fontSize 变化）时判定是否已确认；
-    // 把 dragFontSize 列进依赖会让拖动中的每次本地改值都跑一遍无意义比对。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subtitleStyle?.fontSize]);
+  // ── effect 8~12：拖拽乐观值收尾 ×3 + 切镜清 dragXY + 滚轮计时器卸载清理 ──
+  const {
+    dragXY,
+    dragSticker,
+    dragFontSize,
+    subtitleBoxRef,
+    subtitleEditable,
+    stickerEditable,
+    subtitleResizable,
+    currentSubtitleXY,
+    handleSubtitleDragStart,
+    handleSubtitleResizeStart,
+    handleSubtitleResizeMove,
+    handleSubtitleResizeEnd,
+    handleSubtitleWheel,
+    handleStickerDragStart,
+    applyQuickPosition,
+  } = useOverlayDrag({
+    currentScene,
+    subtitleStyle,
+    subtitlePositions,
+    stickers,
+    onSubtitlePositionChange,
+    onSubtitleStyleChange,
+    onStickerPositionChange,
+    stageRef,
+    setShowQuickPos,
+  });
 
-  // 卸载时清滚轮防抖计时器，避免组件已卸载还触发落库。
-  useEffect(() => {
-    return () => {
-      if (wheelCommitTimer.current) clearTimeout(wheelCommitTimer.current);
-    };
-  }, []);
-
-  // 静音命令式管理（据 videoElsRef 表按角色取节点）。
+  // ── effect 13：静音命令式管理（据 videoElsRef 表按角色取节点）──
   //
   // 必须命令式设置 muted：React 的 muted JSX 属性对「已挂载 <video>」更新不
   // 可靠，且双层媒体经 keyed 复用后同一 <video> 节点会在「当前镜 / 下一镜」
@@ -716,156 +392,41 @@ export function PreviewPlayer({
     if (nextEl) nextEl.muted = true;
     if (audioRef.current) audioRef.current.muted = isMuted;
     if (bgmRef.current) bgmRef.current.muted = isMuted;
+    // videoElsRef / audioRef / bgmRef 均为恒定 ref 容器，依赖数组与拆分前一致。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex, isMuted, currentScene, nextScene]);
 
-  // BGM 音量包络：按整片已播时刻做 fadeIn / fadeOut / ducking（近似导出端
-  // buildBgmFilter）。progress 每 30ms 更新驱动本 effect 平滑 ramp <audio>.volume。
-  // 静音由上方 muted effect 独立管理（bgmRef.muted），此处只算 .volume，两者正交。
-  // 整片已播时刻 = 前缀和(已完成镜) + 当前镜有效时长 × progress，与整体进度条同源。
-  useEffect(() => {
-    const bgm = backgroundMusic;
-    if (!bgmRef.current || !bgm?.enabled || !bgm.url) return;
-    const elapsedBefore = prefixDurations[currentIndex] ?? 0;
-    const elapsed = elapsedBefore + (effDurs[currentIndex] ?? 0) * progress;
-    // 对白/旁白配音正在播 → ducking 压低（当前镜有配音音轨且正在播放）
-    const voiceActive = !!currentScene?.audioUrl && isPlaying;
-    bgmRef.current.volume = bgmVolumeAt(
-      {
-        volume: bgm.volume ?? 0.25,
-        fadeIn: bgm.fadeIn ?? 0,
-        fadeOut: bgm.fadeOut ?? 0,
-        ducking: bgm.ducking ?? false,
-      },
-      elapsed,
-      totalDuration,
-      voiceActive
-    );
-  }, [
+  // ── effect 14：BGM 音量包络 ──
+  useBgm({
     backgroundMusic,
-    progress,
-    currentIndex,
-    isPlaying,
-    currentScene,
+    bgmRef,
     prefixDurations,
     effDurs,
-    totalDuration,
-  ]);
-
-  // ── SFX 音效调度（批1，与导出端 buildSfxSchedule 同源语义）────────────
-  // 触发表：显式配置（sceneStart+offsetSec）+ 转场自动 whoosh（携带 sfx 配置且
-  // 该衔接为显式非硬切转场时，与导出端 wantAutoTransitionSfx 契约一致）。
-  const sfxSchedule = useMemo(() => {
-    if (sfx === undefined) return [];
-    const idxById = new Map(scenes.map((s, i) => [s.id, i]));
-    const items: { url: string; triggerSec: number; volume: number }[] = [];
-    for (const s of sfx) {
-      const entry = getSfxById(s.sfxId);
-      const idx = idxById.get(s.sceneId);
-      if (!entry || idx === undefined) continue;
-      const offset = Number.isFinite(s.offsetSec)
-        ? Math.max(0, s.offsetSec)
-        : 0;
-      items.push({
-        url: entry.file,
-        triggerSec: (prefixDurations[idx] ?? 0) + offset,
-        volume:
-          typeof s.volume === "number" && Number.isFinite(s.volume)
-            ? Math.min(1, Math.max(0, s.volume))
-            : entry.defaultVolume,
-      });
-    }
-    // 转场自动 whoosh：显式非硬切转场的衔接点补一记疾风（同导出端默认值 0.5）
-    const whoosh = getSfxById("whoosh-fast");
-    if (whoosh && Array.isArray(transitions)) {
-      for (let k = 0; k < scenes.length - 1; k += 1) {
-        const t = transitions[k];
-        if (t && t.type && t.type !== "none") {
-          items.push({
-            url: whoosh.file,
-            triggerSec: prefixDurations[k + 1] ?? 0,
-            volume: 0.5,
-          });
-        }
-      }
-    }
-    return items.sort((a, b) => a.triggerSec - b.triggerSec);
-  }, [sfx, scenes, prefixDurations, transitions]);
-
-  // 已触发集合 + 活动音频（暂停/回退/卸载时统一停止）。
-  // lastElapsed 用于识别「回退/跳转」：时间倒流则重建已触发集合（<= 新时刻的
-  // 视为已触发但不补播），避免 seek 后旧音效连环补放。
-  const sfxFiredRef = useRef<Set<number>>(new Set());
-  const sfxActiveRef = useRef<Set<HTMLAudioElement>>(new Set());
-  const sfxLastElapsedRef = useRef(0);
-  useEffect(() => {
-    if (sfxSchedule.length === 0) return;
-    const elapsed =
-      (prefixDurations[currentIndex] ?? 0) +
-      (effDurs[currentIndex] ?? 0) * progress;
-
-    // 回退/跳转：时间倒流 → 已触发集合重建为「时刻之前的全部」，不补播
-    if (elapsed < sfxLastElapsedRef.current - 0.2) {
-      const rebuilt = new Set<number>();
-      sfxSchedule.forEach((item, i) => {
-        if (item.triggerSec <= elapsed) rebuilt.add(i);
-      });
-      sfxFiredRef.current = rebuilt;
-    }
-    sfxLastElapsedRef.current = elapsed;
-
-    if (!isPlaying) return;
-    sfxSchedule.forEach((item, i) => {
-      if (sfxFiredRef.current.has(i) || item.triggerSec > elapsed) return;
-      sfxFiredRef.current.add(i);
-      // 仅在触发时刻附近 0.6s 内真正发声：跨大步前进（seek）越过的旧触发点只标记不补播
-      if (elapsed - item.triggerSec > 0.6 || isMuted) return;
-      const audio = new Audio(item.url);
-      audio.volume = item.volume;
-      sfxActiveRef.current.add(audio);
-      // 播完 / 起播失败都要释放：仅从集合里删不够，还需 pause + 清 src 断开
-      // 媒体资源，否则每轮播放都在堆积游离 <audio>（长片 + 反复预览会吃满内存）。
-      const release = () => {
-        audio.pause();
-        audio.src = "";
-        sfxActiveRef.current.delete(audio);
-      };
-      audio.addEventListener("ended", release);
-      audio.play().catch(release);
-    });
-  }, [
-    sfxSchedule,
-    progress,
     currentIndex,
+    progress,
+    totalDuration,
+    currentScene,
+    isPlaying,
+  });
+
+  // ── effect 15~17：SFX 调度 / 起播重置 / 卸载停止 ──
+  const { resetSfxProgress: sfxReset } = useSfxScheduler({
+    sfx,
+    scenes,
+    prefixDurations,
+    effDurs,
+    transitions,
+    currentIndex,
+    progress,
     isPlaying,
     isMuted,
-    prefixDurations,
-    effDurs,
-  ]);
-
-  // 暂停/卸载：停止所有在放音效（环境音长达 15s，必须跟随暂停）。
-  // 停止时一并清 src 释放媒体资源，与上方 release 同语义。
-  const stopAllSfx = () => {
-    const active = sfxActiveRef.current;
-    active.forEach((a) => {
-      a.pause();
-      a.src = "";
-    });
-    active.clear();
-  };
-  const stopAllSfxRef = useRef(stopAllSfx);
-  stopAllSfxRef.current = stopAllSfx;
+  });
+  // 前向引用回填（effect 18，序列末位）：sfxReset 为恒定 identity 的
+  // useCallback，本 effect 只在挂载后跑一次；计时器的 wrap-around 分支
+  // 只可能在挂载之后触发，故不存在「尚未回填就被调用」的空窗。
   useEffect(() => {
-    if (isPlaying) {
-      // 起播（含播完归零后再次播放）：清空已触发集合与上次时刻，否则
-      // sfxFiredRef 仍保留上一轮的全部索引，第二遍播放整片无音效。
-      // 时刻基准归零同步重置，避免被判成「时间倒流」而重建集合。
-      sfxFiredRef.current = new Set();
-      sfxLastElapsedRef.current = 0;
-      return;
-    }
-    stopAllSfxRef.current();
-  }, [isPlaying]);
-  useEffect(() => () => stopAllSfxRef.current(), []);
+    resetSfxProgressRef.current = sfxReset;
+  }, [sfxReset]);
 
   const togglePlay = () => {
     setIsPlaying(!isPlaying);
@@ -887,20 +448,15 @@ export function PreviewPlayer({
     }
   };
 
-  const calculateOverallProgress = () => {
-    // 已完成镜的累计时长直接读前缀和（O(1)），不再内层循环累加
-    const elapsedBefore = prefixDurations[currentIndex] ?? 0;
-    const elapsed =
-      elapsedBefore +
-      (currentScene ? (effDurs[currentIndex] ?? 0) * progress : 0);
-    return totalDuration > 0 ? elapsed / totalDuration : 0;
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
+  const calculateOverallProgress = () =>
+    overallProgressAt(
+      prefixDurations,
+      effDurs,
+      currentIndex,
+      progress,
+      totalDuration,
+      !!currentScene
+    );
 
   /**
    * 计算转场叠化时「当前镜（上层）」的视觉样式。
@@ -914,94 +470,6 @@ export function PreviewPlayer({
   // 转场黑/白覆盖层：仅 fadeblack/fadewhite 有值——前半程画面淡入纯色，后半程
   // 纯色淡出露新画面（两段式）。z-10 契约：必须显式高于媒体层（zIndex 1/2）。
   const overlay = transitionOverlay(curTransition.type, transitionT);
-
-  // ── 字幕位置：拖拽与快捷选择 ──────────────────────────────────────────
-  // 是否允许编辑字幕位置（提供回调才开放；只读预览不可拖）
-  const subtitleEditable = !!onSubtitlePositionChange;
-  // 是否允许拖拽贴图位置（提供回调才开放；只读预览不可拖，保持向后兼容）
-  const stickerEditable = !!onStickerPositionChange;
-  // 是否允许拖角改字号（提供回调才开放；与时间轴字幕样式弹窗同一数据源）
-  const subtitleResizable = !!onSubtitleStyleChange;
-  // 字号 UI 范围（与字幕样式面板的滑块/拖角一致；服务端另有 8-96 安全外壳）
-  const SUBTITLE_FONT_MIN = 12;
-  const SUBTITLE_FONT_MAX = 48;
-
-  // 拖角改字号：按下记「指针到字幕中心的像素距离 + 起始字号」，
-  // move 里按距离比例缩放，写回全片 subtitleStyle（剪映式，与面板同一实现）。
-  const subtitleCenterPx = (): { cx: number; cy: number } => {
-    const rect = subtitleBoxRef.current?.getBoundingClientRect();
-    if (!rect) return { cx: 0, cy: 0 };
-    return { cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 };
-  };
-
-  const handleSubtitleResizeStart = (e: React.PointerEvent) => {
-    if (!subtitleResizable || !subtitleStyle) return;
-    e.preventDefault();
-    e.stopPropagation(); // 阻止冒泡到 <p> 的位置拖拽
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    const { cx, cy } = subtitleCenterPx();
-    resizeRef.current = {
-      startDist: Math.hypot(e.clientX - cx, e.clientY - cy),
-      startFont: subtitleStyle.fontSize,
-    };
-  };
-
-  const handleSubtitleResizeMove = (e: React.PointerEvent) => {
-    const it = resizeRef.current;
-    if (!it || !subtitleStyle) return;
-    e.preventDefault();
-    const { cx, cy } = subtitleCenterPx();
-    const curDist = Math.hypot(e.clientX - cx, e.clientY - cy);
-    const fontSize = resizeFontFromDistance(
-      it.startFont,
-      it.startDist,
-      curDist,
-      SUBTITLE_FONT_MIN,
-      SUBTITLE_FONT_MAX
-    );
-    // 拖动中只更新本地乐观字号，即时渲染、零 HTTP 往返（避免被 refetch 刷回）。
-    setDragFontSize(fontSize);
-  };
-
-  const handleSubtitleResizeEnd = (e: React.PointerEvent) => {
-    if (!resizeRef.current) return;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    resizeRef.current = null;
-    // 松手才落库一次；不清 dragFontSize，留作乐观值「钉住」松手字号，
-    // 待 subtitleStyle 回流确认后再由下方 effect 清空，避免闪回旧值。
-    if (dragFontSize !== null && subtitleStyle) {
-      onSubtitleStyleChange?.({ ...subtitleStyle, fontSize: dragFontSize });
-    }
-  };
-
-  // 滚轮缩放字号：在字幕块上滚动即缩放（上滚放大 / 下滚缩小），每格 ±1px。
-  // 滚动中只更新本地乐观值（即时、平滑，配合 CSS font-size 过渡），停止 400ms
-  // 后防抖落库一次。preventDefault 阻止页面/弹窗跟着滚。
-  const handleSubtitleWheel = (e: React.WheelEvent) => {
-    if (!subtitleResizable || !subtitleStyle) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const base = dragFontSize ?? subtitleStyle.fontSize;
-    // deltaY<0（上滚）放大，>0（下滚）缩小；每次 ±1px，clamp 到 UI 范围
-    const step = e.deltaY < 0 ? 1 : -1;
-    const next = Math.min(
-      SUBTITLE_FONT_MAX,
-      Math.max(SUBTITLE_FONT_MIN, base + step)
-    );
-    if (next === base) return;
-    setDragFontSize(next);
-    // 防抖落库：滚动停止 400ms 后写回一次
-    if (wheelCommitTimer.current) clearTimeout(wheelCommitTimer.current);
-    wheelCommitTimer.current = setTimeout(() => {
-      onSubtitleStyleChange?.({ ...subtitleStyle, fontSize: next });
-    }, 400);
-  };
-
-  // 当前分镜字幕的「生效坐标」：拖拽中用实时 dragXY，否则解析覆盖/全局默认
-  const currentSubtitleXY = currentScene
-    ? (dragXY ??
-      resolveSubtitleXY(currentScene.id, subtitleStyle, subtitlePositions))
-    : { x: 0.5, y: 0.88 };
 
   // 字幕预览字号：把 fontSize(1080 基准) 按画面框实际高等比缩放，与导出端
   // ASS Fontsize 共用 resolveSubtitleFontPx → 预览所见字号 ≈ 成片字号。
@@ -1022,52 +490,15 @@ export function PreviewPlayer({
     ? Math.round(subtitleFontPx * EMPHASIS_STYLE.fontScale)
     : subtitleFontPx;
 
-  // 逐句字幕：把当前镜的对白/旁白切成短句 + 按视觉宽度分配时间窗，与导出端
-  // （video-synthesis.generateSubtitleFile）共用 splitSubtitleSegments /
-  // allocateSubtitleWindows，保证「逐句显示 + 淡入」的切句与时轴两端一致。
-  // 时长用实测有效时长 effDurs[currentIndex]（与画面/配音同源），非 DB 声明值。
-  const subtitleWindows = useMemo(() => {
-    const text = currentScene?.dialogue || currentScene?.narration || "";
-    if (!text) return [];
-    const segments = splitSubtitleSegments(text);
-    const dur = effDurs[currentIndex] ?? currentScene?.duration ?? 0;
-    // 配音真实音频时长（有则字幕逐句节奏按它走完 + 末句停驻到镜末，与导出端同源）
-    const voiceDur = currentScene
-      ? measuredAudioDurs[currentScene.id]
-      : undefined;
-    return allocateSubtitleWindows(segments, dur, voiceDur);
-  }, [currentScene, measuredAudioDurs, effDurs, currentIndex]);
-
-  // 当前生效的字幕句：progress×有效时长落在哪个时间窗即显示该句。
-  // 播放中随 progress 逐句切换；暂停/拖动时显示 progress 位置对应句；
-  // progress=0 显示首句（让用户始终有一句可拖拽定位）。
-  const activeSubtitleIndex = useMemo(() => {
-    if (subtitleWindows.length === 0) return -1;
-    const dur = effDurs[currentIndex] ?? currentScene?.duration ?? 0;
-    const t = progress * dur;
-    const idx = subtitleWindows.findIndex((w) => t >= w.start && t < w.end);
-    // 落在末窗右边界（t === dur）或未命中时兜底末句；progress=0 命中首句
-    return idx >= 0 ? idx : subtitleWindows.length - 1;
-  }, [
-    subtitleWindows,
-    progress,
-    effDurs,
-    currentIndex,
-    currentScene?.duration,
-  ]);
-
-  // 当前要渲染的字幕文本（无逐句结果时回退整段，兜底极端情况）
-  const activeSubtitleText =
-    activeSubtitleIndex >= 0
-      ? subtitleWindows[activeSubtitleIndex].text
-      : currentScene?.dialogue || currentScene?.narration || "";
-
-  // 当前句时间窗时长（秒）：typewriter 逐字延迟的压缩上限用（与导出端同源）。
-  const activeSubtitleDuration =
-    activeSubtitleIndex >= 0
-      ? subtitleWindows[activeSubtitleIndex].end -
-        subtitleWindows[activeSubtitleIndex].start
-      : 0;
+  // 逐句字幕时间窗 + 当前生效句（纯 memo，无副作用，故不影响 effect 顺序）
+  const { activeSubtitleIndex, activeSubtitleText, activeSubtitleDuration } =
+    useSubtitleTimeline({
+      currentScene,
+      measuredAudioDurs,
+      effDurs,
+      currentIndex,
+      progress,
+    });
 
   // 入场动效：缺省 fade（与旧行为、导出端解析规则一致）。
   // 金句花字强制走 pop（视觉签名统一，忽略全局 animation，与 EMPHASIS_STYLE 一致）。
@@ -1090,336 +521,8 @@ export function PreviewPlayer({
       ? typewriterDelays(activeSubtitleText, activeSubtitleDuration)
       : null;
 
-  // 将鼠标/触摸的屏幕坐标换算为相对媒体容器的归一化坐标（clamp 0-1）
-  const clientToNormalized = (
-    clientX: number,
-    clientY: number
-  ): { x: number; y: number } => {
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect || rect.width === 0 || rect.height === 0) {
-      return { x: 0.5, y: 0.88 };
-    }
-    const x = (clientX - rect.left) / rect.width;
-    const y = (clientY - rect.top) / rect.height;
-    return {
-      x: Math.min(1, Math.max(0, x)),
-      y: Math.min(1, Math.max(0, y)),
-    };
-  };
-
-  // 把字幕中心归一化坐标夹进「整块不出画面」的安全范围（与时间轴字幕样式面板
-  // 的 clampCenterInBounds 同款）：按字幕块半宽/半高相对 stage 的比例内缩。
-  // 字幕块比画面还大时退化居中，避免上下界翻转。
-  const clampSubtitleCenter = (
-    x: number,
-    y: number
-  ): { x: number; y: number } => {
-    const stage = stageRef.current?.getBoundingClientRect();
-    const box = subtitleBoxRef.current?.getBoundingClientRect();
-    if (!stage || stage.width === 0 || stage.height === 0) {
-      return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
-    }
-    const halfW = box ? box.width / 2 / stage.width : 0;
-    const halfH = box ? box.height / 2 / stage.height : 0;
-    const clampAxis = (v: number, half: number) =>
-      half >= 0.5 ? 0.5 : Math.min(1 - half, Math.max(half, v));
-    return { x: clampAxis(x, halfW), y: clampAxis(y, halfH) };
-  };
-
-  // 开始拖拽字幕：注册全局 move/up 监听，松手时回调落库
-  const handleSubtitleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!subtitleEditable || !currentScene) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setShowQuickPos(false);
-
-    const getPoint = (ev: MouseEvent | TouchEvent) => {
-      if ("touches" in ev && ev.touches.length > 0) {
-        return { cx: ev.touches[0].clientX, cy: ev.touches[0].clientY };
-      }
-      const me = ev as MouseEvent;
-      return { cx: me.clientX, cy: me.clientY };
-    };
-
-    // 抓取偏移 = 按下点 - 当前字幕中心（拖动时新中心 = 指针 - 偏移）——
-    // 与时间轴面板一致：按在字幕任意位置都跟手，不会把中心瞬移到指针下。
-    const startPointer = clientToNormalized(
-      getPoint(e.nativeEvent as MouseEvent | TouchEvent).cx,
-      getPoint(e.nativeEvent as MouseEvent | TouchEvent).cy
-    );
-    const grabOffset = {
-      x: startPointer.x - currentSubtitleXY.x,
-      y: startPointer.y - currentSubtitleXY.y,
-    };
-
-    const onMove = (ev: MouseEvent | TouchEvent) => {
-      const { cx, cy } = getPoint(ev);
-      const p = clientToNormalized(cx, cy);
-      // 新中心 = 指针 - 抓取偏移，再按字幕块尺寸夹进边界（整块不出画面）
-      setDragXY(clampSubtitleCenter(p.x - grabOffset.x, p.y - grabOffset.y));
-    };
-
-    const onUp = (ev: MouseEvent | TouchEvent) => {
-      const { cx, cy } = getPoint(ev);
-      const p = clientToNormalized(cx, cy);
-      const final = clampSubtitleCenter(p.x - grabOffset.x, p.y - grabOffset.y);
-      // 关键：不在此清 dragXY。落库是「HTTP 往返 + refetch」的长异步，
-      // 若立即清空，这一帧 currentSubtitleXY 会回退到尚未更新的旧 props，
-      // 字幕瞬间跳回旧位置 → 等新数据回流再跳到新位 = 肉眼可见的闪烁。
-      // 改为：保留 dragXY 作为乐观值“钉”住松手落点，待下方 effect 检测到
-      // subtitlePositions 已确认该坐标后再清，全程零跳动。
-      setDragXY(final);
-      onSubtitlePositionChange?.(currentScene.id, final.x, final.y);
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onUp);
-    };
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    window.addEventListener("touchmove", onMove, { passive: false });
-    window.addEventListener("touchend", onUp);
-  };
-
-  // 快捷位置选择：直接落库到当前分镜
-  const applyQuickPosition = (x: number, y: number) => {
-    if (!currentScene) return;
-    onSubtitlePositionChange?.(currentScene.id, x, y);
-    setShowQuickPos(false);
-  };
-
-  // 开始拖拽贴图：pointer capture + 本地乐观 dragSticker 跟手，松手落库一次。
-  // 锚点公式与渲染一致：left_px = x*(W-w) → x = (left_px)/(W-w)，故位移换算
-  // dx/(W-w)、dy/(H-h)。W===w 或 H===h 时分母护 0，该轴保持原值不动。
-  const handleStickerDragStart = (
-    e: React.PointerEvent<HTMLImageElement>,
-    sticker: Sticker
-  ) => {
-    if (!stickerEditable) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const stage = stageRef.current?.getBoundingClientRect();
-    const el = e.currentTarget;
-    const elRect = el.getBoundingClientRect();
-    if (!stage || stage.width === 0 || stage.height === 0) return;
-    // 起始指针坐标 + 贴图当前锚点 + 可移动像素跨度（stage 尺寸 - 贴图尺寸）
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const origX = sticker.x;
-    const origY = sticker.y;
-    const spanW = stage.width - elRect.width;
-    const spanH = stage.height - elRect.height;
-    el.setPointerCapture(e.pointerId);
-    const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-
-    const onMove = (ev: PointerEvent) => {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      // 分母护 0：可移动跨度为 0（贴图与画面同宽/高）时该轴不动，保持原值
-      const nx = spanW > 0 ? clamp01(origX + dx / spanW) : origX;
-      const ny = spanH > 0 ? clamp01(origY + dy / spanH) : origY;
-      setDragSticker({ id: sticker.id, x: nx, y: ny });
-    };
-    const onUp = (ev: PointerEvent) => {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      const nx = spanW > 0 ? clamp01(origX + dx / spanW) : origX;
-      const ny = spanH > 0 ? clamp01(origY + dy / spanH) : origY;
-      // 不立即清 dragSticker：落库是 HTTP 往返 + refetch 的长异步，立即清会让
-      // 这一帧回退到尚未更新的 props → 贴图闪回旧位。保留乐观值“钉”住落点，
-      // 待 effect 检测到 stickers prop 已回流确认该坐标后再清（同字幕 dragXY）。
-      setDragSticker({ id: sticker.id, x: nx, y: ny });
-      onStickerPositionChange?.(sticker.id, nx, ny);
-      el.releasePointerCapture(ev.pointerId);
-      el.removeEventListener("pointermove", onMove);
-      el.removeEventListener("pointerup", onUp);
-      el.removeEventListener("pointercancel", onUp);
-    };
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerup", onUp);
-    el.addEventListener("pointercancel", onUp);
-  };
-
-  // 记录视频真实时长（onLoadedMetadata 触发）：仅接受有限正数，且与已存值相同时
-  // 不重复 setState（避免无谓重渲）。当前镜与下一镜的 <video> 都会回调，越早读到
-  // 下一镜真实时长，effDurs/计时器越早对齐。
-  const handleLoadedMetadata = (
-    sceneId: string,
-    el: HTMLVideoElement | null
-  ) => {
-    if (!el) return;
-    const d = el.duration;
-    if (!Number.isFinite(d) || d <= 0) return;
-    setMeasuredDurs((prev) => {
-      if (prev[sceneId] === d) return prev;
-      return { ...prev, [sceneId]: d };
-    });
-  };
-
-  // 记录配音真实音频时长（<audio> onLoadedMetadata 触发）：供字幕逐句节奏对齐
-  // （与导出端探测 audioUrl 时长同语义）。仅接受有限正数，与已存值相同则不重渲。
-  const handleAudioLoadedMetadata = (
-    sceneId: string,
-    el: HTMLAudioElement | null
-  ) => {
-    if (!el) return;
-    const d = el.duration;
-    if (!Number.isFinite(d) || d <= 0) return;
-    setMeasuredAudioDurs((prev) => {
-      if (prev[sceneId] === d) return prev;
-      return { ...prev, [sceneId]: d };
-    });
-  };
-
-  // 按 sceneId 缓存「稳定的 ref 回调」——关键修复：
-  // 若在 JSX 里写内联 `ref={(el)=>...}`，该函数每次渲染 identity 都变，
-  // React 每次 commit 都会先以 null 卸载旧 ref 再挂新 ref。播放中每 30ms
-  // setState 触发全量重渲 → <video> 被反复 detach/attach → 浏览器丢失
-  // src 绑定，最终判定「无可用源」（NotSupportedError / networkState=3），
-  // 视频既不加载也不播放（黑屏「看不了」）。
-  // 用 useCallback 记忆每个 sceneId 的回调，identity 恒定 → React 不再
-  // 每帧重挂 ref，<video> 稳定持有 src，正常加载播放。
-  const videoRefCbCache = useRef<
-    Map<string, (el: HTMLVideoElement | null) => void>
-  >(new Map());
-  const getVideoRefCb = useCallback((sceneId: string) => {
-    const cache = videoRefCbCache.current;
-    let cb = cache.get(sceneId);
-    if (!cb) {
-      cb = (el: HTMLVideoElement | null) => {
-        if (el) videoElsRef.current.set(sceneId, el);
-        else videoElsRef.current.delete(sceneId);
-      };
-      cache.set(sceneId, cb);
-    }
-    return cb;
-  }, []);
-
-  // 片头/片尾卡文字层（批6）——DOM 覆盖层（z-10 契约，高于媒体层）。
-  // 得意黑（TITLE_FONT_ID）大字居中，与导出端 ASS Title/Hook 样式同源；
-  // 纵向：title/hook 约 45% 高，sub/cta 约 58% 高；淡入入场。
-  // 各角色字号相对字幕默认（subtitleFontPx）的视觉占比：
-  //   title ×2.2、hook ×1.6、sub ×1.1、cta ×0.95（cta 用强调色）。
-  const CARD_ROLE: Record<
-    CardLineRole,
-    { scale: number; topPct: number; color: string; strong: boolean }
-  > = {
-    title: { scale: 2.2, topPct: 45, color: "#FFFFFF", strong: true },
-    hook: { scale: 1.6, topPct: 45, color: "#FFFFFF", strong: true },
-    sub: { scale: 1.1, topPct: 58, color: "#FFFFFF", strong: false },
-    cta: {
-      scale: 0.95,
-      topPct: 58,
-      color: EMPHASIS_STYLE.color,
-      strong: false,
-    },
-  };
-  const renderCardOverlay = (card: CardSpec) => {
-    // 得意黑字体族（与导出端标题字体同源）
-    const titleFamily = resolveSubtitleFont(TITLE_FONT_ID).cssFamily;
-    // 描边宽度随画面高等比缩放（同字幕，保证深浅底可读）
-    const strokePx =
-      (3 * (stageHeight > 0 ? stageHeight : SUBTITLE_FONT_BASE_HEIGHT)) /
-      SUBTITLE_FONT_BASE_HEIGHT;
-    return (
-      <div className="pointer-events-none absolute inset-0 z-10">
-        {card.lines.map((line, i) => {
-          const role = CARD_ROLE[line.role];
-          return (
-            <div
-              key={`${line.role}-${i}`}
-              className="absolute left-1/2 w-full -translate-x-1/2 -translate-y-1/2 px-6 text-center"
-              style={{
-                top: `${role.topPct}%`,
-                fontFamily: titleFamily,
-                fontSize: `${Math.round(subtitleFontPx * role.scale)}px`,
-                fontWeight: role.strong ? 700 : 500,
-                color: role.color,
-                lineHeight: 1.2,
-                textShadow: "rgba(0,0,0,0.55) 0 2px 8px",
-                WebkitTextStroke: `${strokePx}px rgba(0,0,0,0.85)`,
-                // 卡片文字淡入（与导出端卡片文字入场同语义）
-                animation: "subtitleFadeIn 500ms ease-out both",
-              }}
-            >
-              {line.text}
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  /**
-   * 渲染一镜的媒体（video / image / 占位），应用其滤镜。
-   * video 用「按 sceneId 记忆的稳定 ref 回调」把 DOM 节点登记进 videoElsRef，
-   * 供 muted 命令式管理与播放控制；不再用 muted JSX 属性
-   * （已挂载 <video> 的 muted 属性更新不可靠，角色互换后会失灵）。
-   *
-   * preload 策略（带宽敏感，2026-07-08）：
-   * 服务器出口带宽有限（~650KB/s）而分镜视频常达 9MB+，若两层都 preload=auto，
-   * 当前镜与下一镜会同时全量下载互抢带宽 → 当前镜卡顿。改为：
-   *   - 当前镜：preload=auto（积极加载，优先保证正在看的这镜流畅）；
-   *   - 下一镜：仅在「临近转场」（shouldPreheatNext）时升级 auto 预热，
-   *     其余时间用 metadata（只拉几十 KB 头信息，不占带宽）。
-   * 这样切镜预热窗口很短、不与当前镜长期争抢，黑屏空档仍被覆盖。
-   */
-  const renderMedia = (
-    scene: ScenePreview,
-    effect: SceneEffectId | null,
-    role: "current" | "next"
-  ) => {
-    // 分镜滤镜（SVG filter 引用）与全片 LUT（CSS filter 近似）串接共存：
-    // CSS 的 filter 属性支持多值空格拼接，两者会依次作用于同一元素。
-    const sceneFilter = sceneFilterCss(effect);
-    const filterCss = [sceneFilter, lutCssFilter].filter(Boolean).join(" ");
-    // 冲击/运镜动画只作用于「当前镜」的媒体元素本体（批4）：
-    // 挂在内层而非层容器上，避免与转场 slide/wipe 的容器 transform 相互覆盖。
-    const mediaAnimation =
-      role === "current" && isPlaying ? curMediaAnimation : undefined;
-    if (scene.videoUrl) {
-      // 下一镜默认 metadata（省带宽），仅在临近转场预热窗口内才 auto；
-      // 当前镜恒 auto。
-      const preload =
-        role === "current" || shouldPreheatNext ? "auto" : "metadata";
-      return (
-        <video
-          ref={getVideoRefCb(scene.id)}
-          src={scene.videoUrl}
-          // object-contain 精确复刻导出端 scale(decrease)+pad(black)：图片比例≠成片比例时
-          // 完整缩入并补黑边，预览构图=成片构图（黑边由画面框黑底承接）。
-          className="h-full w-full object-contain"
-          style={{ filter: filterCss, animation: mediaAnimation }}
-          loop
-          playsInline
-          preload={preload}
-          onLoadedMetadata={(e) =>
-            handleLoadedMetadata(scene.id, e.currentTarget)
-          }
-        />
-      );
-    }
-    if (scene.imageUrl) {
-      return (
-        <img
-          src={scene.imageUrl}
-          alt=""
-          className="h-full w-full object-contain"
-          style={{ filter: filterCss, animation: mediaAnimation }}
-        />
-      );
-    }
-    return <div className="text-muted-foreground">无内容</div>;
-  };
-
   if (scenes.length === 0) {
-    const emptyAspect =
-      aspectRatio === "9:16"
-        ? "aspect-[9/16]"
-        : aspectRatio === "1:1"
-          ? "aspect-square"
-          : "aspect-video";
+    const emptyAspect = emptyAspectClass(aspectRatio);
     return (
       <div
         className={`bg-card flex ${emptyAspect} items-center justify-center rounded-xl`}
@@ -1459,35 +562,18 @@ export function PreviewPlayer({
           {/* 双层媒体从「单一 keyed 数组」渲染（key=scene.id）——
               currentIndex 前进时，原「下一镜」层的 DOM 节点被 React 依 key 复用
               为「当前镜」，同一 <video> 播放不中断（消除切镜 remount 的黑屏/卡顿）。
-              栈序用显式 zIndex（当前镜在上，下一镜在下）而非 DOM 顺序——因为
-              keyed 复用会打乱 DOM 顺序，只有 zIndex 能稳定控制叠放。
-              - 下一镜层：仅转场中（transitionT>0）可见，否则透明且不吃指针（保留预取）；
-              - 当前镜层：套 transitionLayerStyle() 做叠化（fade/slide/wipe）。 */}
-          {mediaLayers.map(({ scene, role, effect }) => {
-            const isCurrent = role === "current";
-            const layerStyle: React.CSSProperties = isCurrent
-              ? {
-                  zIndex: 2,
-                  // 短 opacity 过渡平滑 JS 30ms 步进的叠化（仅 opacity，不含
-                  // transform/clipPath，避免 slide/wipe 与 JS 进度相互拖拽）。
-                  transition: "opacity 50ms linear",
-                  ...transitionLayerStyle(),
-                }
-              : {
-                  zIndex: 1,
-                  opacity: transitionT > 0 ? 1 : 0,
-                  pointerEvents: "none",
-                };
-            return (
-              <div
-                key={scene.id}
-                className="absolute inset-0 flex items-center justify-center"
-                style={layerStyle}
-              >
-                {renderMedia(scene, effect, role)}
-              </div>
-            );
-          })}
+              渲染细节抽到 preview-player/media-layers（纯展示组件，无 hook）。 */}
+          <MediaLayers
+            layers={mediaLayers}
+            lutCssFilter={lutCssFilter}
+            curMediaAnimation={curMediaAnimation}
+            isPlaying={isPlaying}
+            shouldPreheatNext={shouldPreheatNext}
+            transitionT={transitionT}
+            transitionLayerStyle={transitionLayerStyle}
+            getVideoRefCb={getVideoRefCb}
+            handleLoadedMetadata={handleLoadedMetadata}
+          />
 
           {/* 转场黑/白覆盖层（仅 fadeblack/fadewhite）——两段式：画面先淡到纯色，
               再由纯色淡出露新画面。z-10 高于媒体层（zIndex 1/2），不吃指针。 */}
@@ -1512,7 +598,13 @@ export function PreviewPlayer({
 
           {/* 片头/片尾卡文字层（批6）——当前镜为卡片时渲染得意黑大字覆盖层
               （底图 = 卡片虚拟分镜的 imageUrl，已由媒体层带 Ken Burns 缓推渲染）。 */}
-          {currentCard && renderCardOverlay(currentCard)}
+          {currentCard && (
+            <CardOverlay
+              card={currentCard}
+              subtitleFontPx={subtitleFontPx}
+              stageHeight={stageHeight}
+            />
+          )}
 
           {/* Audio */}
           {currentScene?.audioUrl && (
@@ -1540,17 +632,9 @@ export function PreviewPlayer({
             <img
               src={watermark.imageUrl}
               alt=""
-              className={`pointer-events-none absolute z-10 ${
-                watermark.position === "tl"
-                  ? "top-3 left-3"
-                  : watermark.position === "tr"
-                    ? "top-3 right-3"
-                    : watermark.position === "bl"
-                      ? "bottom-3 left-3"
-                      : watermark.position === "center"
-                        ? "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
-                        : "right-3 bottom-3"
-              }`}
+              className={`pointer-events-none absolute z-10 ${watermarkPositionClass(
+                watermark.position
+              )}`}
               style={{
                 width: `${(watermark.scale ?? 0.12) * 100}%`,
                 opacity: watermark.opacity ?? 0.8,
@@ -1567,187 +651,47 @@ export function PreviewPlayer({
           )}
 
           {/* Stickers — 当前分镜的贴图预览（与导出 overlay 位置一致）。
-              时间窗判定与导出端 prepareStickers 同源：仅当「当前镜内播放时刻」
-              落在贴图 [startOffset, startOffset+duration) 内才显示（duration 缺省=到
-              镜尾）。tInScene = progress × 该镜有效时长，与画面/字幕/配音同一时钟。 */}
-          {currentScene &&
-            stickers
-              ?.filter(
-                (st) =>
-                  st.sceneId === currentScene.id &&
-                  st.imageUrl &&
-                  isStickerVisibleAt(
-                    st,
-                    progress * (effDurs[currentIndex] ?? 0),
-                    effDurs[currentIndex] ?? 0
-                  )
-              )
-              .map((st) => {
-                // 拖拽中该贴图优先用本地乐观锚点（跟手 + 防落库往返闪回）
-                const posX = dragSticker?.id === st.id ? dragSticker.x : st.x;
-                const posY = dragSticker?.id === st.id ? dragSticker.y : st.y;
-                return (
-                  <img
-                    key={st.id}
-                    src={st.imageUrl}
-                    alt=""
-                    // 只读预览保持 pointer-events-none 原样；可编辑时开放拖拽交互
-                    className={`absolute z-10 ${
-                      stickerEditable
-                        ? "ring-primary/60 cursor-move hover:ring-1"
-                        : "pointer-events-none"
-                    }`}
-                    title={stickerEditable ? "拖拽调整贴图位置" : undefined}
-                    onPointerDown={
-                      stickerEditable
-                        ? // 起手坐标用当前生效锚点（乐观值优先）：落库往返未回流时
-                          // 立刻二次拖拽，若从 props 旧值起手会瞬间跳回旧位
-                          (e) =>
-                            handleStickerDragStart(e, {
-                              ...st,
-                              x: posX,
-                              y: posY,
-                            })
-                        : undefined
-                    }
-                    style={{
-                      width: `${st.scale * 100}%`,
-                      left: `${posX * 100}%`,
-                      top: `${posY * 100}%`,
-                      transform: `translate(-${posX * 100}%, -${posY * 100}%)`,
-                    }}
-                  />
-                );
-              })}
+              渲染细节抽到 preview-player/sticker-layer（纯展示组件，无 hook）。 */}
+          {currentScene && (
+            <StickerLayer
+              stickers={stickers}
+              sceneId={currentScene.id}
+              tInScene={progress * (effDurs[currentIndex] ?? 0)}
+              effDur={effDurs[currentIndex] ?? 0}
+              dragSticker={dragSticker}
+              stickerEditable={stickerEditable}
+              handleStickerDragStart={handleStickerDragStart}
+            />
+          )}
 
           {/* Subtitles — 绝对定位到归一化坐标（中心点），支持逐分镜拖拽。
-            与导出 ASS \pos(x*W,y*H) 用同一坐标系，确保预览=成片。 */}
+            与导出 ASS \pos(x*W,y*H) 用同一坐标系，确保预览=成片。
+            渲染细节抽到 preview-player/subtitle-overlay（纯展示组件，无 hook）。 */}
           {showSubtitles &&
             (currentScene?.dialogue || currentScene?.narration) && (
-              <div
-                className="absolute z-10"
-                style={{
-                  left: `${currentSubtitleXY.x * 100}%`,
-                  top: `${currentSubtitleXY.y * 100}%`,
-                  // 以中心点定位：自身偏移 -50% 让坐标对准字幕块中心
-                  transform: "translate(-50%, -50%)",
-                  // 字幕块用 nowrap 单行不换行（见下方 <p>），故不限 maxWidth——
-                  // 与时间轴字幕样式面板一致。不越界由拖拽落点的 clamp 保证。
-                }}
-              >
-                {/* 逐句入场动效：key=分镜id+句索引，切句时 <p> 重挂载触发所选动效
-                    （fade/slideup/pop 由 <p> 整体动画驱动；typewriter 由逐字符 span
-                    各自动画驱动，<p> 不加整体动画）。节奏对齐导出端 libass 标签。
-                    slideup 的位移动画放在 <p>（内层）而非外层 wrapper——wrapper 带
-                    translate(-50%,-50%)，若在其上叠加 transform 会互相冲突。 */}
-                <p
-                  key={`${currentScene.id}-${activeSubtitleIndex}`}
-                  ref={subtitleBoxRef}
-                  onMouseDown={
-                    subtitleEditable ? handleSubtitleDragStart : undefined
-                  }
-                  onTouchStart={
-                    subtitleEditable ? handleSubtitleDragStart : undefined
-                  }
-                  onWheel={subtitleResizable ? handleSubtitleWheel : undefined}
-                  className={`inline-block rounded-lg px-4 py-2 text-center leading-snug ${
-                    subtitleEditable
-                      ? "hover:ring-primary/70 cursor-move ring-1 ring-white/20 transition-shadow hover:ring-2"
-                      : ""
-                  } ${dragXY ? "ring-primary shadow-lg ring-2" : ""}`}
-                  style={{
-                    // 字体：内置白名单解析（默认思源黑体），替换旧继承字体，
-                    // 与导出端 ASS Fontname 同字形（预览=成片）。
-                    fontFamily: resolveSubtitleFont(subtitleStyle?.fontFamily)
-                      .cssFamily,
-                    // 字号按画面框高等比缩放（与导出 ASS Fontsize 同源），预览=成片；
-                    // 金句花字再 ×fontScale（emphasisFontPx）。
-                    fontSize: `${emphasisFontPx}px`,
-                    // 金句花字用强调色，正文用用户配置色。
-                    color: isEmphasisScene
-                      ? EMPHASIS_STYLE.color
-                      : (subtitleStyle?.fontColor ?? "#FFFFFF"),
-                    // 花字加粗（大字需更醒目），正文按用户配置。
-                    fontWeight:
-                      isEmphasisScene || subtitleStyle?.bold ? 700 : 400,
-                    background: subtitleStyle?.backgroundBox
-                      ? "rgba(0,0,0,0.7)"
-                      : "transparent",
-                    textShadow: subtitleStyle
-                      ? `${subtitleStyle.outlineColor} 1px 1px 0, ${subtitleStyle.outlineColor} -1px -1px 0, ${subtitleStyle.outlineColor} 1px -1px 0, ${subtitleStyle.outlineColor} -1px 1px 0`
-                      : "rgba(0,0,0,0.8) 0 1px 2px",
-                    // 描边宽度随画面高等比缩放（对齐导出端 ScaledBorderAndShadow:yes），
-                    // 系数 = 画面框高 / 1080 基准；字越大描边越粗，两端比例一致。
-                    // 金句花字描边再 ×outlineScale（大字需更粗描边保可读）。
-                    WebkitTextStroke:
-                      subtitleStyle && subtitleStyle.outlineWidth > 0
-                        ? `${(subtitleStyle.outlineWidth * (isEmphasisScene ? EMPHASIS_STYLE.outlineScale : 1) * (stageHeight > 0 ? stageHeight : SUBTITLE_FONT_BASE_HEIGHT)) / SUBTITLE_FONT_BASE_HEIGHT}px ${subtitleStyle.outlineColor}`
-                        : undefined,
-                    // 拖拽期间禁用文本选中，避免选中文字干扰拖动
-                    userSelect: subtitleEditable ? "none" : undefined,
-                    touchAction: subtitleEditable ? "none" : undefined,
-                    // 入场动效（时序读共享常量，与导出端标签对齐）；typewriter 时为
-                    // undefined，动画落到逐字符 span 上。
-                    animation: subtitleAnimationCss,
-                    // 单句不换行（与时间轴字幕样式面板一致）——逐句字幕本就是短句，
-                    // nowrap 保证一句一行，不再被宽度挤成竖排一列。
-                    whiteSpace: "nowrap",
-                    // 字号平滑过渡：拖角/滚轮/滑块改字号时 CSS 插值，消除整数 px
-                    // 步进的顿挫感（僵硬）。仅过渡 font-size，不影响入场动效。
-                    transition: "font-size 80ms ease-out",
-                  }}
-                >
-                  {typewriterChars && typewriterCharDelays
-                    ? // 打字机：逐字符 span，各自延迟显现（80ms 硬揭示）。
-                      // 暂停时 animationPlayState:paused 冻结揭示进度。
-                      // 换行符渲染为 <br>（不占 span，与导出端 \N 分隔对齐）。
-                      // pointer-events 默认穿透，不影响 <p> 上的拖拽手柄。
-                      typewriterChars.map((ch, i) =>
-                        ch === "\n" || ch === "\r" ? (
-                          <br key={i} />
-                        ) : (
-                          <span
-                            key={i}
-                            style={{
-                              opacity: 0,
-                              animation: `subtitleCharReveal 80ms linear forwards`,
-                              animationDelay: `${typewriterCharDelays[i]}s`,
-                              animationPlayState: isPlaying
-                                ? "running"
-                                : "paused",
-                            }}
-                          >
-                            {ch}
-                          </span>
-                        )
-                      )
-                    : activeSubtitleText}
-                </p>
-
-                {/* 四角控点：拖角改字号（剪映式，仅提供 onSubtitleStyleChange 时显示）。
-                    绝对定位到 wrapper 四角（wrapper 尺寸=字幕块），pointer 事件
-                    move/up 就近绑在控点上（setPointerCapture 保证拖出控点也跟手）。 */}
-                {subtitleResizable && (
-                  <>
-                    {[
-                      { pos: "-top-1 -left-1", cur: "nwse-resize" },
-                      { pos: "-top-1 -right-1", cur: "nesw-resize" },
-                      { pos: "-bottom-1 -left-1", cur: "nesw-resize" },
-                      { pos: "-right-1 -bottom-1", cur: "nwse-resize" },
-                    ].map((h) => (
-                      <span
-                        key={h.pos}
-                        className={`border-primary absolute z-20 h-2.5 w-2.5 rounded-sm border bg-white ${h.pos}`}
-                        style={{ cursor: h.cur }}
-                        onPointerDown={handleSubtitleResizeStart}
-                        onPointerMove={handleSubtitleResizeMove}
-                        onPointerUp={handleSubtitleResizeEnd}
-                        onPointerCancel={handleSubtitleResizeEnd}
-                      />
-                    ))}
-                  </>
-                )}
-              </div>
+              <SubtitleOverlay
+                sceneId={currentScene.id}
+                subtitleStyle={subtitleStyle}
+                currentSubtitleXY={currentSubtitleXY}
+                activeSubtitleIndex={activeSubtitleIndex}
+                activeSubtitleText={activeSubtitleText}
+                emphasisFontPx={emphasisFontPx}
+                isEmphasisScene={isEmphasisScene}
+                stageHeight={stageHeight}
+                subtitleAnimationCss={subtitleAnimationCss}
+                typewriterChars={typewriterChars}
+                typewriterCharDelays={typewriterCharDelays}
+                isPlaying={isPlaying}
+                subtitleEditable={subtitleEditable}
+                subtitleResizable={subtitleResizable}
+                dragXY={dragXY}
+                subtitleBoxRef={subtitleBoxRef}
+                handleSubtitleDragStart={handleSubtitleDragStart}
+                handleSubtitleWheel={handleSubtitleWheel}
+                handleSubtitleResizeStart={handleSubtitleResizeStart}
+                handleSubtitleResizeMove={handleSubtitleResizeMove}
+                handleSubtitleResizeEnd={handleSubtitleResizeEnd}
+              />
             )}
 
           {/* 字幕位置工具条 —— 仅可编辑时显示：快捷九宫格 + 拖拽提示 */}
@@ -1793,75 +737,21 @@ export function PreviewPlayer({
         </div>
       </div>
 
-      {/* Controls — shrink-0 确保控制条永不被媒体区挤出可视区 */}
-      <div className="shrink-0 space-y-3 p-4">
-        {/* Progress Bar */}
-        <div className="flex items-center gap-3">
-          <span className="text-muted-foreground w-10 text-xs">
-            {formatTime(calculateOverallProgress() * totalDuration)}
-          </span>
-          <div className="bg-secondary h-1 flex-1 overflow-hidden rounded-full">
-            <div
-              className="bg-primary h-full transition-all duration-100"
-              style={{ width: `${calculateOverallProgress() * 100}%` }}
-            />
-          </div>
-          <span className="text-muted-foreground w-10 text-xs">
-            {formatTime(totalDuration)}
-          </span>
-        </div>
-
-        {/* Buttons */}
-        <div className="flex items-center justify-center gap-4">
-          <button
-            onClick={goToPrevious}
-            disabled={currentIndex === 0}
-            className="hover:bg-secondary rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label="上一个分镜"
-          >
-            <SkipBack size={20} />
-          </button>
-
-          <button
-            onClick={togglePlay}
-            className="bg-primary hover:bg-primary/90 rounded-full p-3"
-            aria-label={isPlaying ? "暂停" : "播放"}
-          >
-            {isPlaying ? <Pause size={24} /> : <Play size={24} />}
-          </button>
-
-          <button
-            onClick={goToNext}
-            disabled={currentIndex === scenes.length - 1}
-            className="hover:bg-secondary rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label="下一个分镜"
-          >
-            <SkipForward size={20} />
-          </button>
-
-          <div className="flex-1" />
-
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            className="hover:bg-secondary rounded-lg p-2"
-            aria-label={isMuted ? "取消静音" : "静音"}
-            aria-pressed={isMuted}
-          >
-            {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-          </button>
-
-          <button
-            onClick={() => setShowSubtitles(!showSubtitles)}
-            className={`rounded px-2 py-1 text-xs ${
-              showSubtitles ? "bg-primary" : "bg-secondary"
-            }`}
-            aria-label="切换字幕显示"
-            aria-pressed={showSubtitles}
-          >
-            字幕
-          </button>
-        </div>
-      </div>
+      {/* Controls — 控制条抽到 preview-player/player-controls（纯展示组件，无 hook） */}
+      <PlayerControls
+        overallProgress={calculateOverallProgress()}
+        totalDuration={totalDuration}
+        isPlaying={isPlaying}
+        isMuted={isMuted}
+        showSubtitles={showSubtitles}
+        atFirst={currentIndex === 0}
+        atLast={currentIndex === scenes.length - 1}
+        onPrevious={goToPrevious}
+        onTogglePlay={togglePlay}
+        onNext={goToNext}
+        onToggleMuted={() => setIsMuted(!isMuted)}
+        onToggleSubtitles={() => setShowSubtitles(!showSubtitles)}
+      />
     </div>
   );
 }
