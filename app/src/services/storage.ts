@@ -15,22 +15,30 @@ import fs from "fs/promises";
 import path from "path";
 import { pipeline } from "stream/promises";
 
+import {
+  DEFAULT_LOCAL_STORAGE_DIR,
+  DEFAULT_LOCAL_STORAGE_URL_PREFIX,
+  DEFAULT_R2_BUCKET_NAME,
+  getStorageEnv,
+} from "@/lib/env";
 import { createLogger } from "@/lib/logger";
 import { safeDownload } from "@/lib/url-guard";
 const log = createLogger("services:storage");
 
+const storageEnv = getStorageEnv();
+
 // R2 客户端配置
 const r2Client = new S3Client({
   region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
+  endpoint: storageEnv.R2_ENDPOINT,
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
+    accessKeyId: storageEnv.R2_ACCESS_KEY_ID || "",
+    secretAccessKey: storageEnv.R2_SECRET_ACCESS_KEY || "",
   },
 });
 
-const BUCKET_NAME = process.env.R2_BUCKET_NAME || "ai-comic-drama";
-const PUBLIC_URL = process.env.R2_PUBLIC_URL || "";
+const BUCKET_NAME = storageEnv.R2_BUCKET_NAME || DEFAULT_R2_BUCKET_NAME;
+const PUBLIC_URL = storageEnv.R2_PUBLIC_URL || "";
 
 export type FileType = "image" | "video" | "audio";
 
@@ -210,20 +218,23 @@ export async function getPresignedUploadUrl(
 }
 
 // 检查 R2 是否配置
+// 判据保持不变：三项齐备才算配置好（空串视为未配置，与 getStorageEnv 的
+// 空串归一语义一致）。少任一项都落本地盘，避免用半套凭证去连 R2 反复失败。
 export function isR2Configured(): boolean {
   return !!(
-    process.env.R2_ENDPOINT &&
-    process.env.R2_ACCESS_KEY_ID &&
-    process.env.R2_SECRET_ACCESS_KEY
+    storageEnv.R2_ENDPOINT &&
+    storageEnv.R2_ACCESS_KEY_ID &&
+    storageEnv.R2_SECRET_ACCESS_KEY
   );
 }
 
 // ============ 本地存储 ============
 
 // 本地存储目录（相对于项目根目录）
-const LOCAL_STORAGE_DIR = process.env.LOCAL_STORAGE_DIR || "public/uploads";
+const LOCAL_STORAGE_DIR =
+  storageEnv.LOCAL_STORAGE_DIR || DEFAULT_LOCAL_STORAGE_DIR;
 const LOCAL_STORAGE_URL_PREFIX =
-  process.env.LOCAL_STORAGE_URL_PREFIX || "/uploads";
+  storageEnv.LOCAL_STORAGE_URL_PREFIX || DEFAULT_LOCAL_STORAGE_URL_PREFIX;
 
 // 确保目录存在
 async function ensureDir(dirPath: string): Promise<void> {
@@ -336,7 +347,7 @@ export async function deleteFromLocal(fileUrl: string): Promise<void> {
 // 检查本地存储是否启用
 export function isLocalStorageEnabled(): boolean {
   // 如果没有配置 R2，默认使用本地存储
-  return process.env.USE_LOCAL_STORAGE === "true" || !isR2Configured();
+  return storageEnv.USE_LOCAL_STORAGE === "true" || !isR2Configured();
 }
 
 // ============ 统一存储接口 ============

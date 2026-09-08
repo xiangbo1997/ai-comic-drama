@@ -15,13 +15,15 @@
  * 是单 node 进程（见项目记忆），单进程闸即可挡住雪崩。
  */
 
+import { DEFAULT_GENERATION_MAX_CONCURRENCY, getLimitsEnv } from "@/lib/env";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("lib:generation-concurrency");
 
 const MAX_CONCURRENCY = Math.max(
   1,
-  Number(process.env.GENERATION_MAX_CONCURRENCY ?? 8)
+  getLimitsEnv().GENERATION_MAX_CONCURRENCY ??
+    DEFAULT_GENERATION_MAX_CONCURRENCY
 );
 
 let active = 0;

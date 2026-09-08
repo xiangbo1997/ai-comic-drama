@@ -5,6 +5,7 @@
 
 import crypto from "crypto";
 
+import { getPaymentEnv } from "@/lib/env";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("services:payment");
 
@@ -107,19 +108,18 @@ export class WechatPayService {
   private platformPublicKey: string; // 微信平台证书公钥（PEM），用于回调验签
 
   constructor() {
-    this.appId = process.env.WECHAT_APP_ID || "";
-    this.mchId = process.env.WECHAT_MCH_ID || "";
-    this.apiKey = process.env.WECHAT_API_KEY || "";
-    this.notifyUrl = process.env.WECHAT_NOTIFY_URL || "";
+    const env = getPaymentEnv();
+    this.appId = env.WECHAT_APP_ID || "";
+    this.mchId = env.WECHAT_MCH_ID || "";
+    this.apiKey = env.WECHAT_API_KEY || "";
+    this.notifyUrl = env.WECHAT_NOTIFY_URL || "";
     // 私钥/证书支持 \n 转义形式（便于放入单行环境变量）
-    this.privateKey = (process.env.WECHAT_PRIVATE_KEY || "").replace(
+    this.privateKey = (env.WECHAT_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+    this.certSerial = env.WECHAT_CERT_SERIAL || "";
+    this.platformPublicKey = (env.WECHAT_PLATFORM_PUBLIC_KEY || "").replace(
       /\\n/g,
       "\n"
     );
-    this.certSerial = process.env.WECHAT_CERT_SERIAL || "";
-    this.platformPublicKey = (
-      process.env.WECHAT_PLATFORM_PUBLIC_KEY || ""
-    ).replace(/\\n/g, "\n");
   }
 
   /**
@@ -186,7 +186,7 @@ export class WechatPayService {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `WECHATPAY2-SHA256-RSA2048 mchid="${this.mchId}",nonce_str="${nonceStr}",timestamp="${timestamp}",signature="${signature}",serial_no="${process.env.WECHAT_CERT_SERIAL}"`,
+            Authorization: `WECHATPAY2-SHA256-RSA2048 mchid="${this.mchId}",nonce_str="${nonceStr}",timestamp="${timestamp}",signature="${signature}",serial_no="${this.certSerial}"`,
           },
           body: JSON.stringify(requestData),
         }
@@ -363,10 +363,11 @@ export class AlipayService {
   private notifyUrl: string;
 
   constructor() {
-    this.appId = process.env.ALIPAY_APP_ID || "";
-    this.privateKey = process.env.ALIPAY_PRIVATE_KEY || "";
-    this.alipayPublicKey = process.env.ALIPAY_PUBLIC_KEY || "";
-    this.notifyUrl = process.env.ALIPAY_NOTIFY_URL || "";
+    const env = getPaymentEnv();
+    this.appId = env.ALIPAY_APP_ID || "";
+    this.privateKey = env.ALIPAY_PRIVATE_KEY || "";
+    this.alipayPublicKey = env.ALIPAY_PUBLIC_KEY || "";
+    this.notifyUrl = env.ALIPAY_NOTIFY_URL || "";
   }
 
   isConfigured(): boolean {
@@ -513,8 +514,9 @@ export class StripeService {
   private webhookSecret: string;
 
   constructor() {
-    this.secretKey = process.env.STRIPE_SECRET_KEY || "";
-    this.webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+    const env = getPaymentEnv();
+    this.secretKey = env.STRIPE_SECRET_KEY || "";
+    this.webhookSecret = env.STRIPE_WEBHOOK_SECRET || "";
   }
 
   isConfigured(): boolean {

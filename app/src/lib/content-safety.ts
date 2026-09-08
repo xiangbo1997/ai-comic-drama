@@ -5,6 +5,10 @@
 
 import crypto from "crypto";
 
+import {
+  DEFAULT_ALIYUN_CONTENT_SAFETY_ENDPOINT,
+  getContentSafetyEnv,
+} from "@/lib/env";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("lib:content-safety");
 
@@ -68,11 +72,12 @@ class AliyunContentSafetyService {
   private endpoint: string;
 
   constructor() {
-    this.accessKeyId = process.env.ALIYUN_ACCESS_KEY_ID || "";
-    this.accessKeySecret = process.env.ALIYUN_ACCESS_KEY_SECRET || "";
+    const env = getContentSafetyEnv();
+    this.accessKeyId = env.ALIYUN_ACCESS_KEY_ID || "";
+    this.accessKeySecret = env.ALIYUN_ACCESS_KEY_SECRET || "";
     this.endpoint =
-      process.env.ALIYUN_CONTENT_SAFETY_ENDPOINT ||
-      "green.cn-shanghai.aliyuncs.com";
+      env.ALIYUN_CONTENT_SAFETY_ENDPOINT ||
+      DEFAULT_ALIYUN_CONTENT_SAFETY_ENDPOINT;
   }
 
   isConfigured(): boolean {
@@ -275,8 +280,9 @@ class TencentContentSafetyService {
   private secretKey: string;
 
   constructor() {
-    this.secretId = process.env.TENCENT_SECRET_ID || "";
-    this.secretKey = process.env.TENCENT_SECRET_KEY || "";
+    const env = getContentSafetyEnv();
+    this.secretId = env.TENCENT_SECRET_ID || "";
+    this.secretKey = env.TENCENT_SECRET_KEY || "";
   }
 
   isConfigured(): boolean {

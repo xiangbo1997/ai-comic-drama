@@ -14,6 +14,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { getRuntimeEnv } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 
@@ -28,7 +29,7 @@ export async function GET() {
     return NextResponse.json({
       ok: true,
       uptime: process.uptime(),
-      commit: process.env.GIT_COMMIT ?? null,
+      commit: getRuntimeEnv().commit,
     });
   } catch (error) {
     // 端点匿名可访问，故不回传原始错误（DB 错误常带连接串/主机名），

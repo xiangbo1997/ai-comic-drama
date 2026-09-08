@@ -102,6 +102,9 @@ public/bgm/**/*.mp3
 *.wav.tmp
 .ace-tool/
 
+# 部署时注入的构建版本（deploy.sh 在 rsync 前写入，供 /api/health 回报）
+app/.git-commit
+
 # codegraph 本地索引产物
 .codegraph/
 .claude/agent-memory/

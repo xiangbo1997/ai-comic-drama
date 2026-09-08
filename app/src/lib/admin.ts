@@ -10,9 +10,11 @@
 
 import type { Session } from "next-auth";
 
+import { getAdminEnv } from "@/lib/env";
+
 /** 读取 ADMIN_EMAILS 白名单（模块私有，仅供 isAdmin 使用） */
 function getAdminEmails(): string[] {
-  const raw = process.env.ADMIN_EMAILS;
+  const raw = getAdminEnv().ADMIN_EMAILS;
   if (!raw) return [];
   return raw
     .split(",")

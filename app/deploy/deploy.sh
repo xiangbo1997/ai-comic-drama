@@ -50,6 +50,24 @@ EXCLUDES=(
 log() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 fail() { printf '\n\033[1;31m!! %s\033[0m\n' "$*" >&2; exit 1; }
 
+# 写入本次部署的 commit，供 /api/health 回报「跑的到底是不是新代码」。
+# 服务器上没有 git，拿不到 rev-parse；systemd unit 也没注入 GIT_COMMIT，
+# 故在开发机侧算好写文件、随 rsync 一起推过去（lib/env.ts 读它兜底）。
+# 注意：该文件不在 EXCLUDES 里，且 .gitignore 忽略它（部署产物不进版本库）。
+GIT_COMMIT_FILE="${REPO_ROOT}/app/.git-commit"
+if commit=$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null); then
+  # 工作区有未提交改动时标记 -dirty，避免 health 报的版本与实际代码不符
+  if ! git -C "$REPO_ROOT" diff --quiet HEAD 2>/dev/null; then
+    commit="${commit}-dirty"
+  fi
+  printf '%s\n' "$commit" > "$GIT_COMMIT_FILE"
+  log "本次部署版本：${commit}（已写入 app/.git-commit）"
+else
+  # 非 git 环境（如从 tar 包部署）：删掉旧文件，避免推送过期版本号误导排查
+  rm -f "$GIT_COMMIT_FILE"
+  log "非 git 工作区，跳过 commit 版本注入（/api/health 的 commit 将为 null）"
+fi
+
 log "同步代码到 ${REMOTE}:${REMOTE_DIR}"
 RSYNC_FLAGS=(-az --delete --human-readable)
 if [ "$DRY_RUN" = "1" ]; then

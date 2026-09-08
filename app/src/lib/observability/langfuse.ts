@@ -15,6 +15,7 @@
  */
 
 import type { Langfuse } from "langfuse";
+import { DEFAULT_LANGFUSE_FLUSH_AT, getObservabilityEnv } from "../env";
 import { createLogger } from "../logger";
 
 const log = createLogger("lib:langfuse");
@@ -29,7 +30,8 @@ async function getClient(): Promise<Langfuse | null> {
   if (initAttempted) return client;
 
   initAttempted = true;
-  if (!process.env.LANGFUSE_PUBLIC_KEY || !process.env.LANGFUSE_SECRET_KEY) {
+  const env = getObservabilityEnv();
+  if (!env.LANGFUSE_PUBLIC_KEY || !env.LANGFUSE_SECRET_KEY) {
     disabled = true;
     log.debug("Langfuse not configured; observability disabled");
     return null;
@@ -38,12 +40,10 @@ async function getClient(): Promise<Langfuse | null> {
   try {
     const { Langfuse } = await import("langfuse");
     client = new Langfuse({
-      publicKey: process.env.LANGFUSE_PUBLIC_KEY,
-      secretKey: process.env.LANGFUSE_SECRET_KEY,
-      baseUrl: process.env.LANGFUSE_BASE_URL,
-      flushAt: process.env.LANGFUSE_FLUSH_AT
-        ? parseInt(process.env.LANGFUSE_FLUSH_AT, 10)
-        : 1,
+      publicKey: env.LANGFUSE_PUBLIC_KEY,
+      secretKey: env.LANGFUSE_SECRET_KEY,
+      baseUrl: env.LANGFUSE_BASE_URL,
+      flushAt: env.LANGFUSE_FLUSH_AT ?? DEFAULT_LANGFUSE_FLUSH_AT,
     });
     return client;
   } catch (err) {

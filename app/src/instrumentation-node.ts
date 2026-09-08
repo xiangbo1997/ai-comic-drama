@@ -8,7 +8,15 @@
  */
 
 import { createLogger } from "@/lib/logger";
-import { validateEnv } from "@/lib/env";
+import {
+  DEFAULT_GENERATION_MAX_CONCURRENCY,
+  getLimitsEnv,
+  getObservabilityEnv,
+  getRedisEnv,
+  getRuntimeEnv,
+  getStorageEnv,
+  validateEnv,
+} from "@/lib/env";
 
 export async function registerNode(): Promise<void> {
   const log = createLogger("instrumentation");
@@ -23,33 +31,38 @@ export async function registerNode(): Promise<void> {
     }
     // 生产直接退出，拒绝带病启动（systemd Restart=on-failure 会重试，
     // 日志里留着上面的原因）；开发仅记日志便于本地继续调试
-    if (process.env.NODE_ENV === "production") {
+    if (getRuntimeEnv().isProduction) {
       process.exit(1);
     }
   }
 
   // 降级项显式告警（不阻断启动，但让线上"在用降级模式"可见）
-  const isProd = process.env.NODE_ENV === "production";
-  if (isProd && !process.env.REDIS_URL) {
+  const runtime = getRuntimeEnv();
+  const isProd = runtime.isProduction;
+  if (isProd && !getRedisEnv().REDIS_URL) {
     // 限流走内存=每进程独立、重启清零；若启用平台兜底 key 则是烧钱风险
     log.warn(
       "未配置 REDIS_URL：限流走内存（每进程独立、重启清零）。多实例或启用平台兜底 key 时强烈建议配置 Redis。"
     );
   }
+  const storage = getStorageEnv();
   const hasR2 =
-    process.env.R2_ENDPOINT &&
-    process.env.R2_ACCESS_KEY_ID &&
-    process.env.R2_SECRET_ACCESS_KEY;
+    storage.R2_ENDPOINT &&
+    storage.R2_ACCESS_KEY_ID &&
+    storage.R2_SECRET_ACCESS_KEY;
   if (!hasR2) {
     log.warn(
       "未配置 R2（对象存储）：生成产物落本地盘 public/uploads（重启/多节点即丢，仅适合单机开发）。"
     );
   }
-  if (!process.env.LANGFUSE_SECRET_KEY) {
+  if (!getObservabilityEnv().LANGFUSE_SECRET_KEY) {
     log.warn("未配置 Langfuse：AI 调用可观测性为 no-op（不影响功能）。");
   }
 
+  const maxConcurrency =
+    getLimitsEnv().GENERATION_MAX_CONCURRENCY ??
+    DEFAULT_GENERATION_MAX_CONCURRENCY;
   log.info(
-    `启动配置校验通过（env=${process.env.NODE_ENV}，并发上限=${process.env.GENERATION_MAX_CONCURRENCY ?? 8}）`
+    `启动配置校验通过（env=${runtime.nodeEnv}，并发上限=${maxConcurrency}，commit=${runtime.commit ?? "unknown"}）`
   );
 }

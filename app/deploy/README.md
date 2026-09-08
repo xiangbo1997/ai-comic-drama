@@ -36,6 +36,9 @@ DRY_RUN=1 bash app/deploy/deploy.sh
 
 脚本做的事：
 
+0. 把本机 `git rev-parse --short HEAD` 写进 `app/.git-commit`（工作区有未提交改动
+   则带 `-dirty` 后缀），随代码一起推送；服务器上没有 git，这是 `/api/health`
+   能报出版本号的唯一来源。该文件被 `.gitignore` 忽略，不进版本库。
 1. `rsync -az --delete` 推送仓库（排除 `node_modules`、`.next`、`public/uploads`、`.env*` 等）
 2. 远端 `pnpm install --frozen-lockfile`
 3. `SCHEMA_CHANGED=1` 时 `npx prisma db push`（本服务器无 migrate 历史，用 db push 部署）
@@ -57,11 +60,21 @@ ssh team-register-server 'systemctl daemon-reload && systemctl enable --now ai-c
 
 ```bash
 ssh team-register-server 'curl -fsS http://127.0.0.1:3100/api/health'
-# {"ok":true,"uptime":123.4,"commit":null}
+# {"ok":true,"uptime":123.4,"commit":"723cf38"}
 ```
 
-`GET /api/health` 真跑一次 `SELECT 1`，数据库不通返回 503。部署时注入 `GIT_COMMIT`
-可让返回里带上构建版本，便于确认「重启后跑的到底是不是新代码」。
+`GET /api/health` 真跑一次 `SELECT 1`，数据库不通返回 503。
+
+`commit` 字段的取值顺序（见 `src/lib/env.ts` 的 `getRuntimeEnv()`）：
+
+1. 环境变量 `GIT_COMMIT`（若在 systemd unit 里显式注入则优先）
+2. `app/.git-commit` 文件（由 `deploy.sh` 在 rsync 前写入，**常规路径走这条**）
+3. 都没有 → `null`
+
+所以部署完 curl 一次健康检查，看到的短 SHA 与本地 `git rev-parse --short HEAD`
+一致，就能确认「重启后跑的确实是新代码」。若显示 `null`，说明这次不是用
+`deploy.sh` 部署的（或部署机不是 git 工作区）；若带 `-dirty` 后缀，说明部署时
+开发机工作区有未提交改动，线上代码与该 commit 并不完全一致。
 
 ## 回滚
 

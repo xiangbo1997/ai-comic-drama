@@ -14,6 +14,7 @@
  */
 
 import type { Redis } from "ioredis";
+import { getRedisEnv } from "./env";
 import { createLogger } from "./logger";
 
 const log = createLogger("lib:redis");
@@ -28,7 +29,8 @@ let initAttempted = false;
  * 未配置 REDIS_URL 时返回 null。
  */
 export async function getRedis(): Promise<Redis | null> {
-  if (!process.env.REDIS_URL) {
+  const { REDIS_URL } = getRedisEnv();
+  if (!REDIS_URL) {
     if (!initAttempted) {
       log.debug("REDIS_URL not set; Redis features disabled (memory fallback)");
       initAttempted = true;
@@ -39,7 +41,7 @@ export async function getRedis(): Promise<Redis | null> {
 
   try {
     const { default: IORedis } = await import("ioredis");
-    sharedClient = new IORedis(process.env.REDIS_URL, {
+    sharedClient = new IORedis(REDIS_URL, {
       maxRetriesPerRequest: null,
       enableReadyCheck: true,
       lazyConnect: false,
@@ -72,11 +74,12 @@ export async function getRedisPublisher(): Promise<Redis | null> {
  * 每次都可能产生一个新的订阅连接；调用方负责 unsubscribe + quit。
  */
 export async function createRedisSubscriber(): Promise<Redis | null> {
-  if (!process.env.REDIS_URL) return null;
+  const { REDIS_URL } = getRedisEnv();
+  if (!REDIS_URL) return null;
   try {
     const { default: IORedis } = await import("ioredis");
     if (!subscriberClient) {
-      subscriberClient = new IORedis(process.env.REDIS_URL, {
+      subscriberClient = new IORedis(REDIS_URL, {
         maxRetriesPerRequest: null,
       });
       subscriberClient.on("error", (err) => {

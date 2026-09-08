@@ -2,6 +2,8 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 
+import { DEFAULT_PG_POOL_MAX, getLimitsEnv, getRuntimeEnv } from "@/lib/env";
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
@@ -18,7 +20,7 @@ function createPrismaClient() {
   // 叠加无并发闸（见 lib/generation-concurrency.ts）曾是单机雪崩路径。
   const pool = new Pool({
     connectionString,
-    max: Number(process.env.PG_POOL_MAX ?? 20),
+    max: getLimitsEnv().PG_POOL_MAX ?? DEFAULT_PG_POOL_MAX,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
   });
@@ -28,4 +30,4 @@ function createPrismaClient() {
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient();
 
-if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+if (!getRuntimeEnv().isProduction) globalForPrisma.prisma = prisma;

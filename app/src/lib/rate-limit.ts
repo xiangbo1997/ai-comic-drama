@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { getRedisEnv } from "./env";
 import { getRedis } from "./redis";
 import { createLogger } from "./logger";
 
@@ -164,7 +165,7 @@ class RedisStore implements RateLimitStore {
 
 // 存储实例：生产按 env 判定；开发默认 memory
 // 注意：REDIS_URL 存在但 Redis 暂时不可达时，RedisStore.increment 会自动失效（放行）
-const store: RateLimitStore = process.env.REDIS_URL
+const store: RateLimitStore = getRedisEnv().REDIS_URL
   ? new RedisStore()
   : new MemoryStore();
 
