@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import type { ColorGrade } from "@/lib/color-grade";
+import { classifyPollFailure } from "@/lib/generation-task-client";
 
 interface ExportStatus {
   isExporting: boolean;
@@ -112,11 +113,50 @@ export function useExport(projectId: string) {
     // 避免后端任务卡死（如进程重启丢任务）导致前端无限转圈。
     const MAX_POLL_ATTEMPTS = 150;
     let attempts = 0;
+    // 连续请求失败计数：与生成任务轮询共用 classifyPollFailure 策略。
+    // 此前任一次 fetch 抛错就停轮并报「获取进度失败」，而后端仍在导出，
+    // 用户以为失败会再点一次导出 → 二次扣费。
+    let consecutiveFailures = 0;
+    // 轮询失败但可继续时的排期（与正常间隔一致，2s）。失败的这一轮同样计入
+    // attempts，否则抖动期间总时长会超出 5 分钟上限。
+    const scheduleNext = () => {
+      if (attempts >= MAX_POLL_ATTEMPTS) {
+        abortWith("导出超时，请重试（任务可能已中断）");
+        return;
+      }
+      attempts++;
+      exportPollRef.current = setTimeout(poll, 2000);
+    };
+    const abortWith = (message: string) => {
+      stopExportPoll();
+      setExportStatus({
+        isExporting: false,
+        taskId: null,
+        progress: 0,
+        error: message,
+        videoUrl: null,
+      });
+    };
     const poll = async () => {
       try {
         const res = await fetch(
           `/api/projects/${projectId}/export?taskId=${taskId}`
         );
+        if (!res.ok) {
+          const verdict = classifyPollFailure(
+            ++consecutiveFailures,
+            res.status
+          );
+          if (verdict.action === "continue") {
+            scheduleNext();
+            return;
+          }
+          // 4xx（鉴权失败 / 任务不存在）无重试价值：取服务端文案，缺省兜底
+          const data = await res.json().catch(() => null);
+          abortWith(verdict.message || data?.error || "获取进度失败");
+          return;
+        }
+        consecutiveFailures = 0;
         const data = await res.json();
 
         if (data.status === "completed") {
@@ -157,14 +197,13 @@ export function useExport(projectId: string) {
           exportPollRef.current = setTimeout(poll, 2000);
         }
       } catch {
-        stopExportPoll();
-        setExportStatus({
-          isExporting: false,
-          taskId: null,
-          progress: 0,
-          error: "获取进度失败",
-          videoUrl: null,
-        });
+        // 网络异常（fetch 抛错）：容忍连续若干次，后端导出仍在跑
+        const verdict = classifyPollFailure(++consecutiveFailures);
+        if (verdict.action === "continue") {
+          scheduleNext();
+          return;
+        }
+        abortWith(verdict.message || "获取进度失败");
       }
     };
     poll();

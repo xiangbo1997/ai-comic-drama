@@ -67,6 +67,10 @@ export function useMultiGenerate({
       if (!res.ok) throw new Error("获取偏好失败");
       return res.json();
     },
+    // 并发上限是用户设置项，同一会话内几乎不变；不设 staleTime 会让每次进入
+    // 编辑器（乃至每次弹窗挂载）都打一发请求。设为 Infinity 后与弹窗真正共享
+    // 同一份缓存，用户在设置页改动时那边 invalidate 仍会刷新这里。
+    staleTime: Infinity,
   });
   const maxConcurrent =
     prefData?.preference?.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;

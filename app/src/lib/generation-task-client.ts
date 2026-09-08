@@ -23,6 +23,46 @@ export const GENERATION_TIMEOUTS = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** 连续轮询失败的容忍上限：超过才放弃（网络抖动 / 部署瞬断不应中断轮询） */
+export const MAX_POLL_FAILURES = 5;
+
+/** 轮询失败的处置结论：继续等 / 放弃并报 message */
+export type PollFailureVerdict =
+  | { action: "continue" }
+  | { action: "abort"; message: string };
+
+/**
+ * 轮询失败容忍策略（生成任务与导出进度共用单一真源）。
+ *
+ * 判据：网络异常与 5xx 视为瞬时故障，连续 MAX_POLL_FAILURES 次才放弃；
+ * 4xx（鉴权失败 / 任务不存在）无重试价值，立即放弃。
+ *
+ * 之所以必须容忍：后端仍在跑长任务时，前端因一次 fetch 抖动就报错，用户会
+ * 以为任务已死而重新发起（导出会二次扣费）。
+ *
+ * @param consecutiveFailures 计入本次失败后的连续失败次数
+ * @param status HTTP 状态码；网络异常（fetch 抛错）传 undefined
+ */
+export function classifyPollFailure(
+  consecutiveFailures: number,
+  status?: number
+): PollFailureVerdict {
+  const isTransient = status === undefined || status >= 500;
+  if (!isTransient) {
+    return { action: "abort", message: "" };
+  }
+  if (consecutiveFailures >= MAX_POLL_FAILURES) {
+    return {
+      action: "abort",
+      message:
+        status === undefined
+          ? "网络异常，无法获取进度，请稍后刷新查看结果"
+          : "服务异常，无法获取进度，请稍后刷新查看结果",
+    };
+  }
+  return { action: "continue" };
+}
+
 /**
  * 发起生成任务并轮询到终态。
  * COMPLETED → 返回 result（与原同步响应同形）；FAILED / 超时 → 抛中文 Error。
@@ -44,9 +84,8 @@ export async function runGenerationTask<T>(
   const { taskId } = (await startRes.json()) as { taskId: string };
 
   const deadline = Date.now() + opts.timeoutMs;
-  // 连续轮询请求失败容忍（网络抖动 / 部署瞬断），超过次数才放弃
+  // 连续轮询请求失败容忍（网络抖动 / 部署瞬断），策略见 classifyPollFailure
   let consecutivePollFailures = 0;
-  const MAX_POLL_FAILURES = 5;
 
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
@@ -55,20 +94,19 @@ export async function runGenerationTask<T>(
     try {
       res = await fetch(`/api/generate/tasks/${taskId}`);
     } catch {
-      if (++consecutivePollFailures >= MAX_POLL_FAILURES) {
-        throw new Error("网络异常，无法获取生成进度，请稍后刷新查看结果");
-      }
+      const verdict = classifyPollFailure(++consecutivePollFailures);
+      if (verdict.action === "abort") throw new Error(verdict.message);
       continue;
     }
 
     if (!res.ok) {
       // 5xx 视为瞬时故障继续轮询；4xx（鉴权/任务不存在）立即失败
-      if (res.status >= 500) {
-        if (++consecutivePollFailures >= MAX_POLL_FAILURES) {
-          throw new Error("服务异常，无法获取生成进度，请稍后刷新查看结果");
-        }
-        continue;
-      }
+      const verdict = classifyPollFailure(
+        ++consecutivePollFailures,
+        res.status
+      );
+      if (verdict.action === "continue") continue;
+      if (verdict.message) throw new Error(verdict.message);
       const data = await res.json().catch(() => null);
       throw new Error(formatApiError(data, opts.fallbackError));
     }

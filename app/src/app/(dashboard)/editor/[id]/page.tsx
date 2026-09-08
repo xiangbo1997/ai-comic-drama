@@ -8,7 +8,7 @@ import { buildTitleCards } from "@/lib/title-cards";
 import { TimelineDialogs } from "./components/TimelineDialogs";
 import Link from "next/link";
 import { TimelineEditor } from "@/components/timeline-editor";
-import { PreviewPlayer } from "@/components/preview-player";
+import dynamic from "next/dynamic";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,6 @@ import { DramaScriptPanel } from "./components/DramaScriptPanel";
 import { SceneList } from "./components/SceneList";
 import { SceneEditor } from "./components/SceneEditor";
 import { SettingsPanel } from "./components/SettingsPanel";
-import { ExportDialog } from "./components/ExportDialog";
 import { CharacterManagerDialog } from "./components/CharacterManagerDialog";
 import { WorkflowPanel } from "./components/WorkflowPanel";
 import { useWorkflow } from "./hooks/use-workflow";
@@ -41,6 +40,29 @@ import {
   isProducerReviewComplete,
   countProducerReviewProgress,
 } from "@/lib/producer-review";
+
+// 预览播放器与导出弹窗按需加载：两者都很重（播放器含转场/字幕/音效/调色全套
+// 渲染逻辑，导出弹窗含审片报告与封面选择），但都只在用户点开对应弹窗后才出现，
+// 静态 import 会把它们压进编辑器首屏包。二者均在客户端组件内渲染且 ssr:false，
+// 服务端不产出对应 HTML，不存在 hydration 不匹配。
+const PreviewPlayer = dynamic(
+  () => import("@/components/preview-player").then((m) => m.PreviewPlayer),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+        预览播放器加载中…
+      </div>
+    ),
+  }
+);
+// 注：ExportDialog 保持「常挂载 + isOpen 控制可见」，不按开关条件渲染——
+// 它内部持有字幕/水印/调色/封面等表单草稿，卸载会让用户填的配置丢失。
+// 故此处只把它拆成独立 chunk（不进首屏主包），不改变挂载时机。
+const ExportDialog = dynamic(
+  () => import("./components/ExportDialog").then((m) => m.ExportDialog),
+  { ssr: false }
+);
 
 export default function EditorPage() {
   const params = useParams();
@@ -198,16 +220,18 @@ export default function EditorPage() {
 
   // 沿用下方 handleSubtitlePositionChange 的写法：把 editor.X 提为局部常量再入
   // 依赖数组，让 React Compiler 能保留手动 memo（成员表达式依赖会被推断成整个
-  // editor 触发 preserve-manual-memoization 报错）。invalidateProject 本身是
-  // 稳定 useCallback，回调引用稳定性不变 —— 这是 SceneList memo 的契约。
-  const editorInvalidateProject = editor.invalidateProject;
+  // editor 触发 preserve-manual-memoization 报错）。这里依赖 mutation 的
+  // `.mutate` 而非 mutation 对象本身：v5 每次渲染返回新的 mutation 对象，
+  // 但 `.mutate` 引用稳定，回调引用随之稳定 —— 这是 SceneList memo 的契约。
+  // 走 updateSceneMutation：它已带乐观更新 + 服务端返回值精确合并 + 失败回滚。
+  // 此前直接 apiUpdateScene().then(invalidateProject) 会在每次改动后全量重拉
+  // 整个 project（含全部分镜/角色/媒体 URL），且落库往返期间界面不更新。
+  const editorUpdateScene = editor.updateSceneMutation.mutate;
   const handleUpdateSceneFromList = useCallback(
     (sceneId: string, data: Partial<Scene>) => {
-      apiUpdateScene(projectId, sceneId, data).then(() =>
-        editorInvalidateProject()
-      );
+      editorUpdateScene({ sceneId, data });
     },
-    [projectId, editorInvalidateProject]
+    [editorUpdateScene]
   );
 
   // 字幕位置拖拽/快捷选择 → 按 sceneId upsert 到 generationParams.subtitlePositions。

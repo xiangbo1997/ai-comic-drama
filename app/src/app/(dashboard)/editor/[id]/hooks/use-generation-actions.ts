@@ -285,6 +285,8 @@ export function useGenerationActions(
     if (!batchActive) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      // Safari 不认单独的 preventDefault，必须设 returnValue 才弹确认框
+      e.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);

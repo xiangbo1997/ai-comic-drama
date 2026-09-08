@@ -424,11 +424,6 @@ export function PreviewPlayer({
       totalDuration: prefix[prefix.length - 1] ?? 0,
     };
   }, [scenes, sceneEffects, measuredDurs]);
-  // 单镜有效时长按索引 O(1) 查（保留旧 effDur 签名的调用点用）
-  const effDur = (s: ScenePreview) => {
-    const idx = scenes.indexOf(s);
-    return idx >= 0 ? effDurs[idx] : s.duration;
-  };
 
   // ── 冲击表现力 / Ken Burns 运镜（预览端，与导出端 ffmpeg 同参数）─────────────
   // 当前镜内已播秒数（相对镜头起点）：flash 三角脉冲与 freeze 定格判定用，与画面同源。
@@ -467,21 +462,39 @@ export function PreviewPlayer({
       setCurrentIndex(sceneIndex);
       setProgress(0);
     }
+    // 仅当外部选中项变化时才跟随跳镜；把 currentIndex 列进依赖会让内部
+    // 自然播放推进的切镜被这里立刻拽回外部选中的那一镜。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sceneIndex]);
+
+  // 当前镜「有效时长 / 转场时长」的最新值镜像（毫秒）。
+  // 计时器 effect 刻意不依赖 measuredDurs / transitions（依赖变了会重启定时器，
+  // 进度跳回起点），故把最新值经这个廉价 effect 写进 ref，供 30ms tick 现取，
+  // 使「预览必须反映导出效果」在实测时长回填/转场时长编辑时也成立。
+  const curDurationMsRef = useRef(0);
+  const curTransitionMsRef = useRef(0);
+  useEffect(() => {
+    curDurationMsRef.current =
+      (effDurs[currentIndex] ?? currentScene?.duration ?? 0) * 1000;
+    curTransitionMsRef.current = curTransition.duration * 1000;
+  }, [effDurs, currentIndex, currentScene?.duration, curTransition.duration]);
 
   // 播放控制：进度按「有效时长」计时；进入末尾转场窗口后驱动双层叠化
   useEffect(() => {
     if (isPlaying && currentScene) {
-      const durationMs = effDur(currentScene) * 1000;
       // 该镜右侧转场时长（末镜无转场）
       const hasNext = currentIndex < scenes.length - 1;
-      const tdMs = hasNext ? curTransition.duration * 1000 : 0;
       const startTime = Date.now();
 
       timerRef.current = setInterval(() => {
+        // 时长与转场时长每 tick 从 ref 现取（而非闭包快照）：视频
+        // onLoadedMetadata 回填实测时长、或用户在播放中改转场时长时，当前这一镜
+        // 立刻按新值计时，无需重启定时器（重启会让进度跳回起点）。
+        const durationMs = curDurationMsRef.current;
+        const tdMs = hasNext ? curTransitionMsRef.current : 0;
         const elapsed = Date.now() - startTime;
-        const sceneProgress = Math.min(elapsed / durationMs, 1);
+        const sceneProgress =
+          durationMs > 0 ? Math.min(elapsed / durationMs, 1) : 1;
         setProgress(sceneProgress);
 
         // 转场叠化：进入 [durationMs - tdMs, durationMs] 窗口时，
@@ -500,11 +513,14 @@ export function PreviewPlayer({
             setTransitionT(0);
             emitSceneChange(scenes[currentIndex + 1].id);
           } else {
-            // 播放结束
+            // 播放结束，回到片头：清空音效已触发集合，否则下一轮播放
+            // sfxFiredRef 仍是满的，整片一个音效都不响。
             setIsPlaying(false);
             setProgress(0);
             setTransitionT(0);
             setCurrentIndex(0);
+            sfxFiredRef.current = new Set();
+            sfxLastElapsedRef.current = 0;
           }
         }
       }, 30);
@@ -558,6 +574,8 @@ export function PreviewPlayer({
         clearInterval(timerRef.current);
       }
     };
+    // 时长/转场时长刻意不入依赖（改则重启定时器、进度跳回起点），
+    // 改由上方 curDurationMsRef / curTransitionMsRef 在 tick 内现取最新值。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, currentIndex, currentScene, scenes, emitSceneChange]);
 
@@ -638,6 +656,8 @@ export function PreviewPlayer({
       Math.abs(confirmed.x - dragSticker.x) < 0.001 &&
       Math.abs(confirmed.y - dragSticker.y) < 0.001;
     if (settled) setDragSticker(null);
+    // 只在 props 回流（stickers 变化）时比对；把 dragSticker 列进依赖会在拖拽
+    // 每帧 setDragSticker 后重复比对，与未回流的旧 props 相较必然不 settled。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stickers]);
 
@@ -655,6 +675,8 @@ export function PreviewPlayer({
       Math.abs(resolved.x - dragXY.x) < 0.001 &&
       Math.abs(resolved.y - dragXY.y) < 0.001;
     if (settled) setDragXY(null);
+    // 同上：只在 props 回流（subtitlePositions 变化）时比对，避免拖拽期间
+    // dragXY 自身变化反复触发比对；currentScene/subtitleStyle 只作读取来源。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtitlePositions]);
 
@@ -664,6 +686,8 @@ export function PreviewPlayer({
     if (dragFontSize !== null && subtitleStyle?.fontSize === dragFontSize) {
       setDragFontSize(null);
     }
+    // 同上：只在 props 回流（subtitleStyle.fontSize 变化）时判定是否已确认；
+    // 把 dragFontSize 列进依赖会让拖动中的每次本地改值都跑一遍无意义比对。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subtitleStyle?.fontSize]);
 
@@ -798,12 +822,15 @@ export function PreviewPlayer({
       const audio = new Audio(item.url);
       audio.volume = item.volume;
       sfxActiveRef.current.add(audio);
-      audio.addEventListener("ended", () => {
+      // 播完 / 起播失败都要释放：仅从集合里删不够，还需 pause + 清 src 断开
+      // 媒体资源，否则每轮播放都在堆积游离 <audio>（长片 + 反复预览会吃满内存）。
+      const release = () => {
+        audio.pause();
+        audio.src = "";
         sfxActiveRef.current.delete(audio);
-      });
-      audio.play().catch(() => {
-        sfxActiveRef.current.delete(audio);
-      });
+      };
+      audio.addEventListener("ended", release);
+      audio.play().catch(release);
     });
   }, [
     sfxSchedule,
@@ -815,20 +842,30 @@ export function PreviewPlayer({
     effDurs,
   ]);
 
-  // 暂停/卸载：停止所有在放音效（环境音长达 15s，必须跟随暂停）
-  useEffect(() => {
-    if (isPlaying) return;
+  // 暂停/卸载：停止所有在放音效（环境音长达 15s，必须跟随暂停）。
+  // 停止时一并清 src 释放媒体资源，与上方 release 同语义。
+  const stopAllSfx = () => {
     const active = sfxActiveRef.current;
-    active.forEach((a) => a.pause());
+    active.forEach((a) => {
+      a.pause();
+      a.src = "";
+    });
     active.clear();
-  }, [isPlaying]);
+  };
+  const stopAllSfxRef = useRef(stopAllSfx);
+  stopAllSfxRef.current = stopAllSfx;
   useEffect(() => {
-    const active = sfxActiveRef.current;
-    return () => {
-      active.forEach((a) => a.pause());
-      active.clear();
-    };
-  }, []);
+    if (isPlaying) {
+      // 起播（含播完归零后再次播放）：清空已触发集合与上次时刻，否则
+      // sfxFiredRef 仍保留上一轮的全部索引，第二遍播放整片无音效。
+      // 时刻基准归零同步重置，避免被判成「时间倒流」而重建集合。
+      sfxFiredRef.current = new Set();
+      sfxLastElapsedRef.current = 0;
+      return;
+    }
+    stopAllSfxRef.current();
+  }, [isPlaying]);
+  useEffect(() => () => stopAllSfxRef.current(), []);
 
   const togglePlay = () => {
     setIsPlaying(!isPlaying);

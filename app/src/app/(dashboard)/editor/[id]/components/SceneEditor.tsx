@@ -39,6 +39,9 @@ const EMOTION_LABELS: Record<Emotion, string> = {
   fear: "恐惧",
 };
 
+/** 走「本地草稿 + 防抖落库」的三个文本字段（各自独立防抖，互不打断） */
+type TextField = "description" | "dialogue" | "narration";
+
 interface SceneEditorProps {
   scene: Scene | undefined;
   /** 项目 ID（版本历史 hook 切换版本后失效 project 缓存） */
@@ -140,8 +143,33 @@ export function SceneEditor({
   const [draftSceneId, setDraftSceneId] = useState<string | undefined>(
     scene?.id
   );
+  // 防抖计时器与待提交函数「按字段隔离」：三个文本框（描述/对白/旁白）此前共用
+  // 单个 ref，先改 A 再在 400ms 内改 B 会 clearTimeout 掉 A 的提交，A 的改动只
+  // 活在本地草稿里，切换分镜（下方按 scene.id 重置草稿）时被静默丢弃。
+  const debounceRefs = useRef<Map<TextField, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
+  // 尚未落库的提交函数快照：卸载（如点返回项目列表）或切换分镜恰逢防抖窗口内时
+  // flush 立即提交，避免最后一次编辑静默丢失（ux-editor P0-2）
+  const pendingCommitsRef = useRef<Map<TextField, () => void>>(new Map());
+  // 立即提交全部待落库字段（卸载 / 切换分镜前调用），提交后清空两张表。
+  // fire 内部只调 onUpdateScene（父级 mutation），不触碰本组件 state，
+  // 故在渲染期间调用也不会触发「渲染中更新自身」的告警。
+  const flushPendingCommits = () => {
+    debounceRefs.current.forEach((timer) => clearTimeout(timer));
+    debounceRefs.current.clear();
+    const pending = Array.from(pendingCommitsRef.current.values());
+    pendingCommitsRef.current.clear();
+    pending.forEach((fire) => fire());
+  };
+  // 用 ref 持有最新的 flush，供仅在卸载时执行一次的清理函数调用
+  const flushRef = useRef(flushPendingCommits);
+  flushRef.current = flushPendingCommits;
+  useEffect(() => () => flushRef.current(), []);
   // 渲染期间按 scene.id 同步草稿（切换分镜时重置为新分镜内容）
   if (scene && scene.id !== draftSceneId) {
+    // 重置草稿前先把上一镜未落库的编辑全部提交，否则草稿被覆盖即丢失
+    flushPendingCommits();
     setDraftSceneId(scene.id);
     setDraft({
       description: scene.description ?? "",
@@ -153,34 +181,21 @@ export function SceneEditor({
     // 切换分镜时清空迭代指令草稿，避免上一镜的指令残留
     setIterateNote("");
   }
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 尚未落库的提交函数快照：卸载（如点返回项目列表）恰逢防抖窗口内时
-  // flush 立即提交，避免最后一次编辑静默丢失（ux-editor P0-2）
-  const pendingCommitRef = useRef<(() => void) | null>(null);
-  useEffect(
-    () => () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      pendingCommitRef.current?.();
-    },
-    []
-  );
-  const commitField = (
-    sceneId: string,
-    field: "description" | "dialogue" | "narration",
-    value: string
-  ) => {
+  const commitField = (sceneId: string, field: TextField, value: string) => {
     setDraft((prev) => ({ ...prev, [field]: value }));
-    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const prevTimer = debounceRefs.current.get(field);
+    if (prevTimer) clearTimeout(prevTimer);
     const fire = () => {
-      pendingCommitRef.current = null;
+      debounceRefs.current.delete(field);
+      pendingCommitsRef.current.delete(field);
       const payload =
         field === "description"
           ? { description: value }
           : { [field]: value || null };
       onUpdateScene(sceneId, payload as Partial<Scene>);
     };
-    pendingCommitRef.current = fire;
-    debounceRef.current = setTimeout(fire, 400);
+    pendingCommitsRef.current.set(field, fire);
+    debounceRefs.current.set(field, setTimeout(fire, 400));
   };
 
   if (!scene) {

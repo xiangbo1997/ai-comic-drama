@@ -248,9 +248,13 @@ function SceneCardImpl({
                             }`}
                           >
                             {character.referenceImages?.[0] && (
+                              // 角色头像懒加载：分镜列表可达上百张，首屏无需
+                              // 全部下载；decoding=async 避免解码阻塞主线程
                               <img
                                 src={character.referenceImages[0]}
                                 alt=""
+                                loading="lazy"
+                                decoding="async"
                                 className="h-5 w-5 rounded-full object-cover"
                               />
                             )}
