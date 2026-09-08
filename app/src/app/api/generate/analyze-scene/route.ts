@@ -13,9 +13,13 @@ import {
   parseSceneAnalysisResponse,
 } from "@/lib/prompt-builder";
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:generate:analyze-scene");
+
+/** 场景描述长度上限：超此长度的 prompt 无助于分析，只是徒增 token 成本 */
+const MAX_SCENE_DESCRIPTION = 4000;
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,12 +29,35 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // 限流：本端点每次调用都打一次 LLM，此前只有 auth() 无任何配额约束。
+    // 注：本端点按产品决策暂不扣积分（未计费），配额完全依赖此处限流兜底。
+    const rateLimitResult = await rateLimiters.imageGeneration(
+      request,
+      session.user.id
+    );
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        {
+          error: "请求过于频繁，请稍后再试",
+          retryAfter: rateLimitResult.retryAfter,
+        },
+        { status: 429, headers: rateLimitHeaders(rateLimitResult) }
+      );
+    }
+
     const body: AnalyzeSceneRequest = await request.json();
     const { sceneDescription, dialogue, characters, emotion, shotType } = body;
 
     if (!sceneDescription) {
       return NextResponse.json(
         { error: "Scene description is required" },
+        { status: 400 }
+      );
+    }
+
+    if (sceneDescription.length > MAX_SCENE_DESCRIPTION) {
+      return NextResponse.json(
+        { error: `场景描述超过最大长度（${MAX_SCENE_DESCRIPTION} 字）` },
         { status: 400 }
       );
     }

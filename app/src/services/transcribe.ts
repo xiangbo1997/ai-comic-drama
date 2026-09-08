@@ -13,6 +13,7 @@
 
 import type { AIServiceConfig } from "@/types/ai";
 import { createLogger } from "@/lib/logger";
+import { safeDownload } from "@/lib/url-guard";
 
 const log = createLogger("services:transcribe");
 
@@ -76,12 +77,19 @@ async function transcribeOne(
   model: string,
   language?: string
 ): Promise<WhisperResponse> {
-  // 下载音频到内存（配音通常很短，不落盘）
-  const resp = await fetch(absolutizeUrl(audioUrl));
-  if (!resp.ok) {
-    throw new Error(`配音音频下载失败 (HTTP ${resp.status})`);
-  }
-  const audioBuffer = await resp.arrayBuffer();
+  // 下载音频到内存（配音通常很短，不落盘）。
+  // SSRF 防护：audioUrl 源自 scene.audioUrl（用户可影响），走钉 IP 下载；
+  // 本地降级存储的 /uploads/... 相对路径经 absolutizeUrl 补成本站绝对 URL 后同样适用
+  // （与 jianying-draft.ts 的 MaterialDownloader 一致）。
+  const { buffer } = await safeDownload(absolutizeUrl(audioUrl));
+  // Node Buffer 的底层是 ArrayBufferLike（可能是 SharedArrayBuffer），不满足
+  // BlobPart 要求的 ArrayBuffer 视图；重建为普通 Uint8Array 视图（零拷贝）。
+  const audioBuffer = new Uint8Array(
+    buffer.buffer.slice(
+      buffer.byteOffset,
+      buffer.byteOffset + buffer.byteLength
+    ) as ArrayBuffer
+  );
 
   // 从 URL 推断文件名/类型，缺省按 mp3
   const ext = (audioUrl.split(".").pop() || "mp3").split("?")[0].toLowerCase();

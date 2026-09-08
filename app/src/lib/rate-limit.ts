@@ -314,10 +314,19 @@ export const RATE_LIMITS = {
     perUser: true,
   },
 
-  // 严格限流：每分钟 3 次（敏感操作）
+  // 严格限流：每分钟 3 次（敏感操作，按 IP）
   strict: {
     windowMs: 60 * 1000,
     maxRequests: 3,
+  },
+
+  // 严格限流（按用户）：每分钟 3 次。
+  // 用于剧本解析这类「单次极贵、必已登录」的端点：按 IP 会让同一出口 NAT 下的
+  // 用户互相挤占额度，故按 userId 计数。
+  strictPerUser: {
+    windowMs: 60 * 1000,
+    maxRequests: 3,
+    perUser: true,
   },
 } as const;
 
@@ -331,6 +340,7 @@ export const rateLimiters = {
   export: createRateLimiter(RATE_LIMITS.export),
   payment: createRateLimiter(RATE_LIMITS.payment),
   strict: createRateLimiter(RATE_LIMITS.strict),
+  strictPerUser: createRateLimiter(RATE_LIMITS.strictPerUser),
 };
 
 /**

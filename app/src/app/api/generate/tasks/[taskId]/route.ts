@@ -77,11 +77,13 @@ export async function GET(
       return NextResponse.json({ error: "任务类型不匹配" }, { status: 400 });
     }
 
-    // 鉴权：input.userId 必须匹配当前 session
+    // 鉴权：input.userId 必须存在且匹配当前 session。
+    // 缺失即拒绝（此前 userId 为空时直接放行——任何登录用户凭 taskId 就能读到
+    // 他人任务的 output）。本路由覆盖的三类任务写入时均带 input.userId。
     const input = (task.input ?? {}) as { userId?: string };
-    if (input.userId && input.userId !== session.user.id) {
+    if (!input.userId || input.userId !== session.user.id) {
       log.warn(
-        `User ${session.user.id} tried to read task ${taskId} owned by ${input.userId}`
+        `User ${session.user.id} tried to read task ${taskId} owned by ${input.userId ?? "<unknown>"}`
       );
       return NextResponse.json({ error: "无权访问此任务" }, { status: 403 });
     }

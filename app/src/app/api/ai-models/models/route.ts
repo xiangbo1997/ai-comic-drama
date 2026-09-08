@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { assertSafeUrl, safeFetch } from "@/lib/url-guard";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:models");
@@ -34,7 +35,11 @@ export async function POST(request: Request) {
 
     // 如果没有提供 apiKey，尝试从用户已保存的配置中获取
     let effectiveApiKey = apiKey;
+    // untrustedBaseUrl 标记 baseUrl 是否来自用户输入（body.customBaseUrl 或
+    // 已落库的 UserAIConfig.customBaseUrl）。只有 provider.baseUrl 是可信来源，
+    // 其余都必须在出站前经 assertSafeUrl 做 DNS 解析级校验。
     let effectiveBaseUrl = customBaseUrl || provider.baseUrl;
+    let untrustedBaseUrl = Boolean(customBaseUrl);
 
     if (!effectiveApiKey) {
       const userConfig = await prisma.userAIConfig.findFirst({
@@ -49,6 +54,7 @@ export async function POST(request: Request) {
         effectiveApiKey = decrypt(userConfig.apiKey, userConfig.apiKeyIv);
         if (!customBaseUrl && userConfig.customBaseUrl) {
           effectiveBaseUrl = userConfig.customBaseUrl;
+          untrustedBaseUrl = true;
         }
       }
     }
@@ -59,6 +65,19 @@ export async function POST(request: Request) {
         models: provider.models as Array<{ id: string; name: string }>,
         source: "preset",
       });
+    }
+
+    // SSRF 防护：用户可控的 baseUrl 出站前做 DNS 解析级校验（挡内网/云元数据）。
+    // 校验失败直接 400，不降级到预置列表——避免把探测行为静默吞掉。
+    if (untrustedBaseUrl && effectiveBaseUrl) {
+      try {
+        await assertSafeUrl(effectiveBaseUrl);
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Base URL 不合法" },
+          { status: 400 }
+        );
+      }
     }
 
     // 尝试动态获取模型列表
@@ -166,7 +185,8 @@ async function fetchOpenAICompatibleModels(
   baseUrl: string
 ): Promise<Array<{ id: string; name: string }> | null> {
   try {
-    const response = await fetch(`${baseUrl}/models`, {
+    // safeFetch：钉已校验 IP + 禁跟随重定向（防 TOCTOU / 302 转内网）
+    const response = await safeFetch(`${baseUrl}/models`, {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
 
@@ -196,7 +216,8 @@ async function fetchGeminiModels(
       ? `${baseUrl}/models?key=${apiKey}`
       : `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
 
-    const response = await fetch(url);
+    // safeFetch：apiKey 在 query string 上，更不能被 302 带去内网/第三方
+    const response = await safeFetch(url);
     if (!response.ok) return null;
 
     const data = await response.json();
@@ -218,7 +239,7 @@ async function fetchElevenLabsModels(
   apiKey: string
 ): Promise<Array<{ id: string; name: string }> | null> {
   try {
-    const response = await fetch("https://api.elevenlabs.io/v1/models", {
+    const response = await safeFetch("https://api.elevenlabs.io/v1/models", {
       headers: { "xi-api-key": apiKey },
     });
 

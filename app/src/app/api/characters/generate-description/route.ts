@@ -2,9 +2,13 @@ import { auth } from "@/lib/auth";
 import { getUserLLMConfig } from "@/lib/ai-config";
 import { chatCompletion } from "@/services/ai";
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:characters:generate-description");
+
+/** 角色名长度上限：名字直接拼进 prompt，长值只会撑爆 token */
+const MAX_NAME_LENGTH = 100;
 
 // 根据角色信息生成外貌描述
 export async function POST(request: NextRequest) {
@@ -15,11 +19,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // 限流：本端点每次调用都打一次 LLM，此前只有 auth() 无任何配额约束。
+    // 注：本端点按产品决策暂不扣积分（未计费），配额完全依赖此处限流兜底。
+    const rateLimitResult = await rateLimiters.imageGeneration(
+      request,
+      session.user.id
+    );
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        {
+          error: "请求过于频繁，请稍后再试",
+          retryAfter: rateLimitResult.retryAfter,
+        },
+        { status: 429, headers: rateLimitHeaders(rateLimitResult) }
+      );
+    }
+
     const body = await request.json();
     const { name, gender, age } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "角色名称不能为空" }, { status: 400 });
+    }
+
+    if (typeof name !== "string" || name.length > MAX_NAME_LENGTH) {
+      return NextResponse.json(
+        { error: `角色名称超过最大长度（${MAX_NAME_LENGTH} 字）` },
+        { status: 400 }
+      );
     }
 
     // 获取用户 LLM 配置

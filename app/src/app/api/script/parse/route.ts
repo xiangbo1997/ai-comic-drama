@@ -12,6 +12,7 @@ import { buildEventMapBlock } from "@/lib/prompts";
 import { prisma } from "@/lib/prisma";
 import { chargeCredits, InsufficientCreditsError } from "@/lib/credits";
 import { loadSeriesMemoryDigest } from "@/lib/series-memory";
+import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:script:parse");
@@ -45,6 +46,22 @@ export async function POST(request: NextRequest) {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "请先登录" }, { status: 401 });
+    }
+
+    // 限流：单次解析最长 20 万字、内部多轮 LLM（压缩 + 解析），是全站最贵的调用，
+    // 用 strictPerUser 档（每用户每分钟 3 次）。此前无任何限流，一个循环即可打爆额度。
+    const rateLimitResult = await rateLimiters.strictPerUser(
+      request,
+      session.user.id
+    );
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        {
+          error: "请求过于频繁，请稍后再试",
+          retryAfter: rateLimitResult.retryAfter,
+        },
+        { status: 429, headers: rateLimitHeaders(rateLimitResult) }
+      );
     }
 
     const body = await request.json();

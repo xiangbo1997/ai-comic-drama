@@ -3,6 +3,10 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { encrypt, decrypt, maskApiKey } from "@/lib/encryption";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
+import {
+  maskExtraConfig,
+  preserveMaskedExtraConfig,
+} from "../extra-config-mask";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs:[id]");
@@ -52,7 +56,8 @@ export async function GET(
       apiKeyMasked: config.apiKey
         ? maskApiKey(decrypt(config.apiKey, config.apiKeyIv))
         : null,
-      extraConfig: config.extraConfig,
+      // 掩码 extraConfig 中的凭据（accessToken / secretKey 等），与 apiKey 同策略
+      extraConfig: maskExtraConfig(config.extraConfig),
     });
   } catch (error) {
     log.error("Get config error:", error);
@@ -122,7 +127,16 @@ export async function PUT(
         !Array.isArray(existingConfig.extraConfig)
           ? (existingConfig.extraConfig as Record<string, unknown>)
           : {};
-      updateData.extraConfig = { ...existingExtra, ...extraConfig };
+      // GET 已把 accessToken / secretKey 等掩码后下发；客户端原样回传时说明该字段
+      // 未编辑，须还原库中真值，否则掩码串会把真凭据覆盖掉（同 apiKey 的保留语义）。
+      const restoredExtra = preserveMaskedExtraConfig(
+        extraConfig,
+        existingExtra
+      );
+      updateData.extraConfig = {
+        ...existingExtra,
+        ...(restoredExtra as Record<string, unknown>),
+      };
     }
 
     if (selectedModel !== undefined) {

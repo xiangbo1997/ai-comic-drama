@@ -41,7 +41,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     if (input.kind !== "character_reference") {
       return NextResponse.json({ error: "任务类型不匹配" }, { status: 400 });
     }
-    if (input.userId && input.userId !== session.user.id) {
+    // 鉴权：input.userId 必须存在且匹配当前 session。
+    // 缺失即拒绝（此前为空时放行，等于任何登录用户凭 taskId 就能读他人产物）。
+    // 本类任务（kind=character_reference）创建时恒写 input.userId。
+    if (!input.userId || input.userId !== session.user.id) {
+      log.warn(
+        `User ${session.user.id} tried to read task ${taskId} owned by ${input.userId ?? "<unknown>"}`
+      );
       return NextResponse.json({ error: "无权访问此任务" }, { status: 403 });
     }
 

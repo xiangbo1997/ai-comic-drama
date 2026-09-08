@@ -56,6 +56,36 @@ export interface CallbackVerifyResult {
 }
 
 /**
+ * 回调时间戳容差窗口：±5 分钟（与微信支付、Stripe 官方 SDK 默认一致）。
+ */
+export const WEBHOOK_TIMESTAMP_TOLERANCE_SEC = 300;
+
+/**
+ * 校验回调时间戳新鲜度，防重放攻击。
+ *
+ * 背景：微信与 Stripe 的签名都把 timestamp 纳入待签串，但签名本身不会过期——
+ * 攻击者截获一份合法回调后可无限次重放（签名恒有效）。幂等只能挡住「同一订单
+ * 重复入账」，挡不住把旧回调重放到新场景。故须显式做时间窗校验。
+ *
+ * 时钟偏差双向容忍：未来方向的偏移同样放行（本机时钟慢于对端时会出现）。
+ *
+ * @param timestamp 回调携带的 Unix 时间戳（秒），字符串或数字
+ * @param nowMs 当前时间（毫秒），便于测试注入
+ * @param toleranceSec 容差秒数，默认 300
+ * @returns 在窗口内返回 true；非法或超窗返回 false
+ */
+export function isWebhookTimestampFresh(
+  timestamp: string | number,
+  nowMs: number = Date.now(),
+  toleranceSec: number = WEBHOOK_TIMESTAMP_TOLERANCE_SEC
+): boolean {
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || ts <= 0) return false;
+  const deltaSec = Math.abs(nowMs / 1000 - ts);
+  return deltaSec <= toleranceSec;
+}
+
+/**
  * 生成订单号
  */
 export function generateOrderNo(): string {
@@ -201,6 +231,12 @@ export class WechatPayService {
 
       if (!timestamp || !nonce || !signature) {
         return { valid: false, error: "缺少签名参数" };
+      }
+
+      // 防重放：签名恒有效，旧回调可被无限重放；先卡 ±5 分钟时间窗再验签
+      if (!isWebhookTimestampFresh(timestamp)) {
+        log.warn("微信支付回调时间戳超出容差窗口，拒绝处理");
+        return { valid: false, error: "回调时间戳已过期" };
       }
 
       // C3：用平台证书公钥验签（修复前此处被注释，导致回调可被任意伪造 → 支付绕过）
@@ -571,6 +607,12 @@ export class StripeService {
 
       if (!timestamp || !sig) {
         return { valid: false, error: "签名格式错误" };
+      }
+
+      // 防重放：Stripe 的 t= 已纳入待签串但签名不过期，须显式卡 ±5 分钟时间窗
+      if (!isWebhookTimestampFresh(timestamp)) {
+        log.warn("Stripe Webhook 时间戳超出容差窗口，拒绝处理");
+        return { valid: false, error: "回调时间戳已过期" };
       }
 
       // 验证签名

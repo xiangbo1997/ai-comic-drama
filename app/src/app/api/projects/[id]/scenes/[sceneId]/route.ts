@@ -3,12 +3,42 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
+import { assertSafeUrlLiteral } from "@/lib/url-guard";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:scenes:[sceneId]");
 
 interface RouteParams {
   params: Promise<{ id: string; sceneId: string }>;
+}
+
+/**
+ * 素材 URL 落库前校验：分镜的 imageUrl / videoUrl / audioUrl 会被服务端反向
+ * 取用（导出合成、语音识别、剪映草稿下载），若允许任意写入即等于把 SSRF 目标
+ * 交给客户端。放行两类：
+ *   ① 本地降级存储的相对路径 /uploads/...（不出网，且禁 .. 防目录穿越）
+ *   ② 通过 assertSafeUrlLiteral 的 http(s) 绝对 URL（挡非法协议与内网字面量）
+ * 运行时真正出站前仍有 safeDownload 的 DNS 解析级校验兜底（第二道闸）。
+ * 显式清空（null / 空串）视为合法。
+ */
+function assertSafeAssetUrl(field: string, value: unknown): void {
+  if (value === null || value === "") return;
+  if (typeof value !== "string") {
+    throw new Error(`${field} 必须是字符串`);
+  }
+  if (value.startsWith("/uploads/")) {
+    if (value.includes("..")) {
+      throw new Error(`${field} 路径非法`);
+    }
+    return;
+  }
+  try {
+    assertSafeUrlLiteral(value);
+  } catch (e) {
+    throw new Error(
+      `${field} 不合法: ${e instanceof Error ? e.message : String(e)}`
+    );
+  }
 }
 
 // 更新单个分镜
@@ -54,6 +84,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       selectedCharacterId,
       selectedCharacterIds,
     } = body;
+
+    // 素材 URL 白名单校验（仅校验本次提交的字段）
+    try {
+      if (imageUrl !== undefined) assertSafeAssetUrl("imageUrl", imageUrl);
+      if (videoUrl !== undefined) assertSafeAssetUrl("videoUrl", videoUrl);
+      if (audioUrl !== undefined) assertSafeAssetUrl("audioUrl", audioUrl);
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "素材 URL 不合法" },
+        { status: 400 }
+      );
+    }
 
     const scene = await prisma.scene.update({
       where: { id: sceneId, projectId: id },
