@@ -44,7 +44,8 @@ export function CreditsChart({
     );
   }
 
-  if (error || points.length === 0) {
+  // 防御：调用方传入非数组（接口形状不符）时按空数据处理，不让整页崩溃
+  if (error || !Array.isArray(points) || points.length === 0) {
     return (
       <p className="text-muted-foreground border-border rounded-lg border border-dashed px-4 py-8 text-center text-xs">
         {error ?? "暂无积分流水数据"}

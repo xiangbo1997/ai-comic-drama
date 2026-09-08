@@ -189,10 +189,15 @@ export default function AdminDashboardPage() {
   // 故 retry 关掉（端点可能还没上线，重试只是徒增噪音）
   const creditsQuery = useQuery({
     queryKey: ["admin-credit-summary", 30],
-    queryFn: () =>
-      adminFetch<DailyCreditPoint[]>(
-        "/api/admin/credit-transactions/summary?days=30"
-      ),
+    // 端点返回 { days, series }（订单模块契约）；这里只取 series 数组。
+    // 兼容裸数组形态，且任何非数组一律归空，避免 reduce 在对象上炸掉整页。
+    queryFn: async () => {
+      const res = await adminFetch<
+        { days: number; series: DailyCreditPoint[] } | DailyCreditPoint[]
+      >("/api/admin/credit-transactions/summary?days=30");
+      const series = Array.isArray(res) ? res : res?.series;
+      return Array.isArray(series) ? series : [];
+    },
     refetchInterval: 60_000,
     retry: false,
   });
