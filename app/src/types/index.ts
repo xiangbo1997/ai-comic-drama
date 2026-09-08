@@ -92,6 +92,16 @@ export type {
   StoryboardTableArtifact,
 } from "./drama";
 
+// 列表游标分页（/api/projects、/api/characters 共用契约）
+export type { CursorPage } from "./pagination";
+export {
+  parsePageLimit,
+  parseCursor,
+  sliceCursorPage,
+  DEFAULT_PAGE_SIZE,
+  MAX_PAGE_SIZE,
+} from "./pagination";
+
 // 导出样式（字幕 + 水印）
 export type { SubtitleStyle, Watermark } from "./export-style";
 export { DEFAULT_SUBTITLE_STYLE, DEFAULT_WATERMARK } from "./export-style";

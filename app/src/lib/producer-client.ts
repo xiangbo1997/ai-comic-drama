@@ -138,6 +138,7 @@ export function matchCharacterByName(
  *  - 命中项目已关联：该名角色已就位，跳过 CREATE 直接返回（LINK 也已完成）。
  *  - 命中用户角色库（可能是上次 LINK 失败遗留的孤儿）：复用其 id，跳过 CREATE 只补 LINK。
  * GET /api/characters?search= 是 contains 模糊匹配，故拉取后在客户端做精确同名匹配。
+ * 此处刻意不带 `limit`：查重必须看全量命中，走旧版全量数组形状（types/pagination.ts）。
  */
 async function findExistingCharacterId(
   projectId: string,

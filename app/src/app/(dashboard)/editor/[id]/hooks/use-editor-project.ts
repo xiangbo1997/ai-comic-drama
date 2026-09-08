@@ -138,6 +138,10 @@ export async function apiUpdateScene(
   return res.json();
 }
 
+/**
+ * 编辑器的角色选择器需要用户「全部」角色，故刻意不带 `limit`，
+ * 走 GET /api/characters 的旧版全量数组形状（见 types/pagination.ts）。
+ */
 async function fetchAllCharacters(): Promise<Character[]> {
   const res = await fetch("/api/characters");
   if (!res.ok) throw new Error("Failed to fetch characters");

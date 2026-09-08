@@ -1,9 +1,14 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Settings } from "lucide-react";
-import type { CharacterListItem, Tag } from "@/types";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { Plus, Settings, Loader2 } from "lucide-react";
+import type { CursorPage, CharacterListItem, Tag } from "@/types";
 import { useDebounce } from "@/hooks/use-debounce";
 import {
   toAppearanceFormData,
@@ -32,6 +37,9 @@ import { TagManagerModal } from "./components/TagManagerModal";
 import { GenerateReferenceModal } from "./components/GenerateReferenceModal";
 import { ReferenceCandidateGallery } from "./components/ReferenceCandidateGallery";
 import { useToast } from "@/components/ui/toast";
+
+/** 角色库单页条数（服务端上限 100） */
+const CHARACTERS_PAGE_SIZE = 24;
 
 export default function CharactersPage() {
   const queryClient = useQueryClient();
@@ -223,28 +231,39 @@ export default function CharactersPage() {
   // 用防抖值喂 queryKey，输入本身仍即时受控，只延后触发查询（ux P2-2）。
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
+  // 游标分页：每次只取 24 个角色（含 tags/referenceAssets 的行较重，
+  // 此前一次性拉全表，角色库一大首屏就卡）。搜索/标签筛选仍由服务端完成。
   const {
-    data: characters,
+    data: characterPages,
     isLoading,
     isError,
-  } = useQuery<CharacterListItem[]>({
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    // queryKey 含搜索词 + 标签 + 分页（游标由 pageParam 承载，无需入 key）
     queryKey: ["characters", debouncedSearchQuery, selectedTagIds],
-    queryFn: async () => {
-      const params = new URLSearchParams();
+    queryFn: async ({ pageParam }): Promise<CursorPage<CharacterListItem>> => {
+      const params = new URLSearchParams({
+        limit: String(CHARACTERS_PAGE_SIZE),
+      });
       if (debouncedSearchQuery.trim())
         params.set("search", debouncedSearchQuery.trim());
       if (selectedTagIds.length > 0)
         params.set("tags", selectedTagIds.join(","));
-      const query = params.toString();
-      const res = await fetch(`/api/characters${query ? `?${query}` : ""}`);
+      if (pageParam) params.set("cursor", pageParam);
+      const res = await fetch(`/api/characters?${params.toString()}`);
       if (!res.ok) {
-        if (res.status === 401) return [];
+        if (res.status === 401) return { items: [], nextCursor: null };
         throw new Error("获取角色列表失败");
       }
       return res.json();
     },
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
     staleTime: 30_000,
   });
+  const characters = characterPages?.pages.flatMap((page) => page.items);
 
   const resetForm = () => {
     setFormData({
@@ -577,6 +596,22 @@ export default function CharactersPage() {
           >
             <Plus size={40} className="text-muted-foreground mb-2" />
             <span className="text-muted-foreground">添加角色</span>
+          </button>
+        </div>
+      )}
+
+      {/* 游标分页：还有下一页时露出「加载更多」 */}
+      {!isLoading && !isError && hasNextPage && (
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="border-border text-foreground hover:bg-secondary flex items-center gap-2 rounded-lg border px-6 py-2 transition disabled:opacity-50"
+          >
+            {isFetchingNextPage && (
+              <Loader2 size={16} className="animate-spin" />
+            )}
+            {isFetchingNextPage ? "加载中..." : "加载更多"}
           </button>
         </div>
       )}

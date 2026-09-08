@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Clapperboard, Wand2 } from "lucide-react";
 import {
   Dialog,
@@ -35,10 +35,24 @@ const ASPECT_RATIOS: Array<{ value: string; label: string }> = [
 ];
 
 interface CreateSeriesDialogProps {
-  /** 可被收编为第 1 集的独立项目（未加入任何系列） */
-  standaloneProjects: ProjectListItem[];
   onClose: () => void;
   onCreated: (series: SeriesSummary) => void;
+}
+
+/**
+ * 拉取全部项目用于「导入为第 1 集」下拉框。
+ *
+ * 刻意走不带 `limit` 的旧版全量数组：列表页已改游标分页，若复用其分页缓存，
+ * 下拉框会只列出用户已滚到的那几页，让未加载的独立项目「凭空消失」。
+ * 这里的下拉必须完整可选，故独立取全量。
+ */
+async function fetchAllProjects(): Promise<ProjectListItem[]> {
+  const res = await fetch("/api/projects");
+  if (!res.ok) {
+    if (res.status === 401) return [];
+    throw new Error("Failed to fetch projects");
+  }
+  return res.json();
 }
 
 async function createSeries(body: Record<string, unknown>) {
@@ -57,12 +71,20 @@ async function createSeries(body: Record<string, unknown>) {
 }
 
 export function CreateSeriesDialog({
-  standaloneProjects,
   onClose,
   onCreated,
 }: CreateSeriesDialogProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
+
+  // 全量项目（不分页），筛出未加入任何系列的独立项目供收编
+  const { data: allProjects } = useQuery({
+    // 挂在 ["projects"] 前缀下，好让各处已有的 invalidateQueries(["projects"])
+    // 一并刷新；用对象段区分于列表页的 ["projects", 搜索词] 分页缓存，永不撞键
+    queryKey: ["projects", { all: true }],
+    queryFn: fetchAllProjects,
+  });
+  const standaloneProjects = (allProjects ?? []).filter((p) => !p.seriesId);
 
   const [title, setTitle] = useState("");
   const [genre, setGenre] = useState("");

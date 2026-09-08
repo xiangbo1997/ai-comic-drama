@@ -61,7 +61,8 @@ const EMPTY_REVIEW: ProducerReview = {
 };
 
 /** 拉取用户全部角色（含 appearance）——项目 GET 的角色 select 不含 appearance，
- * 审阅内联编辑外貌需要完整字段，故单独取列表再按项目角色 id 过滤 */
+ * 审阅内联编辑外貌需要完整字段，故单独取列表再按项目角色 id 过滤。
+ * 刻意不带 `limit`：要按 id 过滤就必须拿到全量，分页会漏掉未加载页里的角色。 */
 async function fetchCharactersWithAppearance(): Promise<CharacterListItem[]> {
   const res = await fetch("/api/characters");
   if (!res.ok) throw new Error("读取角色失败");

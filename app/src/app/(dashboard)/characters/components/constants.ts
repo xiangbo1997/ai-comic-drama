@@ -67,6 +67,10 @@ export type GenerateOptions = {
   count?: 1 | 2 | 4;
 };
 
+/**
+ * 拉取全部角色。刻意不带 `limit`，走 GET /api/characters 的旧版全量数组形状
+ * （见 types/pagination.ts 的双形状契约）——调用方需要完整角色库，不能分页。
+ */
 export async function fetchCharacters(): Promise<CharacterListItem[]> {
   const res = await fetch("/api/characters");
   if (!res.ok) {

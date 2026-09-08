@@ -1,11 +1,27 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
+import {
+  parseCursor,
+  parsePageLimit,
+  sliceCursorPage,
+} from "@/types/pagination";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:characters");
 
-// 获取用户的所有角色
+/**
+ * 获取用户的角色列表。
+ *
+ * 双形状契约（向后兼容，见 types/pagination.ts）：
+ *  - 不带 `limit` → 旧版全量裸数组 `CharacterListItem[]`（编辑器角色选择器等
+ *    需要「项目全部角色」的调用方继续走这条路径，零回归）；
+ *  - 带 `limit`   → `{ items: CharacterListItem[], nextCursor: string | null }`。
+ *
+ * 查询参数：`?cursor=<characterId>&limit=<1..100>&search=<名称关键词>&tags=<tagId,...>`。
+ * `search` / `tags` 一直是服务端过滤，分页只是在其之上再切页。
+ */
 export async function GET(request: NextRequest) {
   try {
     const session = await auth();
@@ -17,37 +33,32 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search");
     const tags = searchParams.get("tags"); // tagId 列表，逗号分隔
+    const limit = parsePageLimit(searchParams.get("limit"));
+    const cursor = parseCursor(searchParams.get("cursor"));
 
-    // 构建查询条件
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {
+    const tagIds = tags?.split(",").filter(Boolean) ?? [];
+
+    // 构建查询条件（用 Prisma 生成的 WhereInput，避免 any 绕过类型）
+    const where: Prisma.CharacterWhereInput = {
       userId: session.user.id,
+      // 搜索关键词（匹配名称）
+      ...(search?.trim()
+        ? { name: { contains: search.trim(), mode: "insensitive" as const } }
+        : {}),
+      // Tag 筛选
+      ...(tagIds.length > 0
+        ? { tags: { some: { tagId: { in: tagIds } } } }
+        : {}),
     };
 
-    // 搜索关键词（匹配名称）
-    if (search?.trim()) {
-      where.name = {
-        contains: search.trim(),
-        mode: "insensitive",
-      };
-    }
-
-    // Tag 筛选
-    if (tags) {
-      const tagIds = tags.split(",").filter(Boolean);
-      if (tagIds.length > 0) {
-        where.tags = {
-          some: {
-            tagId: {
-              in: tagIds,
-            },
-          },
-        };
-      }
-    }
-
-    const characters = await prisma.character.findMany({
+    const rows = await prisma.character.findMany({
       where,
+      ...(limit === null
+        ? {}
+        : {
+            take: limit + 1,
+            ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          }),
       include: {
         tags: {
           include: {
@@ -60,10 +71,12 @@ export async function GET(request: NextRequest) {
           orderBy: { createdAt: "desc" },
         },
       },
-      orderBy: { updatedAt: "desc" },
+      // updatedAt 可能重复，叠加 id 保证游标序确定
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     });
 
-    return NextResponse.json(characters);
+    if (limit === null) return NextResponse.json(rows);
+    return NextResponse.json(sliceCursorPage(rows, limit));
   } catch (error) {
     log.error("Get characters error:", error);
     return NextResponse.json(

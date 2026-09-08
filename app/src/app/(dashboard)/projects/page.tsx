@@ -2,10 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Loader2, Clapperboard, Wand2 } from "lucide-react";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { Plus, Loader2, Clapperboard, Wand2, Search } from "lucide-react";
 import { useState } from "react";
-import type { ProjectListItem, SeriesSummary } from "@/types";
+import type { CursorPage, ProjectListItem, SeriesSummary } from "@/types";
+import { useDebounce } from "@/hooks/use-debounce";
 import { CardGridSkeleton, ErrorState } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
 import { ProjectCard } from "./components/ProjectCard";
@@ -13,10 +19,23 @@ import { SeriesSection } from "./components/SeriesSection";
 import { CreateSeriesDialog } from "./components/CreateSeriesDialog";
 import { ProducerWizardDialog } from "./components/ProducerWizardDialog";
 
-async function fetchProjects(): Promise<ProjectListItem[]> {
-  const res = await fetch("/api/projects");
+/** 列表页单页条数（服务端上限 100） */
+const PROJECTS_PAGE_SIZE = 24;
+
+/**
+ * 拉取一页项目。显式带 `limit` 走分页形状 `{ items, nextCursor }`；
+ * 搜索交给服务端 `q`（标题 contains 不区分大小写），避免为了过滤把全表拉下来。
+ */
+async function fetchProjectsPage(
+  cursor: string | null,
+  q: string
+): Promise<CursorPage<ProjectListItem>> {
+  const params = new URLSearchParams({ limit: String(PROJECTS_PAGE_SIZE) });
+  if (cursor) params.set("cursor", cursor);
+  if (q) params.set("q", q);
+  const res = await fetch(`/api/projects?${params.toString()}`);
   if (!res.ok) {
-    if (res.status === 401) return [];
+    if (res.status === 401) return { items: [], nextCursor: null };
     throw new Error("Failed to fetch projects");
   }
   return res.json();
@@ -66,6 +85,7 @@ export default function ProjectsPage() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [showCreateSeries, setShowCreateSeries] = useState(false);
   const [showProducerWizard, setShowProducerWizard] = useState(false);
   const [creatingEpisodeSeriesId, setCreatingEpisodeSeriesId] = useState<
@@ -75,18 +95,33 @@ export default function ProjectsPage() {
     null
   );
 
+  // 搜索走服务端（?q=），按键防抖 300ms 后才进 queryKey 触发请求
+  const debouncedSearch = useDebounce(searchQuery, 300);
+  const trimmedSearch = debouncedSearch.trim();
+
   const {
-    data: projects,
+    data: projectPages,
     isLoading,
     error,
-  } = useQuery({
-    queryKey: ["projects"],
-    queryFn: fetchProjects,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    // queryKey 必须含搜索词，否则不同关键词会命中同一份缓存
+    queryKey: ["projects", trimmedSearch],
+    queryFn: ({ pageParam }) => fetchProjectsPage(pageParam, trimmedSearch),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
     // 有项目在生成中时轻量轮询：此前列表页不自动刷新，"生成中"看起来
     // 与已完成一样静止（ux-onboarding P2-10）
     refetchInterval: (query) =>
-      query.state.data?.some((p) => p.status === "PROCESSING") ? 8000 : false,
+      query.state.data?.pages.some((page) =>
+        page.items.some((p) => p.status === "PROCESSING")
+      )
+        ? 8000
+        : false,
   });
+  const projects = projectPages?.pages.flatMap((page) => page.items);
 
   const { data: seriesList } = useQuery({
     queryKey: ["series"],
@@ -175,7 +210,8 @@ export default function ProjectsPage() {
     }
   };
 
-  // 按系列分组：seriesId → 该系列的集；无 seriesId 的为独立项目
+  // 按系列分组：seriesId → 该系列的集；无 seriesId 的为独立项目。
+  // 注：分组只覆盖「已加载的页」，某系列的后续集会随「加载更多」逐步补齐。
   const episodesBySeries = new Map<string, ProjectListItem[]>();
   const standaloneProjects: ProjectListItem[] = [];
   for (const p of projects ?? []) {
@@ -189,7 +225,16 @@ export default function ProjectsPage() {
     }
   }
   const hasSeries = (seriesList?.length ?? 0) > 0;
-  const isEmpty = !isLoading && !error && projects?.length === 0 && !hasSeries;
+  const isSearching = trimmedSearch.length > 0;
+  // 搜索无结果 ≠ 账号没项目：首跑引导空态只在无搜索词时展示
+  const isEmpty =
+    !isLoading &&
+    !error &&
+    projects?.length === 0 &&
+    !hasSeries &&
+    !isSearching;
+  const isSearchEmpty =
+    !isLoading && !error && isSearching && projects?.length === 0;
 
   return (
     <div className="container mx-auto px-6 py-8">
@@ -229,8 +274,30 @@ export default function ProjectsPage() {
         </div>
       </div>
 
+      {/* 标题搜索（服务端 ?q= 过滤，配合游标分页；防抖 300ms） */}
+      <div className="relative mb-6">
+        <Search
+          size={18}
+          className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
+        />
+        <input
+          type="text"
+          placeholder="搜索项目标题..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="border-border bg-card w-full rounded-lg border py-2 pr-4 pl-10 transition focus:border-blue-500 focus:outline-none"
+        />
+      </div>
+
       {/* Loading State：骨架卡片替代孤零转圈（ux-onboarding P1-5） */}
       {isLoading && <CardGridSkeleton count={4} />}
+
+      {/* 搜索无结果：与「还没有项目」区分，不重复首跑引导 */}
+      {isSearchEmpty && (
+        <p className="text-muted-foreground py-16 text-center">
+          没有匹配「{trimmedSearch}」的项目
+        </p>
+      )}
 
       {/* Error State */}
       {error && (
@@ -359,9 +426,24 @@ export default function ProjectsPage() {
         </section>
       )}
 
+      {/* 游标分页：还有下一页时露出「加载更多」 */}
+      {!isLoading && !error && hasNextPage && (
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="border-border text-foreground hover:bg-secondary flex items-center gap-2 rounded-lg border px-6 py-2 transition disabled:opacity-50"
+          >
+            {isFetchingNextPage && (
+              <Loader2 size={16} className="animate-spin" />
+            )}
+            {isFetchingNextPage ? "加载中..." : "加载更多"}
+          </button>
+        </div>
+      )}
+
       {showCreateSeries && (
         <CreateSeriesDialog
-          standaloneProjects={standaloneProjects}
           onClose={() => setShowCreateSeries(false)}
           onCreated={() => setShowCreateSeries(false)}
         />
