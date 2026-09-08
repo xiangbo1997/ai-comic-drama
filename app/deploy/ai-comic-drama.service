@@ -1,0 +1,32 @@
+[Unit]
+Description=AI Comic Drama (Next.js) — comic.cloudsentryai.com
+After=network-online.target docker.service
+Wants=network-online.target
+# 2026-08-24: 数据库从宿主机 PostgreSQL 迁至 Docker 容器 comic-postgres
+# (127.0.0.1:5432)，宿主机已无 postgresql.service，原 Requires 会导致启动失败。
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/software/ai-comic-drama/app
+EnvironmentFile=/software/ai-comic-drama/app/.env.local
+Environment=NODE_ENV=production
+Environment=PORT=3100
+Environment=HOSTNAME=127.0.0.1
+Environment=HOST=127.0.0.1
+Environment=NODE_OPTIONS=--max-old-space-size=1024
+ExecStart=/software/ai-comic-drama/app/node_modules/.bin/next start -p 3100 -H 127.0.0.1
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-comic-drama
+
+# Hardening (modest)
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

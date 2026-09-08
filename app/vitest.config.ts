@@ -22,7 +22,9 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      include: ["src/lib/**", "src/services/**"],
+      // 只统计 .ts 源码：原 "src/lib/**" 把同目录的 CLAUDE.md 也算进来，
+      // v8 provider 尝试解析 markdown 会抛 PARSE_ERROR 刷屏
+      include: ["src/lib/**/*.ts", "src/services/**/*.ts"],
       exclude: [
         "src/lib/prisma.ts",
         "src/lib/auth.ts",
@@ -31,6 +33,11 @@ export default defineConfig({
         "src/services/ai/index.ts", // 有副作用，E2E 覆盖更合适
         "**/*.d.ts",
       ],
+      // 下限而非目标：低于此值说明有整块逻辑裸奔，CI 应当拦下。
+      // 当前实际值高于此线，留出余量避免正常迭代频繁踩线。
+      thresholds: {
+        lines: 40,
+      },
     },
   },
 });

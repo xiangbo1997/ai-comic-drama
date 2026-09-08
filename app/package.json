@@ -93,5 +93,12 @@
     "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma"
+    ]
   }
 }

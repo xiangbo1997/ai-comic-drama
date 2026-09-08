@@ -23,13 +23,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: 'app/pnpm-lock.yaml'
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: "app/pnpm-lock.yaml"
 
       - name: Install dependencies
         working-directory: ./app
         run: pnpm install --frozen-lockfile
+
+      # 依赖漏洞扫描：先只报不拦（continue-on-error），等专门的依赖升级批次
+      # 清完存量 critical 后再改为硬失败。指定官方 registry 避免继承私有镜像源。
+      - name: Audit dependencies
+        working-directory: ./app
+        run: npm_config_registry=https://registry.npmjs.org/ pnpm audit --prod --audit-level=critical
+        continue-on-error: true
 
       - name: Generate Prisma Client
         working-directory: ./app
@@ -68,9 +75,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: 'app/pnpm-lock.yaml'
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: "app/pnpm-lock.yaml"
 
       - name: Install dependencies
         working-directory: ./app
@@ -128,9 +135,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: 'app/pnpm-lock.yaml'
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: "app/pnpm-lock.yaml"
 
       - name: Install dependencies
         working-directory: ./app
