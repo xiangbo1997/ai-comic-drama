@@ -19,6 +19,7 @@ import {
   generateIntraShotTailFrame,
   shouldGenerateTailFrame,
   estimateVideoCost,
+  resolveFinalVideoCost,
   planVideoSegments,
   clampSceneDuration,
 } from "@/services/generation";
@@ -376,9 +377,11 @@ export async function POST(request: NextRequest) {
       videoConfig?.protocol ?? "",
       videoConfig?.model
     );
-    // 分段计划（决定段数与计费）；成本 = 各段档位成本之和（与客户端预览同源估算器）
+    // 分段计划（决定段数与计费）；成本 = 各段档位成本之和（与客户端预览同源估算器）。
+    // 这是「下单估算」：余额预检、task.cost、202 响应都用它，是告知用户的金额上限。
+    // 实扣金额在生成成功后按真实交付时长重算（见 run() 内 chargedCost）。
     const plan = planVideoSegments(duration, capability);
-    const cost = estimateVideoCost(duration, capability);
+    const estimatedCost = estimateVideoCost(duration, capability);
 
     // 检查积分
     const user = await prisma.user.findUnique({
@@ -386,11 +389,11 @@ export async function POST(request: NextRequest) {
       select: { credits: true },
     });
 
-    if (!user || user.credits < cost) {
+    if (!user || user.credits < estimatedCost) {
       return NextResponse.json(
         {
           error: "Insufficient credits",
-          required: cost,
+          required: estimatedCost,
           current: user?.credits ?? 0,
         },
         { status: 400 }
@@ -436,7 +439,7 @@ export async function POST(request: NextRequest) {
         },
         projectId,
         sceneId,
-        cost,
+        cost: estimatedCost,
       },
     });
 
@@ -665,6 +668,23 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // 按真实交付时长重算实扣金额（计费与交付对齐）：裁剪路径会把成片裁到叙事
+        // 目标（resolvedDuration < duration），此前仍按下单估算扣费＝多收。改为按
+        // 实际时长重算，并用 resolveFinalVideoCost 封顶到下单估算——实测时长若反向
+        // 偏大（provider 超时长/拼接略长），也绝不超过事前告知用户的金额。
+        const actualCost = estimateVideoCost(resolvedDuration, capability);
+        const chargedCost = resolveFinalVideoCost(estimatedCost, actualCost);
+        if (chargedCost !== estimatedCost) {
+          log.info("视频计费按实际交付时长下调", {
+            sceneId,
+            taskId: task.id,
+            requestedDuration: duration,
+            resolvedDuration,
+            estimatedCost,
+            chargedCost,
+          });
+        }
+
         // R1：将「任务完成 + 场景更新 + 扣费」包进同一事务，保证原子性。
         // chargeCredits 内部会在事务里再次校验余额并记录积分流水，
         // 余额不足会抛错并自动回滚 task/scene 的本次写入。
@@ -679,7 +699,11 @@ export async function POST(request: NextRequest) {
               // 附带 duration（真实回写值）与 segments 元数据（分段排障留痕）
               output: {
                 videoUrl,
-                cost,
+                // cost 保持原义（客户端读它显示本次消耗）＝实扣金额；
+                // estimatedCost/chargedCost 显式留痕，供对账区分「告知值 vs 实扣值」。
+                cost: chargedCost,
+                estimatedCost,
+                chargedCost,
                 duration: resolvedDuration,
                 // 展开成纯字面量：Prisma 的 InputJsonValue 不接受带命名接口的
                 // 数组（缺少 index signature），映射一次即可满足。
@@ -707,13 +731,13 @@ export async function POST(request: NextRequest) {
           // 扣减积分（事务内扣费+记流水+余额校验）
           await chargeCredits(tx, {
             userId,
-            amount: cost,
+            amount: chargedCost,
             type: "GENERATE_VIDEO",
             source: "generate:video",
             sourceId: task.id,
             note: sceneId
-              ? `场景 ${sceneId} 视频生成（时长 ${duration}s）`
-              : `视频生成（时长 ${duration}s）`,
+              ? `场景 ${sceneId} 视频生成（成片 ${resolvedDuration}s）`
+              : `视频生成（成片 ${resolvedDuration}s）`,
           });
         });
       } catch (error) {
@@ -776,7 +800,10 @@ export async function POST(request: NextRequest) {
       log.error("Video task runner crashed:", err)
     );
 
-    return NextResponse.json({ taskId: task.id, cost }, { status: 202 });
+    return NextResponse.json(
+      { taskId: task.id, cost: estimatedCost },
+      { status: 202 }
+    );
   } catch (error) {
     log.error("Video generation error:", error);
     return NextResponse.json(

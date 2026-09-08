@@ -11,18 +11,21 @@ import type { SceneCharacterInfo } from "@/services/generation/types";
 import type { AIServiceConfig } from "@/types";
 
 /** 支持多参考图（maxReferenceImages=4）的配置 */
-const multiRefConfig = {
+const multiRefConfig: AIServiceConfig = {
   protocol: "openai",
   baseUrl: "https://api.example.com",
   apiKey: "k",
   model: "gpt-image-1",
-} as AIServiceConfig;
+};
 
 /** 仅支持单参考图的配置 */
-const singleRefConfig = { ...multiRefConfig, protocol: "replicate" };
+const singleRefConfig: AIServiceConfig = {
+  ...multiRefConfig,
+  protocol: "replicate",
+};
 
 /** 不支持参考图的配置 */
-const noRefConfig = { ...multiRefConfig, protocol: "grok" };
+const noRefConfig: AIServiceConfig = { ...multiRefConfig, protocol: "grok" };
 
 function makeChar(
   overrides: Partial<SceneCharacterInfo> & { name: string }

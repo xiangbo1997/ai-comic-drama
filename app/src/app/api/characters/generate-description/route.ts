@@ -3,12 +3,21 @@ import { getUserLLMConfig } from "@/lib/ai-config";
 import { chatCompletion } from "@/services/ai";
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
+import { prisma } from "@/lib/prisma";
+import { chargeCredits, InsufficientCreditsError } from "@/lib/credits";
+import { randomUUID } from "node:crypto";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:characters:generate-description");
 
 /** 角色名长度上限：名字直接拼进 prompt，长值只会撑爆 token */
 const MAX_NAME_LENGTH = 100;
+
+/**
+ * 外貌描述生成积分成本：单次 LLM 调用（maxTokens 200），定额 1 积分。
+ * 输入已被 MAX_NAME_LENGTH 封顶，成本波动小，定额即可。
+ */
+const GENERATE_DESCRIPTION_COST = 1;
 
 // 根据角色信息生成外貌描述
 export async function POST(request: NextRequest) {
@@ -19,8 +28,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // 在事务闭包内 TS 会丢失对 userId 的收窄，提前固化为局部常量
+    const userId = session.user.id;
+
     // 限流：本端点每次调用都打一次 LLM，此前只有 auth() 无任何配额约束。
-    // 注：本端点按产品决策暂不扣积分（未计费），配额完全依赖此处限流兜底。
+    // 计费：已按 GENERATE_DESCRIPTION_COST 计费（成功后扣，见下方），限流仍作并发兜底。
     const rateLimitResult = await rateLimiters.imageGeneration(
       request,
       session.user.id
@@ -84,6 +96,36 @@ export async function POST(request: NextRequest) {
       temperature: 0.8,
       maxTokens: 200,
     });
+
+    // 扣费（收口到 chargeCredits：事务 + 流水 + 余额校验）。
+    // 时机为 LLM 调用成功后，失败路径不扣。本端点是一次性调用、无 task 落库，
+    // 故 sourceId 用 randomUUID() 作流水唯一标识（不具幂等语义，也无需——
+    // 每次 POST 都是一次独立的付费调用，天然无重放）。
+    // 余额不足 → 400，与其他生成类端点的错误语义一致。
+    try {
+      await prisma.$transaction(async (tx) => {
+        await chargeCredits(tx, {
+          userId,
+          amount: GENERATE_DESCRIPTION_COST,
+          type: "GENERATE_SCRIPT",
+          source: "characters:generate-description",
+          sourceId: randomUUID(),
+          note: "角色外貌描述生成",
+        });
+      });
+    } catch (chargeErr) {
+      if (chargeErr instanceof InsufficientCreditsError) {
+        return NextResponse.json(
+          {
+            error: "Insufficient credits",
+            required: GENERATE_DESCRIPTION_COST,
+            current: chargeErr.available,
+          },
+          { status: 400 }
+        );
+      }
+      throw chargeErr;
+    }
 
     return NextResponse.json({ description: description.trim() });
   } catch (error) {

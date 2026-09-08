@@ -60,6 +60,7 @@ export type {
 export {
   planVideoSegments,
   estimateVideoCost,
+  resolveFinalVideoCost,
   nearestVideoDuration,
   clampSceneDuration,
   MAX_SCENE_DURATION,

@@ -197,3 +197,26 @@ export function estimateVideoCost(
     0
   );
 }
+
+/**
+ * 结算成本（积分）= min(下单时估算, 按实际成片时长重算)。
+ *
+ * 为什么取 min 而非直接用实算值：
+ * - 裁剪路径（trim）会把成片裁到叙事目标，实际交付时长 < 请求时长，此时按实
+ *   际时长重算更便宜，用户少付 —— 这是本函数存在的意义。
+ * - 但实测时长也可能反向偏大（provider 出片超时长、多段拼接后略长于估算），
+ *   若照实扣就会超出下单时告知用户的金额。计费不得高于事前告知值，故封顶。
+ *
+ * 两个入参都是「同一估算器算出的积分数」，本函数只做取小 + 下限保护。
+ *
+ * @param estimatedCost 下单时按请求时长估算的成本（也是余额预检的依据）
+ * @param actualCost 按实际交付时长重算的成本
+ * @returns 实扣积分，至少 1（成片已交付，不出现 0 扣费）
+ */
+export function resolveFinalVideoCost(
+  estimatedCost: number,
+  actualCost: number
+): number {
+  const lower = Math.min(estimatedCost, actualCost);
+  return Math.max(1, lower);
+}

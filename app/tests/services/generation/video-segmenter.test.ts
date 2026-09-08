@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   planVideoSegments,
   estimateVideoCost,
+  resolveFinalVideoCost,
   nearestVideoDuration,
   clampSceneDuration,
 } from "@/services/generation/video-segmenter";
@@ -163,6 +164,26 @@ describe("estimateVideoCost — 成本 = 各段档位成本之和", () => {
   });
   it("Veo 20s（3 段）→ 3 × 20 = 60 积分", () => {
     expect(estimateVideoCost(20, veoCap)).toBe(60);
+  });
+});
+
+describe("resolveFinalVideoCost — 实扣 = min(估算, 实算)", () => {
+  it("裁剪后成片变短 → 按实算少收", () => {
+    expect(resolveFinalVideoCost(40, 10)).toBe(10);
+  });
+  it("实测反向偏大 → 封顶到下单估算，绝不多收", () => {
+    expect(resolveFinalVideoCost(10, 40)).toBe(10);
+  });
+  it("估算与实算一致 → 原值（零回归）", () => {
+    expect(resolveFinalVideoCost(30, 30)).toBe(30);
+  });
+  it("下限保护：成片已交付，实扣至少 1 积分", () => {
+    expect(resolveFinalVideoCost(20, 0)).toBe(1);
+  });
+  it("与估算器串联：裁剪 20s→5s 时实扣 10 而非 40", () => {
+    const estimated = estimateVideoCost(20, tierCap);
+    const actual = estimateVideoCost(5, tierCap);
+    expect(resolveFinalVideoCost(estimated, actual)).toBe(10);
   });
 });
 
