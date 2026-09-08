@@ -10,8 +10,10 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createReadStream, createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
+import { pipeline } from "stream/promises";
 
 import { createLogger } from "@/lib/logger";
 import { safeDownload } from "@/lib/url-guard";
@@ -85,6 +87,43 @@ export async function uploadToR2(
     }),
     { expiresIn: 3600 * 24 * 7 }
   ); // 7天有效期
+}
+
+/**
+ * 从本地文件路径流式上传到 R2（不把整个文件读进内存）。
+ *
+ * 为什么不用 @aws-sdk/lib-storage 的 Upload：本仓库未安装该包。改用
+ * PutObjectCommand + createReadStream，并显式给出 ContentLength（S3 对
+ * 未知长度的流式 Body 会要求分片上传，缺了它 SDK 会先把流缓冲成 Buffer，
+ * 白白抵消流式的意义）。长度由 fs.stat 取，与实际落盘产物一致。
+ */
+export async function uploadPathToR2(
+  filePath: string,
+  options: UploadOptions
+): Promise<{ url: string; size: number }> {
+  const key = generateFilePath(options);
+  const { size } = await fs.stat(filePath);
+
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+      Body: createReadStream(filePath),
+      ContentType: options.contentType,
+      ContentLength: size,
+    })
+  );
+
+  if (PUBLIC_URL) {
+    return { url: `${PUBLIC_URL}/${key}`, size };
+  }
+
+  const url = await getSignedUrl(
+    r2Client,
+    new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }),
+    { expiresIn: 3600 * 24 * 7 }
+  );
+  return { url, size };
 }
 
 // 解析 data URL 为 { buffer, mimeType }；非 data URL 返回 null
@@ -237,6 +276,24 @@ export async function uploadToLocal(
   return urlPath;
 }
 
+/**
+ * 从本地临时文件流式落到本地存储目录（不把整个文件读进内存）。
+ * 用 stream/promises 的 pipeline 而非 fs.copyFile：与 R2 分支语义一致，
+ * 且 pipeline 会在任一端出错时正确销毁两端句柄。
+ */
+export async function uploadPathToLocal(
+  sourcePath: string,
+  options: UploadOptions
+): Promise<{ url: string; size: number }> {
+  const { filePath, urlPath } = generateLocalFilePath(options);
+  await ensureDir(path.dirname(filePath));
+
+  await pipeline(createReadStream(sourcePath), createWriteStream(filePath));
+
+  const { size } = await fs.stat(filePath);
+  return { url: urlPath, size };
+}
+
 // 从 URL 下载并保存到本地
 export async function uploadFromUrlToLocal(
   url: string,
@@ -293,6 +350,24 @@ export async function uploadFile(
     return uploadToR2(buffer, options);
   }
   return uploadToLocal(buffer, options);
+}
+
+/**
+ * 统一「从本地文件路径上传」接口：优先 R2，降级本地盘。
+ *
+ * 与 uploadFile(buffer) 的区别只在于不把产物整个读进内存——成片视频动辄
+ * 数百 MB，readFile 会在 node 堆上驻留同等大小的 Buffer，多个导出并发时
+ * 直接 OOM。返回 size 供调用方落库（不必再 stat 一次）。
+ * 文件命名与存储路径规则与 Buffer 版完全一致（共用 generateFilePath）。
+ */
+export async function uploadFileFromPath(
+  filePath: string,
+  options: UploadOptions
+): Promise<{ url: string; size: number }> {
+  if (isR2Configured()) {
+    return uploadPathToR2(filePath, options);
+  }
+  return uploadPathToLocal(filePath, options);
 }
 
 // 统一从 URL 上传接口

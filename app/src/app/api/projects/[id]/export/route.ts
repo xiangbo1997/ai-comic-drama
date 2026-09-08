@@ -3,10 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { NextRequest, NextResponse } from "next/server";
 import type { Scene } from "@prisma/client";
 import {
-  synthesizeVideo,
+  synthesizeVideoToPath,
   type ExportOptions,
 } from "@/services/video-synthesis";
-import { uploadFile } from "@/services/storage";
+import { uploadFileFromPath } from "@/services/storage";
+import { runWithGenerationSlot } from "@/lib/generation-concurrency";
+import { mergeProgressIntoOutput } from "@/lib/export-progress";
 import {
   DEFAULT_SUBTITLE_STYLE,
   DEFAULT_WATERMARK,
@@ -44,12 +46,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    // 提前定住 userId：闭包内（合成回调）拿不到 session.user 的收窄结果
+    const userId = session.user.id;
 
     // 获取项目和所有分镜（含 generationParams 以读取样式配置）。
     // seriesId/episodeNumber + series.storyBible 供片头/片尾卡（批6）：
     // 系列项目默认开双卡，片尾钩子文案取本集在圣经里的 endingHook。
     const project = await prisma.project.findFirst({
-      where: { id, userId: session.user.id },
+      where: { id, userId },
       select: {
         id: true,
         title: true,
@@ -356,27 +360,33 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 如果是同步模式，立即处理
     if (sync) {
       try {
-        const videoBuffer = await synthesizeVideo(
-          sceneMediaList,
-          exportOptions
-        );
-
+        // 合成 + 上传都在全局生成闸内：ffmpeg 是本机最重的 CPU 消耗者，
+        // 不设闸时 N 个导出并发直接打满 CPU、拖垮普通请求（与 image/video/tts
+        // 路由同一把闸，全局排队）。
+        //
         // R2 已配走云存储，未配自动降级本地盘（public/uploads），
         // 不再因缺 R2 而丢弃合成产物导致导出"无产物"。
-        const videoUrl = await uploadFile(videoBuffer, {
-          fileName: `${project.title}_export_${Date.now()}.${format}`,
-          contentType: format === "mp4" ? "video/mp4" : "video/webm",
-          fileType: "video",
-          userId: session.user.id,
-          projectId: id,
-        });
+        // 流式上传（uploadFileFromPath）避免把整部成片读进内存。
+        const { url: videoUrl, size } = await runWithGenerationSlot(
+          `export:${task.id}`,
+          () =>
+            synthesizeVideoToPath(sceneMediaList, exportOptions, (outputPath) =>
+              uploadFileFromPath(outputPath, {
+                fileName: `${project.title}_export_${Date.now()}.${format}`,
+                contentType: format === "mp4" ? "video/mp4" : "video/webm",
+                fileType: "video",
+                userId,
+                projectId: id,
+              })
+            )
+        );
 
         // 更新任务状态
         await prisma.generationTask.update({
           where: { id: task.id },
           data: {
             status: "COMPLETED",
-            output: { videoUrl, size: videoBuffer.length },
+            output: { videoUrl, size },
             completedAt: new Date(),
           },
         });
@@ -391,7 +401,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           taskId: task.id,
           status: "completed",
           videoUrl,
-          size: videoBuffer.length,
+          size,
         });
       } catch (error) {
         // 更新任务状态为失败
@@ -419,7 +429,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 这里简化处理，返回任务 ID 让前端轮询
     processExportAsync(task.id, sceneMediaList, exportOptions, {
       projectId: id,
-      userId: session.user.id,
+      userId,
       projectTitle: project.title,
       format,
     }).catch((err) => log.error("后台导出任务失败:", err));
@@ -440,6 +450,37 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 }
 
+/**
+ * 写导出进度，且绝不覆盖 output 里的其他键。
+ *
+ * 两层保护，缺一不可：
+ * ① 读-合并：output 是整列覆盖写的 Json 字段，直接写 { progress } 会把已有的
+ *    videoUrl/size 抹掉；先读现值再展开合并。
+ * ② status=PROCESSING 条件（updateMany）：任务已 COMPLETED/FAILED 后，任何
+ *    迟到的进度写都不该再落地——用条件更新让它变成 0 行影响的空操作。
+ *
+ * 进度写失败只记日志、不抛：它只是 UI 上的百分比，不值得让整个导出失败。
+ */
+async function writeExportProgress(
+  taskId: string,
+  progress: number
+): Promise<void> {
+  try {
+    const current = await prisma.generationTask.findUnique({
+      where: { id: taskId },
+      select: { output: true, status: true },
+    });
+    if (!current || current.status !== "PROCESSING") return;
+
+    await prisma.generationTask.updateMany({
+      where: { id: taskId, status: "PROCESSING" },
+      data: { output: mergeProgressIntoOutput(current.output, progress) },
+    });
+  } catch (err) {
+    log.warn(`导出进度写入失败 (task=${taskId})，不影响合成:`, err);
+  }
+}
+
 // 异步处理导出任务
 async function processExportAsync(
   taskId: string,
@@ -454,36 +495,38 @@ async function processExportAsync(
   }
 ) {
   try {
-    const videoBuffer = await synthesizeVideo(
-      scenes,
-      options,
-      async (progress) => {
-        // 更新进度
-        await prisma.generationTask.update({
-          where: { id: taskId },
-          data: {
-            output: { progress },
-          },
-        });
-      }
+    // 合成 + 上传在全局生成闸内串行排队（ffmpeg 是本机最重的 CPU 消耗者），
+    // 与 image/video/tts 路由共用同一把闸。
+    // 流式上传（uploadFileFromPath）避免把整部成片读进内存。
+    const { url: videoUrl, size } = await runWithGenerationSlot(
+      `export:${taskId}`,
+      () =>
+        synthesizeVideoToPath(
+          scenes,
+          options,
+          (outputPath) =>
+            // R2 已配走云存储，未配自动降级本地盘（public/uploads），
+            // 与同步分支一致，确保导出始终产出可访问的 videoUrl。
+            uploadFileFromPath(outputPath, {
+              fileName: `${meta.projectTitle}_export_${Date.now()}.${meta.format}`,
+              contentType: meta.format === "mp4" ? "video/mp4" : "video/webm",
+              fileType: "video",
+              userId: meta.userId,
+              projectId: meta.projectId,
+            }),
+          (progress) => writeExportProgress(taskId, progress)
+        )
     );
 
-    // R2 已配走云存储，未配自动降级本地盘（public/uploads），
-    // 与同步分支一致，确保导出始终产出可访问的 videoUrl。
-    const videoUrl = await uploadFile(videoBuffer, {
-      fileName: `${meta.projectTitle}_export_${Date.now()}.${meta.format}`,
-      contentType: meta.format === "mp4" ? "video/mp4" : "video/webm",
-      fileType: "video",
-      userId: meta.userId,
-      projectId: meta.projectId,
-    });
-
-    // 更新任务状态
+    // 更新任务状态。
+    // 此处一定在最后一次进度写之后：synthesizeVideoToPath 内部 await 了每个
+    // onProgress，且进度写本身带 status=PROCESSING 条件，双重保证不会有在途
+    // 进度写覆盖掉这条 output（否则 videoUrl 会被 { progress } 整体替换丢失）。
     await prisma.generationTask.update({
       where: { id: taskId },
       data: {
         status: "COMPLETED",
-        output: { videoUrl, size: videoBuffer.length, progress: 100 },
+        output: { videoUrl, size, progress: 100 },
         completedAt: new Date(),
       },
     });
@@ -548,15 +591,20 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
 
-    // 僵尸任务惰性回收：PROCESSING 但超过 10 分钟未结束（多半是进程重启
-    // 丢了在途任务），就地标 FAILED，避免前端无限轮询永远转圈
+    // 僵尸任务惰性回收：PROCESSING 但超过 10 分钟「无任何进展」（多半是进程
+    // 重启丢了在途任务），就地标 FAILED，避免前端无限轮询永远转圈
     // （reliability P0-1）。
+    //
+    // 判据必须是 updatedAt 而非 createdAt：进度写会刷新 updatedAt，故长导出
+    // 只要还在推进就永远不算僵尸；用 createdAt 会把跑满 10 分钟的正常长导出
+    // 误杀成 FAILED，而它随后又会自己翻成 COMPLETED（状态自相矛盾）。
+    // 与 generate/tasks/[taskId]/route.ts 的回收判据保持一致。
     const ZOMBIE_TIMEOUT_MS = 10 * 60 * 1000;
     let effectiveStatus = task.status;
     let effectiveError = task.error;
     if (
       task.status === "PROCESSING" &&
-      Date.now() - task.createdAt.getTime() > ZOMBIE_TIMEOUT_MS
+      Date.now() - task.updatedAt.getTime() > ZOMBIE_TIMEOUT_MS
     ) {
       await prisma.generationTask.update({
         where: { id: task.id },

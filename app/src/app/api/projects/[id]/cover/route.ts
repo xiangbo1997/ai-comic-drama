@@ -22,6 +22,7 @@ import { contentSafetyMiddleware } from "@/lib/content-safety";
 import { resolveCoverSource } from "@/lib/cover";
 import { generateProjectCover } from "@/services/cover";
 import { deleteFile } from "@/services/storage";
+import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createLogger } from "@/lib/logger";
@@ -137,20 +138,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: reason }, { status: 400 });
     }
 
-    // 合成封面（ffmpeg 单帧 + 烧字 → 上传）
+    // 合成封面（ffmpeg 单帧 + 烧字 → 上传）。
+    // 走全局生成闸：封面合成同样是一记 ffmpeg，与 image/video/tts/导出共用
+    // 同一把 CPU 闸，避免大量封面请求与生成任务互相抢占把本机打满。
     let coverImageUrl: string;
     try {
-      coverImageUrl = await generateProjectCover({
-        projectId: project.id,
-        userId,
-        sourceUrl,
-        text: {
-          projectName: project.title,
-          episodeNumber: project.episodeNumber,
-          title,
-          subtitle,
-        },
-      });
+      coverImageUrl = await runWithGenerationSlot(`cover:${project.id}`, () =>
+        generateProjectCover({
+          projectId: project.id,
+          userId,
+          sourceUrl,
+          text: {
+            projectName: project.title,
+            episodeNumber: project.episodeNumber,
+            title,
+            subtitle,
+          },
+        })
+      );
     } catch (err) {
       log.error(`封面合成失败 (project=${id}):`, err);
       return NextResponse.json(

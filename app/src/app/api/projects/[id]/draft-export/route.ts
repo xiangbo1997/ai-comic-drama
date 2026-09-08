@@ -17,6 +17,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { assembleJianyingDraft } from "@/services/jianying-draft";
+import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 import { NextRequest, NextResponse } from "next/server";
 import { createLogger } from "@/lib/logger";
 
@@ -95,14 +96,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         ? (rawBgm as { enabled?: boolean; url?: string; volume?: number })
         : undefined;
 
-    const result = await assembleJianyingDraft({
-      projectId: project.id,
-      userId,
-      projectTitle: project.title,
-      aspectRatio: project.aspectRatio,
-      scenes: project.scenes,
-      bgm,
-    });
+    // 走全局生成闸：草稿打包要下载全部素材 + 逐个 ffprobe 探测，是与
+    // image/video/tts/导出同级的重活，共用同一把闸避免并发打满本机。
+    const result = await runWithGenerationSlot(`draft:${project.id}`, () =>
+      assembleJianyingDraft({
+        projectId: project.id,
+        userId,
+        projectTitle: project.title,
+        aspectRatio: project.aspectRatio,
+        scenes: project.scenes,
+        bgm,
+      })
+    );
 
     return NextResponse.json(result);
   } catch (error) {

@@ -859,10 +859,18 @@ function absolutizeUrl(url: string): string {
 // 供 video-synthesis / storage / ai 测试端点等所有出站 fetch 复用。
 
 /**
- * 下载远程文件到本地临时目录
+ * 下载远程文件到指定的临时目录。
+ *
+ * tmpDir 必传且必须是「每次导出独占」的目录：文件名是 video_${order}.mp4 /
+ * bgm_track.mp3 这类固定名，此前所有导出共用 os.tmpdir()/ai-comic-export，
+ * 两个并发导出会互相覆盖素材（跨租户内容串台），且该父目录从不清理、只泄漏。
+ * 传入 synthesizeVideo 的 per-run 目录后，既天然隔离，也被 finally 的 rm 覆盖。
  */
-async function downloadFile(url: string, filename: string): Promise<string> {
-  const tmpDir = path.join(os.tmpdir(), "ai-comic-export");
+async function downloadFile(
+  url: string,
+  filename: string,
+  tmpDir: string
+): Promise<string> {
   if (!existsSync(tmpDir)) {
     await mkdir(tmpDir, { recursive: true });
   }
@@ -1419,7 +1427,7 @@ async function prepareStickers(
   stickers: Sticker[],
   scenes: SceneMedia[],
   effDurations: number[],
-  _tmpDir: string
+  tmpDir: string
 ): Promise<PreparedSticker[]> {
   // 每个分镜的全片起始时间与有效时长——用「实测有效时长」（effDurations，
   // 按 scenes 顺序 index 对齐），与画面/字幕/配音同源，不再从 scene.duration 重算。
@@ -1446,7 +1454,11 @@ async function prepareStickers(
         ? Math.min(start + st.duration, sceneEnd)
         : sceneEnd;
     try {
-      const localPath = await downloadFile(st.imageUrl, `sticker_${idx}.png`);
+      const localPath = await downloadFile(
+        st.imageUrl,
+        `sticker_${idx}.png`,
+        tmpDir
+      );
       prepared.push({
         localPath,
         start,
@@ -1651,7 +1663,8 @@ async function sceneToVideoClip(
   if (scene.videoUrl) {
     const videoPath = await downloadFile(
       scene.videoUrl,
-      `video_${scene.order}.mp4`
+      `video_${scene.order}.mp4`,
+      outputDir
     );
 
     // 视频带音轨：用 filter_complex 同时处理画面与音频变速。
@@ -1693,7 +1706,8 @@ async function sceneToVideoClip(
   if (scene.imageUrl) {
     const imagePath = await downloadFile(
       scene.imageUrl,
-      `image_${scene.order}.jpg`
+      `image_${scene.order}.jpg`,
+      outputDir
     );
 
     // 图片场景：滤镜照常应用，但变速对静态图无意义（画面不动），
@@ -1771,6 +1785,13 @@ async function sceneToVideoClip(
 }
 
 /**
+ * 导出进度回调。返回 Promise 时合成端会 await——调用方常在回调里写库，
+ * 不等它就会出现「进度写在完成写之后落地、把 output 里的 videoUrl 覆盖掉」
+ * 的竞态（导出显示成功但拿不到视频）。
+ */
+export type ProgressCallback = (progress: number) => void | Promise<void>;
+
+/**
  * 合成完整视频
  *
  * filter_complex 架构说明（有水印时）：
@@ -1782,12 +1803,39 @@ async function sceneToVideoClip(
 export async function synthesizeVideo(
   scenes: SceneMedia[],
   options: ExportOptions,
-  onProgress?: (progress: number) => void
+  onProgress?: ProgressCallback
 ): Promise<Buffer> {
+  return synthesizeVideoToPath(
+    scenes,
+    options,
+    async (outputPath) => {
+      const { readFile } = await import("fs/promises");
+      return readFile(outputPath);
+    },
+    onProgress
+  );
+}
+
+/**
+ * 合成完整视频并把产物路径交给 consume 消费，consume 返回后才清理临时目录。
+ *
+ * 与 synthesizeVideo 的区别：不把成片读进内存。成片动辄数百 MB，readFile
+ * 会在 node 堆上驻留同等大小 Buffer，并发导出直接 OOM；调用方拿到路径后可
+ * 走 storage.uploadFileFromPath 流式上传。consume 必须在返回前用完该路径
+ * （finally 会 rm 掉整个临时目录）。
+ */
+export async function synthesizeVideoToPath<T>(
+  scenes: SceneMedia[],
+  options: ExportOptions,
+  consume: (outputPath: string) => Promise<T>,
+  onProgress?: ProgressCallback
+): Promise<T> {
+  // per-run 独占目录（含随机后缀）：Date.now() 单独用在同毫秒并发下会撞名，
+  // 而所有素材文件名是固定的（video_0.mp4 等），撞目录即内容串台。
   const tmpDir = path.join(
     os.tmpdir(),
     "ai-comic-export",
-    Date.now().toString()
+    `${Date.now()}_${Math.random().toString(36).slice(2)}`
   );
   await mkdir(tmpDir, { recursive: true });
 
@@ -1808,7 +1856,7 @@ export async function synthesizeVideo(
           const clip = await sceneToVideoClip(scene, tmpDir, options);
           clips[i + j] = clip; // 按原始 index 归位，保持分镜顺序
           doneCount += 1;
-          onProgress?.(Math.round((doneCount / scenes.length) * 50));
+          await onProgress?.(Math.round((doneCount / scenes.length) * 50));
         })
       );
     }
@@ -1933,7 +1981,7 @@ export async function synthesizeVideo(
       ]);
     }
 
-    onProgress?.(60);
+    await onProgress?.(60);
 
     // 4. 处理音频
     const audioInputs: string[] = [];
@@ -1956,7 +2004,8 @@ export async function synthesizeVideo(
         if (scene.audioUrl) {
           const audioPath = await downloadFile(
             scene.audioUrl,
-            `audio_${scene.order}.mp3`
+            `audio_${scene.order}.mp3`,
+            tmpDir
           );
           audioInputs.push("-i", audioPath);
           // 配音变速：该镜配了 speed 时，画面已被 setpts（视频镜）或 -t 压缩
@@ -2001,7 +2050,11 @@ export async function synthesizeVideo(
     if (bgm?.enabled && bgm.url) {
       bgmTotalDuration = sumDurations(effDurations);
       try {
-        bgmPath = await downloadFile(absolutizeUrl(bgm.url), "bgm_track.mp3");
+        bgmPath = await downloadFile(
+          absolutizeUrl(bgm.url),
+          "bgm_track.mp3",
+          tmpDir
+        );
       } catch (err) {
         // BGM 下载失败不阻塞主流程，记录后跳过（成片仍有对白）
         log.warn("BGM 下载失败，跳过背景音乐:", err);
@@ -2043,7 +2096,8 @@ export async function synthesizeVideo(
       try {
         const p = await downloadFile(
           absolutizeUrl(sfxSchedule[i].url),
-          `sfx_${i}.mp3`
+          `sfx_${i}.mp3`,
+          tmpDir
         );
         sfxLocalPaths.push(p);
       } catch (err) {
@@ -2059,7 +2113,7 @@ export async function synthesizeVideo(
       );
     const hasSfx = preparedSfx.length > 0;
 
-    onProgress?.(70);
+    await onProgress?.(70);
 
     // 5. 生成字幕（ASS：时轴随变速对齐 + 逐分镜 \pos 精确定位）
     // quality 提前解析（纯函数无副作用）：ASS 的 PlayResX/Y 与 \pos 像素需画面宽高。
@@ -2084,7 +2138,7 @@ export async function synthesizeVideo(
       );
     }
 
-    onProgress?.(80);
+    await onProgress?.(80);
 
     // 6. 下载水印 logo（如果启用）
     let logoPath: string | null = null;
@@ -2092,7 +2146,8 @@ export async function synthesizeVideo(
       try {
         logoPath = await downloadFile(
           options.watermark.imageUrl,
-          `watermark_logo.png`
+          `watermark_logo.png`,
+          tmpDir
         );
       } catch (err) {
         // 水印下载失败不阻塞主流程，记录警告后继续
@@ -2338,15 +2393,14 @@ export async function synthesizeVideo(
       await runFFmpeg(ffmpegArgs);
     }
 
-    onProgress?.(95);
+    await onProgress?.(95);
 
-    // 8. 读取输出文件
-    const { readFile } = await import("fs/promises");
-    const videoBuffer = await readFile(outputPath);
+    // 8. 把产物路径交给调用方消费（清理前）
+    const result = await consume(outputPath);
 
-    onProgress?.(100);
+    await onProgress?.(100);
 
-    return videoBuffer;
+    return result;
   } finally {
     // 清理临时文件
     try {
