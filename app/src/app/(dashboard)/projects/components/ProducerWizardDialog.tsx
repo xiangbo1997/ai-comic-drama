@@ -33,7 +33,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { STYLE_PACK_OPTIONS } from "@/lib/prompts/style-packs";
+import {
+  FULL_STYLE_PACK_OPTIONS,
+  LEGACY_STYLE_PACK_OPTIONS,
+  STYLE_GROUP_LABELS,
+} from "@/lib/prompts/style-packs";
 import { resolveSerializationHint } from "@/lib/genre-matrix";
 import { GenreSelectField } from "./GenreSelectField";
 import {
@@ -395,11 +399,20 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
                 disabled={started}
                 className="bg-card w-full rounded-lg p-2 text-sm disabled:opacity-60"
               >
-                {STYLE_PACK_OPTIONS.map((s) => (
-                  <option key={s.value} value={s.value} title={s.description}>
-                    {s.label}
-                  </option>
-                ))}
+                <optgroup label={STYLE_GROUP_LABELS.full}>
+                  {FULL_STYLE_PACK_OPTIONS.map((s) => (
+                    <option key={s.value} value={s.value} title={s.description}>
+                      {s.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label={STYLE_GROUP_LABELS.legacy}>
+                  {LEGACY_STYLE_PACK_OPTIONS.map((s) => (
+                    <option key={s.value} value={s.value} title={s.description}>
+                      {s.label}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </div>
             <div>

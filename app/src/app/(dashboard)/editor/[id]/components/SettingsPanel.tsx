@@ -7,10 +7,11 @@
 
 "use client";
 
-import { STYLE_PACK_OPTIONS } from "@/lib/prompts/style-packs";
-
-/** 画风选项：从画风包注册表派生（单一真源），与新建系列弹窗一致 */
-const STYLES = STYLE_PACK_OPTIONS;
+import {
+  FULL_STYLE_PACK_OPTIONS,
+  LEGACY_STYLE_PACK_OPTIONS,
+  STYLE_GROUP_LABELS,
+} from "@/lib/prompts/style-packs";
 
 const ASPECT_RATIOS: Array<{ value: string; label: string }> = [
   { value: "9:16", label: "9:16 (竖屏)" },
@@ -47,11 +48,20 @@ export function SettingsPanel({
           onChange={(e) => onStyleChange(e.target.value)}
           className="bg-secondary rounded px-2 py-1 text-sm"
         >
-          {STYLES.map((s) => (
-            <option key={s.value} value={s.value} title={s.description}>
-              {s.label}
-            </option>
-          ))}
+          <optgroup label={STYLE_GROUP_LABELS.full}>
+            {FULL_STYLE_PACK_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value} title={s.description}>
+                {s.label}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label={STYLE_GROUP_LABELS.legacy}>
+            {LEGACY_STYLE_PACK_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value} title={s.description}>
+                {s.label}
+              </option>
+            ))}
+          </optgroup>
         </select>
       </div>
       <div className="flex items-center gap-2">

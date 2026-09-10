@@ -17,6 +17,9 @@ export {
 export {
   STYLE_PACKS,
   STYLE_PACK_OPTIONS,
+  FULL_STYLE_PACK_OPTIONS,
+  LEGACY_STYLE_PACK_OPTIONS,
+  STYLE_GROUP_LABELS,
   getStylePack,
   getStylePaletteBaseline,
 } from "./style-packs";

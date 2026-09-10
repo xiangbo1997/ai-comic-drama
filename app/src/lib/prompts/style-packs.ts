@@ -360,6 +360,14 @@ export interface StylePackOption {
   value: string;
   label: string;
   description: string;
+  /**
+   * 旧平面风格标记（对应 StylePack.legacy）。
+   * true 表示该包只有 anchor + negative 两层，色彩系统 / 情绪色盘 /
+   * 角色规则 / 场景规则均为空串——出图只拿到一行风格词，且
+   * getStylePaletteBaseline 返回空串导致 Observer 色调门禁一并失效。
+   * UI 必须据此与完整画风包做视觉区分，否则用户无从知晓能力差异。
+   */
+  legacy: boolean;
 }
 
 /** 供 UI 消费的画风选项列表（从注册表派生，单一真源）。 */
@@ -368,5 +376,20 @@ export const STYLE_PACK_OPTIONS: readonly StylePackOption[] = STYLE_PACKS.map(
     value: pack.id,
     label: pack.label,
     description: pack.description,
+    legacy: pack.legacy === true,
   })
 );
+
+/** 完整画风包选项（六层结构齐全，推荐使用）。 */
+export const FULL_STYLE_PACK_OPTIONS: readonly StylePackOption[] =
+  STYLE_PACK_OPTIONS.filter((o) => !o.legacy);
+
+/** 旧平面风格选项（仅 anchor 生效，色彩/角色/场景规则缺失）。 */
+export const LEGACY_STYLE_PACK_OPTIONS: readonly StylePackOption[] =
+  STYLE_PACK_OPTIONS.filter((o) => o.legacy);
+
+/** 下拉分组标题——三处画风选择器共用，避免各写各的文案。 */
+export const STYLE_GROUP_LABELS = {
+  full: "完整画风包（推荐）",
+  legacy: "基础风格（仅风格词，无色彩/角色规则）",
+} as const;
