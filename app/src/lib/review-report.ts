@@ -28,6 +28,13 @@ import type { HookType } from "@/types/series-bible";
 // 合规（广电总局令第 16 号）：AI 提示标识缺省契约解析 + 片头信息位编号类型
 import { resolveAiDisclosure, type AiDisclosure } from "@/lib/ai-disclosure";
 import type { TitleCardCredentials } from "@/lib/title-cards";
+// 镜头语言节：景别序列体检（级差 / 连坐 / 建立镜），纯函数
+import {
+  analyzeShotSequence,
+  suggestContrastScale,
+  FLAT_TRANSITION_RATIO_WARN,
+  SAME_SCALE_RUN_THRESHOLD,
+} from "@/lib/shot-sequence";
 
 /**
  * 微短剧单集时长上限（秒）——《微短剧管理办法》（国家广播电视总局令第 16 号，
@@ -103,6 +110,8 @@ export interface ReviewScene {
   actionBeat?: string | null;
   /** 情感标签（neutral/angry/...）——红线门禁「开场钩子/情绪断档」的情绪事件判定 */
   emotion?: string | null;
+  /** 地点标签——镜头语言节「新地点首镜应有建立镜」判定 */
+  locationKey?: string | null;
 }
 
 /** 2.3 连贯性体检摘要（复用最近一次已完成 continuity_check 任务的结果） */
@@ -121,6 +130,27 @@ export interface ContinuitySummaryInput {
 /** 报告的节状态：ok 正常、warn 需注意、bad 有明显问题 */
 export type ReviewSectionStatus = "ok" | "warn" | "bad";
 
+/**
+ * 叙事质量评审摘要（复用闭环3 已落库的 review:storyboard artifact）。
+ *
+ * 与本文件其余各节的区别：这一节的数据是 LLM 从导演视角打的六维分，
+ * 不是机检指标——本文件不重算、不调 LLM，只消费已有结果并映射成节状态。
+ */
+export interface NarrativeReviewInput {
+  /** 0-100 综合评分 */
+  score: number;
+  /** 是否达标（闭环判定结果，直接沿用不重算） */
+  pass: boolean;
+  /** 通过阈值（闭环 policy 的 passThreshold） */
+  passThreshold: number;
+  /** 六维分数（维度名 → 0-100）；老数据/纯函数评审可能缺省 */
+  dimensions?: Record<string, number>;
+  /** 评审反馈文案 */
+  feedback?: string;
+  /** 闭环返回的可执行建议（低分维度的修改指引来源） */
+  suggestions?: string[];
+}
+
 /** 报告的一节 */
 export interface ReviewSection {
   key:
@@ -129,7 +159,9 @@ export interface ReviewSection {
     | "continuity"
     | "completeness"
     | "redline"
-    | "compliance";
+    | "compliance"
+    | "narrative"
+    | "shotLanguage";
   title: string;
   status: ReviewSectionStatus;
   /** 逐条陈述（每条一行） */
@@ -186,6 +218,11 @@ export interface AssembleReviewReportInput {
    * 合规节需要这个事实来给出正确建议。
    */
   titleCardEnabled?: boolean;
+  /**
+   * 叙事质量评审摘要（闭环3 的 review:storyboard artifact）。
+   * 从未跑过自动 workflow / 评审失败 / 手动搭建的项目 → 空，对应节报「未评审」。
+   */
+  narrativeReview?: NarrativeReviewInput | null;
 }
 
 /**
@@ -227,6 +264,13 @@ export function assembleReviewReport(
     suggestions
   );
 
+  const narrative = buildNarrativeSection(
+    input.narrativeReview ?? null,
+    suggestions
+  );
+
+  const shotLanguage = buildShotLanguageSection(scenes, suggestions);
+
   const sections = [
     pacing,
     hook,
@@ -234,6 +278,8 @@ export function assembleReviewReport(
     completeness,
     redline,
     compliance,
+    narrative,
+    shotLanguage,
   ];
   const grade = computeGrade(sections);
 
@@ -835,4 +881,253 @@ function buildComplianceSection(
 
   const status: ReviewSectionStatus = badHit ? "bad" : warnHit ? "warn" : "ok";
   return { key: "compliance", title: "合规检查", status, lines };
+}
+
+/**
+ * 叙事六维中文名（source: lib/prompts/agent-prompts/narrative-review.ts 的
+ * STORYBOARD_REVIEW_SYSTEM，含各维权重）。维度名与权重都以那份 prompt 为单一真源，
+ * 此处只做展示映射——改权重去改 prompt，别在这里另起一套。
+ */
+const NARRATIVE_DIMENSION_LABELS: Record<string, string> = {
+  narrative_flow: "叙事连贯",
+  character_continuity: "角色连续",
+  visual_diversity: "镜头多样",
+  hook_strength: "开场钩子",
+  cliffhanger: "结尾钩子",
+  externalization: "外化质量",
+};
+
+/**
+ * 单维「低分」阈值：低于此分即在报告里点名并给出建议。
+ *
+ * 取 60 而非闭环的 passThreshold(70)：passThreshold 判的是加权总分，
+ * 单维低于 60 才算明显短板（六维中一两维 65 分不影响整体成立）。
+ * 与评审 prompt 的「任一项 <40 则不通过」是两档不同粒度的判据，不冲突。
+ */
+const NARRATIVE_DIMENSION_WEAK = 60;
+
+/**
+ * ⑦ 叙事质量节：消费闭环3（review:storyboard artifact）已落库的六维评审结果。
+ *
+ * 与前六节的根本差异：前六节是机检（时长/字数/字段是否填），一集「开场三秒主角起床、
+ * 全片旁白复述心理、结尾把故事讲完」的剧本只要镜数落在区间内就能拿 A——机检发现不了
+ * 任何叙事问题。这一节把导演视角的六维评分接进报告，补上这个盲区。
+ *
+ * ⚠️ 本节不重算、不调 LLM、不重跑评审——只汇总已有结果（与连贯性节同一分工原则）。
+ *
+ * 节状态映射：
+ * - 未评审（artifact 缺失）→ ok + 说明。「没跑过评审」不是缺陷，不应拖低综合等级
+ *   （手动搭建的项目从不跑 workflow，若判 warn 会让它们永远拿不到 A）。
+ * - pass=false → bad（叙事不达标是硬伤：后续几十张图 + 几十段视频全建立在这份分镜上）。
+ * - pass=true 但有单维 <60 → warn（整体成立但有明显短板）。
+ * - pass=true 且六维齐整 → ok。
+ */
+function buildNarrativeSection(
+  review: NarrativeReviewInput | null,
+  suggestions: ReviewSuggestion[]
+): ReviewSection {
+  if (!review) {
+    return {
+      key: "narrative",
+      title: "叙事质量",
+      status: "ok",
+      lines: [
+        "未评审：本项目没有可用的分镜叙事评审结果（未跑过自动工作流，或评审调用失败）。",
+        "叙事质量（开场钩子 / 结尾钩子 / 内心戏外化等）需由 AI 导演评审给出，本报告的其余各节只做机检，覆盖不到这些维度。",
+      ],
+    };
+  }
+
+  const lines: string[] = [];
+
+  lines.push(
+    `叙事综合评分 ${Math.round(review.score)} / 100（达标线 ${review.passThreshold}），` +
+      `${review.pass ? "已达标" : "未达标"}。`
+  );
+
+  if (review.feedback?.trim()) {
+    lines.push(`导演评语：${review.feedback.trim()}`);
+  }
+
+  // 六维逐项展示（只给总分无法定位是哪一维拖了后腿）
+  const dims = Object.entries(review.dimensions ?? {});
+  const weak: Array<{ key: string; label: string; score: number }> = [];
+  if (dims.length > 0) {
+    lines.push(
+      "分维度：" +
+        dims
+          .map(([key, val]) => {
+            const label = NARRATIVE_DIMENSION_LABELS[key] ?? key;
+            const rounded = Math.round(val);
+            if (val < NARRATIVE_DIMENSION_WEAK) {
+              weak.push({ key, label, score: rounded });
+            }
+            return `${label} ${rounded}`;
+          })
+          .join(" / ")
+    );
+  }
+
+  if (weak.length > 0) {
+    lines.push(
+      `${weak.length} 个维度低于 ${NARRATIVE_DIMENSION_WEAK} 分（明显短板）：` +
+        weak.map((w) => `${w.label}(${w.score})`).join("、")
+    );
+  }
+
+  // 可执行建议：复用评审返回的 suggestions（逐条具体到镜，比自造文案有用）。
+  // 全片级建议，无 sceneId——评审看的是分镜序列摘要，拿不到 DB 的 scene.id。
+  const actionable = (review.suggestions ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (actionable.length > 0) {
+    for (const text of actionable) {
+      suggestions.push({ text: `叙事评审：${text}` });
+    }
+  } else if (!review.pass || weak.length > 0) {
+    // 评审判了不达标却没给建议（LLM 漏填）——仍要给用户一个可执行落点
+    suggestions.push({
+      text:
+        weak.length > 0
+          ? `叙事评审：${weak.map((w) => w.label).join("、")}维度偏低，建议在「世界观创作」重写脚本或手动调整对应分镜后重跑工作流。`
+          : "叙事评审未达标但未给出具体建议，建议重跑一次工作流或在「世界观创作」重写脚本。",
+    });
+  }
+
+  const status: ReviewSectionStatus = !review.pass
+    ? "bad"
+    : weak.length > 0
+      ? "warn"
+      : "ok";
+
+  return { key: "narrative", title: "叙事质量", status, lines };
+}
+
+/**
+ * ⑧ 镜头语言节：景别序列的确定性体检。
+ *
+ * 断裂背景：全系统唯一的镜间景别规则是 `prompts/episode-structure.ts` 的一句
+ * 自然语言（「相邻分镜避免同景别同机位」），塞在 30-50 镜的长输出 prompt 里，
+ * LLM 必然遗忘；而本文件这个现成的体检器此前**从不让 shotType 参与任何判据**
+ * （只在 ReviewScene 里做了类型声明）。这一节把规则变成可判定校验。
+ *
+ * 三道判据（行业标准，见 lib/shot-sequence.ts 文件头）：
+ *  1) 连续同景别 ≥3 镜 → bad（观众感觉「没切」，最典型的业余单调感）。
+ *  2) 相邻级差为 0 的镜对占比 >30% → warn（整体切换幅度不足）。
+ *  3) 某地点首镜非全景/远景 → warn（缺建立镜，观众建立不起空间关系）。
+ *
+ * ⚠️ 只对可识别为标准五景别的镜生效：未标景别 / 机位角度键（俯拍/过肩）/ 乱输入
+ * 一律排除出判据（把「俯拍」当景别参与级差排序是错的）。可识别镜不足 2 个时
+ * 直接返回 ok 并说明样本不足——不对缺数据的项目扣分。
+ */
+function buildShotLanguageSection(
+  scenes: ReviewScene[],
+  suggestions: ReviewSuggestion[]
+): ReviewSection {
+  const lines: string[] = [];
+
+  if (scenes.length === 0) {
+    return {
+      key: "shotLanguage",
+      title: "镜头语言",
+      status: "warn",
+      lines: ["尚无分镜，无法评估镜头语言。"],
+    };
+  }
+
+  const analysis = analyzeShotSequence(
+    scenes.map((s) => ({
+      order: s.order,
+      shotType: s.shotType,
+      locationKey: s.locationKey,
+    }))
+  );
+
+  // 样本不足：绝大多数镜没标景别（解析层漏填 / 老项目），无法体检——
+  // 给提示但不扣分（缺数据 ≠ 镜头语言差）。
+  if (analysis.recognizedCount < 2) {
+    return {
+      key: "shotLanguage",
+      title: "镜头语言",
+      status: "warn",
+      lines: [
+        `仅 ${analysis.recognizedCount} 个分镜标注了可识别景别（特写/近景/中景/全景/远景），样本不足无法体检景别序列。`,
+        "可在分镜卡逐镜补标景别，或用「智能拆解分镜」重新解析以带上景别。",
+      ],
+    };
+  }
+
+  let badHit = false;
+  let warnHit = false;
+
+  lines.push(
+    `${analysis.recognizedCount} 个分镜标注了景别，其中特写+近景占 ${(analysis.closeUpRatio * 100).toFixed(0)}%。`
+  );
+
+  // ① 连续同景别 ≥3 镜 → bad
+  if (analysis.sameScaleRuns.length > 0) {
+    badHit = true;
+    lines.push(
+      `${analysis.sameScaleRuns.length} 处连续 ${SAME_SCALE_RUN_THRESHOLD} 镜以上同景别（观众会感觉「没切」）：` +
+        analysis.sameScaleRuns
+          .map(
+            (r) =>
+              `镜 ${r.startOrder + 1}-${r.startOrder + r.length}（连续 ${r.length} 个${r.scale}）`
+          )
+          .join("、")
+    );
+    for (const run of analysis.sameScaleRuns) {
+      // 建议改中间那一镜（打断连坐最省事），给出具体的跨档替换景别
+      const midOffset = Math.floor(run.length / 2);
+      const midOrder = run.startOrder + midOffset;
+      const target = suggestContrastScale(run.scale);
+      const midScene = scenes.find((s) => s.order === midOrder);
+      suggestions.push({
+        sceneId: midScene?.id,
+        sceneOrder: midOrder + 1,
+        text: `镜 ${run.startOrder + 1}-${run.startOrder + run.length} 连续 ${run.length} 个${run.scale}，建议镜 ${midOrder + 1} 改为${target}打断单调（相邻两镜景别应至少跨一档）。`,
+      });
+    }
+  }
+
+  // ② 相邻级差为 0 的占比 >30% → warn
+  if (analysis.comparablePairs > 0) {
+    const flatRatio =
+      analysis.flatTransitions.length / analysis.comparablePairs;
+    if (flatRatio > FLAT_TRANSITION_RATIO_WARN) {
+      warnHit = true;
+      lines.push(
+        `${analysis.flatTransitions.length}/${analysis.comparablePairs} 组相邻镜景别完全相同（${(flatRatio * 100).toFixed(0)}%，超过 ${FLAT_TRANSITION_RATIO_WARN * 100}% 的合理上限），整体切换幅度不足。`
+      );
+      suggestions.push({
+        text: `全片 ${(flatRatio * 100).toFixed(0)}% 的相邻镜景别相同，建议按「远景交代 → 中景推进 → 特写情绪」的节奏重新分配景别，相邻两镜至少跨一档。`,
+      });
+    }
+  }
+
+  // ③ 新地点首镜缺建立镜 → warn
+  if (analysis.missingEstablishing.length > 0) {
+    warnHit = true;
+    lines.push(
+      `${analysis.missingEstablishing.length} 个地点的首镜不是建立镜（全景/远景），观众建立不起空间关系：` +
+        analysis.missingEstablishing
+          .map((m) => `「${m.locationKey}」（镜 ${m.firstOrder + 1}）`)
+          .join("、")
+    );
+    for (const m of analysis.missingEstablishing) {
+      const scene = scenes.find((s) => s.order === m.firstOrder);
+      suggestions.push({
+        sceneId: scene?.id,
+        sceneOrder: m.firstOrder + 1,
+        text: `地点「${m.locationKey}」首镜（镜 ${m.firstOrder + 1}）非全景/远景，建议改为建立镜交代空间，或在其前插入一个全景空镜。`,
+      });
+    }
+  }
+
+  if (!badHit && !warnHit) {
+    lines.push("景别序列跨档合理，无连续同景别，各地点均有建立镜。");
+  }
+
+  const status: ReviewSectionStatus = badHit ? "bad" : warnHit ? "warn" : "ok";
+  return { key: "shotLanguage", title: "镜头语言", status, lines };
 }

@@ -9,13 +9,23 @@ import {
  * 造一个「健康」分镜：有图/视频/音频、有对白、时长充足。
  * 用展开合并保留显式 null 覆盖（`?? default` 会把 null 吞成默认值，故不能用）。
  */
+/**
+ * 默认景别按 order 轮转（近景→中景→特写→全景）。
+ *
+ * 镜头语言节会把「连续 3 镜同景别」判 bad，若所有 fixture 都固定同一景别，
+ * 每个多镜用例都会额外多出一个 bad 节，掩盖各用例真正要测的那一维。
+ * 轮转后相邻镜必跨档，镜头语言节默认 ok；需要测该节的用例显式传 shotType。
+ */
+const DEFAULT_SHOT_CYCLE = ["近景", "中景", "特写", "全景"];
+
 function scene(overrides: Partial<ReviewScene> = {}): ReviewScene {
+  const order = overrides.order ?? 0;
   const base: ReviewScene = {
     id: "s",
     order: 0,
     // 6 汉字≈2.4s，给 4s 充足
     duration: 4,
-    shotType: "近景",
+    shotType: DEFAULT_SHOT_CYCLE[order % DEFAULT_SHOT_CYCLE.length],
     dialogue: "你好世界啊哈",
     narration: null,
     imageUrl: "https://x/i.webp",
@@ -880,5 +890,246 @@ describe("assembleReviewReport · 合规检查（广电总局令第 16 号）", 
     const text = findSection(report, "compliance").lines.join("\n");
     expect(text).toContain("第 16 号");
     expect(text).toContain("法规未规定量化标准");
+  });
+});
+
+describe("assembleReviewReport · 叙事质量（闭环3 六维评审）", () => {
+  it("未评审（artifact 缺失）→ ok + 说明，不拖低综合等级", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+    });
+    const s = findSection(report, "narrative");
+    // 手动搭建的项目从不跑 workflow，「未评审」不是缺陷，不应由本节拖低综合等级
+    expect(s.status).toBe("ok");
+    expect(s.lines.join("\n")).toContain("未评审");
+  });
+
+  it("未达标 → bad，且评审建议进入建议清单", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      narrativeReview: {
+        score: 52,
+        pass: false,
+        passThreshold: 70,
+        feedback: "开场偏铺垫，结尾把故事讲完了",
+        dimensions: {
+          narrative_flow: 70,
+          character_continuity: 75,
+          visual_diversity: 65,
+          hook_strength: 30,
+          cliffhanger: 35,
+          externalization: 45,
+        },
+        suggestions: ["第1镜改为冲突最高点画面", "结尾停在未解决的危机上"],
+      },
+    });
+    const s = findSection(report, "narrative");
+    expect(s.status).toBe("bad");
+    expect(s.lines.join("\n")).toContain("未达标");
+    const texts = report.suggestions.map((x) => x.text);
+    expect(texts).toContain("叙事评审：第1镜改为冲突最高点画面");
+    expect(texts).toContain("叙事评审：结尾停在未解决的危机上");
+  });
+
+  it("六维分数逐项展示并用中文维度名（低分维度点名）", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      narrativeReview: {
+        score: 75,
+        pass: true,
+        passThreshold: 70,
+        dimensions: {
+          narrative_flow: 80,
+          character_continuity: 82,
+          visual_diversity: 78,
+          hook_strength: 45,
+          cliffhanger: 88,
+          externalization: 76,
+        },
+      },
+    });
+    const text = findSection(report, "narrative").lines.join("\n");
+    expect(text).toContain("开场钩子 45");
+    expect(text).toContain("结尾钩子 88");
+    expect(text).toContain("外化质量 76");
+    // 单维 <60 即点名为明显短板
+    expect(text).toContain("明显短板");
+  });
+
+  it("达标但有单维 <60 → warn（整体成立但有短板）", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      narrativeReview: {
+        score: 74,
+        pass: true,
+        passThreshold: 70,
+        dimensions: { hook_strength: 50, cliffhanger: 90 },
+      },
+    });
+    expect(findSection(report, "narrative").status).toBe("warn");
+  });
+
+  it("达标且六维齐整 → ok，不产生叙事建议", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      narrativeReview: {
+        score: 88,
+        pass: true,
+        passThreshold: 70,
+        dimensions: { hook_strength: 90, cliffhanger: 86 },
+      },
+    });
+    expect(findSection(report, "narrative").status).toBe("ok");
+    expect(
+      report.suggestions.filter((s) => s.text.startsWith("叙事评审："))
+    ).toHaveLength(0);
+  });
+
+  it("未达标但 LLM 漏填 suggestions → 仍给出可执行落点", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      narrativeReview: {
+        score: 40,
+        pass: false,
+        passThreshold: 70,
+        dimensions: { externalization: 30 },
+      },
+    });
+    const texts = report.suggestions.map((x) => x.text).join("\n");
+    expect(texts).toContain("外化质量");
+  });
+
+  it("dimensions 缺省（老 artifact）也不报错，只展示总分", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      narrativeReview: { score: 80, pass: true, passThreshold: 70 },
+    });
+    const s = findSection(report, "narrative");
+    expect(s.status).toBe("ok");
+    expect(s.lines.join("\n")).toContain("80 / 100");
+  });
+});
+
+describe("assembleReviewReport · 镜头语言", () => {
+  it("连续 3 镜同景别 → bad + 指名改哪一镜改成什么", () => {
+    const report = assembleReviewReport({
+      scenes: [
+        scene({ id: "a", order: 0, shotType: "中景" }),
+        scene({ id: "b", order: 1, shotType: "中景" }),
+        scene({ id: "c", order: 2, shotType: "中景" }),
+      ],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    const s = findSection(report, "shotLanguage");
+    expect(s.status).toBe("bad");
+    expect(s.lines.join("\n")).toContain("连续 3 个中景");
+    // 建议须可执行：指名镜号 + 目标景别，且可跳转
+    const sug = report.suggestions.find((x) => x.text.includes("打断单调"));
+    expect(sug?.sceneOrder).toBe(2);
+    expect(sug?.sceneId).toBe("b");
+    expect(sug?.text).toContain("特写");
+  });
+
+  it("跨档序列 → ok", () => {
+    const report = assembleReviewReport({
+      scenes: [
+        scene({ id: "a", order: 0, shotType: "远景" }),
+        scene({ id: "b", order: 1, shotType: "中景" }),
+        scene({ id: "c", order: 2, shotType: "特写" }),
+      ],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    expect(findSection(report, "shotLanguage").status).toBe("ok");
+  });
+
+  it("相邻级差为 0 占比 >30% → warn", () => {
+    // 4 组相邻对，其中 2 组同景别 = 50% > 30%，且无 3 连
+    const report = assembleReviewReport({
+      scenes: [
+        scene({ id: "a", order: 0, shotType: "中景" }),
+        scene({ id: "b", order: 1, shotType: "中景" }),
+        scene({ id: "c", order: 2, shotType: "特写" }),
+        scene({ id: "d", order: 3, shotType: "特写" }),
+        scene({ id: "e", order: 4, shotType: "全景" }),
+      ],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    const s = findSection(report, "shotLanguage");
+    expect(s.status).toBe("warn");
+    expect(s.lines.join("\n")).toContain("切换幅度不足");
+  });
+
+  it("新地点首镜非全景/远景 → warn + 可跳转建议", () => {
+    const report = assembleReviewReport({
+      scenes: [
+        scene({ id: "a", order: 0, shotType: "远景", locationKey: "茶楼" }),
+        scene({ id: "b", order: 1, shotType: "特写", locationKey: "茶楼" }),
+        scene({ id: "c", order: 2, shotType: "中景", locationKey: "码头" }),
+      ],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    const s = findSection(report, "shotLanguage");
+    expect(s.status).toBe("warn");
+    expect(s.lines.join("\n")).toContain("码头");
+    const sug = report.suggestions.find((x) => x.text.includes("建立镜"));
+    expect(sug?.sceneId).toBe("c");
+    expect(sug?.sceneOrder).toBe(3);
+  });
+
+  it("景别样本不足 → warn 但只提示补标，不扣成 bad", () => {
+    const report = assembleReviewReport({
+      scenes: [
+        scene({ id: "a", order: 0, shotType: null }),
+        scene({ id: "b", order: 1, shotType: "俯拍" }),
+        scene({ id: "c", order: 2, shotType: null }),
+      ],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    const s = findSection(report, "shotLanguage");
+    expect(s.status).toBe("warn");
+    expect(s.lines.join("\n")).toContain("样本不足");
+  });
+
+  it("九宫格复合景别路径同样参与体检（B1 归一贯通到审片）", () => {
+    const report = assembleReviewReport({
+      scenes: [
+        scene({ id: "a", order: 0, shotType: "大特写·急推" }),
+        scene({ id: "b", order: 1, shotType: "特写·固定" }),
+        scene({ id: "c", order: 2, shotType: "极特写" }),
+      ],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    const s = findSection(report, "shotLanguage");
+    expect(s.status).toBe("bad");
+    expect(s.lines.join("\n")).toContain("连续 3 个特写");
+  });
+
+  it("无分镜 → warn 不崩", () => {
+    const report = assembleReviewReport({
+      scenes: [],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    expect(findSection(report, "shotLanguage").status).toBe("warn");
   });
 });
