@@ -29,7 +29,7 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
 
 输出要求（严格遵守）：
 - 输出纯 JSON，不要 markdown 代码块，不要额外文字
-- 顶层字段：filmTitle、genre、durationSec、aspectRatio、style、protagonist、worldview、logline、hookType、scenes
+- 顶层字段：filmTitle、genre、durationSec、aspectRatio、style、protagonist、worldview、logline、hookType、beatSheet、scenes
 - scenes 是场景数组，每个场景含：index(从1起)、title、description、dialogue、narration、emotion、durationSec、characters，以及可选镜头语言字段
 - characters：本镜画面中实际登场的角色名数组；名字必须与"已有角色"列表完全一致（有列表时），不要写代词或身份描述；纯空镜/环境镜给 []；只列画面里出现的人，不要把全剧角色都塞进去
 - emotion 必须为：neutral、happy、sad、angry、surprised、fear 之一
@@ -43,6 +43,21 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
   - colorPalette：色调，如"冷蓝调""暖橙调""高对比黑金"
   - actionBeat：中文 ≤80 字，只写这一镜里"动"的内容（角色动作 / 表情变化 / 环境动态），禁止外貌描写与对白
   - cameraMovement 必须为：static、zoom_in、zoom_out、pan_left、pan_right、tilt_up、tilt_down、dolly_in、dolly_out、orbit、tracking、handheld、crane 之一；相邻场景不重复同一运镜，运镜服务叙事节奏
+- 叙事节拍字段（可选，克制使用——重音多了等于没有）：
+  - beatType：仅当该镜是明确的节拍重音时输出，取 impact（打击/冲突爆发）、reveal（反转/揭秘）、emotional（情绪高点/爆发哭喊）之一；平铺直叙的常规镜一律【省略】。impact/reveal 全片各 ≤3 处
+  - isClimax：高潮镜标记（布尔）。每集只有 1-2 镜是全集情绪顶点（最大冲突爆发/最狠反转），仅这些镜置 true，其余一律【省略】
+  - emphasis：金句花字标记（布尔）。仅当该镜台词是【全集级金句/怒吼/高潮宣言】时置 true；每集 1-3 处，只标有 dialogue 的镜（旁白不算）
+
+【节拍表（beatSheet）——必须先于 scenes 规划并输出】
+- 数组，每项 { atSec, beat, note }：
+  · atSec：该节拍发生的秒数
+  · beat：必须是 钩子 / 立局 / 施压 / 爽点 / 爆发 / 余波 / 断口 之一
+  · note：一句话说明这个节拍发生了什么（≤30 字）
+- 【硬约束】相邻两个「爽点 / 爆发」节拍的间隔不得超过 20 秒。
+- 【硬约束】全片必须至少包含 1 个「钩子」（atSec ≤ 3）、1 个「爆发」、1 个「断口」（收尾）。
+- scenes 必须严格落在 beatSheet 规划的节奏上——先定节拍，再写分镜。
+- 典型 90 秒单集：0-3s 钩子（冲突最高点）→ 3-10s 立局（谁 vs 谁）→ 10-30s 施压 + 爽点①→ 30-60s 爆发（打脸走完，爽点②大逆转）→ 60-80s 余波（围观者反应，爽感释放）→ 80-90s 断口（新危机）。
+- 反面案例：「前 60 秒都在铺垫，最后 30 秒草草打脸」——每一镜单看都合格，合起来节奏是塌的，观众在 30-45 秒区间流失。
 
 ${EPISODE_HOOK_RULES}
 
@@ -127,6 +142,14 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
   "worldview": "提炼后的世界观一段话",
   "logline": "一句话故事梗概",
   "hookType": "悬念",
+  "beatSheet": [
+    { "atSec": 0, "beat": "钩子", "note": "她当众被泼了一脸红酒" },
+    { "atSec": 8, "beat": "立局", "note": "泼酒的是她名义上的妹妹" },
+    { "atSec": 22, "beat": "爽点", "note": "她当场报出对方偷改的合同条款" },
+    { "atSec": 45, "beat": "爆发", "note": "亮出董事会授权书，反手夺权" },
+    { "atSec": 72, "beat": "余波", "note": "满座震惊，妹妹瘫坐在地" },
+    { "atSec": 85, "beat": "断口", "note": "手机弹出一条陌生号码：我知道你是谁" }
+  ],
   "scenes": [
     {
       "index": 1,
@@ -142,7 +165,10 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
       "composition": "三分法",
       "colorPalette": "冷蓝调",
       "actionBeat": "角色抬手推开门，目光扫过屋内",
-      "cameraMovement": "dolly_in"
+      "cameraMovement": "dolly_in",
+      "beatType": "reveal",
+      "isClimax": true,
+      "emphasis": true
     }
   ]
 }`;

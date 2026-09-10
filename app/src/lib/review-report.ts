@@ -67,8 +67,14 @@ const REDLINE_TOTAL_SEC_BAD = 180;
 const REDLINE_TOTAL_SEC_WARN = 168;
 /** 开场钩子窗口（秒）：前 N 秒内须有冲突/钩子镜（留存生死线） */
 const REDLINE_HOOK_WINDOW_SEC = 3;
-/** 情绪断档上限（秒）：任意连续 N 秒无情绪事件即告警 */
-const REDLINE_EMOTION_GAP_SEC = 30;
+/**
+ * 情绪断档上限（秒）：任意连续 N 秒无情绪事件即告警。
+ *
+ * 与 episode-structure.ts 的 EPISODE_PACING_RULES 对齐——方法论要求
+ * 「每 15-20 秒一个小高潮或新信息增量」，门禁阈值必须等于或严于它守护的规则，
+ * 否则等于默许违规（此前是 30，比规则松一倍）。
+ */
+const REDLINE_EMOTION_GAP_SEC = 20;
 /** 对白单句字数上限：超过给逐镜精简建议（竖屏一屏可读） */
 const REDLINE_DIALOGUE_MAX_CHARS = 15;
 /** 静止长镜时长下限（秒）：超过且无运动即给「加镜内运动」建议 */

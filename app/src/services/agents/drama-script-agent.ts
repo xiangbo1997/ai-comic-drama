@@ -42,6 +42,15 @@ const DramaSceneSchema = z.object({
   actionBeat: z.string().optional().catch(undefined),
   // 运镜收窄到 13 值枚举（与解析层唯一真源 CAMERA_MOVEMENTS 对齐）；非法值回落 undefined
   cameraMovement: z.enum(CAMERA_MOVEMENTS).optional().catch(undefined),
+  // 叙事节拍字段（与解析路径 script-parse.ts 的 12/13/14 项对齐）：
+  // 缺了这三个，review-report 的情绪断档检查在创作路径上基本失效——它的判定
+  // 依赖 beatType/isClimax + emotion。同样全部可选 + .catch，漏填不阻断。
+  beatType: z
+    .enum(["impact", "reveal", "emotional"])
+    .optional()
+    .catch(undefined),
+  isClimax: z.boolean().optional().catch(undefined),
+  emphasis: z.boolean().optional().catch(undefined),
 });
 
 const DramaScriptSchema = z.object({
@@ -56,6 +65,19 @@ const DramaScriptSchema = z.object({
   // 本集结尾钩子类型（爆款方法论）；与 series-bible HOOK_TYPES 对齐，供史官读取。
   // 可选 + 非法回落 undefined：LLM 漏填 / 写错不阻断整脚本校验。
   hookType: z.enum(HOOK_TYPES).optional().catch(undefined),
+  // 节拍表：强制 LLM「先规划后落笔」的中间产物。爆款短剧的剧本交付物里，
+  // 节拍表与正文同等重要——制片人验收先看节拍表再看正文，因为它能一眼看出
+  // 爽点分布是否均匀、有没有 20 秒空窗。没有它，每一镜单看都合格但合起来节奏是塌的。
+  beatSheet: z
+    .array(
+      z.object({
+        atSec: z.number(),
+        beat: z.string(),
+        note: z.string(),
+      })
+    )
+    .optional()
+    .catch(undefined),
   scenes: z.array(DramaSceneSchema).min(1),
 });
 

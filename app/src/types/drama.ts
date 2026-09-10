@@ -70,6 +70,15 @@ export interface DramaSceneScript {
   actionBeat?: string;
   /** 运镜（13 值枚举之一，与解析层 CAMERA_MOVEMENTS 对齐；非法值下游回落） */
   cameraMovement?: string;
+  /**
+   * 叙事节拍类型：impact（打击/冲突爆发）/ reveal（反转/揭秘）/ emotional（情绪高点）。
+   * 驱动默认冲击效果与视频动作强度；也是 review-report 情绪断档检查的判据之一。
+   */
+  beatType?: string;
+  /** 高潮镜标记（每集 1-2 镜）：出图夸张表情升 climax 档、生成侧豁免裁剪 */
+  isClimax?: boolean;
+  /** 金句花字标记：落 generationParams.emphasis 的 sceneId 数组，非 Scene 字段 */
+  emphasis?: boolean;
 }
 
 /**
@@ -93,6 +102,14 @@ export interface DramaScriptArtifact {
    * 供史官（chronicler）直接读取沉淀到故事圣经。
    */
   hookType?: HookType;
+  /**
+   * 节拍表（beat sheet）：强制 LLM「先规划后落笔」的中间产物。
+   * 爆款短剧的剧本交付物里，节拍表与正文同等重要——制片人验收先看节拍表，
+   * 因为它能一眼看出爽点分布是否均匀、有没有 20 秒空窗。
+   * beat 取值：钩子 / 立局 / 施压 / 爽点 / 爆发 / 余波 / 断口。
+   * 可选：老数据 / LLM 漏填时为 undefined。
+   */
+  beatSheet?: Array<{ atSec: number; beat: string; note: string }>;
   scenes: DramaSceneScript[];
 }
 

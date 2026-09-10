@@ -46,6 +46,17 @@ export interface SceneDraft {
   actionBeat?: string;
   cameraMovement?: string;
   /**
+   * 叙事节拍字段（可选）：与解析路径同名字段对齐，scene-rebuild 按同名落库。
+   * review-report 的情绪断档检查依赖 beatType/isClimax——不透传则该检查
+   * 在短剧创作路径上基本失效；beatType 还驱动默认冲击效果与视频动作强度，
+   * isClimax 驱动出图夸张表情升档与生成侧豁免裁剪。
+   *
+   * 注：脚本的 emphasis（金句花字）不在此透传——它落 generationParams.emphasis
+   * 的 sceneId 数组，而非 Scene 字段，需在 scene 落库拿到 id 后另行聚合。
+   */
+  beatType?: string;
+  isClimax?: boolean;
+  /**
    * 出向转场类型（本镜 → 下一镜之间；剪辑节奏回归 · 批2）。
    * 由九宫格 cell.transition 中文词映射而来，供后端聚合为
    * generationParams.transitions。缺省不下传（缺席即回落硬切默认）。
@@ -230,6 +241,10 @@ export function dramaScriptToScenes(
         : parsedShot.cameraMovement
           ? { cameraMovement: parsedShot.cameraMovement }
           : {}),
+      // 叙事节拍透传：脚本携带则落库（scene-rebuild 按同名字段消费）。
+      // isClimax 是布尔，用 !== undefined 判定——真值判断会把显式 false 当缺席丢弃。
+      ...(scene.beatType ? { beatType: scene.beatType } : {}),
+      ...(scene.isClimax !== undefined ? { isClimax: scene.isClimax } : {}),
       // 转场（命中九宫格 transition 词才下传）：type + duration 供后端聚合。
       ...(transition
         ? {

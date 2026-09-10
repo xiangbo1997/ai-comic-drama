@@ -252,6 +252,37 @@ describe("dramaScriptToScenes — 转场映射透传（批2）", () => {
     expect(scenes[0]).not.toHaveProperty("transition");
     expect(scenes[0]).not.toHaveProperty("transitionDuration");
   });
+
+  it("透传叙事节拍字段（scene-rebuild 按同名落库）", () => {
+    const doc = makeDoc();
+    doc.scenes[1] = {
+      ...doc.scenes[1],
+      beatType: "reveal",
+      isClimax: true,
+    } as (typeof doc.scenes)[number];
+
+    const scenes = dramaScriptToScenes(doc, null);
+    expect(scenes[1].beatType).toBe("reveal");
+    expect(scenes[1].isClimax).toBe(true);
+  });
+
+  it("isClimax 显式 false 也要透传——真值判断会把它当缺席丢弃", () => {
+    const doc = makeDoc();
+    doc.scenes[0] = {
+      ...doc.scenes[0],
+      isClimax: false,
+    } as (typeof doc.scenes)[number];
+
+    const scenes = dramaScriptToScenes(doc, null);
+    expect(scenes[0]).toHaveProperty("isClimax");
+    expect(scenes[0].isClimax).toBe(false);
+  });
+
+  it("脚本未产出节拍字段时不出现该键（向后兼容）", () => {
+    const scenes = dramaScriptToScenes(makeDoc(), null);
+    expect(scenes[0]).not.toHaveProperty("beatType");
+    expect(scenes[0]).not.toHaveProperty("isClimax");
+  });
 });
 
 describe("scriptToInputText", () => {
