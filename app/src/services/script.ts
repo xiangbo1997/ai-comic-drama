@@ -6,7 +6,7 @@
  * 新增 parseScriptWithAgent 供 workflow 外的调用方使用 Agent 能力
  */
 
-import { chatCompletion } from "./ai";
+import { chatCompletion, LONG_FORM_LLM_TIMEOUT_MS } from "./ai";
 import type { AIServiceConfig, SceneScript, ParsedScript } from "@/types";
 import { SCRIPT_PARSE_SYSTEM, buildScriptParseUserPrompt } from "@/lib/prompts";
 import { getSimpleStylePrefix } from "@/lib/prompts";
@@ -29,7 +29,12 @@ export async function parseScript(
       { role: "system", content: SCRIPT_PARSE_SYSTEM },
       { role: "user", content: userPrompt },
     ],
-    { temperature: 0.3, maxTokens: 8192, config }
+    {
+      temperature: 0.3,
+      maxTokens: 8192,
+      config,
+      timeoutMs: LONG_FORM_LLM_TIMEOUT_MS,
+    }
   );
 
   // Hotfix 2026-05-20：用 parseLooseJSON 容错（处理 LLM 输出的智能引号 /

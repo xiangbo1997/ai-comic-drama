@@ -4,7 +4,7 @@
  */
 
 import { z } from "zod";
-import { chatCompletion } from "@/services/ai";
+import { chatCompletion, LONG_FORM_LLM_TIMEOUT_MS } from "@/services/ai";
 import {
   STORYBOARD_SYSTEM,
   buildStoryboardPrompt,
@@ -152,6 +152,7 @@ export class StoryboardAgent implements Agent<
             temperature: storyboardParams.temperature,
             maxTokens: storyboardParams.maxTokens,
             config: ctx.config.llm,
+            timeoutMs: LONG_FORM_LLM_TIMEOUT_MS,
           }
         );
 

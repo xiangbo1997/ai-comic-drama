@@ -12,7 +12,7 @@
  * services 层（不放 lib，避免 lib 反向依赖 services）。
  */
 
-import { chatCompletion } from "./ai";
+import { chatCompletion, LONG_FORM_LLM_TIMEOUT_MS } from "./ai";
 import type { AIServiceConfig } from "@/types";
 import { createLogger } from "@/lib/logger";
 
@@ -432,7 +432,12 @@ export async function compressNovel(
             { role: "system", content: AGGREGATE_SYSTEM_PROMPT },
             { role: "user", content: joined },
           ],
-          { config: llmConfig, temperature: 0.2, maxTokens: 8192 }
+          {
+            config: llmConfig,
+            temperature: 0.2,
+            maxTokens: 8192,
+            timeoutMs: LONG_FORM_LLM_TIMEOUT_MS,
+          }
         );
         const result = aggregated.trim();
         const minAcceptable = Math.floor(

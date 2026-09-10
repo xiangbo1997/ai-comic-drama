@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { chatCompletion } from "@/services/ai";
+import { chatCompletion, LONG_FORM_LLM_TIMEOUT_MS } from "@/services/ai";
 import {
   DRAMA_SCRIPT_SYSTEM,
   buildDramaScriptUserPrompt,
@@ -118,6 +118,7 @@ export class DramaScriptAgent implements Agent<
           temperature: llmParams.temperature,
           maxTokens: llmParams.maxTokens,
           config: ctx.config.llm,
+          timeoutMs: LONG_FORM_LLM_TIMEOUT_MS,
         });
 
         lastRawOutput = response;

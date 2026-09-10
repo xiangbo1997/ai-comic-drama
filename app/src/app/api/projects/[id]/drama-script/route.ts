@@ -13,6 +13,10 @@ import type { DramaScriptArtifact, DramaScriptInput } from "@/types/drama";
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:drama-script");
 
+// 脚本生成为长文本 LLM 调用（8K maxTokens，实测上游需 130-180 秒）。
+// 虽为 fire-and-forget + 任务轮询，仍声明 maxDuration 兜底，与 export 路由一致。
+export const maxDuration = 300;
+
 interface RouteParams {
   params: Promise<{ id: string }>;
 }

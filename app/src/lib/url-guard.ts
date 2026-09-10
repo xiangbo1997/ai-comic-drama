@@ -70,9 +70,60 @@ export function assertSafeUrlLiteral(rawUrl: string): void {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`不允许的协议: ${parsed.protocol}`);
   }
+  // 与 assertSafeUrl 保持一致：运维白名单内的 origin 允许写入，
+  // 否则后台无法保存「直连同宿主机中转站」这类合法配置。
+  if (isAllowlistedInternalUrl(rawUrl)) {
+    return;
+  }
   const host = parsed.hostname;
   if (net.isIP(host) && isPrivateOrReservedIp(host)) {
     throw new Error(`拒绝访问内网/保留地址: ${host}`);
+  }
+}
+
+/**
+ * 运维显式放行的内网 origin 白名单（来自环境变量 `INTERNAL_API_ALLOWLIST`）。
+ *
+ * 背景：同宿主机上自建的 AI 中转站（如 sub2api 监听 127.0.0.1:38003）如果只能
+ * 用公网域名访问，请求要绕 DNS → 公网 → Cloudflare 再回本机，白白套上 CF 的
+ * 100 秒 origin 超时硬顶（error 524），长文本生成必然被拦腰截断。
+ *
+ * 为什么不直接放开内网校验：`assertSafeUrl` 挡的是「用户在前端填内网地址、
+ * 诱导服务端探测内网 / 读云元数据」。用户可控输入必须继续拦。本白名单只认
+ * 环境变量——只有能改 .env 的运维才能写入，与用户输入不在同一信任级别，
+ * 因此可安全豁免。这与 `assembleServiceConfig` 中「内置 provider.baseUrl 是
+ * 可信固定值，跳过校验」是同一条设计原则。
+ *
+ * 格式：逗号分隔的 origin，需精确匹配 protocol + hostname + port，
+ * 例：`INTERNAL_API_ALLOWLIST=http://127.0.0.1:38003,http://127.0.0.1:38002`
+ */
+function getInternalAllowlist(): Set<string> {
+  const raw = process.env.INTERNAL_API_ALLOWLIST;
+  if (!raw) return new Set();
+  const origins = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => {
+      try {
+        return new URL(s).origin;
+      } catch {
+        // 配错的条目直接忽略，不因运维笔误让整个校验链崩掉
+        return "";
+      }
+    })
+    .filter(Boolean);
+  return new Set(origins);
+}
+
+/** 目标 URL 是否落在运维放行的内网白名单内（精确匹配 origin）。 */
+export function isAllowlistedInternalUrl(rawUrl: string): boolean {
+  const allowlist = getInternalAllowlist();
+  if (allowlist.size === 0) return false;
+  try {
+    return allowlist.has(new URL(rawUrl).origin);
+  } catch {
+    return false;
   }
 }
 
@@ -89,6 +140,10 @@ export async function assertSafeUrl(rawUrl: string): Promise<void> {
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`不允许的协议: ${parsed.protocol}`);
+  }
+  // 运维白名单优先于内网拦截（见 getInternalAllowlist 的信任级别说明）
+  if (isAllowlistedInternalUrl(rawUrl)) {
+    return;
   }
   const host = parsed.hostname;
   // hostname 本身就是 IP 时直接判

@@ -63,6 +63,20 @@ const log = createLogger("services:ai");
 const DEFAULT_LLM_TIMEOUT_MS = 120_000;
 
 /**
+ * 长文本生成超时（5 分钟）——用于一次性产出整份结构化长文的 Agent
+ * （短剧脚本 / 分镜表 / 角色圣经等，maxTokens 8K 量级）。
+ *
+ * Hotfix4 (2026-09-10)：上游推理模型（gpt-6-astra）实测生成完整短剧脚本需
+ * 131 秒、gpt-5.6 需 172 秒，均已超过 120s 默认值 → DramaScriptAgent 三轮
+ * 重试全部 timeout，用户侧表现为「生成短剧脚本失败」。
+ *
+ * 前置条件：必须直连中转站（见 lib/url-guard.ts 的 INTERNAL_API_ALLOWLIST）。
+ * 若仍走公网域名，Cloudflare 的 100 秒 origin 超时（524）会先于本超时触发，
+ * 把这里调大不会有任何效果。
+ */
+export const LONG_FORM_LLM_TIMEOUT_MS = 300_000;
+
+/**
  * 视频生成默认超时（5 分钟）。
  *
  * 视频生成为同步阻塞调用，正常耗时数十秒到数分钟；超过此上限基本是上游

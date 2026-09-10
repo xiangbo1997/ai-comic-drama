@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   chatCompletion,
   isTruncatedOutputError,
+  LONG_FORM_LLM_TIMEOUT_MS,
   type TruncatedOutputError,
 } from "@/services/ai";
 import {
@@ -233,6 +234,7 @@ export class ScriptParserAgent implements Agent<
           temperature: llmParams.temperature,
           maxTokens: effectiveMaxTokens,
           config: ctx.config.llm,
+          timeoutMs: LONG_FORM_LLM_TIMEOUT_MS,
         });
 
         lastRawOutput = response;
