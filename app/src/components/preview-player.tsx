@@ -83,6 +83,7 @@ import { CardOverlay } from "./preview-player/card-overlay";
 import { DisclosureOverlay } from "./preview-player/disclosure-overlay";
 import { SubtitleOverlay } from "./preview-player/subtitle-overlay";
 import { StickerLayer } from "./preview-player/sticker-layer";
+import { SafeAreaOverlay } from "./preview-player/safe-area-overlay";
 import { MediaLayers } from "./preview-player/media-layers";
 import { PlayerControls } from "./preview-player/player-controls";
 
@@ -188,6 +189,8 @@ export function PreviewPlayer({
   const [transitionT, setTransitionT] = useState(0);
   // 快捷位置浮层开关
   const [showQuickPos, setShowQuickPos] = useState(false);
+  // 平台 UI 安全区参考层开关（默认关，避免干扰常规预览；摆字幕位置时手动开）
+  const [showSafeArea, setShowSafeArea] = useState(false);
 
   // 媒体元素登记表 + 实测时长（无 effect，故调用位置不影响 effect 顺序）
   const {
@@ -747,11 +750,28 @@ export function PreviewPlayer({
               />
             )}
 
-          {/* 字幕位置工具条 —— 仅可编辑时显示：快捷九宫格 + 拖拽提示 */}
+          {/* 平台 UI 安全区参考层 —— 标出抖音/快手会盖住的区域。
+              放在字幕/贴图之下渲染顺序无关（都是 z-10 + pointer-events-none），
+              仅作视觉参考，不参与导出。 */}
+          <SafeAreaOverlay visible={showSafeArea} />
+
+          {/* 字幕位置工具条 —— 仅可编辑时显示：快捷九宫格 + 安全区开关 + 拖拽提示 */}
           {subtitleEditable &&
             showSubtitles &&
             (currentScene?.dialogue || currentScene?.narration) && (
-              <div className="absolute top-4 right-4 z-10">
+              <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSafeArea((v) => !v)}
+                  className={`rounded-md px-2 py-1 text-xs backdrop-blur-sm transition ${
+                    showSafeArea
+                      ? "bg-red-500/70 text-white"
+                      : "bg-black/60 text-white hover:bg-black/80"
+                  }`}
+                  title="显示抖音/快手等竖屏平台的 UI 遮挡区域，避免字幕被盖住"
+                >
+                  安全区
+                </button>
                 <button
                   type="button"
                   onClick={() => setShowQuickPos((v) => !v)}

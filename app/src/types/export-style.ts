@@ -9,6 +9,10 @@
  * @since 2026-06-16
  */
 
+// 竖屏平台 UI 安全区（抖音/快手）：字幕落点的 clamp 边界与三档默认位置全部
+// 读此单一真源，保证「预览里摆好的位置」上传后不被平台 UI 盖住。
+import { clampSafeX, clampSafeY } from "@/lib/safe-area";
+
 /**
  * 字幕入场动效白名单。
  * 每个取值都必须在导出端（libass override 标签）与预览端（CSS keyframes）
@@ -96,7 +100,9 @@ export interface SubtitlePosition {
  * 全局默认位置（top/middle/bottom）→ 归一化中心点坐标。
  *
  * 预览端与导出端共用此映射，保证「未拖拽的分镜」在两端落点一致。
- * 横向恒为 0.5（水平居中）；纵向留 10% 安全边距，避免字幕贴边被裁。
+ * 横向恒为 0.5（水平居中）；纵向落点收敛到 lib/safe-area 的平台 UI 安全区内：
+ * 旧默认 bottom=0.88 / top=0.12 会被抖音底部作者信息区与顶部 Tab 盖掉半截字幕，
+ * 网页预览看不出来、只有真机发布才暴露，故改为 0.76 / 0.18（安全区内再留余量）。
  */
 export function presetPositionToXY(position: SubtitleStyle["position"]): {
   x: number;
@@ -104,12 +110,12 @@ export function presetPositionToXY(position: SubtitleStyle["position"]): {
 } {
   switch (position) {
     case "top":
-      return { x: 0.5, y: 0.12 };
+      return { x: 0.5, y: 0.18 };
     case "middle":
       return { x: 0.5, y: 0.5 };
     case "bottom":
     default:
-      return { x: 0.5, y: 0.88 };
+      return { x: 0.5, y: 0.76 };
   }
 }
 
@@ -128,9 +134,11 @@ export function resolveDefaultXY(style: SubtitleStyle | undefined): {
     typeof style?.defaultX === "number" &&
     typeof style?.defaultY === "number"
   ) {
+    // clamp 目标为平台 UI 安全区（非 [0,1]）：存量配置里落在遮挡区的坐标
+    // 会被拉回安全区内，避免成片字幕被抖音作者信息/互动按钮盖住。
     return {
-      x: Math.min(1, Math.max(0, style.defaultX)),
-      y: Math.min(1, Math.max(0, style.defaultY)),
+      x: clampSafeX(style.defaultX),
+      y: clampSafeY(style.defaultY),
     };
   }
   return presetPositionToXY(style?.position ?? "bottom");
@@ -151,9 +159,10 @@ export function resolveSubtitleXY(
     typeof override.x === "number" &&
     typeof override.y === "number"
   ) {
+    // 同 resolveDefaultXY：单分镜覆盖坐标也收敛到平台 UI 安全区。
     return {
-      x: Math.min(1, Math.max(0, override.x)),
-      y: Math.min(1, Math.max(0, override.y)),
+      x: clampSafeX(override.x),
+      y: clampSafeY(override.y),
     };
   }
   return resolveDefaultXY(style);
@@ -161,22 +170,25 @@ export function resolveSubtitleXY(
 
 /**
  * 九宫格快捷位置预设：label → 归一化中心点坐标。
- * 供预览端「快捷选择位置」浮层使用；横/纵各取 0.5/0.12/0.88 三档组合。
+ *
+ * 供预览端「快捷选择位置」浮层使用。九个落点全部收敛到 lib/safe-area 的平台 UI
+ * 安全区内：纵向三档 0.18 / 0.5 / 0.76（旧 0.12 / 0.88 会撞顶部 Tab 与底部作者
+ * 信息区），横向侧档 0.78（旧 0.82 会撞右侧竖排互动按钮）。
  */
 export const SUBTITLE_QUICK_POSITIONS: Array<{
   label: string;
   x: number;
   y: number;
 }> = [
-  { label: "左上", x: 0.18, y: 0.12 },
-  { label: "上", x: 0.5, y: 0.12 },
-  { label: "右上", x: 0.82, y: 0.12 },
-  { label: "左", x: 0.18, y: 0.5 },
+  { label: "左上", x: 0.22, y: 0.18 },
+  { label: "上", x: 0.5, y: 0.18 },
+  { label: "右上", x: 0.78, y: 0.18 },
+  { label: "左", x: 0.22, y: 0.5 },
   { label: "中", x: 0.5, y: 0.5 },
-  { label: "右", x: 0.82, y: 0.5 },
-  { label: "左下", x: 0.18, y: 0.88 },
-  { label: "下", x: 0.5, y: 0.88 },
-  { label: "右下", x: 0.82, y: 0.88 },
+  { label: "右", x: 0.78, y: 0.5 },
+  { label: "左下", x: 0.22, y: 0.76 },
+  { label: "下", x: 0.5, y: 0.76 },
+  { label: "右下", x: 0.78, y: 0.76 },
 ];
 
 /**

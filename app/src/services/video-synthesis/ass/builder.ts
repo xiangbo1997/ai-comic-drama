@@ -67,14 +67,16 @@ export function buildCardEvents(
   // 上排（title/hook）在 45% 高，下排（sub/cta）在 58% 高——上下分层不重叠
   const topY = Math.round(height * 0.45);
   const bottomY = Math.round(height * 0.58);
-  // 片头信息位编号（第二十七条）自 72% 高起逐行下排，行距 = 编号字号 × 1.4，
+  // 片头信息位编号（第二十七条）自 62% 高起逐行下排，行距 = 编号字号 × 1.4，
   // 与 title/sub 分层不重叠。位置为工程默认值，法规未规定量化参数。
+  // 起点从 72% 上提到 62%：三行编号逐行下排会落到 0.78-0.80，正好撞进抖音底部
+  // 作者信息/进度条区（VERTICAL_SAFE.bottom=0.80），法定编号被平台 UI 盖住。
   const credentialFontPx = resolveSubtitleFontPx(
     CARD_CREDENTIAL_BASE_FONT * CARD_STYLE.credentialScale,
     height
   );
   const credentialLineGap = Math.round(credentialFontPx * 1.4);
-  const credentialTopY = Math.round(height * 0.72);
+  const credentialTopY = Math.round(height * 0.62);
   let credentialIndex = 0;
 
   for (const line of card.lines) {
