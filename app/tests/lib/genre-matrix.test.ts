@@ -69,6 +69,35 @@ describe("GENRE_OPTIONS 注册表自洽性", () => {
     }
   });
 
+  it("craftNote 必须是「节奏范式 + 铁律」而非抽象原则", () => {
+    // 背景：craftNote 原先平均 30 字、只有原则没有结构（「境界要可感知」只告诉
+    // LLM 别写错，不告诉它对的长什么样），导致题材选了等于没选，产出「披着玄幻
+    // 皮的通用爽剧」。重写后必须给出可执行的分布密度与硬约束。
+    // 平台不要的档位（prohibited）例外：那是规则层面的问题，无法靠创作手法补救。
+    for (const genre of GENRE_OPTIONS) {
+      if (genre.tier === "prohibited") continue;
+
+      expect(
+        genre.craftNote.trim().length,
+        `${genre.id} 的 craftNote 过短，说明仍是抽象原则而非可执行范式`
+      ).toBeGreaterThan(60);
+
+      expect(
+        genre.craftNote.includes("铁律"),
+        `${genre.id} 的 craftNote 缺「铁律」——每个题材都要有违反即失效的硬约束`
+      ).toBe(true);
+    }
+  });
+
+  it("craftNote 不超出 300 字上限（prompt 预算）", () => {
+    for (const genre of GENRE_OPTIONS) {
+      expect(
+        genre.craftNote.trim().length,
+        `${genre.id} 的 craftNote 超长，会挤占 prompt 预算`
+      ).toBeLessThanOrEqual(300);
+    }
+  });
+
   it("风险档位必须写明 caution（否则用户看不到为什么不推荐）", () => {
     for (const genre of GENRE_OPTIONS) {
       if (RISK_TIERS.includes(genre.tier)) {
