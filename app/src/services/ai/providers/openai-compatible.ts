@@ -14,6 +14,9 @@ import { safeFetch, safeDownload } from "@/lib/url-guard";
 import { withRetry, isConnectionPhaseError } from "@/lib/retry";
 import { TruncatedOutputError } from "../errors";
 import { isAbortError, throwIfAborted } from "../abort";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("ai:provider:openai-compatible");
 
 // 支持的图像生成模型列表
 const SUPPORTED_IMAGE_MODELS = [
@@ -36,6 +39,8 @@ const SUPPORTED_IMAGE_MODELS = [
   "grok-2-image",
   "grok-3-imagegen",
   "grok-image",
+  // grok2api 的 Imagine 系列：grok-imagine-image / -2.0 / -quality / -edit / -lite
+  "grok-imagine-image",
   "midjourney",
   "imagen",
   "gemini-3-pro-image",
@@ -78,11 +83,32 @@ function isImageModel(modelId: string): boolean {
   return SUPPORTED_IMAGE_MODELS.some((pattern) => id.includes(pattern));
 }
 
+/**
+ * 按模型名猜测是否为纯文本模型。
+ *
+ * ⚠️ 这是**启发式判断，不是权威判据**。模型名白名单必然滞后于上游新模型
+ * （2026-09-10 线上故障：grok-imagine-image 不在表里被误判），因此调用方
+ * 只应把它用于「提示 / 告警」，绝不可用它硬阻断用户显式配置的模型。
+ *
+ * 权威判据是配置所属的 AIProvider.category：用户在「图像生成」栏配的模型
+ * 就是图像模型，无需从字符串猜。见 isLikelyWrongCategoryModel。
+ */
 export function isLLMModel(modelId: string): boolean {
   // 图像模型优先：避免「gemini-3-pro-image」「imagen-*」之类含 LLM 关键字但其实是图像模型的命名被误判
   if (isImageModel(modelId)) return false;
   const id = modelId.toLowerCase();
   return LLM_ONLY_MODELS.some((pattern) => id.includes(pattern));
+}
+
+/**
+ * 判断「用户可能在图像生成栏配错了文本模型」——仅用于生成告警文案。
+ *
+ * 与 isLLMModel 的区别是语义定位：本函数明确表达「这只是个怀疑」，
+ * 返回 true 时调用方应记 warn 日志并继续请求，让上游返回权威错误，
+ * 而不是提前抛错阻断。
+ */
+export function isLikelyWrongCategoryModel(modelId: string): boolean {
+  return isLLMModel(modelId);
 }
 
 export const openaiCompatibleLLM: LLMProvider = {
@@ -359,18 +385,27 @@ export const openaiCompatibleImage: ImageProvider = {
     } = options;
     const { apiKey, baseUrl, model } = config;
 
-    if (isLLMModel(model)) {
-      throw new Error(
-        `模型「${model}」是文本对话模型，不支持图像生成。\n` +
-          `请在「设置 > AI 模型配置 > 图像生成」中选择图像生成模型，如：\n` +
-          `• dall-e-3（OpenAI）\n` +
-          `• gpt-image-1（OpenAI）\n` +
-          `• flux-schnell（Replicate/硅基流动）`
+    // 软告警而非硬阻断：模型名启发式必然滞后于上游新模型，猜错就会拦下合法配置
+    // （2026-09-10 线上故障）。这里只记日志，请求照发，让上游返回权威错误。
+    if (model && isLikelyWrongCategoryModel(model)) {
+      log.warn(
+        `模型「${model}」看起来像文本对话模型，但仍按图像生成请求发出；` +
+          `若上游报错，请在「设置 > AI 模型配置 > 图像生成」确认模型选择`
       );
     }
 
     const size = ASPECT_RATIO_TO_SIZE[aspectRatio] || "1024x1024";
-    const effectiveModel = model && isImageModel(model) ? model : "dall-e-3";
+    // 用户显式配置的模型一律直接使用，不再因「不在 SUPPORTED_IMAGE_MODELS 白名单」
+    // 就静默替换成 dall-e-3。
+    //
+    // 原因（2026-09-10 线上故障）：白名单是写死的静态列表，必然滞后于上游新模型。
+    // 用户配了 grok2api 的 grok-imagine-image（上游实际可用），因不在白名单被悄悄
+    // 换成 dall-e-3，而 grok2api 不认识该模型 → 报「模型 dall-e-3 不可用」，错误
+    // 信息指向一个用户从未配置过的模型，把排查引向错误方向。
+    //
+    // 白名单仍用于 isLLMModel 的正向豁免（识别含 LLM 关键字的图像模型）；
+    // 明确是文本模型的情况已在上方 isLLMModel 分支拦截。未配置 model 时才兜底。
+    const effectiveModel = model || "dall-e-3";
 
     // 合并参考图：referenceImages 数组优先；否则用单张 referenceImage
     const refs =

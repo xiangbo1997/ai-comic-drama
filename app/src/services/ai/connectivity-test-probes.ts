@@ -9,7 +9,6 @@
  * data.message），改动需谨慎。
  */
 
-import { isLLMModel } from "@/services/ai/providers/openai-compatible";
 import { flow2apiChatUrl } from "@/services/ai/providers/flow2api-shared";
 import type { TestResult } from "./connectivity-test-types";
 
@@ -23,16 +22,9 @@ export async function testOpenAIModelImage(
   baseUrl: string,
   modelId: string
 ): Promise<TestResult> {
-  if (isLLMModel(modelId)) {
-    return {
-      success: false,
-      message: `模型 ${modelId} 是文本模型，不支持图片生成`,
-      errorType: "model",
-      suggestion:
-        "请选择真正的图片模型，例如 dall-e-3、gpt-image-1、grok-2-image 等",
-    };
-  }
-
+  // 不再按模型名预判阻断：白名单滞后于上游新模型时会把可用配置误报为「不支持」，
+  // 且与真实生成路径判据不一致（表现为「测试失败但其实能生成」或反之）。
+  // 连通性测试就应该真的发一次请求，由上游给出权威结论。
   try {
     const response = await fetch(`${baseUrl}/images/generations`, {
       method: "POST",
@@ -163,15 +155,7 @@ export async function testProxyUnifiedImageModel(
   baseUrl: string,
   modelId: string
 ): Promise<TestResult> {
-  if (isLLMModel(modelId)) {
-    return {
-      success: false,
-      message: `模型 ${modelId} 是文本模型，不支持图片生成`,
-      errorType: "model",
-      suggestion: "通用中转图片模式需要返回图片 URL 的图像模型",
-    };
-  }
-
+  // 同上：不按模型名预判，真发一次请求由上游裁决
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",

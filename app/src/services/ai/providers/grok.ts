@@ -4,20 +4,21 @@
 
 import type { ImageProvider } from "../types";
 import { trimUrl, fetchWithError } from "./base";
-import { isLLMModel } from "./openai-compatible";
+import { isLikelyWrongCategoryModel } from "./openai-compatible";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("ai:provider:grok");
 
 export const grokImage: ImageProvider = {
   async generateImage(options, config, requestOptions) {
     const { prompt } = options;
     const { apiKey, baseUrl, model } = config;
 
-    if (model && isLLMModel(model)) {
-      throw new Error(
-        `Grok 协议需要图像生成模型，但配置了 LLM 模型「${model}」。\n` +
-          `请在「设置 > AI 模型配置 > 图像生成」中选择图像模型，如：\n` +
-          `• grok-2-image\n` +
-          `• grok-3-imagegen\n` +
-          `或者将协议改为「通用中转」以通过对话接口生成图像。`
+    // 软告警而非硬阻断，理由同 openai-compatible.generateImage
+    if (model && isLikelyWrongCategoryModel(model)) {
+      log.warn(
+        `模型「${model}」看起来像文本对话模型，但仍按 Grok 图像生成请求发出；` +
+          `若上游报错，请确认「设置 > AI 模型配置 > 图像生成」的模型选择`
       );
     }
 
