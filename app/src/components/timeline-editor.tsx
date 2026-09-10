@@ -21,6 +21,8 @@ import {
   ChevronUp,
 } from "lucide-react";
 import type { ScenePreview } from "@/types";
+// 字幕源文本单一真源（旁白+对白都显示），与预览/导出两端同源。
+import { buildSubtitleSourceText } from "@/lib/subtitle-segments";
 
 interface TimelineEditorProps {
   scenes: ScenePreview[];
@@ -515,7 +517,9 @@ function TimelineEditorImpl({
             {/* 字幕轨道 */}
             <div className="relative" style={{ height: TRACK_HEIGHT }}>
               {scenes.map((scene) => {
-                const text = scene.dialogue || scene.narration;
+                // 字幕轨道展示的文字必须与导出/预览一致（旁白+对白都显示），
+                // 走 buildSubtitleSourceText 单一真源。
+                const text = buildSubtitleSourceText(scene);
                 return (
                   <div
                     key={`subtitle-${scene.id}`}

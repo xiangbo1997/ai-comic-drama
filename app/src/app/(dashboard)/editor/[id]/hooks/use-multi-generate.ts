@@ -16,6 +16,8 @@ import {
   GENERATION_TIMEOUTS,
 } from "@/lib/generation-task-client";
 import { buildVideoScenePrompt } from "@/lib/prompts";
+// 配音文本字段单一真源（旁白+对白双段），与单张配音/workflow 对等
+import { buildTtsTextPayload } from "@/lib/tts-request";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
 import { runWithConcurrency } from "./run-with-concurrency";
 
@@ -215,10 +217,12 @@ export function useMultiGenerate({
 
   const handleGenerateAudios = useCallback(
     async (configs: MultiGenerateConfig[], mode: GenerateMode) => {
-      const text = selectedScene?.dialogue || selectedScene?.narration;
-      if (!text) return;
-      // 文本类型与上面 text 的取值分支严格同源（与单张配音同口径）：旁白走说书人声线
-      const kind = selectedScene?.dialogue?.trim() ? "dialogue" : "narration";
+      // 文本字段走 buildTtsTextPayload 单一真源（与单张配音同口径）：
+      // 旁白 + 对白都在时双段合成，只有其一时走原单段路径。
+      const textPayload = selectedScene
+        ? buildTtsTextPayload(selectedScene)
+        : null;
+      if (!textPayload) return;
       onCloseAudio();
 
       // 通过 characterId 让服务端从 Character.voiceId 解析音色
@@ -232,8 +236,7 @@ export function useMultiGenerate({
         runGenerationTask(
           "/api/generate/tts",
           {
-            text,
-            kind,
+            ...textPayload,
             characterId,
             speed: selectedScene?.ttsSpeed ?? 1.0,
             projectId,

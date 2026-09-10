@@ -7,6 +7,8 @@ import { buildFinalPrompt } from "@/lib/prompt-builder";
 import { buildVideoScenePrompt } from "@/lib/prompts";
 import { buildCanonicalCharacterEntry } from "@/lib/prompts/canonical-appearance";
 import { getThreeViewUrls } from "@/lib/three-views";
+// 配音文本字段单一真源（旁白+对白双段），与 workflow 侧两段合成对等
+import { buildTtsTextPayload } from "@/lib/tts-request";
 import { apiUpdateScene } from "./use-editor-project";
 import { useToast } from "@/components/ui/toast";
 import { toFriendlyError } from "@/lib/error-copy";
@@ -513,10 +515,11 @@ export function useGenerationActions(
   };
 
   const requestAudio = async (scene: Scene, ttsConfigId?: string) => {
-    const text = scene.dialogue || scene.narration;
-    // 文本类型必须与上面 text 的取值分支严格同源：dialogue 非空时念的是对白，
-    // 否则念的是旁白。服务端据此给旁白配说书人独立声线（与一键 workflow 对等）。
-    const kind = scene.dialogue?.trim() ? "dialogue" : "narration";
+    // 文本字段走 buildTtsTextPayload 单一真源：旁白 + 对白都在时双段合成
+    // （旁白说书人声线在前、对白角色声线在后，服务端拼接），与一键 workflow
+    // 的 synthesizeSceneAudio 对等，也与字幕侧 buildSubtitleSourceText 同取舍。
+    const textPayload = buildTtsTextPayload(scene);
+    if (!textPayload) throw new Error("没有对话或旁白内容");
     // 优先用场景所选角色的 characterId，由服务端查 Character.voiceId 解析音色；
     // 找不到再走默认音色（保持原有行为）
     const characterId =
@@ -526,8 +529,7 @@ export function useGenerationActions(
     return runGenerationTask<{ audioUrl?: string }>(
       "/api/generate/tts",
       {
-        text,
-        kind,
+        ...textPayload,
         characterId,
         // 分镜级语速（SceneEditor 可调，0.5–2.0），未设置回落 1.0
         speed: scene.ttsSpeed ?? 1.0,
@@ -653,8 +655,10 @@ export function useGenerationActions(
       scene: Scene;
       ttsConfigId?: string;
     }) => {
-      const text = scene.dialogue || scene.narration;
-      if (!text) throw new Error("没有对话或旁白内容");
+      // 预检：旁白与对白都空时不发请求（requestAudio 内部也会兜同一判据）
+      if (!buildTtsTextPayload(scene)) {
+        throw new Error("没有对话或旁白内容");
+      }
 
       // 先落库 + 写缓存 PROCESSING 再发起同步生成（同视频端修复，
       // 让「配音中」角标与条件轮询在等待期间可见）

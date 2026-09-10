@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  buildSubtitleSourceText,
   splitSubtitleSegments,
   allocateSubtitleWindows,
   charWidth,
@@ -7,6 +8,46 @@ import {
   typewriterDelays,
   SUBTITLE_ANIM,
 } from "@/lib/subtitle-segments";
+
+describe("buildSubtitleSourceText（字幕源文本单一真源：旁白+对白都显示）", () => {
+  it("只有旁白 → 返回旁白", () => {
+    expect(
+      buildSubtitleSourceText({ narration: "夜色渐深。", dialogue: null })
+    ).toBe("夜色渐深。");
+  });
+
+  it("只有对白 → 返回对白", () => {
+    expect(
+      buildSubtitleSourceText({ narration: null, dialogue: "你来了。" })
+    ).toBe("你来了。");
+  });
+
+  it("两者都有 → 旁白在前、对白在后，用换行连接（与配音侧两段合成顺序一致）", () => {
+    expect(
+      buildSubtitleSourceText({
+        narration: "夜色渐深。",
+        dialogue: "你来了。",
+      })
+    ).toBe("夜色渐深。\n你来了。");
+  });
+
+  it("两者都空 → 空串", () => {
+    expect(buildSubtitleSourceText({ narration: null, dialogue: null })).toBe(
+      ""
+    );
+    expect(buildSubtitleSourceText({ narration: "  ", dialogue: "" })).toBe("");
+    expect(buildSubtitleSourceText({})).toBe("");
+  });
+
+  it("两段用换行连接 → splitSubtitleSegments 会把旁白与对白切成独立句，不粘连", () => {
+    const text = buildSubtitleSourceText({
+      narration: "夜色渐深",
+      dialogue: "你来了",
+    });
+    // 两段均无句末标点，靠一级切分的换行分段保证不被并成一句
+    expect(splitSubtitleSegments(text)).toEqual(["夜色渐深", "你来了"]);
+  });
+});
 
 describe("charWidth / textVisualWidth（视觉宽度启发式，须与折行同源）", () => {
   it("CJK 全角计 1，ASCII 半角计 0.5", () => {

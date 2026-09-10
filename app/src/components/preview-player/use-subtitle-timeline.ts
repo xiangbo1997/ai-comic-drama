@@ -5,6 +5,7 @@ import type { ScenePreview } from "@/types";
 // 逐句字幕切分 + 时间窗分配（与导出端 video-synthesis 共用同一权威实现，
 // 保证「逐句显示 + 淡入」在预览与成片两端时轴一致——预览=导出调试窗口）。
 import {
+  buildSubtitleSourceText,
   splitSubtitleSegments,
   allocateSubtitleWindows,
 } from "@/lib/subtitle-segments";
@@ -41,7 +42,8 @@ export function useSubtitleTimeline({
   // allocateSubtitleWindows，保证「逐句显示 + 淡入」的切句与时轴两端一致。
   // 时长用实测有效时长 effDurs[currentIndex]（与画面/配音同源），非 DB 声明值。
   const subtitleWindows = useMemo(() => {
-    const text = currentScene?.dialogue || currentScene?.narration || "";
+    // 字幕源文本走单一真源（旁白+对白都显示），与导出端 video-synthesis 同源。
+    const text = currentScene ? buildSubtitleSourceText(currentScene) : "";
     if (!text) return [];
     const segments = splitSubtitleSegments(text);
     const dur = effDurs[currentIndex] ?? currentScene?.duration ?? 0;
@@ -74,7 +76,9 @@ export function useSubtitleTimeline({
   const activeSubtitleText =
     activeSubtitleIndex >= 0
       ? subtitleWindows[activeSubtitleIndex].text
-      : currentScene?.dialogue || currentScene?.narration || "";
+      : currentScene
+        ? buildSubtitleSourceText(currentScene)
+        : "";
 
   // 当前句时间窗时长（秒）：typewriter 逐字延迟的压缩上限用（与导出端同源）。
   const activeSubtitleDuration =

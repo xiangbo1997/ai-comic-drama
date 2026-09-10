@@ -3,6 +3,8 @@ import { getSystemConfig } from "@/lib/system-config";
 import { getUserTTSConfig } from "@/lib/ai-config";
 import { prisma } from "@/lib/prisma";
 import { synthesizeSpeech } from "@/services/ai";
+// 旁白 + 对白双段合成后拼接（与一键 workflow 的 synthesizeSceneAudio 同源）
+import { concatAudioBuffers } from "@/services/video-synthesis";
 import { uploadFile } from "@/services/storage";
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
@@ -64,6 +66,23 @@ export async function POST(request: NextRequest) {
       sceneId,
       ttsConfigId,
     } = body;
+
+    /*
+     * 旁白 + 对白双段合成（与一键 workflow 的 synthesizeSceneAudio 对等）。
+     *
+     * 手动路径此前是 `text = dialogue || narration` 二选一：分镜同时有旁白和对白
+     * 时旁白被整段丢弃，且与 workflow 的「两段都合成并 concat」行为不一致。
+     * 客户端现在改传 narrationText / dialogueText；两者都有 → 旁白（说书人声线）
+     * 在前、对白（角色声线）在后，分别合成后 concatAudioBuffers 拼成单条音轨。
+     *
+     * 向后兼容：不传这两个字段的旧调用方（或只有其一）走原 text + kind 单段路径，
+     * 行为完全不变。
+     */
+    const narrationText =
+      typeof body.narrationText === "string" ? body.narrationText.trim() : "";
+    const dialogueText =
+      typeof body.dialogueText === "string" ? body.dialogueText.trim() : "";
+    const isDualSegment = Boolean(narrationText && dialogueText);
 
     // 文本类型：非法值直接 400（不静默降级成对白，否则旁白又会用回角色声线）
     const kindParsed = ttsKindSchema.safeParse(body.kind);
@@ -138,6 +157,17 @@ export async function POST(request: NextRequest) {
     if (!voiceId) {
       voiceId = "default";
     }
+
+    /*
+     * 双段模式下 voiceId 的语义拆分：
+     *   - 上面解析出的 voiceId 用于【对白段】（走 kind="dialogue" 的角色声线分支，
+     *     客户端在双段模式必须传 kind="dialogue"）；
+     *   - 旁白段单独解析说书人声线（与 workflow 的 narratorVoiceId 同源）。
+     * 显式 voiceIdFromBody 优先级最高，两段都用它（用户手钉声线的语义不变）。
+     */
+    const narrationVoiceId = isDualSegment
+      ? (voiceIdFromBody ?? resolveNarratorVoiceId(activeFamily) ?? "default")
+      : voiceId;
 
     if (!text) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
@@ -215,14 +245,33 @@ export async function POST(request: NextRequest) {
     const run = async () => {
       try {
         // TTS 配置已在上方解析并用于跨厂商防污染判定，此处直接复用（避免二次查询）
-        // 调用 TTS 服务
-        const audioBuffer = await synthesizeSpeech({
-          text,
-          voiceId,
-          speed,
-          emotion: sceneEmotion,
-          config: ttsConfig ?? undefined,
-        });
+        // 调用 TTS 服务。双段模式（旁白 + 对白都在）分别合成后拼接，
+        // 与一键 workflow 的 synthesizeSceneAudio 完全对等：旁白（说书人声线）
+        // 在前、对白（角色声线）在后；单段模式行为不变。
+        const audioBuffer = isDualSegment
+          ? await concatAudioBuffers([
+              await synthesizeSpeech({
+                text: narrationText,
+                voiceId: narrationVoiceId,
+                speed,
+                emotion: sceneEmotion,
+                config: ttsConfig ?? undefined,
+              }),
+              await synthesizeSpeech({
+                text: dialogueText,
+                voiceId,
+                speed,
+                emotion: sceneEmotion,
+                config: ttsConfig ?? undefined,
+              }),
+            ])
+          : await synthesizeSpeech({
+              text,
+              voiceId,
+              speed,
+              emotion: sceneEmotion,
+              config: ttsConfig ?? undefined,
+            });
 
         // 落盘：走 uploadFile 统一门面（R2 已配走云存储 / 未配降级本地盘
         // public/uploads），不再因缺 R2 而丢弃音频致哑片。

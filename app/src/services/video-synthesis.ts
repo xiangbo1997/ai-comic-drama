@@ -38,6 +38,7 @@ import { type CardLine } from "@/lib/title-cards";
 // 逐句字幕切分 + 时间窗分配（与预览端 preview-player 共用同一权威实现，
 // 保证「逐句显示 + 淡入淡出」在预览与成片两端时轴一致）。
 import {
+  buildSubtitleSourceText,
   splitSubtitleSegments,
   allocateSubtitleWindows,
 } from "@/lib/subtitle-segments";
@@ -451,7 +452,10 @@ async function generateSubtitleFile(
     // 配音真实音频秒长（有则字幕逐句节奏按它走完 + 末句停驻到镜末，见
     // allocateSubtitleWindows 的 voiceDuration 语义）
     const voiceDuration = voiceDurations?.[i];
-    const text = scene.dialogue || scene.narration;
+    // 字幕源文本走单一真源：旁白 + 对白都显示，与配音侧两段合成对等。
+    // 此前是 `dialogue || narration`：旁白无字幕 + 对白字幕按「旁白+对白」总音频
+    // 长分窗导致整体错位。
+    const text = buildSubtitleSourceText(scene);
     if (text) {
       // 该分镜生效坐标（覆盖优先，否则全局默认）→ 像素中心点。
       // 逐句字幕共享同一坐标（位置是分镜级设置，不随句子变化），与预览一致。

@@ -5,10 +5,40 @@
  * 服务端）共用，保证「逐句字幕」的切分与时轴分配在两端完全一致——
  * 预览是导出的调试窗口，任何时轴/切句差异都会让用户看到「预览≠成片」。
  *
- * 两个能力：
- *   1) splitSubtitleSegments：把整段对白/旁白切成「逐句显示」的短句数组
- *   2) allocateSubtitleWindows：把分镜时长按各句视觉宽度比例分给每句
+ * 三个能力：
+ *   1) buildSubtitleSourceText：从分镜取「该显示哪些文字」的单一真源
+ *   2) splitSubtitleSegments：把整段对白/旁白切成「逐句显示」的短句数组
+ *   3) allocateSubtitleWindows：把分镜时长按各句视觉宽度比例分给每句
  */
+
+/**
+ * 字幕源文本的单一真源：旁白 + 对白都要显示。
+ *
+ * ── 为什么必须收口到一个函数 ──
+ * 配音侧（workflow/steps/audio.ts 与 api/generate/tts）对「旁白+对白都在」的
+ * 分镜是【两段都合成并 concat】的，而字幕侧曾经四处各写 `dialogue || narration`，
+ * 造成双重故障：
+ *   1) 旁白被整段丢弃 —— 有声音没字幕；
+ *   2) 对白字幕整体错位 —— allocateSubtitleWindows 按 voiceDuration（= 旁白 +
+ *      对白的总音频长）分配时间窗，但只拿对白去切句，于是对白字幕被推后 + 拉长。
+ * 任何新增的字幕消费点都必须调本函数，别再裸写 `||`。
+ *
+ * 顺序与配音侧一致：旁白（铺垫）在前、对白在后。
+ * 用 "\n" 连接：splitSubtitleSegments 的一级切分已支持按换行分段，
+ * 因此旁白与对白天然不会被并成一句。
+ *
+ * @param scene 含 narration / dialogue 的分镜（两字段均可空）
+ * @returns 拼接后的字幕源文本；两者都空时返回空串
+ */
+export function buildSubtitleSourceText(scene: {
+  narration?: string | null;
+  dialogue?: string | null;
+}): string {
+  return [scene.narration, scene.dialogue]
+    .map((s) => s?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n");
+}
 
 /**
  * 单字符的视觉宽度：CJK 全角计 1，ASCII 半角计 0.5。
