@@ -27,6 +27,13 @@ export interface SceneCharacterInfo extends CharacterInfo {
    * 定妆也要有张参考图能用）。但该回退会让一致性校验退化成自证——客户端喂进来的
    * 参考图被当成「校验基准」，于是「生成图像不像参考图吗」恒为否，校验永远通过。
    * 校验层应消费本字段，无值即没有可信基准，应判为「跳过校验」而非「通过」。
+   *
+   * ⚠️ 组装约束（新增调用路径必读）：本字段只能填【真实定妆产物】——
+   * Character.canonicalImageUrl 或 isCanonical 的 CharacterReferenceAsset。
+   * 严禁填入任何带 `?? referenceImages[0]` / `?? 客户端传入参考图` 回退链的
+   * 合并值，否则校验退化成自证、闸门永远放行。
+   * 「有 canonicalImageUrl 但无本字段」的组合会在 orchestrateImageGeneration
+   * 入口打 warn（大概率是新路径忘了传），见 image-orchestrator.ts。
    */
   trueCanonicalImageUrl?: string;
   /**

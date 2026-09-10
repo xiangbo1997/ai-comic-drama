@@ -117,6 +117,15 @@ async function resolveProjectCharacters(
       description: c.description,
       referenceImages: c.referenceImages,
       canonicalImageUrl: canonicalImageUrl ?? undefined,
+      // 「真」定妆锚（供 face-validator 作校验基准）：只认真实定妆产物 ——
+      // isCanonical 参考资产（三视图 i2i 定妆）或 Character.canonicalImageUrl。
+      // ⚠️ 绝不能用上面那个带 `?? c.referenceImages[0]` 回退的合并值：
+      // referenceImages[0] 就是喂进出图的参考图本身，拿它当基准会让
+      // 「生成图像不像参考图吗」恒为否，闸门形同虚设（见 types.ts 字段注释）。
+      // 此前 workflow 完全不填此字段 → 一键出片全程零身份校验
+      // （face-validator 走 passthrough("no_true_canonical_anchor")）。
+      trueCanonicalImageUrl:
+        (canonicalFromAsset ?? c.canonicalImageUrl) || undefined,
       referenceImageUrls:
         referenceImageUrls.length > 0 ? referenceImageUrls : undefined,
       // 用户预设服装（外观编辑器手填/AI 起草）：供场景定妆照换装匹配，

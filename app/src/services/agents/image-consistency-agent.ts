@@ -322,6 +322,9 @@ export class ImageConsistencyAgent implements Agent<
         gender: entry?.appearance.gender ?? null,
         age: entry?.appearance.age ?? null,
         canonicalImageUrl: existingRefs?.[name],
+        // 有意不填 trueCanonicalImageUrl：本分支是「DB 里查不到角色」的圣经回退，
+        // existingRefs 是本轮 workflow 生成的临时参考图、不是定妆锚。填了会让
+        // face-validator 拿它自证通过。无真锚 → 校验判「跳过」才是诚实的。
         appearance: entry
           ? {
               id: `appearance-${name}`,

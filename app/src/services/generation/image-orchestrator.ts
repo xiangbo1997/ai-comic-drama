@@ -40,6 +40,23 @@ export async function orchestrateImageGeneration(
 ): Promise<OrchestratorResult> {
   const maxRetries = request.maxRetries ?? DEFAULT_MAX_RETRIES;
 
+  // 身份闸门防漏护栏：「有 canonicalImageUrl 但没填 trueCanonicalImageUrl」
+  // 几乎必定是新增调用路径忘了传真定妆锚 —— face-validator 会一路
+  // passthrough("no_true_canonical_anchor")，一致性校验静默空转（workflow 自动
+  // 路径就这么漏了很久）。这里打一条 warn 让失效立刻可见，不阻断生成。
+  const anchorMissing = request.characters.filter(
+    (c) => c.canonicalImageUrl && !c.trueCanonicalImageUrl
+  );
+  if (anchorMissing.length > 0) {
+    log.warn(
+      "角色有参考图但缺少真定妆锚（trueCanonicalImageUrl），身份校验将被跳过",
+      {
+        sceneId: request.sceneId,
+        characters: anchorMissing.map((c) => c.name),
+      }
+    );
+  }
+
   // 朝向推断（朝向感知三视图选择）：据分镜画面线索推一次角色朝向，
   // 供 resolveStrategy 挑参考图 + buildReferenceCells 挑合成格代表图。
   // 无 hints 时默认 front（零回归）。
