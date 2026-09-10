@@ -13,6 +13,10 @@ import {
   EPISODE_ENDING_RULES,
   EPISODE_CONFLICT_RULES,
 } from "../episode-structure";
+import {
+  EXTERNALIZATION_RULES,
+  NARRATION_DISCIPLINE_RULES,
+} from "../adaptation-rules";
 import { buildGenreContextBlock } from "@/lib/genre-matrix";
 
 export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅长把"世界观设定"扩写为可直接用于 AI 视频生成 / 分镜制作的短剧脚本。
@@ -46,7 +50,11 @@ ${EPISODE_PACING_RULES}
 
 ${EPISODE_ENDING_RULES}
 
-${EPISODE_CONFLICT_RULES}`;
+${EPISODE_CONFLICT_RULES}
+
+${EXTERNALIZATION_RULES}
+
+${NARRATION_DISCIPLINE_RULES}`;
 
 export function buildDramaScriptUserPrompt(input: DramaScriptInput): string {
   const durationSec = input.durationSec ?? 90;
