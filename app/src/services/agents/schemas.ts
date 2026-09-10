@@ -135,12 +135,39 @@ export const VoiceProfileZ = z.object({
   tone: z.string(),
 });
 
+/**
+ * 语言指纹 — 对白差异化的依据。
+ * 圣经原本 11 个字段全是外貌，写对白的环节拿不到「这个角色怎么说话」，
+ * 结果全剧所有人一套中性书面语。检验标准：遮掉角色名能否认出是谁在说。
+ * 全字段可选 + catch：LLM 漏填不阻断建档（外貌才是圣经的刚需产物）。
+ */
+export const SpeechFingerprintZ = z.object({
+  register: z.string().optional().catch(undefined),
+  sentenceStyle: z.string().optional().catch(undefined),
+  verbalTic: z.string().optional().catch(undefined),
+  taboo: z.string().optional().catch(undefined),
+});
+
+/**
+ * 戏剧功能 — 角色凭什么留在这个故事里。
+ * 无功能定位的配角是废戏，会稀释爽点密度；反派缺 want 则动机崩坏（为坏而坏）。
+ */
+export const DramaticFunctionZ = z.object({
+  role: z.string().optional().catch(undefined),
+  want: z.string().optional().catch(undefined),
+  obstacle: z.string().optional().catch(undefined),
+  action: z.string().optional().catch(undefined),
+  flaw: z.string().optional().catch(undefined),
+});
+
 export const CharacterBibleEntryZ = z.object({
   name: z.string().min(1),
   description: z.string().min(5),
   canonicalPrompt: z.string().min(10),
   appearance: AppearanceZ,
   voiceProfile: VoiceProfileZ,
+  speechFingerprint: SpeechFingerprintZ.optional().catch(undefined),
+  dramaticFunction: DramaticFunctionZ.optional().catch(undefined),
   appearances: z.array(z.number()),
 });
 

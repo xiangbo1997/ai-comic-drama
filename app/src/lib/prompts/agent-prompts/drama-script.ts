@@ -54,7 +54,17 @@ ${EPISODE_CONFLICT_RULES}
 
 ${EXTERNALIZATION_RULES}
 
-${NARRATION_DISCIPLINE_RULES}`;
+${NARRATION_DISCIPLINE_RULES}
+
+【对白差异化（遮名可辨）】
+- 每个角色必须有可辨识的说话方式，从三层设计：① 语域（文化程度决定用词：保姆说"我给您搁桌上了"，霸总说"放着"）② 句式（性格决定长短：隐忍角色短句加停顿，聒噪角色长句加反问）③ 口头禅（一到两个高辨识度标记）。
+- 检验标准：遮掉角色名，读者应能从用词和句式判断出是谁在说。
+- 严禁全剧所有角色使用同一套中性书面语（"我不会让你得逞的""你终于还是来了"这类谁都能说的台词，是对白失败的标志）。
+
+【潜台词优先】
+- 关键冲突处的台词要「话里有话」——说的是 A，指的是 B。
+- 直白宣告情绪的台词（"我很生气""我不会原谅你"）一律改写成带潜台词的说法（"你今天穿得挺精神" / "这杯茶，我替你喝了"）。
+- 例外：高潮宣言镜（emphasis: true）允许直给，那是爽点释放不是日常对白。`;
 
 export function buildDramaScriptUserPrompt(input: DramaScriptInput): string {
   const durationSec = input.durationSec ?? 90;

@@ -35,6 +35,13 @@ export function buildStoryboardPrompt(
     name: string;
     canonicalPrompt: string;
     appearance: Record<string, string>;
+    /** 语言指纹：分镜层调整对白时据此保持角色声口差异（缺省则不注入） */
+    speechFingerprint?: {
+      register?: string;
+      sentenceStyle?: string;
+      verbalTic?: string;
+      taboo?: string;
+    };
   }>,
   /**
    * 叙事评审回注的修订约束（闭环3 重生成轮）。缺省/空串 = 首轮，行为与接入前逐字一致。
@@ -46,6 +53,31 @@ export function buildStoryboardPrompt(
   const charRefMap = characterBible
     .map((c) => `- ${c.name}: ${c.canonicalPrompt}`)
     .join("\n");
+
+  // 语言指纹块：只在圣经真的产出了指纹时注入，全缺省则整块省略（零回归）。
+  // 分镜层有权微调对白，注入后才能保证「遮掉角色名能认出是谁在说」。
+  const speechLines = characterBible
+    .map((c) => {
+      const fp = c.speechFingerprint;
+      if (!fp) return null;
+      const parts = [
+        fp.register && `语域：${fp.register}`,
+        fp.sentenceStyle && `句式：${fp.sentenceStyle}`,
+        fp.verbalTic && `口头禅：${fp.verbalTic}`,
+        fp.taboo && `禁忌：${fp.taboo}`,
+      ].filter(Boolean);
+      return parts.length > 0 ? `- ${c.name} → ${parts.join("；")}` : null;
+    })
+    .filter(Boolean);
+
+  const speechBlock =
+    speechLines.length > 0
+      ? `
+
+【对白差异化（遮名可辨）】各角色的语言指纹如下，调整或补写对白时必须遵守：
+${speechLines.join("\n")}
+检验标准：遮掉角色名，读者应能从用词和句式判断出是谁在说。严禁全剧角色共用一套中性书面语。`
+      : "";
 
   const refinementBlock = refinement?.trim()
     ? `【本次为修订重生成，以下问题是上一版被导演打回的原因，必须逐条修正——最高优先级】
@@ -80,7 +112,7 @@ ${refinement.trim()}
   return `${refinementBlock}基于以下场景和角色圣经，为每个分镜生成完整的图像生成提示词。
 
 角色标准提示词（所有场景必须复用）：
-${charRefMap}
+${charRefMap}${speechBlock}
 
 原始分镜：
 ${sceneList}
