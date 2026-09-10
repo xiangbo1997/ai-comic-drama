@@ -100,7 +100,12 @@ export class StoryboardAgent implements Agent<
         timestamp: new Date(),
       });
 
-      const batchResult = await this.processBatch(batch, charRef, ctx);
+      const batchResult = await this.processBatch(
+        batch,
+        charRef,
+        ctx,
+        input.refinement
+      );
       totalTokens += batchResult.tokensUsed;
 
       if (batchResult.scenes.length > 0) {
@@ -133,7 +138,9 @@ export class StoryboardAgent implements Agent<
       canonicalPrompt: string;
       appearance: Record<string, string>;
     }>,
-    ctx: WorkflowContext
+    ctx: WorkflowContext,
+    /** 叙事评审回注的修订约束（闭环3 重生成轮），首轮为 undefined */
+    refinement?: string
   ): Promise<{ scenes: SceneArtifact[]; tokensUsed: number }> {
     let tokensUsed = 0;
 
@@ -146,7 +153,10 @@ export class StoryboardAgent implements Agent<
         const response = await chatCompletion(
           [
             { role: "system", content: STORYBOARD_SYSTEM },
-            { role: "user", content: buildStoryboardPrompt(scenes, charRef) },
+            {
+              role: "user",
+              content: buildStoryboardPrompt(scenes, charRef, refinement),
+            },
           ],
           {
             temperature: storyboardParams.temperature,

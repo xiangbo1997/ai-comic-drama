@@ -112,14 +112,14 @@ export function ReviewReportSection({
 
           {!error && !report && (
             <p className="text-muted-foreground text-sm">
-              点右上角「生成审片报告」，导出前做一次确定性体检（时长节奏 /
-              结尾钩子 / 连贯性 / 素材完整性）。
+              点右上角「生成审片报告」，导出前做一次体检（时长节奏 / 结尾钩子 /
+              连贯性 / 素材完整性 / 红果红线 / 合规 / 叙事质量）。
             </p>
           )}
 
           {report && (
             <>
-              {/* 四节 */}
+              {/* 各节（节数由后端 assembleReviewReport 决定，此处不写死） */}
               <div className="space-y-2">
                 {report.sections.map((section) => (
                   <ReviewSectionRow key={section.key} section={section} />

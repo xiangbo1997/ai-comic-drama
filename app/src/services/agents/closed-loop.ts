@@ -31,15 +31,19 @@ import type {
  * - imageConsistency：一直默认开（行为不变）。
  * - characterBible：评分函数 reviewCharacterBible 是【纯函数】，零 LLM 调用、零积分；
  *   只有评分不达标才重生成圣经（上界 maxRounds=2）。成本≈0，故默认开。
- * - storyboard / videoCoherence：各固定增加 1 次纯文本 LLM 调用，且当前实现
- *   【只评分不重生成】—— 用户多等数秒只换来一条评分记录，性价比低，故默认关。
+ * - storyboard：已改为【真闭环】（评审不达标即带六维评语回注 prompt 重生成整套分镜，
+ *   见 workflow/steps/review.ts）。成本 = 每轮 1 次纯文本 LLM 调用，相对后续几十张图 +
+ *   几十段视频可忽略；而一份「开场铺垫、旁白复述心理、结尾把故事讲完」的分镜会让
+ *   后面所有生成开销全部白费。性价比反转，故默认开，maxRounds=1（一次修订够用，控时延）。
+ * - videoCoherence：仍【只评分不重生成】，且评审是多模态调用（成本量级不同），
+ *   用户多等数秒只换来一条评分记录，故默认关。
  *
- * 三项均可被系统配置覆盖（见 CLOSED_LOOP_* 键），不必改代码即可开关。
+ * 四项中除 imageConsistency 外均可被系统配置覆盖（见 CLOSED_LOOP_* 键），不必改代码即可开关。
  */
 export const DEFAULT_CLOSED_LOOP_POLICIES = {
   imageConsistency: { enabled: true, maxRounds: 3, passThreshold: 75 },
   characterBible: { enabled: true, maxRounds: 2, passThreshold: 70 },
-  storyboard: { enabled: false, maxRounds: 2, passThreshold: 70 },
+  storyboard: { enabled: true, maxRounds: 1, passThreshold: 70 },
   videoCoherence: { enabled: false, maxRounds: 1, passThreshold: 60 },
 } as const satisfies Record<string, ClosedLoopPolicy>;
 

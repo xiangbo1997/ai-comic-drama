@@ -2,11 +2,12 @@
  * 闭环评审步骤（从 `workflow-engine.ts` 的闭环 2 / 3 / 4 小节平移，纯搬运无行为变更）
  *
  * - 闭环2：角色圣经质量评审 + 反思重生成（真闭环，可重生成）
- * - 闭环3：叙事连贯评审（只评分）
+ * - 闭环3：叙事连贯评审 + 反思重生成（真闭环，可重生成）
  * - 闭环4：视频连贯评审（只评分）
  */
 
 import { CharacterBibleAgent } from "../../character-bible-agent";
+import { StoryboardAgent } from "../../storyboard-agent";
 import {
   reviewStoryboard,
   reviewVideoSequence,
@@ -103,58 +104,110 @@ export async function reviewAndRefineCharacterBible(
 }
 
 /**
- * 闭环3：叙事连贯评审 (P3.5)。
+ * 闭环3：叙事连贯评审 + 反思重生成（真闭环）。
  *
- * 默认关闭（采数据模式）。开启后从导演视角评审整个分镜序列的叙事质量，
- * 把评分通过 SSE 事件记录下来，供后续决定是否触发分镜重生成。
+ * 与闭环2 同构（runClosedLoop）：StoryboardAgent 产出分镜 → reviewStoryboard 从
+ * 导演视角六维打分（开场钩子/结尾钩子/外化质量/叙事连贯/角色连续/镜头多样）→
+ * 不达标则把 verdict.suggestions 作为修订约束回注 prompt 重生成整套分镜。
  *
- * 当前版本只评分不重生成（重生成整套分镜成本高，待数据验证后再开启完整闭环）。
+ * 与闭环2 的差异：评分函数是 LLM 调用（非纯函数），故每轮多一次纯文本 LLM 调用。
+ * 但这点开销相对于后续几十张图 + 几十段视频可以忽略，而一份「开场铺垫、
+ * 旁白复述心理、结尾把故事讲完」的分镜会让后面所有生成开销全部白费。
+ *
+ * maxRounds 默认 1（policy 控制）：一次修订足够，控制成本与用户等待时延。
+ *
+ * 降级优先：评审 LLM 不可用/超时/返回非法 JSON 时 reviewStoryboard 返回 null，
+ * runClosedLoop 按 acceptOnEvalFailure=true 接受当前分镜；重生成异常也只是 break，
+ * 最终 `result.best ?? storyboard` 保证永远返回一份可用分镜，绝不阻断主流程。
+ *
+ * @returns 修订后的分镜（通过评审的，或历史最高分的；闭环关闭/评审失败时为原值）
  */
 export async function reviewStoryboardCoherence(
   storyboard: StoryboardArtifact,
+  script: ScriptArtifact,
+  characterBible: CharacterBible,
   ctx: WorkflowContext
-): Promise<void> {
+): Promise<StoryboardArtifact> {
   const policy = await resolvePolicyAsync(ctx, "storyboard");
-  if (!policy.enabled) return;
+  if (!policy.enabled) return storyboard;
 
-  const summaries = storyboard.scenes.map((s) => ({
-    id: s.id,
-    shotType: s.shotType,
-    emotion: s.emotion,
-    characters: s.characters,
-    description: s.description,
-  }));
+  const agent = new StoryboardAgent();
 
-  const verdict = await reviewStoryboard(summaries, ctx);
-  if (!verdict) return;
+  const result = await runClosedLoop<
+    { refinement: string },
+    StoryboardArtifact
+  >(
+    {
+      initialState: { refinement: "" },
+      maxRounds: policy.maxRounds,
+      workflowStep: "review_storyboard",
+      taskLabel: "正在评审分镜叙事质量",
+      // 首轮直接用已生成的分镜（不重复付费）；重试轮带 refinement 重新生成整套
+      generate: async (state, history) => {
+        if (history.length === 0) return storyboard;
+        const res = await agent.run(
+          { script, characterBible, refinement: state.refinement },
+          ctx
+        );
+        return (res.data as StoryboardArtifact) ?? storyboard;
+      },
+      evaluate: async (candidate) =>
+        reviewStoryboard(
+          candidate.scenes.map((s) => ({
+            id: s.id,
+            shotType: s.shotType,
+            emotion: s.emotion,
+            characters: s.characters,
+            description: s.description,
+          })),
+          ctx
+        ),
+      // 反思：累积各轮建议作为修订约束（history 已含本轮，跨轮记忆避免重复犯错）
+      reflect: async (state, verdict) => ({
+        refinement: [state.refinement, ...verdict.suggestions]
+          .filter(Boolean)
+          .join("\n"),
+      }),
+    },
+    ctx
+  );
+
+  // 末轮 verdict（无评审记录时为空——评审 LLM 全程不可用）
+  const lastVerdict = result.history.at(-1)?.verdict;
 
   emitEvent({
     type: "step:completed",
     workflowRunId: ctx.workflowRunId,
     step: "review_storyboard",
     data: {
-      pass: verdict.pass,
-      score: verdict.score.overall,
+      pass: result.passed,
+      score: result.bestScore,
+      rounds: result.rounds,
       passThreshold: policy.passThreshold,
-      feedback: verdict.score.feedback,
-      suggestions: verdict.suggestions,
+      feedback: lastVerdict?.score.feedback,
+      suggestions: lastVerdict?.suggestions ?? [],
     },
     timestamp: new Date(),
   });
 
-  // C6：评审结果持久化到 artifacts
+  // C6：评审结果持久化到 artifacts（供 WorkflowPanel 与审片报告「叙事质量」节消费）。
+  // dimensions 六维一并落库：只给总分无法定位是哪一维拖了后腿。
   setReviewArtifact(ctx, "storyboard", {
     label: "分镜连贯",
-    score: verdict.score.overall,
-    pass: verdict.pass,
+    score: result.bestScore,
+    pass: result.passed,
     passThreshold: policy.passThreshold,
-    suggestions: verdict.suggestions,
-    feedback: verdict.score.feedback,
+    suggestions: lastVerdict?.suggestions ?? [],
+    feedback: lastVerdict?.score.feedback,
+    dimensions: lastVerdict?.score.dimensions,
+    rounds: result.rounds,
   });
 
   log.info(
-    `Storyboard narrative review: score=${verdict.score.overall}, pass=${verdict.pass}`
+    `Storyboard narrative review: score=${result.bestScore}, passed=${result.passed}, rounds=${result.rounds}`
   );
+
+  return result.best ?? storyboard;
 }
 
 /**

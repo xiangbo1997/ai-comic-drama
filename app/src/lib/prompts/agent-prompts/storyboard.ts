@@ -35,11 +35,27 @@ export function buildStoryboardPrompt(
     name: string;
     canonicalPrompt: string;
     appearance: Record<string, string>;
-  }>
+  }>,
+  /**
+   * 叙事评审回注的修订约束（闭环3 重生成轮）。缺省/空串 = 首轮，行为与接入前逐字一致。
+   * 置于 prompt 最顶部：短句 append 到长 prompt 末尾会被淹没（语义稀释），
+   * 修订指令必须抢在角色/场景清单之前，否则 LLM 会照抄上一轮的问题分镜。
+   */
+  refinement?: string
 ): string {
   const charRefMap = characterBible
     .map((c) => `- ${c.name}: ${c.canonicalPrompt}`)
     .join("\n");
+
+  const refinementBlock = refinement?.trim()
+    ? `【本次为修订重生成，以下问题是上一版被导演打回的原因，必须逐条修正——最高优先级】
+${refinement.trim()}
+
+修订要求：针对上述问题重新设计对应分镜（可改 description / imagePrompt / shotType / emotion / duration），
+不要原样照搬上一版。未被点名的分镜保持原有叙事意图，仅在必要时微调以保证衔接。
+
+`
+    : "";
 
   const sceneList = scenes
     .map((s) => {
@@ -61,7 +77,7 @@ export function buildStoryboardPrompt(
     })
     .join("\n");
 
-  return `基于以下场景和角色圣经，为每个分镜生成完整的图像生成提示词。
+  return `${refinementBlock}基于以下场景和角色圣经，为每个分镜生成完整的图像生成提示词。
 
 角色标准提示词（所有场景必须复用）：
 ${charRefMap}

@@ -37,17 +37,27 @@ export async function runStoryboardStep(
   }
 
   const storyboard = storyboardResult.data as StoryboardArtifact;
+
+  // ===== 闭环3：叙事连贯评审 + 反思重生成（真闭环，默认开启） =====
+  // 评审不达标时把六维评语回注 prompt 重生成整套分镜，返回最优版本；
+  // 评审不可用/异常时原样返回入参，不阻断主流程。
+  const reviewed = await reviewStoryboardCoherence(
+    storyboard,
+    script,
+    characterBible,
+    ctx
+  );
+
+  // artifact 写「评审后的定稿版」——后续出图/出视频全部读这份 artifact，
+  // 若仍写评审前的版本，闭环修订就只是一份评分记录，等于没落地。
   ctx.artifacts.set({
     id: "storyboard",
     type: "storyboard",
     version: 1,
-    data: storyboard,
+    data: reviewed,
     createdBy: "storyboard",
     createdAt: new Date(),
   });
 
-  // ===== 闭环3：叙事连贯评审（P3.5，默认关闭，开启后评分并记录） =====
-  await reviewStoryboardCoherence(storyboard, ctx);
-
-  return storyboard;
+  return reviewed;
 }

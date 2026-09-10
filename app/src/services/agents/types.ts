@@ -118,6 +118,15 @@ export interface ReviewArtifactData {
   suggestions: string[];
   /** 评审反馈文案（可空） */
   feedback?: string;
+  /**
+   * 分维度得分（维度名 → 0-100）。叙事评审有六维（narrative_flow /
+   * character_continuity / visual_diversity / hook_strength / cliffhanger /
+   * externalization）——只给总分无法定位是哪一维拖了后腿，故一并落库。
+   * 纯函数评审（角色圣经）不产出维度时为空。
+   */
+  dimensions?: Record<string, number>;
+  /** 闭环实际执行轮数（1 = 首轮即通过或未重生成） */
+  rounds?: number;
 }
 
 export interface Artifact<T = unknown> {
@@ -288,6 +297,12 @@ export interface CharacterBibleEntry {
 export interface StoryboardInput {
   script: ScriptArtifact;
   characterBible: CharacterBible;
+  /**
+   * 叙事评审回注的修订约束（闭环3）。首轮为空；评审不达标时由
+   * reviewStoryboardCoherence 把 verdict.suggestions 汇总后传入，
+   * 作为「必须修正的问题」置于分镜 prompt 顶部驱动重生成。
+   */
+  refinement?: string;
 }
 
 /** 补全后的分镜 */

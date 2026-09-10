@@ -17,6 +17,7 @@ import {
   assembleReviewReport,
   type ReviewScene,
   type ContinuitySummaryInput,
+  type NarrativeReviewInput,
 } from "@/lib/review-report";
 import {
   resolveTitleCardsEnabled,
@@ -71,6 +72,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         cameraMovement: true,
         actionBeat: true,
         emotion: true,
+        // 镜头语言节：建立镜判据按地点分组（新地点首镜应为全景/远景）
+        locationKey: true,
       },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,6 +107,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         cameraMovement: s.cameraMovement,
         actionBeat: s.actionBeat,
         emotion: s.emotion,
+        locationKey: s.locationKey,
       };
     });
 
@@ -119,9 +123,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       (cardsEnabled.title ? TITLE_CARD_SEC : 0) +
       (cardsEnabled.end ? END_CARD_SEC : 0);
 
-    const [hookType, continuitySummary] = await Promise.all([
+    const [hookType, continuitySummary, narrativeReview] = await Promise.all([
       loadLatestHookType(id),
       loadLatestContinuitySummary(id, userId),
+      loadLatestNarrativeReview(id, userId),
     ]);
 
     const report = assembleReviewReport({
@@ -138,6 +143,9 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           : null,
       credentials: titleCardsConfig?.credentials ?? null,
       titleCardEnabled: cardsEnabled.title,
+      // 叙事质量节（闭环3）：复用最近一次 workflow 落库的 review:storyboard artifact，
+      // 不在此重跑评审（与连贯性节同一分工：报告只汇总，不触发 LLM）。
+      narrativeReview,
     });
 
     return NextResponse.json({ report });
@@ -193,6 +201,78 @@ async function loadLatestHookType(projectId: string): Promise<HookType | null> {
     (HOOK_TYPES as readonly string[]).includes(raw)
     ? (raw as HookType)
     : null;
+}
+
+/**
+ * 取最近一次工作流落库的叙事评审结果（闭环3 的 review:storyboard artifact）。
+ *
+ * 数据位置：WorkflowRun.artifacts 是 InMemoryArtifactStore.toJSON() 的结果，
+ * 形如 `{ "review:storyboard": { id, type, data: ReviewArtifactData, ... } }`
+ * （key 由 `${type}:${id}` 拼成，见 agents/artifact-store.ts）。
+ *
+ * 不筛 status=COMPLETED：artifacts 每步完成后即刷写，一次「分镜已评审但导出步失败」
+ * 的 run 同样持有有效评审结果；只筛 COMPLETED 会让这类项目误报「未评审」。
+ * 改取「最近一次含该 artifact 的 run」，按 updatedAt 倒序扫最近若干条。
+ *
+ * 从未跑过 workflow / 闭环关闭 / 评审 LLM 全程失败 → 返回 null（对应节报「未评审」）。
+ */
+async function loadLatestNarrativeReview(
+  projectId: string,
+  userId: string
+): Promise<NarrativeReviewInput | null> {
+  // 取最近几条 run 逐一找 artifact：Prisma 无法在 JSON 顶层用带冒号的 key 做 path 过滤，
+  // 故在 JS 侧扫。窗口 10 条足够——同一项目连跑 10 次工作流仍无评审即视为未评审。
+  const runs = await prisma.workflowRun.findMany({
+    where: { projectId, userId },
+    orderBy: { updatedAt: "desc" },
+    take: 10,
+    select: { artifacts: true },
+  });
+
+  for (const run of runs) {
+    const artifacts = run.artifacts;
+    if (!artifacts || typeof artifacts !== "object" || Array.isArray(artifacts))
+      continue;
+    const entry = (artifacts as Record<string, unknown>)["review:storyboard"];
+    if (!entry || typeof entry !== "object") continue;
+    const data = (entry as { data?: unknown }).data;
+    if (!data || typeof data !== "object") continue;
+
+    const d = data as {
+      score?: unknown;
+      pass?: unknown;
+      passThreshold?: unknown;
+      dimensions?: unknown;
+      feedback?: unknown;
+      suggestions?: unknown;
+    };
+    // 分数缺失/非法的 artifact 视为无效，继续往前找（不要拿 NaN 去渲染报告）
+    const score = Number(d.score);
+    if (!Number.isFinite(score)) continue;
+
+    return {
+      score,
+      pass: Boolean(d.pass),
+      passThreshold: Number.isFinite(Number(d.passThreshold))
+        ? Number(d.passThreshold)
+        : 70,
+      dimensions: isNumberRecord(d.dimensions) ? d.dimensions : undefined,
+      feedback: typeof d.feedback === "string" ? d.feedback : undefined,
+      suggestions: Array.isArray(d.suggestions)
+        ? d.suggestions.filter((s): s is string => typeof s === "string")
+        : undefined,
+    };
+  }
+
+  return null;
+}
+
+/** 是否为「维度名 → 数值」的合法记录（过滤 LLM 可能塞进来的非数值） */
+function isNumberRecord(v: unknown): v is Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  return Object.values(v as Record<string, unknown>).every(
+    (n) => typeof n === "number" && Number.isFinite(n)
+  );
 }
 
 /**
