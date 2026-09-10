@@ -32,6 +32,11 @@ describe("resolveAiDisclosure · 缺省即启用（法定要求）", () => {
     expect(resolveAiDisclosure(null)).toEqual(DEFAULT_AI_DISCLOSURE);
   });
 
+  it("默认位置不在右侧：右侧是竖屏平台互动按钮区，法定标识会被遮挡", () => {
+    expect(["tr", "br"]).not.toContain(DEFAULT_AI_DISCLOSURE.position);
+    expect(DEFAULT_AI_DISCLOSURE.position).toBe("tl");
+  });
+
   it("enabled 字段缺省（只配了别的字段）→ 仍然启用", () => {
     const r = resolveAiDisclosure({ position: "bl" });
     expect(r.enabled).toBe(true);

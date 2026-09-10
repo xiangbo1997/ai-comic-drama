@@ -93,8 +93,11 @@ export interface ResolvedAiDisclosure {
  *
  * 取值理由（工程判断，可被用户覆盖）：
  * - text「本片由 AI 生成」：直白陈述生成事实，7 字在竖屏一行可读。
- * - position "tr" 右上角：避开底部字幕区（字幕默认 bottom）与左上角常见台标位，
- *   三者互不遮挡。
+ * - position "tl" 左上角：避开底部字幕区（字幕默认 bottom）。
+ *   ⚠️ 不用右上角：竖屏平台（抖音/快手）右侧是竖排互动按钮区（1080 宽下约
+ *   150px，见 lib/safe-area 的 VERTICAL_SAFE.right），而标识边距仅
+ *   DISCLOSURE_MARGIN_RATIO×宽 ≈ 43px —— 右上角标识会被平台按钮盖住，
+ *   **法定标识被遮挡等于没加**。左上角只有平台顶部 Tab，风险低得多。
  * - fontScale 0.62：小于正文字幕，起到提示作用而不抢戏；过小则不「明显」。
  * - opacity 0.85：接近实心保证可辨识，略透以免过度压画面。
  * - mode "always" 全程显示：「每集明显位置」用全程显示最不易出错，
@@ -104,7 +107,7 @@ export interface ResolvedAiDisclosure {
 export const DEFAULT_AI_DISCLOSURE: ResolvedAiDisclosure = {
   enabled: true,
   text: "本片由 AI 生成",
-  position: "tr",
+  position: "tl",
   fontScale: 0.62,
   opacity: 0.85,
   mode: "always",
@@ -115,7 +118,10 @@ export const DEFAULT_AI_DISCLOSURE: ResolvedAiDisclosure = {
  * 标识距画面边缘的安全边距，以画面【宽】的比例表达（两端同源）。
  *
  * 用统一比例而非绝对像素：跨 480p/720p/1080p 与 9:16/16:9/1:1 视觉占比一致。
- * 0.04 ≈ 1080 宽下 43px，落在各平台安全区内（非法规要求，工程取值）。
+ * 0.04 ≈ 1080 宽下 43px（非法规要求，工程取值）。
+ *
+ * ⚠️ 这个边距【不足以避开竖屏平台的右侧互动按钮区】（约 150px，见 lib/safe-area）。
+ * 因此默认位置取左上 "tl"；用户若手动改到 tr/br，标识有被平台 UI 遮挡的风险。
  */
 export const DISCLOSURE_MARGIN_RATIO = 0.04;
 

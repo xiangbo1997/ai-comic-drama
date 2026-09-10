@@ -105,6 +105,14 @@ export function AiDisclosurePanel({
                     )
                   )}
                 </select>
+                {/* 右侧两档会撞竖屏平台的竖排互动按钮区（点赞/评论/分享），
+                    标识被盖住即等同未添加 —— 选中时显式提示风险。 */}
+                {(disclosure.position === "tr" ||
+                  disclosure.position === "br") && (
+                  <p className="mt-1 text-[11px] text-amber-400">
+                    右侧可能被抖音/快手的点赞评论按钮遮挡，建议改为左上
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-muted-foreground mb-1 block text-sm">
