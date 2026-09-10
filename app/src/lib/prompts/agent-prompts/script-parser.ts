@@ -62,6 +62,11 @@ ${EXTERNALIZATION_RULES}
 
 ${NARRATION_DISCIPLINE_RULES}
 
+【断点优先（顶层 hookType / endingHook）】
+- 顶层必须输出 hookType：本集结尾钩子类型，必须是 悬念、反转、情绪、信息、危机 之一。
+- 顶层必须输出 endingHook：一句话说明最后一镜停在什么未解决的张力上（≤40 字）。
+- 最后一个分镜必须落在未解决的张力上。若原文这一段的自然结尾是「事情办完了 / 对话结束了 / 场景走完了」，你必须【调整切分边界】，把本集结尾挪到最近的一个未解决张力点上——宁可少切一段内容，也不能把断口留在情绪落地处。上集最后 5 秒决定下集打开率。
+
 输出纯 JSON，不要 markdown 代码块，不要额外文字。`;
 
 export function buildScriptParserUserPrompt(
@@ -98,9 +103,13 @@ ${text}
 7. 每个分镜给出 locationKey（中文短标签 ≤12 字）：同一物理地点用完全相同标签，同地点禁止多个变体；每个地点首次出现尽量用全景/远景建立场景空间；description 必须自足并写明主体位置与角色面向
 8. 仅当剧情明确要求非默认着装（婚纱/战损/雨夜湿透/睡衣等）时，给该分镜加 characterOutfits: [{"name":角色名,"outfit":服装短语≤10字}]；同套衣服跨分镜用完全相同短语；日常着装省略此字段
 
+9. 顶层输出 hookType 与 endingHook（见 system prompt 的断点优先纪律）
+
 输出格式：
 {
   "title": "作品标题",
+  "hookType": "悬念",
+  "endingHook": "她推开门，看见本该死去的人坐在沙发上",
   "scenes": [
     {
       "id": 1,

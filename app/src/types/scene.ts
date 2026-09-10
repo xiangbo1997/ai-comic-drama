@@ -2,6 +2,8 @@
  * 场景相关类型定义
  */
 
+import type { HookType } from "./series-bible";
+
 /** 生成状态 — 与 Prisma enum GenerationStatus 对齐 */
 export type GenerationStatus =
   | "PENDING"
@@ -160,6 +162,14 @@ export interface ParsedScript {
     name: string;
     description: string;
   }>;
+  /**
+   * 本集结尾钩子类型（断点设计）。与创作路径 DramaScriptArtifact.hookType 同源，
+   * 都取自 series-bible 的 HOOK_TYPES，供史官读取与钩子类型轮换。
+   * 可选：老数据 / LLM 漏填时为 undefined。
+   */
+  hookType?: HookType;
+  /** 一句话说明最后一镜停在什么未解决的张力上（≤40 字），供审片报告展示 */
+  endingHook?: string;
 }
 
 /**

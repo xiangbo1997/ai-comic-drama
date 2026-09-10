@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import { CAMERA_MOVEMENTS } from "@/lib/prompts";
+import { HOOK_TYPES } from "@/types/series-bible";
 
 // ============ 基础原语 ============
 
@@ -106,6 +107,10 @@ export const ScriptArtifactZ = z.object({
       })
     )
     .min(1),
+  // 断点设计：与创作路径 drama-script-agent.ts 的 hookType 同源（HOOK_TYPES），
+  // 供史官读取与钩子类型轮换。可选 + catch：老数据/漏填不阻断解析。
+  hookType: z.enum(HOOK_TYPES).optional().catch(undefined),
+  endingHook: z.string().optional().catch(undefined),
   segments: z.number().optional(),
 });
 
