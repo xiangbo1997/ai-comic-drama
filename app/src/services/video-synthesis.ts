@@ -41,6 +41,7 @@ import {
   buildSubtitleSourceText,
   splitSubtitleSegments,
   allocateSubtitleWindows,
+  resolveMaxCharsPerLine,
 } from "@/lib/subtitle-segments";
 import type { SubtitleAnimation } from "@/types/export-style";
 
@@ -211,11 +212,16 @@ export interface ExportOptions {
  * 质量档位：以竖屏（9:16）为基准的短边尺寸 + 码率。
  * 最终画幅由 resolveOutputDimensions 结合项目 aspectRatio 派生，
  * 不再写死竖屏（此前 16:9/1:1 项目被强塞进竖屏画布）。
+ *
+ * 码率取值（480p 2M / 720p 5M / 1080p 10M）：旧值（1M/2.5M/5M）是【点播长视频】
+ * 的档位，用在短剧上明显偏低——漫剧画面本就细节密集（线条、纹理、快速运镜），
+ * 低码率下大面积色块会糊。而且平台还会二次转码，交片码率越低，转码后损失越明显，
+ * 所以要按「留给平台压」的思路给足。
  */
 const QUALITY_SETTINGS = {
-  "480p": { width: 480, height: 854, bitrate: "1M" },
-  "720p": { width: 720, height: 1280, bitrate: "2.5M" },
-  "1080p": { width: 1080, height: 1920, bitrate: "5M" },
+  "480p": { width: 480, height: 854, bitrate: "2M" },
+  "720p": { width: 720, height: 1280, bitrate: "5M" },
+  "1080p": { width: 1080, height: 1920, bitrate: "10M" },
 };
 
 const ASPECT_RATIOS = {
@@ -323,6 +329,23 @@ function buildOutputEncodingArgs(
     "medium",
     "-b:v",
     bitrate,
+    // 码率上限与缓冲区：只给 -b:v 时 x264 的 ABR 在高动态段（快速运镜、转场、
+    // 震屏）会瞬时超标，平台转码器遇到尖峰更容易整体降质。maxrate=1.5×、
+    // bufsize=2× 是 x264 的常规配比，把瞬时码率约束住的同时留足缓冲。
+    "-maxrate",
+    scaleBitrate(bitrate, 1.5),
+    "-bufsize",
+    scaleBitrate(bitrate, 2),
+    // profile/level：high@4.1 覆盖到 1080p60，是各平台与移动端解码器的通行档；
+    // 不声明时 x264 可能选出老设备解不了的组合。
+    "-profile:v",
+    "high",
+    "-level",
+    "4.1",
+    // 8-bit 4:2:0：浏览器与平台转码器的通用像素格式。滤镜链可能产出
+    // yuv444/yuvj420，不显式钉住会出现「本地能播、上传后花屏」。
+    "-pix_fmt",
+    "yuv420p",
     "-c:a",
     "aac",
     "-b:a",
@@ -332,6 +355,39 @@ function buildOutputEncodingArgs(
     "-y",
     outputPath,
   ];
+}
+
+/**
+ * 中间产物的编码质量（CRF）—— 消除二次压缩损失。
+ *
+ * 导出是「分镜片段 → merged 拼接 → 最终定码率成片」的多趟编码管线。中间两趟
+ * 此前既不给 -b:v 也不给 -crf，走 x264 默认 CRF 23（面向交付的档位），于是画质
+ * 在最终定码率之前就已经先掉了两次，最后一趟再怎么给码率也补不回来。
+ *
+ * 正确做法是中间产物近无损、只在最后一次编码定码率：
+ *   - 片段 CRF 18：视觉近无损，体积可控（片段数量多，不宜再低）；
+ *   - merged CRF 16：只有一份，给得更足，避免拼接+转场这趟成为瓶颈。
+ * 两者都只影响 os.tmpdir() 里的临时文件，不进最终产物体积。
+ */
+const CLIP_CRF = "18";
+const MERGED_CRF = "16";
+
+/**
+ * 把 ffmpeg 码率字符串（如 "5M" / "800k"）按倍率缩放，保留原单位。
+ *
+ * 供 -maxrate / -bufsize 从 -b:v 派生。无法解析的输入原样返回
+ * （宁可不加约束也不要传出非法参数让整个导出失败）。
+ *
+ * @param bitrate 形如 "5M"、"2500k"、"800000" 的码率串
+ * @param factor  缩放倍率（如 1.5 / 2）
+ */
+function scaleBitrate(bitrate: string, factor: number): string {
+  const m = /^(\d+(?:\.\d+)?)([kKmM]?)$/.exec(bitrate.trim());
+  if (!m) return bitrate;
+  const value = Number(m[1]) * factor;
+  const unit = m[2];
+  // 取整避免 "7.5M" 这类小数（ffmpeg 接受，但整数更稳妥且可读）
+  return `${Math.round(value)}${unit}`;
 }
 
 /**
@@ -479,8 +535,10 @@ async function generateSubtitleFile(
       // → 长字幕在靠底位置一端溢出画面另一端不溢出（预览≠导出）。这里按
       // 字号估算每行最大字数，主动折行插 \N，与预览换行一致，块高一致。
       const fontPx = resolveSubtitleFontPx(effectiveFontSize, height);
-      // 中文近似全角等宽（≈fontPx），可用宽度取 90% 画面宽（对齐预览 maxWidth）
-      const maxCharsPerLine = Math.max(6, Math.floor((width * 0.9) / fontPx));
+      // 每行字数走 resolveMaxCharsPerLine 单一真源（预览端读同一函数）：
+      // 按字号算出的可容纳字数，再收到 15 全角字上限（竖屏单行超过约 15 字
+      // 会横贯整屏、在信息流里读不完）。
+      const maxCharsPerLine = resolveMaxCharsPerLine(width, fontPx);
       // 入场动效：花字强制 EMPHASIS_STYLE.animation（pop，视觉签名统一，忽略全局）；
       // 其余分镜缺省 fade（与旧行为一致）。slideup 需要画面高换算像素位移。
       const animation: SubtitleAnimation = isEmphasis
@@ -711,6 +769,9 @@ async function sceneToVideoClip(
       "libx264",
       "-preset",
       "fast",
+      // 中间产物近无损（此前无 -crf 无 -b:v，走默认 CRF 23 白掉一轮画质）
+      "-crf",
+      CLIP_CRF,
       "-c:a",
       "aac",
       "-y",
@@ -770,6 +831,9 @@ async function sceneToVideoClip(
       "libx264",
       "-preset",
       "fast",
+      // 中间产物近无损（同上：图片分镜的 Ken Burns 缓推最吃码率）
+      "-crf",
+      CLIP_CRF,
       "-pix_fmt",
       "yuv420p",
       "-y",
@@ -795,6 +859,9 @@ async function sceneToVideoClip(
     "libx264",
     "-preset",
     "fast",
+    // 中间产物近无损（黑场纯色本就压得极小，加上无成本）
+    "-crf",
+    CLIP_CRF,
     "-pix_fmt",
     "yuv420p",
     "-y",
@@ -981,6 +1048,10 @@ export async function synthesizeVideoToPath<T>(
         "libx264",
         "-preset",
         "veryfast",
+        // merged 是最后一趟中间产物，给得比片段更足（此前无 -crf 无 -b:v，
+        // 走默认 CRF 23，xfade 转场处的画质损失全落在这里）
+        "-crf",
+        MERGED_CRF,
         "-pix_fmt",
         "yuv420p",
         "-y",

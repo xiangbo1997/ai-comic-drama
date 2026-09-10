@@ -734,6 +734,7 @@ export function PreviewPlayer({
                 emphasisFontPx={emphasisFontPx}
                 isEmphasisScene={isEmphasisScene}
                 stageHeight={stageHeight}
+                stageWidth={stageWidth}
                 subtitleAnimationCss={subtitleAnimationCss}
                 typewriterChars={typewriterChars}
                 typewriterCharDelays={typewriterCharDelays}

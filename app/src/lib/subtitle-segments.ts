@@ -185,6 +185,44 @@ function mergeShortFragments(pieces: string[]): string[] {
 }
 
 /**
+ * 一行字幕的最大视觉宽度（≈全角字数）—— 预览端与导出端的单一真源。
+ *
+ * 竖屏短剧的行业惯例是每行不超过约 15 个全角字：
+ *   - 再长会横贯整屏，观众视线要来回扫，在信息流快速滑动的场景里读不完；
+ *   - 竖屏宽度本就窄，长行会顶到左右边缘，与平台侧边 UI 抢位置。
+ * 仅作【上限】：实际每行字数 = min(本上限, 按字号算出的可容纳字数)，
+ * 大字号时仍按字号收窄，不会溢出画面。
+ */
+export const MAX_SUBTITLE_LINE_WIDTH = 15;
+
+/** 一行字幕的最小视觉宽度（字号极大时的兜底，避免算出 0 或 1 字一行） */
+export const MIN_SUBTITLE_LINE_WIDTH = 6;
+
+/**
+ * 计算「当前画面宽 + 字号」下每行字幕的最大字数（两端同源）。
+ *
+ * 导出端据此调 wrapSubtitleText 主动折行插 \N；预览端据此设 <p> 的行宽上限，
+ * 两端行数一致 → 字幕块高一致 → \an5 中心锚点下同一 y 坐标的实际占位一致
+ * （预览=成片）。
+ *
+ * @param frameWidth 画面宽（导出为成片像素宽，预览为画面框像素宽）
+ * @param fontPx     该画面宽下的真实字号像素（resolveSubtitleFontPx 产出）
+ * @returns 每行最大字数（全角计 1）
+ */
+export function resolveMaxCharsPerLine(
+  frameWidth: number,
+  fontPx: number
+): number {
+  if (!(frameWidth > 0) || !(fontPx > 0)) return MIN_SUBTITLE_LINE_WIDTH;
+  // 中文近似全角等宽（≈fontPx），可用宽度取 90% 画面宽（对齐预览 maxWidth）
+  const byWidth = Math.floor((frameWidth * 0.9) / fontPx);
+  return Math.min(
+    MAX_SUBTITLE_LINE_WIDTH,
+    Math.max(MIN_SUBTITLE_LINE_WIDTH, byWidth)
+  );
+}
+
+/**
  * 字幕入场动效的共享时序常量（预览端 CSS 与导出端 ASS 读同一份，保证两端节奏一致）。
  *
  * 命名与单位说明：
@@ -261,8 +299,15 @@ export interface SubtitleWindow {
   end: number;
 }
 
-/** 每句字幕的最小可读时长（秒），时长充裕时保证不低于此值 */
-const MIN_WINDOW_DURATION = 0.8;
+/**
+ * 每句字幕的最小可读时长（秒），时长充裕时保证不低于此值。
+ *
+ * 取 1.2 而非常见的 0.8：0.83s/句 是【英文】字幕的经验下限，英文靠词形整体
+ * 识别；中文需要逐字辨认，同样信息量下阅读耗时更长，0.8s 的短句会一闪而过。
+ * 时长不够垫最小窗时仍退化为纯比例分配（见下方 canGuaranteeMin），
+ * 不会因抬高此值而让总时长溢出。
+ */
+const MIN_WINDOW_DURATION = 1.2;
 
 /**
  * 把分镜的总时长按「各句视觉宽度」比例分配给每句，得到逐句时间窗。

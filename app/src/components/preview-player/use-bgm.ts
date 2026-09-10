@@ -47,7 +47,9 @@ export function useBgm({
         volume: bgm.volume ?? 0.25,
         fadeIn: bgm.fadeIn ?? 0,
         fadeOut: bgm.fadeOut ?? 0,
-        ducking: bgm.ducking ?? false,
+        // 缺省即开，与导出端 buildBgmFilter 的 `ducking !== false` 判据同源
+        // （预览=成片：预览里听到的闪避效果必须与导出一致）
+        ducking: bgm.ducking !== false,
       },
       elapsed,
       totalDuration,

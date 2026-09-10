@@ -7,6 +7,9 @@ import {
   textVisualWidth,
   typewriterDelays,
   SUBTITLE_ANIM,
+  resolveMaxCharsPerLine,
+  MAX_SUBTITLE_LINE_WIDTH,
+  MIN_SUBTITLE_LINE_WIDTH,
 } from "@/lib/subtitle-segments";
 
 describe("buildSubtitleSourceText（字幕源文本单一真源：旁白+对白都显示）", () => {
@@ -60,6 +63,28 @@ describe("charWidth / textVisualWidth（视觉宽度启发式，须与折行同�
     // 2 全角 + 4 ASCII = 2 + 2 = 4
     expect(textVisualWidth("中文ab12")).toBe(4);
     expect(textVisualWidth("")).toBe(0);
+  });
+});
+
+describe("resolveMaxCharsPerLine（每行最大字数，预览端与导出端同源）", () => {
+  it("按字号算出的字数低于 15 时取该值（大字号下自动收窄，不溢出画面）", () => {
+    // 1080 宽、fontPx=100 → floor(1080*0.9/100)=9
+    expect(resolveMaxCharsPerLine(1080, 100)).toBe(9);
+  });
+
+  it("按字号算出的字数超过 15 时收到上限（竖屏单行不横贯整屏）", () => {
+    // 1080 宽、fontPx=40 → floor(972/40)=24 → 收到 15
+    expect(resolveMaxCharsPerLine(1080, 40)).toBe(MAX_SUBTITLE_LINE_WIDTH);
+    expect(MAX_SUBTITLE_LINE_WIDTH).toBe(15);
+  });
+
+  it("字号极大时兜到下限，不会算出 0 或 1 字一行", () => {
+    expect(resolveMaxCharsPerLine(1080, 5000)).toBe(MIN_SUBTITLE_LINE_WIDTH);
+  });
+
+  it("非法入参（宽或字号非正）回落下限，不产出 0/NaN", () => {
+    expect(resolveMaxCharsPerLine(0, 40)).toBe(MIN_SUBTITLE_LINE_WIDTH);
+    expect(resolveMaxCharsPerLine(1080, 0)).toBe(MIN_SUBTITLE_LINE_WIDTH);
   });
 });
 
@@ -166,19 +191,19 @@ describe("allocateSubtitleWindows（逐句时间窗分配）", () => {
     expect(windows[windows.length - 1].end).toBeCloseTo(total, 6);
   });
 
-  it("时长充裕时每句不低于最小窗 0.8s", () => {
-    // 3 句、总 10s，充裕 → 每句 >= 0.8
+  it("时长充裕时每句不低于最小窗 1.2s（中文逐字辨认，英文的 0.8s 太短）", () => {
+    // 3 句、总 10s，充裕（10 >= 3×1.2）→ 每句 >= 1.2
     const windows = allocateSubtitleWindows(
       ["短", "短", "很长很长很长的一句"],
       10
     );
     for (const w of windows) {
-      expect(w.end - w.start).toBeGreaterThanOrEqual(0.8 - 1e-9);
+      expect(w.end - w.start).toBeGreaterThanOrEqual(1.2 - 1e-9);
     }
   });
 
   it("时长过短放不下所有最小窗 → 退化为纯比例（总和守恒）", () => {
-    // 5 句、总 1s（< 5×0.8=4），不启用最小窗，仅按比例分
+    // 5 句、总 1s（< 5×1.2=6），不启用最小窗，仅按比例分
     const segs = ["a", "b", "c", "d", "e"];
     const windows = allocateSubtitleWindows(segs, 1);
     // 每句宽度相同（ASCII 0.5）→ 均分 0.2s

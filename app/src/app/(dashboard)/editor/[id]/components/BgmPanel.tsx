@@ -32,6 +32,11 @@ export function BgmPanel({ value, onChange, projectId }: BgmPanelProps) {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // ducking 缺省即开：与 DEFAULT_BACKGROUND_MUSIC、generation-params-normalize
+  // 以及导出端 buildBgmFilter 的 `!== false` 判据同源。老配置缺此字段时开关
+  // 必须显示为「开」，否则 UI 说关、导出实际在闪避，两边对不上。
+  const duckingOn = value.ducking !== false;
+
   // 卸载时停止试听，避免音频残留播放
   useEffect(() => {
     return () => {
@@ -304,17 +309,15 @@ export function BgmPanel({ value, onChange, projectId }: BgmPanelProps) {
             <button
               type="button"
               role="switch"
-              aria-checked={value.ducking}
-              onClick={() => onChange({ ...value, ducking: !value.ducking })}
+              aria-checked={duckingOn}
+              onClick={() => onChange({ ...value, ducking: !duckingOn })}
               className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${
-                value.ducking
-                  ? "bg-primary"
-                  : "bg-secondary border-border border"
+                duckingOn ? "bg-primary" : "bg-secondary border-border border"
               }`}
             >
               <span
                 className={`absolute top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                  value.ducking ? "translate-x-4" : "translate-x-0.5"
+                  duckingOn ? "translate-x-4" : "translate-x-0.5"
                 }`}
               />
             </button>

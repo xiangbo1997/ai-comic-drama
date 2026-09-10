@@ -274,7 +274,10 @@ export function normalizeGenerationParams(
       fadeOut:
         typeof bm.fadeOut === "number" ? clampNumber(bm.fadeOut, 0, 10) : 2.0,
       loop: bm.loop !== false,
-      ducking: bm.ducking === true,
+      // 缺省即开（`!== false`）：与 DEFAULT_BACKGROUND_MUSIC.ducking=true 和
+      // 导出端 buildBgmFilter 的缺省判据保持一致。此前是 `=== true`，
+      // 没显式带 ducking 字段的配置会被规范化成 false，与默认值互相打架。
+      ducking: bm.ducking !== false,
     };
   }
   // 音效列表（批1）：校验 sfxId 命中音效库 + 偏移/音量范围后放行 —— 不加这段

@@ -80,24 +80,31 @@ export function buildBgmFilter(
   }
 
   // ── 有对白配音 ──
-  if (bgm.ducking) {
+  // ducking 缺省即开（`!== false` 而非 `=== true`）：漫剧混音层级
+  // voice > SFX > BGM > ambient，对白清晰是刚需。DEFAULT_BACKGROUND_MUSIC.ducking
+  // 已是 true，但历史落库配置 / 未经 normalize 的对象可能缺此字段，
+  // 缺省落在「已闪避」一侧才不会静默出一条压着对白的 BGM。
+  if (bgm.ducking !== false) {
     // ducking：对白响时自动压低 BGM（剪映"语音增强"同款 sidechaincompress）
     // 1) 对白先 amix 成一条 sidechain key [voice]
     filters.push(
       `${voiceLabels.join("")}amix=inputs=${voiceLabels.length}:normalize=0[voice]`
     );
-    // 2) 用 [voice] 侧链压 [bgmout]
+    // 2) 用 [voice] 侧链压 [bgmout]。threshold 从 0.03 提到 0.05：0.03 太灵敏，
+    //    配音底噪就能触发闪避，导致 BGM 全程被压、听感发闷。
     filters.push(
-      `[bgmout][voice]sidechaincompress=threshold=0.03:ratio=8:attack=20:release=300[bgmducked]`
+      `[bgmout][voice]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=300[bgmducked]`
     );
     // 3) 压好的 BGM 与对白再混合
     filters.push(`[voice][bgmducked]amix=inputs=2:normalize=0[aout]`);
     return { filters, outLabel: "[aout]" };
   }
 
-  // 默认路线：weights 让对白突出 + normalize=0 防整体变小声
+  // 兜底路线（仅显式 ducking:false 时走到）：weights 让对白突出 +
+  // normalize=0 防整体变小声。BGM 恒定权重 0.6 → 0.45：没有闪避时 BGM 全程
+  // 与对白同在，0.6 会盖住对白细节，压到 0.45 才保证人声在前。
   const allInputs = [...voiceLabels, "[bgmout]"];
-  const weights = [...voiceLabels.map(() => "1"), "0.6"].join(" ");
+  const weights = [...voiceLabels.map(() => "1"), "0.45"].join(" ");
   filters.push(
     `${allInputs.join("")}amix=inputs=${allInputs.length}:normalize=0:weights='${weights}'[aout]`
   );
@@ -105,11 +112,18 @@ export function buildBgmFilter(
 }
 
 /**
- * loudnorm 目标：EBU R128 -16 LUFS / TP -1.5 dBFS / LRA 11，短剧/流媒体通行响度。
+ * loudnorm 目标：-14 LUFS / TP -1.0 dBFS / LRA 9。
+ *
+ * 为什么不是 -16：EBU R128 的 -16 LUFS 是【广播/播客】标准；抖音、快手、
+ * YouTube 等短视频平台的实际归一目标是 -14 LUFS。按 -16 交片，平台会把整片
+ * 再抬 2 dB（或干脆不抬，导致听感比同刷信息流里的其他片子明显偏小）。
+ * TP 收到 -1.0 给平台二次转码留足削峰余量；LRA 从 11 收到 9 —— 竖屏小喇叭
+ * 播放环境下动态范围过大会让轻声对白听不清。
+ *
  * 单遍 loudnorm（非双遍）——导出为一次性同步管线，不便二次探测；单遍已能显著
  * 收敛「逐镜音量漂移」（此前 amix 缺 normalize=0 的老账）+ 统一全片响度。
  */
-export const LOUDNORM_FILTER = "loudnorm=I=-16:TP=-1.5:LRA=11";
+export const LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.0:LRA=9";
 
 /**
  * 构建「最终混音链」——统一收口 对白 + BGM + SFX 三层，末尾套 loudnorm 归一化。

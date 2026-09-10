@@ -7,6 +7,8 @@ import {
   EMPHASIS_STYLE,
 } from "@/types/export-style";
 import { resolveSubtitleFont } from "@/lib/subtitle-fonts";
+// 每行最大字数：与导出端 video-synthesis 共用同一实现（预览=成片）
+import { resolveMaxCharsPerLine } from "@/lib/subtitle-segments";
 
 interface SubtitleOverlayProps {
   sceneId: string;
@@ -20,6 +22,8 @@ interface SubtitleOverlayProps {
   emphasisFontPx: number;
   isEmphasisScene: boolean;
   stageHeight: number;
+  /** 画面框像素宽：与导出端共用 resolveMaxCharsPerLine 算折行宽度（预览=成片） */
+  stageWidth: number;
   subtitleAnimationCss: string | undefined;
   typewriterChars: string[] | null;
   typewriterCharDelays: number[] | null;
@@ -50,6 +54,7 @@ export function SubtitleOverlay({
   emphasisFontPx,
   isEmphasisScene,
   stageHeight,
+  stageWidth,
   subtitleAnimationCss,
   typewriterChars,
   typewriterCharDelays,
@@ -64,6 +69,12 @@ export function SubtitleOverlay({
   handleSubtitleResizeMove,
   handleSubtitleResizeEnd,
 }: SubtitleOverlayProps) {
+  // 折行宽度与导出端同源（resolveMaxCharsPerLine）：把每行最大字数换算成 CSS
+  // 宽度上限（中文近似全角等宽 ≈ 1em），让预览与成片行数一致 → 块高一致 →
+  // \an5 中心锚点下同一 y 坐标的实际占位一致。
+  // 此前预览恒 nowrap，导出却主动折行，长句在两端占位不同（预览≠成片）。
+  const maxCharsPerLine = resolveMaxCharsPerLine(stageWidth, emphasisFontPx);
+
   return (
     <div
       className="absolute z-10"
@@ -72,8 +83,8 @@ export function SubtitleOverlay({
         top: `${currentSubtitleXY.y * 100}%`,
         // 以中心点定位：自身偏移 -50% 让坐标对准字幕块中心
         transform: "translate(-50%, -50%)",
-        // 字幕块用 nowrap 单行不换行（见下方 <p>），故不限 maxWidth——
-        // 与时间轴字幕样式面板一致。不越界由拖拽落点的 clamp 保证。
+        // 宽度上限落在内层 <p>（与导出端折行宽度同源），此处不限；
+        // 不越界由拖拽落点的 clamp 保证。
       }}
     >
       {/* 逐句入场动效：key=分镜id+句索引，切句时 <p> 重挂载触发所选动效
@@ -124,9 +135,12 @@ export function SubtitleOverlay({
           // 入场动效（时序读共享常量，与导出端标签对齐）；typewriter 时为
           // undefined，动画落到逐字符 span 上。
           animation: subtitleAnimationCss,
-          // 单句不换行（与时间轴字幕样式面板一致）——逐句字幕本就是短句，
-          // nowrap 保证一句一行，不再被宽度挤成竖排一列。
-          whiteSpace: "nowrap",
+          // 折行宽度与导出端一致（每行至多 maxCharsPerLine 个全角字，
+          // 中文近似全角等宽故用 em 表达）。normal 而非 nowrap：导出端会主动
+          // 折行，预览恒单行会让长句两端占位不同（违反预览=成片）。
+          maxWidth: `${maxCharsPerLine}em`,
+          whiteSpace: "normal",
+          wordBreak: "break-word",
           // 字号平滑过渡：拖角/滚轮/滑块改字号时 CSS 插值，消除整数 px
           // 步进的顿挫感（僵硬）。仅过渡 font-size，不影响入场动效。
           transition: "font-size 80ms ease-out",

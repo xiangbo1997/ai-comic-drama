@@ -16,6 +16,7 @@ import {
 import {
   buildAtempoChain,
   buildFinalAudioChain,
+  LOUDNORM_FILTER,
 } from "@/services/video-synthesis/filters/audio";
 import { hexToAssColor } from "@/services/video-synthesis/ass/builder";
 import { KEN_BURNS_PARAMS, CLIP_FPS } from "@/lib/impact-effect-params";
@@ -207,15 +208,13 @@ describe("buildFinalAudioChain", () => {
     expect(chain).not.toBeNull();
     const joined = chain!.filters.join(";");
     expect(joined).toContain("[a0][a1]amix=inputs=2:normalize=0[voicemix]");
-    expect(joined).toContain(
-      "[voicemix]loudnorm=I=-16:TP=-1.5:LRA=11[amaster]"
-    );
+    expect(joined).toContain(`[voicemix]${LOUDNORM_FILTER}[amaster]`);
     expect(chain!.outLabel).toBe("[amaster]");
     // 无 BGM 时不应出现 BGM 处理链
     expect(joined).not.toContain("[bgmout]");
   });
 
-  it("对白 + BGM：BGM 走 volume/aloop/atrim/afade，且以 0.6 权重混入", () => {
+  it("对白 + BGM（显式 ducking:false）：BGM 走 volume/aloop/atrim/afade，且以 0.45 权重混入", () => {
     const chain = buildFinalAudioChain({
       voiceLabels: ["[a0]"],
       bgm,
@@ -230,9 +229,25 @@ describe("buildFinalAudioChain", () => {
     expect(joined).toContain("afade=t=in:st=0:d=1.500");
     // fadeOut 起点 = 总时长 - fadeOut
     expect(joined).toContain("afade=t=out:st=28.000:d=2.000");
-    // 对白权重 1、BGM 0.6
-    expect(joined).toContain("weights='1 0.6'");
+    // 对白权重 1、BGM 0.45（无闪避时 BGM 须压得更低，否则盖住对白细节）
+    expect(joined).toContain("weights='1 0.45'");
     expect(chain!.outLabel).toBe("[amaster]");
+  });
+
+  it("ducking 字段缺省（老配置）→ 按开启处理，走 sidechaincompress 闪避", () => {
+    // 缺省即开：DEFAULT_BACKGROUND_MUSIC.ducking=true、normalize 的
+    // `!== false` 与本判据同源。缺省落在「已闪避」一侧，不会静默出一条压着对白的 BGM。
+    const { ducking: _omitted, ...bgmWithoutDucking } = bgm;
+    const chain = buildFinalAudioChain({
+      voiceLabels: ["[a0]"],
+      bgm: bgmWithoutDucking as BackgroundMusic,
+      bgmInputIndex: 1,
+      bgmTotalDuration: 10,
+      sfxLabels: [],
+    });
+    const joined = chain!.filters.join(";");
+    expect(joined).toContain("sidechaincompress");
+    expect(joined).not.toContain("weights=");
   });
 
   it("BGM ducking 走 sidechaincompress 闪避而非权重", () => {
@@ -258,7 +273,7 @@ describe("buildFinalAudioChain", () => {
       sfxLabels: [],
     });
     const joined = chain!.filters.join(";");
-    expect(joined).toContain("[bgmout]loudnorm=I=-16:TP=-1.5:LRA=11[amaster]");
+    expect(joined).toContain(`[bgmout]${LOUDNORM_FILTER}[amaster]`);
     expect(joined).not.toContain("amix");
   });
 
@@ -273,9 +288,7 @@ describe("buildFinalAudioChain", () => {
     const joined = chain!.filters.join(";");
     expect(joined).toContain("[voicemix][sfx0][sfx1]amix=inputs=3:normalize=0");
     expect(joined).toContain("weights='1 0.9 0.9'");
-    expect(joined).toContain(
-      "[premaster]loudnorm=I=-16:TP=-1.5:LRA=11[amaster]"
-    );
+    expect(joined).toContain(`[premaster]${LOUDNORM_FILTER}[amaster]`);
   });
 
   it("对白 + BGM + SFX 三层齐备：BGM 先入基轨，SFX 再叠加", () => {
@@ -302,9 +315,7 @@ describe("buildFinalAudioChain", () => {
       bgmTotalDuration: 0,
       sfxLabels: ["[sfx0]"],
     });
-    expect(chain!.filters).toEqual([
-      "[sfx0]loudnorm=I=-16:TP=-1.5:LRA=11[amaster]",
-    ]);
+    expect(chain!.filters).toEqual([`[sfx0]${LOUDNORM_FILTER}[amaster]`]);
   });
 
   it("bgmInputIndex 为 -1 时视为无 BGM（下载失败的降级路径）", () => {
