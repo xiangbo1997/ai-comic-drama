@@ -24,8 +24,18 @@ const singleRefConfig: AIServiceConfig = {
   protocol: "replicate",
 };
 
-/** 不支持参考图的配置 */
-const noRefConfig: AIServiceConfig = { ...multiRefConfig, protocol: "grok" };
+/**
+ * 不支持参考图的配置。
+ *
+ * 用 siliconflow 而非早先的 grok：grok 通道已接入 grok2api 的 JSON 图片编辑协议
+ * （providers/grok.ts），带参考图时会自动映射到 -edit 模型，能力表因此改判为
+ * 「支持参考图」。本用例要验证的是「provider 不支持参考图 → 回落 prompt_only」
+ * 这条与具体厂商无关的策略，故换成当前仍不支持参考图的通道，断言逐字不变。
+ */
+const noRefConfig: AIServiceConfig = {
+  ...multiRefConfig,
+  protocol: "siliconflow",
+};
 
 function makeChar(
   overrides: Partial<SceneCharacterInfo> & { name: string }

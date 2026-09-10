@@ -53,12 +53,16 @@ const IMAGE_PROVIDER_CAPABILITIES: Record<string, ImageProviderCapability> = {
     supportsInpainting: false,
     maxReferenceImages: 1,
   },
+  // grok（grok2api 网关）：图片编辑走**非 OpenAI 标准**的 JSON 协议
+  // （`POST /images/edits` + `images:[{url}]`，网关硬校验 1–8 张），已由
+  // providers/grok.ts 实现。带参考图时该 provider 会自动把生成模型映射到
+  // 上游的编辑模型（见 grok.ts 的 EDIT_MODEL_MAP），故此处声明支持参考图。
   grok: {
-    supportsReferenceImage: false,
-    supportsMultipleReferences: false,
+    supportsReferenceImage: true,
+    supportsMultipleReferences: true,
     supportsFaceId: false,
     supportsInpainting: false,
-    maxReferenceImages: 0,
+    maxReferenceImages: 8,
   },
   siliconflow: {
     supportsReferenceImage: false,
@@ -112,42 +116,84 @@ const DEFAULT_CAPABILITY: ImageProviderCapability = {
  * 着 hasReference: true，排查时完全看不出来。
  *
  * 因此在 protocol 表之上叠一层按模型名的覆盖：protocol 继续管路由，模型名
- * 管能力。匹配规则为「模型名（小写）包含下列任一片段」，无匹配时回落
+ * 管能力。匹配规则为「模型名（小写）命中 match 正则」，无匹配时回落
  * protocol 表（向后兼容，零回归）。
+ *
+ * 补充（2026-09-10）：覆盖项可再用 `protocols` 限定生效范围。因为真实能力是
+ * 「模型 × provider 实现」的组合——同一个 grok 模型走专用 grok provider 能吃
+ * 参考图，走 OpenAI 兼容通道则不能（协议不兼容）。详见各条目的 protocols 注释。
  */
 const MODEL_CAPABILITY_OVERRIDES: ReadonlyArray<{
   /** 模型名匹配规则（对小写后的模型名做 test） */
   match: RegExp;
+  /**
+   * 仅在这些 protocol 下生效；缺省表示对所有 protocol 生效。
+   *
+   * 为什么需要按 protocol 区分（2026-09-10）：同一个模型名的参考图能力，
+   * 取决于**由哪个 provider 实现去发请求**。`grok-imagine-image` 经
+   * `protocol: "grok"` 走 providers/grok.ts 时能用上 grok2api 的 JSON 编辑协议；
+   * 而经 `protocol: "openai"` 走 openai-compatible 时发的是 OpenAI 标准
+   * multipart，被 grok2api 以 HTTP 415「图片编辑仅支持 application/json」拒收，
+   * 参考图依然无效。所以能力判定必须同时看 protocol 与 model。
+   */
+  protocols?: ReadonlyArray<string>;
   /** 覆盖项：仅覆盖声明的字段，其余沿用 protocol 表 */
   capability: Partial<ImageProviderCapability>;
   /** 为什么覆盖（供日志与用户告知） */
   reason: string;
 }> = [
   {
-    // xAI grok 图像系列：/v1/images 只接受纯文本 prompt，无 image/mask 入参。
-    // 经 OpenAI 兼容网关代理时 protocol 会是 openai，必须在此强制关掉参考图。
+    // grok 图像系列经「OpenAI 兼容通道」代理时不支持参考图。
     //
     // 用正则而非精确相等：网关给的模型名常带前后缀与版本号（用户库里实际是
     // `grok-imagine-image`）。规则 = 名字里同时出现 grok 和 image/imagine，
     // 这样 grok-2-image / grok-imagine-image / 未来的 grok-5-image 都能兜住，
     // 不必逐个版本号维护清单。
+    //
+    // 限定 protocols=["openai"]：openai-compatible 对有参考图的请求发的是
+    // OpenAI 标准 multipart，grok2api 实测以 HTTP 415 拒收（「图片编辑仅支持
+    // application/json」）。要让 grok 吃到参考图，必须把 protocol 配成 `grok`
+    // 走 providers/grok.ts 的专用 JSON 协议。
     match: /grok.*(image|imagine)/,
+    protocols: ["openai"],
     capability: {
       supportsReferenceImage: false,
       supportsMultipleReferences: false,
       maxReferenceImages: 0,
     },
-    reason: "grok 图像模型本身不支持参考图（即使经 OpenAI 兼容网关代理）",
+    reason:
+      "grok 图像模型经 OpenAI 兼容通道代理时不支持参考图（该通道发 multipart，" +
+      "grok2api 只接受 JSON 编辑协议）；请把服务商协议改为「grok」以启用参考图",
+  },
+  {
+    // protocol=grok 但模型是**旧的 grok-2 图像系列**：上游没有对应的
+    // `-edit` 编辑模型（grok2api 的编辑能力只存在于 grok-imagine 系列），
+    // providers/grok.ts 的 resolveGrokEditModel 对它返回 null，参考图用不上。
+    // 这里同步下调能力，保证批 1 的防呆告知链对这类配置依然生效。
+    match: /^(?!.*imagine).*grok.*image/,
+    protocols: ["grok"],
+    capability: {
+      supportsReferenceImage: false,
+      supportsMultipleReferences: false,
+      maxReferenceImages: 0,
+    },
+    reason:
+      "该 grok 图像模型在上游没有对应的编辑模型（仅 grok-imagine 系列支持图片编辑），" +
+      "无法使用参考图；建议改用 grok-imagine-image 系列模型",
   },
 ];
 
 /** 命中的模型覆盖项；未命中返回 undefined */
 function findModelOverride(
+  protocol: string,
   model: string | undefined
 ): (typeof MODEL_CAPABILITY_OVERRIDES)[number] | undefined {
   const name = model?.trim().toLowerCase();
   if (!name) return undefined;
-  return MODEL_CAPABILITY_OVERRIDES.find((o) => o.match.test(name));
+  return MODEL_CAPABILITY_OVERRIDES.find(
+    (o) =>
+      o.match.test(name) && (!o.protocols || o.protocols.includes(protocol))
+  );
 }
 
 /**
@@ -162,7 +208,7 @@ export function getImageProviderCapability(
   model?: string
 ): ImageProviderCapability {
   const base = IMAGE_PROVIDER_CAPABILITIES[protocol] ?? DEFAULT_CAPABILITY;
-  const override = findModelOverride(model);
+  const override = findModelOverride(protocol, model);
   if (!override) return base;
   return { ...base, ...override.capability };
 }
@@ -175,7 +221,7 @@ export function describeImageCapabilityOverride(
   protocol: string,
   model?: string
 ): string | null {
-  const override = findModelOverride(model);
+  const override = findModelOverride(protocol, model);
   if (!override) return null;
   const base = IMAGE_PROVIDER_CAPABILITIES[protocol] ?? DEFAULT_CAPABILITY;
   // 仅在「基础表认为支持、覆盖表判定不支持」时才有告知价值
