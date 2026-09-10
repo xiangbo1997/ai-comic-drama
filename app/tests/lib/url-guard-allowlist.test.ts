@@ -3,6 +3,7 @@ import {
   assertSafeUrl,
   assertSafeUrlLiteral,
   isAllowlistedInternalUrl,
+  safeFetch,
 } from "@/lib/url-guard";
 
 const ORIGINAL = process.env.INTERNAL_API_ALLOWLIST;
@@ -66,5 +67,25 @@ describe("内网直连白名单（INTERNAL_API_ALLOWLIST）", () => {
   it("非 http/https 协议即使在白名单也拒绝", async () => {
     process.env.INTERNAL_API_ALLOWLIST = "file://127.0.0.1";
     await expect(assertSafeUrl("file:///etc/passwd")).rejects.toThrow(/协议/);
+  });
+});
+
+describe("safeFetch 出站路径同样受白名单约束", () => {
+  // 回归用例：首次修复只放行了 assertSafeUrl，漏了 safeFetch 内部的
+  // resolveValidated（钉 IP 防 DNS rebinding 的那一层），导致配置校验通过、
+  // 真正发请求时仍被拦 —— 线上表现为「拒绝访问内网/保留地址: 127.0.0.1」。
+  it("白名单外的内网地址仍被 safeFetch 拒绝", async () => {
+    delete process.env.INTERNAL_API_ALLOWLIST;
+    await expect(safeFetch("http://127.0.0.1:9/nope")).rejects.toThrow(
+      /内网|保留地址/
+    );
+  });
+
+  it("白名单内的地址不再因内网判定被拒（连接失败是另一类错误）", async () => {
+    process.env.INTERNAL_API_ALLOWLIST = "http://127.0.0.1:9";
+    // 端口 9 (discard) 无监听：预期是连接层失败，而非内网校验失败。
+    await expect(safeFetch("http://127.0.0.1:9/nope")).rejects.not.toThrow(
+      /内网|保留地址/
+    );
   });
 });

@@ -162,11 +162,19 @@ export async function assertSafeUrl(rawUrl: string): Promise<void> {
   }
 }
 
-/** 解析并校验 hostname 的全部地址；返回可用于钉连接的已校验地址列表 */
-async function resolveValidated(host: string): Promise<LookupAddress[]> {
+/**
+ * 解析并校验 hostname 的全部地址；返回可用于钉连接的已校验地址列表。
+ *
+ * @param allowInternal 调用方已确认该 URL 在运维白名单内（见 isAllowlistedInternalUrl）。
+ *   仅跳过内网判定，域名解析与「解析不出地址」的校验仍然执行。
+ */
+async function resolveValidated(
+  host: string,
+  allowInternal = false
+): Promise<LookupAddress[]> {
   const ipVersion = net.isIP(host);
   if (ipVersion) {
-    if (isPrivateOrReservedIp(host)) {
+    if (!allowInternal && isPrivateOrReservedIp(host)) {
       throw new Error(`拒绝访问内网/保留地址: ${host}`);
     }
     return [{ address: host, family: ipVersion }];
@@ -176,7 +184,7 @@ async function resolveValidated(host: string): Promise<LookupAddress[]> {
     throw new Error(`域名无法解析: ${host}`);
   }
   for (const { address } of results) {
-    if (isPrivateOrReservedIp(address)) {
+    if (!allowInternal && isPrivateOrReservedIp(address)) {
       throw new Error(`域名 ${host} 解析到内网/保留地址: ${address}`);
     }
   }
@@ -227,7 +235,11 @@ export async function safeDownload(
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       throw new Error(`不允许的协议: ${parsed.protocol}`);
     }
-    const pinnedAll = await resolveValidated(parsed.hostname);
+    // 白名单按每一跳独立判定：重定向到白名单外的内网地址仍会被拦截
+    const pinnedAll = await resolveValidated(
+      parsed.hostname,
+      isAllowlistedInternalUrl(current)
+    );
     const pinned = pinnedAll[0];
 
     // Node 的 LookupFunction 回调签名随 options.all 变化（(err, addr, family)
@@ -333,7 +345,9 @@ export async function safeFetch(
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`不允许的协议: ${parsed.protocol}`);
   }
-  const pinned = (await resolveValidated(parsed.hostname))[0];
+  const pinned = (
+    await resolveValidated(parsed.hostname, isAllowlistedInternalUrl(input))
+  )[0];
 
   // 动态引入 undici：仅服务端可用，避免打进客户端 bundle
   const { Agent, fetch: undiciFetch } = await import("undici");
