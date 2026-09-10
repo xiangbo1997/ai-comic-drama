@@ -88,3 +88,51 @@ export function mapEmotionToElevenLabs(
   const key = emotion.trim().toLowerCase() as SceneEmotion;
   return ELEVENLABS_EMOTION_MAP[key];
 }
+
+/**
+ * 情绪 → 语速系数。
+ *
+ * 表演不只是换个音色：愤怒/惊讶要抢拍，悲伤/恐惧要拖住。此前旁白与对白
+ * 共用同一个 emotion 和同一个语速，悲伤的镜头里两者都用 1.1x 快语速冲过去，
+ * 该慢的地方没慢下来——这是表演最忌讳的。
+ *
+ * 数值取配音导演的常用区间；乘到基准语速后由调用方 clamp 到 provider 合法域
+ * （gpt-sovits 的 SPEED_MIN/MAX 为 0.5-2.0）。
+ */
+const EMOTION_SPEED_FACTOR: Record<SceneEmotion, number> = {
+  neutral: 1.0,
+  happy: 1.05,
+  sad: 0.9,
+  angry: 1.15,
+  surprised: 1.2,
+  fear: 1.1,
+};
+
+/** 语速合法域（与 gpt-sovits provider 的 SPEED_MIN/MAX 契约一致） */
+const SPEED_MIN = 0.5;
+const SPEED_MAX = 2.0;
+
+/**
+ * 按情绪调整语速。未知/空情绪返回基准值本身（零回归）。
+ * 结果 clamp 到 0.5-2.0，避免叠加用户自定义语速后越界被 provider 拒绝。
+ */
+export function applyEmotionSpeed(
+  baseSpeed: number,
+  emotion?: string | null
+): number {
+  if (!emotion) return baseSpeed;
+  const key = emotion.trim().toLowerCase() as SceneEmotion;
+  const factor = EMOTION_SPEED_FACTOR[key];
+  if (!factor) return baseSpeed;
+  const adjusted = baseSpeed * factor;
+  return Math.min(SPEED_MAX, Math.max(SPEED_MIN, adjusted));
+}
+
+/**
+ * 旁白语速系数：比对白慢 5%。
+ *
+ * 旁白是说书人不是角色——它的职责是交代信息、控制节奏。跟着角色情绪一起
+ * 愤怒是外行做法（"三年后，林家大宅"用暴怒语气念，听感极其怪异）。
+ * 工业配置是旁白恒中性 + 略慢于对白。
+ */
+export const NARRATION_SPEED_FACTOR = 0.95;

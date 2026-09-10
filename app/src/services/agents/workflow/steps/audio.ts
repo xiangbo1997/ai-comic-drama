@@ -7,6 +7,7 @@
 
 import { synthesizeSpeech } from "@/services/ai";
 import { resolveDialogueVoiceId } from "@/lib/tts-voice";
+import { applyEmotionSpeed, NARRATION_SPEED_FACTOR } from "@/lib/tts-emotion";
 import { concatAudioBuffers } from "@/services/video-synthesis";
 import type { ProjectCharacterMap } from "../project-characters";
 import type { SceneArtifact } from "../../types";
@@ -69,8 +70,9 @@ export async function synthesizeSceneAudio(params: {
       await synthesizeSpeech({
         text: narration,
         voiceId: narratorVoiceId,
-        speed: ttsSpeed,
-        emotion,
+        // 旁白恒中性、略慢于对白：旁白是说书人不是角色，跟着角色情绪一起愤怒
+        // 是外行做法（"三年后，林家大宅"用暴怒语气念，听感极其怪异）。
+        speed: ttsSpeed * NARRATION_SPEED_FACTOR,
         config: ttsConfig,
       })
     );
@@ -80,7 +82,8 @@ export async function synthesizeSceneAudio(params: {
       await synthesizeSpeech({
         text: dialogue,
         voiceId: dialogueVoiceId,
-        speed: ttsSpeed,
+        // 对白走情绪语速：愤怒/惊讶抢拍，悲伤/恐惧拖住
+        speed: applyEmotionSpeed(ttsSpeed, emotion),
         emotion,
         config: ttsConfig,
       })

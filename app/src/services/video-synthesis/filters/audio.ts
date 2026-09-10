@@ -129,6 +129,34 @@ export function buildBgmFilter(
 export const LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.0:LRA=9";
 
 /**
+ * 人声预处理链 —— 在配音进混音前单独处理，loudnorm 替代不了它。
+ *
+ * loudnorm 做的是**整片响度归一**，解决不了「同一句话内强弱差 15dB」：
+ * 激动台词爆音、轻声台词在手机外放时被 BGM 淹没。专业流程里人声进混音前
+ * 必须单独走一遍处理，这是「能听」和「像专业配的」的分界。
+ *
+ * 四段（顺序不可换）：
+ * 1. `highpass=f=80` —— 切掉 80Hz 以下，TTS 合成音的低频隆隆声与直流偏移
+ * 2. `acompressor` —— 把动态收到 6-8dB 内。⚠️ ffmpeg 的 threshold 是**线性值**
+ *    （0.000976563–1）不是 dB：0.126 ≈ -18dB。ratio=3 是对白常用值（上限 20）。
+ *    attack/release 单位 ms。makeup 是**增益倍数**（1–64），2 ≈ +6dB 补回压掉的响度。
+ * 3. `deesser` —— 齿音抑制。i=强度、f=频点（归一化 0-1，0.5 约对应 6kHz 附近）。
+ *    TTS 的 s/sh/z 音尤其刺耳，中文「四、十、是」高频集中。
+ * 4. `alimiter` —— 削峰兜底，limit 是线性值（0.0625–1），0.95 ≈ -0.45dBFS。
+ *
+ * ⚠️ 必须插在 `adelay` **之前**：adelay 会给流加静音前缀，压缩器的阈值判断
+ * 会把这段静音算进 RMS 检测窗口，导致开头几百毫秒压缩不准。
+ * 与 `atempo` 的关系：放在 atempo **之后**——变速改变的是时间轴，
+ * 压缩器的 attack/release 是绝对毫秒数，先变速后压缩才能拿到成片里真实的包络。
+ */
+export const VOICE_CHAIN = [
+  "highpass=f=80",
+  "acompressor=threshold=0.126:ratio=3:attack=5:release=80:makeup=2:detection=rms",
+  "deesser=i=0.35:f=0.5",
+  "alimiter=limit=0.95:attack=5:release=50",
+].join(",");
+
+/**
  * 构建「最终混音链」——统一收口 对白 + BGM + SFX 三层，末尾套 loudnorm 归一化。
  *
  * 混音层级 voice > SFX > BGM > ambient：对白权重最高，SFX 次之（叠加、稍低），

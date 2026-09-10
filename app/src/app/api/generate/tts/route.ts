@@ -17,6 +17,7 @@ import {
   resolveDialogueVoiceId,
   resolveNarratorVoiceId,
 } from "@/lib/tts-voice";
+import { applyEmotionSpeed, NARRATION_SPEED_FACTOR } from "@/lib/tts-emotion";
 import { z } from "zod";
 const log = createLogger("api:generate:tts");
 
@@ -248,28 +249,33 @@ export async function POST(request: NextRequest) {
         // 调用 TTS 服务。双段模式（旁白 + 对白都在）分别合成后拼接，
         // 与一键 workflow 的 synthesizeSceneAudio 完全对等：旁白（说书人声线）
         // 在前、对白（角色声线）在后；单段模式行为不变。
+        // 表演分层（与 workflow 的 synthesizeSceneAudio 对等）：
+        // 旁白恒中性 + 慢 5%（说书人不跟角色情绪走）；对白按情绪调速。
         const audioBuffer = isDualSegment
           ? await concatAudioBuffers([
               await synthesizeSpeech({
                 text: narrationText,
                 voiceId: narrationVoiceId,
-                speed,
-                emotion: sceneEmotion,
+                speed: speed * NARRATION_SPEED_FACTOR,
                 config: ttsConfig ?? undefined,
               }),
               await synthesizeSpeech({
                 text: dialogueText,
                 voiceId,
-                speed,
+                speed: applyEmotionSpeed(speed, sceneEmotion),
                 emotion: sceneEmotion,
                 config: ttsConfig ?? undefined,
               }),
             ])
-          : await synthesizeSpeech({
+          : // 单段模式按 kind 判定语义：narration 走旁白参数，dialogue 走情绪语速
+            await synthesizeSpeech({
               text,
               voiceId,
-              speed,
-              emotion: sceneEmotion,
+              speed:
+                kind === "narration"
+                  ? speed * NARRATION_SPEED_FACTOR
+                  : applyEmotionSpeed(speed, sceneEmotion),
+              emotion: kind === "narration" ? undefined : sceneEmotion,
               config: ttsConfig ?? undefined,
             });
 

@@ -17,6 +17,7 @@ import {
   buildAtempoChain,
   buildFinalAudioChain,
   LOUDNORM_FILTER,
+  VOICE_CHAIN,
 } from "@/services/video-synthesis/filters/audio";
 import { hexToAssColor } from "@/services/video-synthesis/ass/builder";
 import { KEN_BURNS_PARAMS, CLIP_FPS } from "@/lib/impact-effect-params";
@@ -329,5 +330,45 @@ describe("buildFinalAudioChain", () => {
     const joined = chain!.filters.join(";");
     expect(joined).not.toContain("[bgmout]");
     expect(joined).toContain("[voicemix]");
+  });
+});
+
+describe("VOICE_CHAIN 人声预处理链", () => {
+  it("四段齐全且顺序正确", () => {
+    const stages = VOICE_CHAIN.split(",").map((s) => s.split("=")[0]);
+    expect(stages).toEqual(["highpass", "acompressor", "deesser", "alimiter"]);
+  });
+
+  it("acompressor 的 threshold 用线性值而非 dB（ffmpeg 取值域 0.000976563-1）", () => {
+    const match = VOICE_CHAIN.match(/acompressor=threshold=([\d.]+)/);
+    expect(match).not.toBeNull();
+    const threshold = Number(match![1]);
+    expect(threshold).toBeGreaterThan(0.000976563);
+    expect(threshold).toBeLessThanOrEqual(1);
+    // 0.126 ≈ -18dB，对白压缩的常用起压点
+    expect(threshold).toBeCloseTo(0.126, 3);
+  });
+
+  it("ratio 落在 ffmpeg 合法区间（1-20）且是对白常用值", () => {
+    const ratio = Number(VOICE_CHAIN.match(/ratio=([\d.]+)/)![1]);
+    expect(ratio).toBeGreaterThanOrEqual(1);
+    expect(ratio).toBeLessThanOrEqual(20);
+    expect(ratio).toBe(3);
+  });
+
+  it("makeup 是增益倍数（1-64）不是 dB", () => {
+    const makeup = Number(VOICE_CHAIN.match(/makeup=([\d.]+)/)![1]);
+    expect(makeup).toBeGreaterThanOrEqual(1);
+    expect(makeup).toBeLessThanOrEqual(64);
+  });
+
+  it("alimiter 的 limit 是线性值（0.0625-1），留出削峰余量", () => {
+    const limit = Number(VOICE_CHAIN.match(/limit=([\d.]+)/)![1]);
+    expect(limit).toBeGreaterThanOrEqual(0.0625);
+    expect(limit).toBeLessThan(1);
+  });
+
+  it("不含 dB 后缀——ffmpeg 这几个滤镜的阈值参数均不接受 dB 单位", () => {
+    expect(VOICE_CHAIN).not.toMatch(/=-?[\d.]+dB/i);
   });
 });

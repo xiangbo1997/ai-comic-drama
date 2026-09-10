@@ -54,6 +54,7 @@ import {
   buildFinalAudioChain,
   buildSfxFilters,
   buildSfxSchedule,
+  VOICE_CHAIN,
   type SfxScheduleItem,
 } from "@/services/video-synthesis/filters/audio";
 // 调色 / 字幕 / 水印滤镜串：video-synthesis/filters/color.ts
@@ -1116,11 +1117,18 @@ export async function synthesizeVideoToPath<T>(
           const delayMs = Math.round(currentTime * 1000);
           const tempoChain =
             voiceSpeed !== 1 ? buildAtempoChain(voiceSpeed) : [];
-          // 先变速再 adelay：atempo 只压缩流自身长度，adelay 的偏移量是成片时间轴
-          // 绝对值，顺序颠倒会把延迟本身也一起压缩掉。
-          const chain = [...tempoChain, `adelay=${delayMs}|${delayMs}`].join(
-            ","
-          );
+          // 顺序：atempo → VOICE_CHAIN → adelay，三段都不能换位。
+          // - 先变速再 adelay：atempo 只压缩流自身长度，adelay 的偏移量是成片
+          //   时间轴绝对值，顺序颠倒会把延迟本身也一起压缩掉。
+          // - VOICE_CHAIN 在 atempo 之后：压缩器的 attack/release 是绝对毫秒数，
+          //   先变速后压缩才能拿到成片里真实的包络。
+          // - VOICE_CHAIN 在 adelay 之前：adelay 加的静音前缀会被压缩器算进
+          //   RMS 检测窗口，导致开头几百毫秒压缩不准。
+          const chain = [
+            ...tempoChain,
+            VOICE_CHAIN,
+            `adelay=${delayMs}|${delayMs}`,
+          ].join(",");
           audioFilters.push(`[${audioIndex + 1}:a]${chain}[a${audioIndex}]`);
           audioIndex++;
           // 探测配音真实时长供字幕对齐（探测失败留 undefined，字幕回退按镜时长分配）。
