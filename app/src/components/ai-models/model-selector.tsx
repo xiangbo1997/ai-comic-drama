@@ -62,10 +62,21 @@ export function ModelSelector({
     staleTime: 30000, // 30秒内不重新请求
   });
 
-  // 过滤出当前分类的配置
-  const configs: UserConfig[] = (data?.configs || []).filter(
-    (c: UserConfig) =>
-      c.provider.category === category && c.testStatus === "SUCCESS"
+  // 当前分类的全部配置（含未测试/测试失败的，用于空态诊断）
+  const categoryConfigs: UserConfig[] = (data?.configs || []).filter(
+    (c: UserConfig) => c.provider.category === category
+  );
+
+  // 可选配置：仅测试成功的才允许被选中生成，避免拿一个连通性未知的配置去烧积分
+  const configs: UserConfig[] = categoryConfigs.filter(
+    (c) => c.testStatus === "SUCCESS"
+  );
+
+  // 已配置但未通过测试的（含 testStatus 为 null 的「从未测试」）。
+  // 这些配置在设置页可见、甚至可被设为「默认」，却不会出现在这里——
+  // 若不显式说明，用户会看到「我明明设了默认却选不到」的矛盾（实际发生过）。
+  const untestedConfigs = categoryConfigs.filter(
+    (c) => c.testStatus !== "SUCCESS"
   );
 
   // 找到默认配置
@@ -110,12 +121,23 @@ export function ModelSelector({
   }
 
   if (configs.length === 0) {
+    // 区分「没配过」与「配了但没测试通过」——后者用户已经做了配置工作，
+    // 只是缺最后一步测试，给出的指引必须不同，否则他会反复去检查配置本身。
+    const hint =
+      untestedConfigs.length > 0
+        ? `${untestedConfigs.map((c) => c.provider.name).join("、")} 需先测试`
+        : "配置模型";
     return (
       <a
         href="/settings/ai-models"
+        title={
+          untestedConfigs.length > 0
+            ? "配置需测试成功后才能用于生成：请到「设置 > AI 模型」点该配置的测试按钮"
+            : undefined
+        }
         className={`text-primary hover:text-primary/80 ${size === "sm" ? "text-xs" : "text-sm"}`}
       >
-        配置模型
+        {hint}
       </a>
     );
   }
@@ -172,6 +194,30 @@ export function ModelSelector({
                 )}
               </button>
             ))}
+
+            {/* 已配置但未通过测试的配置：列出来并说明原因。
+                不列的话，用户在设置页看到它（甚至标着「默认」）却在这里找不到，
+                会误以为是 bug 或配置丢失——静默过滤是最难排查的一类问题。 */}
+            {untestedConfigs.length > 0 && (
+              <div className="border-border mt-1 border-t pt-1">
+                {untestedConfigs.map((config) => (
+                  <div
+                    key={config.id}
+                    className="px-3 py-2 text-left text-sm opacity-50"
+                    title="该配置尚未测试成功，无法用于生成。请到「设置 > AI 模型」点测试按钮"
+                  >
+                    <div className="text-muted-foreground truncate">
+                      {getDisplayName(config)}
+                    </div>
+                    <div className="truncate text-xs text-amber-500/80">
+                      {config.testStatus === "FAILED"
+                        ? "测试失败，去设置页重试"
+                        : "未测试，去设置页点测试"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
