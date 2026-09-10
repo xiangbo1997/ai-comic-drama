@@ -276,6 +276,8 @@ export async function POST(request: NextRequest) {
               composition: true,
               colorPalette: true,
               locationKey: true,
+              // 角色站位（180 度轴线）：进构图段，让角色固定在画面一侧、视线对上
+              screenSide: true,
               selectedCharacterIds: true,
               // 零角色回退（A4）：仅在 selectedCharacterIds 与 selectedCharacter
               // 都空时消费。SceneCharacter 是分镜↔角色关联表（continuity-check /
@@ -555,6 +557,9 @@ export async function POST(request: NextRequest) {
                 emotion: scene.emotion,
                 isClimax: scene.isClimax,
                 aspectRatio,
+                // 角色站位（180 度轴线）：解析层定好的左右关系必须喂给模型，
+                // 否则角色位置逐镜随机翻转、视线对不上（观众说不出为什么但会觉得晕）
+                screenSide: scene.screenSide as Record<string, string> | null,
                 promptStyle: promptStyleFromProtocol(imageConfig?.protocol),
               });
               cinematicsInjected = true;

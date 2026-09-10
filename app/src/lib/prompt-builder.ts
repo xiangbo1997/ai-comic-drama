@@ -73,6 +73,38 @@ export function promptStyleFromProtocol(
   return p && SD_FAMILY_PROTOCOLS.has(p) ? "tags" : "natural";
 }
 
+/**
+ * 把角色站位（180 度轴线）翻成英文构图短语。
+ *
+ * left 的角色面向右、right 的角色面向左——这样两人视线才能对上；
+ * 若不喂给模型，解析层定好的轴线在出图端等于不存在，校验出越轴也修不了。
+ * 无站位数据 / 全 center / 空对象一律返回 null（不注入噪音）。
+ */
+export function buildScreenSidePhrases(
+  screenSide?: Record<string, string> | null
+): string | null {
+  if (!screenSide) return null;
+
+  const phrases = Object.entries(screenSide)
+    .map(([name, side]) => {
+      const who = name.trim();
+      if (!who) return null;
+      if (side === "left")
+        return `${who} on the left side of frame, facing right`;
+      if (side === "right")
+        return `${who} on the right side of frame, facing left`;
+      if (side === "center") return `${who} centered in frame`;
+      return null;
+    })
+    .filter((p): p is string => p !== null);
+
+  if (phrases.length === 0) return null;
+  // 多人对话才需要强调轴线一致性；单人只给位置不加轴线说明
+  const axisNote =
+    phrases.length >= 2 ? ", consistent 180-degree axis, eyelines matched" : "";
+  return `${phrases.join(", ")}${axisNote}`;
+}
+
 /** 分级镜头语言：解析层产出的 cameraAngle/lighting/composition/colorPalette。 */
 export interface SceneCinematics {
   cameraAngle?: string | null;
@@ -107,6 +139,12 @@ export interface BuildPromptOptions {
   isClimax?: boolean;
   /** 画幅（9:16 时注入竖屏构图基线）。 */
   aspectRatio?: string | null;
+  /**
+   * 角色站位（180 度轴线）：{"角色名": "left"|"right"|"center"}。
+   * 解析层产出，注入构图段让模型把角色摆到固定一侧、视线互相对上。
+   * 留空则不注入（行为与接入前逐字一致）。
+   */
+  screenSide?: Record<string, string> | null;
   /** 质量词风格（SD 系用 tags，指令类用 natural）。缺省 natural（安全默认）。 */
   promptStyle?: PromptQualityStyle;
   /**
@@ -147,6 +185,7 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     emotionIntensity,
     isClimax,
     aspectRatio,
+    screenSide,
     promptStyle = "natural",
   } = options;
 
@@ -163,6 +202,12 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
   if (cameraAngle) parts.push(cameraAngle);
   const composition = cinematics?.composition?.trim();
   if (composition) parts.push(composition);
+  // 2b. 角色站位（180 度轴线）：把 screenSide 翻成英文构图短语。
+  //     校验出越轴却不喂给模型等于修不了——必须在这里落到 prompt 上。
+  //     left 的角色面向右、right 的角色面向左，这样两人视线才能对上。
+  const screenSidePhrases = buildScreenSidePhrases(screenSide);
+  if (screenSidePhrases) parts.push(screenSidePhrases);
+
   // 9:16 竖屏构图基线（漫剧默认竖屏，需主体上移+纵深强调）
   if (aspectRatio === "9:16") {
     parts.push(

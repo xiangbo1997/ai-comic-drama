@@ -280,6 +280,9 @@ export async function rebuildProjectScenes(
       actionBeat: scene.actionBeat || null,
       // 地点标签：LLM 解析产出，供场景锚定图（环境一致性）分组
       locationKey: scene.locationKey || null,
+      // 角色站位（180 度轴线）：LLM 解析产出，出图时翻成英文构图短语
+      // 让角色固定在画面一侧、视线互相对上。缺省 null（单人镜/空镜）。
+      screenSide: scene.screenSide ?? null,
       // 叙事节拍（批4）：beatType 驱动默认冲击效果与视频动作强度；
       // isClimax 高潮镜标记（出图夸张表情升档、生成侧豁免裁剪）
       beatType:

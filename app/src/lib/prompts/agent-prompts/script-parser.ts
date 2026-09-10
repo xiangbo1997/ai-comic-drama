@@ -47,6 +47,7 @@ export const SCRIPT_PARSER_SYSTEM = `你是一个专业的漫剧分镜编剧，�
 - 仅当剧情【明确要求】某角色穿非默认着装（婚纱/战损/雨夜湿透/睡衣等）时，给该分镜加 characterOutfits: [{"name":角色名,"outfit":服装短语≤10字}]；同一套衣服跨分镜用【完全相同】短语（同 locationKey 纪律）；日常/默认着装一律省略此字段（绝大多数分镜没有它），禁止输出空数组
 - linkNext（可选布尔）：仅当本镜与下一镜【同一 locationKey】且动作/时间连续（进门/伸手/转身等空间连续动作）时置 true；跳切/换地点/时间跳跃一律省略该字段
 - 环境与空间一致性：description 必须写明主体在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）；每个地点首次出现尽量用全景/远景建立场景空间；每个分镜 description 必须自足，不得用"同上""延续上一镜"等指代
+- screenSide（角色站位，多人对话戏必填）：格式 {"角色名":"left"|"right"|"center"}。【180 度轴线纪律】同一 locationKey 内的连续对话戏，某角色首次被定为 left，之后【所有分镜他都必须是 left】，不得翻转；两人对话标准配置是 A 在 left（面向右）、B 在 right（面向左），整场戏不得互换。唯一例外是角色在镜内实际走位换边，此时该镜 description 必须写明走位过程。单人镜/空镜省略此字段。description 里的角色面向必须与 screenSide 一致。违反轴线会让角色左右位置逐镜随机翻转、视线对不上，观众说不出为什么但会觉得"看着晕、不专业"
 
 ${EPISODE_HOOK_RULES}
 
@@ -123,7 +124,8 @@ ${text}
       "cameraMovement": "dolly_in",
       "actionBeat": "角色缓步向前，抬手推开半掩的门，目光扫过屋内",
       "locationKey": "老宅门厅",
-      "characterOutfits": [{ "name": "角色A", "outfit": "白色婚纱" }]
+      "characterOutfits": [{ "name": "角色A", "outfit": "白色婚纱" }],
+      "screenSide": { "角色A": "left", "角色B": "right" }
     }
   ],
   "characters": [

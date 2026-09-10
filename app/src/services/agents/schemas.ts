@@ -68,6 +68,28 @@ export const CharacterOutfitsSchema = z
   })
   .catch(undefined);
 
+/**
+ * 角色站位（180 度轴线）—— {"角色名": "left" | "right" | "center"}。
+ *
+ * 为什么需要：对话戏是漫剧的绝对主体，而全库此前没有任何轴线概念——
+ * LLM 每镜独立描述"某某在画面左侧"，无机制保证跨镜一致，结果 A 和 B 每两三镜
+ * 就左右互换、视线对不上（两人都看向画面右边，像各自对着空气说话）。
+ * 这在真人剪辑里是明确事故，在漫剧里观众说不出为什么，只会觉得"看着晕"。
+ *
+ * 作用域跟随 locationKey：换地点即新的一场戏，可重新定轴。
+ * 宽容降级（对齐 LocationKeySchema 风格）：非法值回落 undefined，
+ * 不因它让整镜结构校验失败——站位是增强项，缺了不该阻断解析。
+ */
+export const ScreenSideSchema = z
+  .record(z.string(), z.enum(["left", "right", "center"]))
+  .optional()
+  .transform((rec) => {
+    if (!rec) return undefined;
+    const entries = Object.entries(rec).filter(([name]) => name.trim());
+    return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+  })
+  .catch(undefined);
+
 // ============ ScriptArtifact ============
 
 export const SceneScriptZ = z.object({
@@ -94,6 +116,10 @@ export const SceneScriptZ = z.object({
   linkNext: z.boolean().optional().catch(undefined),
   // 分镜级换装标注（仅剧情非默认着装时出现，供场景定妆照换装）
   characterOutfits: CharacterOutfitsSchema,
+  // 180 度轴线：角色站位（多人对话戏必填）。同一 locationKey 内某角色的站位
+  // 不得跨镜翻转，否则观众看到角色左右位置随机互换、视线对不上——这是
+  // AI 漫剧最难察觉但最伤质感的破绽。宽容降级：非法值回落 undefined。
+  screenSide: ScreenSideSchema,
 });
 
 export const ScriptArtifactZ = z.object({
@@ -212,6 +238,8 @@ export const SceneArtifactZ = z.object({
   locationKey: LocationKeySchema,
   // 分镜级换装标注（仅剧情非默认着装时出现，供场景定妆照换装）
   characterOutfits: CharacterOutfitsSchema,
+  // 角色站位：从解析层透传到分镜层，供出图 prompt 表达轴线
+  screenSide: ScreenSideSchema,
 });
 
 export const StoryboardArtifactZ = z.object({

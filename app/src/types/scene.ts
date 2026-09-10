@@ -59,6 +59,11 @@ export interface Scene {
    * 出图时据此按角色换成场景定妆照（换装变体），锁服装正确性。
    */
   characterOutfits?: Array<{ name: string; outfit: string }>;
+  /**
+   * 角色站位（180 度轴线）：{"角色名": "left" | "right" | "center"}。
+   * 同一 locationKey 内不得跨镜翻转，否则角色左右位置随机互换、视线对不上。
+   */
+  screenSide?: Record<string, "left" | "right" | "center"> | null;
   imageUrl: string | null;
   videoUrl: string | null;
   audioUrl: string | null;
@@ -152,6 +157,12 @@ export interface SceneScript {
    * 同一套衣服跨分镜用完全相同的短语（同 locationKey 纪律）；日常/默认着装省略。
    */
   characterOutfits?: Array<{ name: string; outfit: string }>;
+  /**
+   * 角色站位（180 度轴线）：{"角色名": "left" | "right" | "center"}。
+   * 多人对话戏必填；同一 locationKey 内某角色的站位整场戏不得翻转，
+   * 唯一例外是镜内实际走位换边（此时 description 须写明走位过程）。
+   */
+  screenSide?: Record<string, "left" | "right" | "center">;
 }
 
 /** 剧本解析完整结果 */

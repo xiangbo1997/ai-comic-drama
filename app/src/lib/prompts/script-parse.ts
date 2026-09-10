@@ -69,6 +69,11 @@ ${buildSfxTagListForPrompt()}
 12. beatType: 叙事节拍类型（可选）。仅当该镜是明确的节拍重音时输出：impact（打击/冲突爆发/物理撞击）、reveal（反转/揭秘/真相揭晓）、emotional（情绪高点/爆发哭喊）；平铺直叙的常规镜一律【省略】该字段（绝大多数分镜没有它）。impact/reveal 全片各 ≤3 处，克制使用——节拍重音多了等于没有。
 13. isClimax: 高潮镜标记（可选布尔）。每集只有 1-2 镜是全集情绪顶点（最大冲突爆发/最狠反转），仅这些镜置 true；其余一律【省略】。
 14. emphasis: 金句花字标记（可选布尔）。仅当该镜台词是【全集级金句/怒吼/高潮宣言】（一句话点题、决绝反击、情绪炸点，值得放大成花字）时置 true。【克制纪律】每集 1-3 处；只标有 dialogue 的镜（旁白不算），普通对白一律【省略】。花字多了等于没有——宁缺毋滥。
+15. screenSide: 角色站位（可选对象，多人对话戏必填）。格式 {"角色名":"left"|"right"|"center"}。
+    【180 度轴线纪律 —— 违反会让观众看晕】同一 locationKey 内的连续对话戏，某角色首次被定为 left，之后【所有分镜他都必须是 left】，不得翻转。
+    两人对话的标准配置：A 在 left（面向右），B 在 right（面向左）——这个左右关系整场戏不得互换。
+    唯一例外：角色在镜内实际走位换边时可改，此时该镜 description 必须写明走位过程（如"绕过桌子走到窗边"）。
+    单人镜/空镜一律【省略】该字段。description 里的角色面向必须与 screenSide 一致（left 的角色面向右，right 的角色面向左）。
 
 【环境与空间一致性（务必遵守）】
 - description 必须写明主体元素在画面中的位置（左/中/右、前景/背景）与角色面向（面向镜头/背对/侧面）。
@@ -173,7 +178,8 @@ ${NARRATION_DISCIPLINE_RULES}
   "locationKey": "陆宅客厅",
   "beatType": "emotional",
   "isClimax": true,
-  "emphasis": true
+  "emphasis": true,
+  "screenSide": { "林萧": "left", "陆沉": "right" }
 }
 
 【断点优先（顶层 hookType / endingHook）】
