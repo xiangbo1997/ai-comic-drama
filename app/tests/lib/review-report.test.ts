@@ -1091,7 +1091,7 @@ describe("assembleReviewReport · 镜头语言", () => {
     expect(sug?.sceneOrder).toBe(3);
   });
 
-  it("景别样本不足 → warn 但只提示补标，不扣成 bad", () => {
+  it("景别样本不足 → ok（体检没跑 ≠ 没通过），但 lines 留痕说明未体检", () => {
     const report = assembleReviewReport({
       scenes: [
         scene({ id: "a", order: 0, shotType: null }),
@@ -1103,8 +1103,29 @@ describe("assembleReviewReport · 镜头语言", () => {
       ...compliantInput,
     });
     const s = findSection(report, "shotLanguage");
-    expect(s.status).toBe("warn");
+    // 缺数据不扣分：与叙事质量节「未评审 → ok」语义一致，且报告只读无阻断，
+    // 不可行动的 warn 只会白降一个等级
+    expect(s.status).toBe("ok");
     expect(s.lines.join("\n")).toContain("样本不足");
+    expect(s.lines.join("\n")).toContain("未做序列体检");
+  });
+
+  it("复合景别项目不因样本不足而漏检（B1 归一先于 recognizedCount 统计）", () => {
+    // 若 recognizedCount 用裸 shotType 统计，drama-script 路径会全数不识别 →
+    // 误报「样本不足」，等于用 B2 的判据掩盖 B1 修好的 P0
+    const report = assembleReviewReport({
+      scenes: [
+        scene({ id: "a", order: 0, shotType: "大全景·缓推" }),
+        scene({ id: "b", order: 1, shotType: "中景→特写·快速推近" }),
+        scene({ id: "c", order: 2, shotType: "近景·横移" }),
+      ],
+      hookType: "悬念",
+      continuitySummary: okContinuity,
+      ...compliantInput,
+    });
+    const s = findSection(report, "shotLanguage");
+    expect(s.lines.join("\n")).not.toContain("样本不足");
+    expect(s.lines.join("\n")).toContain("3 个分镜标注了景别");
   });
 
   it("九宫格复合景别路径同样参与体检（B1 归一贯通到审片）", () => {
@@ -1123,13 +1144,15 @@ describe("assembleReviewReport · 镜头语言", () => {
     expect(s.lines.join("\n")).toContain("连续 3 个特写");
   });
 
-  it("无分镜 → warn 不崩", () => {
+  it("无分镜 → ok 不崩（缺分镜由完整性节单独报，不在此重复扣分）", () => {
     const report = assembleReviewReport({
       scenes: [],
       hookType: "悬念",
       continuitySummary: okContinuity,
       ...compliantInput,
     });
-    expect(findSection(report, "shotLanguage").status).toBe("warn");
+    const s = findSection(report, "shotLanguage");
+    expect(s.status).toBe("ok");
+    expect(s.lines.join("\n")).toContain("未做镜头语言体检");
   });
 });

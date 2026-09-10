@@ -1026,12 +1026,13 @@ function buildShotLanguageSection(
 ): ReviewSection {
   const lines: string[] = [];
 
+  // 无分镜：同「样本不足」——没跑体检，不是没通过（完整性节已单独报缺分镜）
   if (scenes.length === 0) {
     return {
       key: "shotLanguage",
       title: "镜头语言",
-      status: "warn",
-      lines: ["尚无分镜，无法评估镜头语言。"],
+      status: "ok",
+      lines: ["尚无分镜，未做镜头语言体检。"],
     };
   }
 
@@ -1043,16 +1044,25 @@ function buildShotLanguageSection(
     }))
   );
 
-  // 样本不足：绝大多数镜没标景别（解析层漏填 / 老项目），无法体检——
-  // 给提示但不扣分（缺数据 ≠ 镜头语言差）。
+  // 样本不足：可识别景别 <2 镜，无法比较任何相邻对——体检**没跑**，不是没通过。
+  //
+  // 判 ok 而非 warn，理由三条：
+  // 1) 「没数据」与「有缺陷」是两种状态；叙事质量节在未评审时同样返回 ok，
+  //    同一份报告里两个节对同一种情况必须给一致语义。
+  // 2) 命中的正好是系统自己造成数据缺口的那批项目（归一化之前的存量项目、
+  //    1-2 镜的草稿）——因系统自身缺口去扣项目的分是最坏的版本。
+  // 3) 本文件每条 warn 都对应具体动作（拆分长镜 / 精简台词），而报告是 GET 只读
+  //    无阻断能力，唯一价值就是可行动信号；不可行动的 warn 是噪音还白降一级。
+  //
+  // 但仍在 lines 里留一行说明「这项没跑」，好过静默返回 ok。
   if (analysis.recognizedCount < 2) {
     return {
       key: "shotLanguage",
       title: "镜头语言",
-      status: "warn",
+      status: "ok",
       lines: [
-        `仅 ${analysis.recognizedCount} 个分镜标注了可识别景别（特写/近景/中景/全景/远景），样本不足无法体检景别序列。`,
-        "可在分镜卡逐镜补标景别，或用「智能拆解分镜」重新解析以带上景别。",
+        `景别样本不足（识别到 ${analysis.recognizedCount} 镜），未做序列体检。`,
+        "如需体检镜头语言，可在分镜卡逐镜补标景别，或用「智能拆解分镜」重新解析以带上景别。",
       ],
     };
   }
