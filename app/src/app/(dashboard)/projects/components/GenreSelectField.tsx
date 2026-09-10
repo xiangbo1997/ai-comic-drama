@@ -12,6 +12,7 @@
  * 数据全部来自 lib/genre-matrix.ts（单一真源），本组件只消费不定义。
  */
 
+import { useState } from "react";
 import { Info, AlertTriangle, Ban } from "lucide-react";
 import {
   GENRE_TIER_GROUPS,
@@ -41,6 +42,15 @@ const SEVERITY_STYLES: Record<string, string> = {
   danger: "border-red-500/40 bg-red-500/10 text-red-200",
 };
 
+/**
+ * 「自定义题材」哨兵值。
+ *
+ * 用不可能与真实题材 id 冲突的值，避免用户输入的题材名恰好等于哨兵时
+ * 把下拉卡在自定义态。它只存在于 select 的 UI 层，绝不会落库——
+ * 切到自定义态时 onChange("") 会先清空，实际值由下方输入框接管。
+ */
+const CUSTOM_OPTION = "__custom__";
+
 export function GenreSelectField({
   value,
   onChange,
@@ -53,6 +63,9 @@ export function GenreSelectField({
   // 矩阵外的自由文本题材（如 AI 起草回填的类型名）：补一个选项承接它，
   // 否则 select 的 value 不在 options 里会被浏览器重置为第一项，静默丢掉用户/AI 的值。
   const freeformValue = value && !selected ? value : null;
+  // 自定义输入态：用户主动选「自定义题材…」后展开输入框。
+  // 已有矩阵外的值（AI 回填 / 存量系列）默认走上面的「其它：xxx」选项，不强制进输入态。
+  const [customMode, setCustomMode] = useState(false);
 
   return (
     <div>
@@ -63,13 +76,23 @@ export function GenreSelectField({
         </span>
       </label>
       <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={customMode ? CUSTOM_OPTION : value}
+        onChange={(e) => {
+          const next = e.target.value;
+          if (next === CUSTOM_OPTION) {
+            // 切到自定义：清空当前值，交给下面的输入框接管
+            setCustomMode(true);
+            onChange("");
+            return;
+          }
+          setCustomMode(false);
+          onChange(next);
+        }}
         disabled={disabled}
         className="bg-card w-full rounded-lg p-2 text-sm disabled:opacity-60"
       >
         <option value="">不指定，由 AI 判断</option>
-        {freeformValue && (
+        {freeformValue && !customMode && (
           <option value={freeformValue}>其它：{freeformValue}</option>
         )}
         {GENRE_TIER_GROUPS.map((group) => (
@@ -84,7 +107,24 @@ export function GenreSelectField({
             ))}
           </optgroup>
         ))}
+        <option value={CUSTOM_OPTION}>自定义题材…</option>
       </select>
+
+      {/* 自定义题材输入：矩阵只有 15 档，覆盖不了跨类型创作（如「赛博悬疑」）。
+          题材矩阵的职责是**给数据参考**而非**限制选择**，因此保留自由输入入口
+          （与项目「不硬阻断」的一贯取舍一致）。矩阵外题材只把题材名注入 prompt，
+          不编造创作要点——我们没有该题材的数据结论。 */}
+      {customMode && (
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          autoFocus
+          maxLength={64}
+          placeholder="如：赛博悬疑（无平台数据参考，仅作创作方向）"
+          className="bg-card focus:ring-primary mt-2 w-full rounded-lg p-2 text-sm focus:ring-2 focus:outline-none disabled:opacity-60"
+        />
+      )}
 
       {/* 数据依据：选中即展示，让用户知道这一档是怎么来的 */}
       {selected && tierMeta && (

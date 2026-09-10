@@ -50,3 +50,8 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 app/.claude/agent-memory/
+
+# 本地存储降级产物（未配 R2 时用户上传与生成的媒体落在此处）。
+# 线上该目录有数百 MB 业务数据，绝不可入库，且必须在 git 操作中保持未跟踪，
+# 避免 checkout / reset 误伤。见 services/storage.ts 的 isR2Configured 分支。
+app/public/uploads/
