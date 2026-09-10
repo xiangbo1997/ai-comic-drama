@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import type { ColorGrade } from "@/lib/color-grade";
+import type { AiDisclosure } from "@/lib/ai-disclosure";
 import { classifyPollFailure } from "@/lib/generation-task-client";
 
 interface ExportStatus {
@@ -26,6 +27,11 @@ interface ExportOptions {
   titleCard?: boolean;
   /** 片尾钩子卡开关（批6，body 覆盖 generationParams.titleCards.end） */
   endCard?: boolean;
+  /**
+   * AI 生成内容提示标识（合规，广电总局令第 16 号第三十四条）。
+   * body 覆盖 generationParams.aiDisclosure；缺省由导出端按「缺省即启用」解析。
+   */
+  aiDisclosure?: AiDisclosure;
 }
 
 const INITIAL_STATUS: ExportStatus = {

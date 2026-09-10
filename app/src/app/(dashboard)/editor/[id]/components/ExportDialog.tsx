@@ -31,6 +31,7 @@ export function ExportDialog({
   initialWatermark,
   initialColorGrade,
   initialTitleCards,
+  initialAiDisclosure,
   isSeries,
   onPersist,
   coverSourceCandidates,
@@ -129,6 +130,7 @@ export function ExportDialog({
                 initialWatermark={initialWatermark}
                 initialColorGrade={initialColorGrade}
                 initialTitleCards={initialTitleCards}
+                initialAiDisclosure={initialAiDisclosure}
                 isSeries={isSeries}
                 onPersist={onPersist}
                 projectId={projectId}

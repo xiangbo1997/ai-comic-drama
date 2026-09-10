@@ -25,6 +25,20 @@
 
 import { estimateSpeechSeconds } from "@/lib/shot-timing";
 import type { HookType } from "@/types/series-bible";
+// 合规（广电总局令第 16 号）：AI 提示标识缺省契约解析 + 片头信息位编号类型
+import { resolveAiDisclosure, type AiDisclosure } from "@/lib/ai-disclosure";
+import type { TitleCardCredentials } from "@/lib/title-cards";
+
+/**
+ * 微短剧单集时长上限（秒）——《微短剧管理办法》（国家广播电视总局令第 16 号，
+ * 2026-09-01 施行）将「单集时长少于二十分钟」的网络剧片定义为微短剧。
+ *
+ * 达到或超过此值即不属微短剧，办法的微短剧条款（含第二十七条片头标注、
+ * 第三十四条 AI 标识）不适用，合规节据此提示用户判据可能不适用。
+ * 注意这与「红果红线」的 180s 投流上限是两套独立阈值：前者是法规定义边界，
+ * 后者是平台投流建议，不可混用。
+ */
+const MICRO_DRAMA_MAX_SEC = 20 * 60;
 
 /** 每分钟镜数合理区间下限（源自 EPISODE_PACING_RULES 信息增量节奏） */
 const SHOTS_PER_MIN_MIN = 15;
@@ -109,7 +123,13 @@ export type ReviewSectionStatus = "ok" | "warn" | "bad";
 
 /** 报告的一节 */
 export interface ReviewSection {
-  key: "pacing" | "hook" | "continuity" | "completeness" | "redline";
+  key:
+    | "pacing"
+    | "hook"
+    | "continuity"
+    | "completeness"
+    | "redline"
+    | "compliance";
   title: string;
   status: ReviewSectionStatus;
   /** 逐条陈述（每条一行） */
@@ -149,6 +169,23 @@ export interface AssembleReviewReportInput {
    * TITLE_CARD_SEC/END_CARD_SEC 算好传入；缺省 0（无卡片）。
    */
   cardExtraSec?: number;
+  /**
+   * AI 生成内容提示标识配置（generationParams.aiDisclosure，合规第三十四条）。
+   * 缺省即视为「已启用默认标识」——由 buildComplianceSection 内部走
+   * resolveAiDisclosure 统一解析，与导出端同一缺省契约（不在此重复判断）。
+   */
+  aiDisclosure?: AiDisclosure | null;
+  /**
+   * 片头信息位编号（generationParams.titleCards.credentials，合规第二十七条）。
+   * 缺省/全空 → 合规节提示未标注编号。
+   */
+  credentials?: TitleCardCredentials | null;
+  /**
+   * 片头标题卡是否启用（resolveTitleCardsEnabled 解析后的布尔值）。
+   * 编号只渲染在片头卡上，故卡片关闭时填了编号也不会出现在成片——
+   * 合规节需要这个事实来给出正确建议。
+   */
+  titleCardEnabled?: boolean;
 }
 
 /**
@@ -181,8 +218,23 @@ export function assembleReviewReport(
     input.cardExtraSec ?? 0,
     suggestions
   );
+  const compliance = buildComplianceSection(
+    scenes,
+    input.cardExtraSec ?? 0,
+    input.aiDisclosure ?? null,
+    input.credentials ?? null,
+    input.titleCardEnabled ?? false,
+    suggestions
+  );
 
-  const sections = [pacing, hook, continuity, completeness, redline];
+  const sections = [
+    pacing,
+    hook,
+    continuity,
+    completeness,
+    redline,
+    compliance,
+  ];
   const grade = computeGrade(sections);
 
   return { grade, sections, suggestions };
@@ -673,4 +725,114 @@ function buildRedlineSection(
 
   const status: ReviewSectionStatus = badHit ? "bad" : warnHit ? "warn" : "ok";
   return { key: "redline", title: "红果红线", status, lines };
+}
+
+/**
+ * ⑥ 合规检查节：《微短剧管理办法》（国家广播电视总局令第 16 号，2026-09-01 施行）
+ * 机检可覆盖的条款门禁。
+ *
+ * 三道检查：
+ *  1) 第三十四条——AI 生成提示标识是否开启（关闭则 bad，这是法定强制要求）。
+ *  2) 第二十七条——片头是否标注剧名与三项编号（剧名由片头卡自动带；
+ *     编号未填 → warn；填了但片头卡关闭 → warn，因编号只渲染在片头卡上）。
+ *  3) 单集时长是否 <20 分钟（MICRO_DRAMA_MAX_SEC）——办法第二条将「单集时长
+ *     少于二十分钟」定义为微短剧；≥20 分钟则不属微短剧，本办法的微短剧条款
+ *     （含上述两条）不适用，规则体系不同，需提示用户本节判据可能不适用。
+ *
+ * ⚠️ 本节只检查「我们能机检的事实」（开关状态 / 字段是否填 / 时长），
+ * 不对「标识是否足够明显」「编号是否真实有效」下结论——前者法规未给量化标准，
+ * 后者需向主管部门核验，均超出确定性体检能力。
+ */
+function buildComplianceSection(
+  scenes: ReviewScene[],
+  cardExtraSec: number,
+  aiDisclosure: AiDisclosure | null,
+  credentials: TitleCardCredentials | null,
+  titleCardEnabled: boolean,
+  suggestions: ReviewSuggestion[]
+): ReviewSection {
+  const lines: string[] = [];
+  let badHit = false;
+  let warnHit = false;
+
+  // ① 第三十四条：AI 生成提示标识（缺省即启用，与导出端同一契约）
+  const disclosure = resolveAiDisclosure(aiDisclosure);
+  if (disclosure.enabled) {
+    const where =
+      disclosure.mode === "head"
+        ? `片头 ${fmtSec(disclosure.headSec)}s 内显示`
+        : "全片显示";
+    lines.push(
+      `AI 生成提示标识已开启（${where}，文案「${disclosure.text}」）—— 符合第三十四条「每集明显位置添加提示标识」。`
+    );
+  } else {
+    badHit = true;
+    lines.push(
+      "AI 生成提示标识已关闭。第三十四条要求 AI 生成制作的微短剧在每集明显位置添加提示标识——投国内持证平台前必须开启。"
+    );
+    suggestions.push({
+      text: "在导出弹窗「合规标识」里开启「AI 生成提示标识」（第三十四条法定要求）；仅在不投国内持证平台时才可关闭。",
+    });
+  }
+
+  // ② 第二十七条：片头信息位（剧名 + 许可证号 / 批准文件编号 / 节目编号）
+  const filled = [
+    credentials?.licenseNo,
+    credentials?.approvalNo,
+    credentials?.programNo,
+  ].filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+
+  if (filled.length === 0) {
+    warnHit = true;
+    lines.push(
+      "片头未标注许可证号 / 批准文件编号 / 节目编号（第二十七条要求片头明显位置标注剧名与这三项编号）。剧名已由片头标题卡自动标注。"
+    );
+    suggestions.push({
+      text: "在导出弹窗「合规标识 · 片头信息位」填写许可证号 / 批准文件编号 / 节目编号（第二十七条）；这些编号需由持证方向主管部门取得，系统不会代为生成。",
+    });
+  } else if (!titleCardEnabled) {
+    // 编号填了但片头卡没开 —— 编号只渲染在片头卡上，成片里看不到（静默失效）
+    warnHit = true;
+    lines.push(
+      `已填 ${filled.length} 项片头编号，但片头标题卡未开启——编号只渲染在片头卡上，当前不会出现在成片里。`
+    );
+    suggestions.push({
+      text: "已填片头编号但片头标题卡关闭：请在「成片包装」开启「片头标题卡」，否则第二十七条要求的编号不会出现在成片。",
+    });
+  } else {
+    lines.push(
+      `片头信息位已标注 ${filled.length} 项编号 + 剧名（第二十七条）。编号真实有效性需自行向主管部门核验。`
+    );
+    if (filled.length < 3) {
+      warnHit = true;
+      lines.push(
+        "第二十七条列明三项编号（许可证号 / 批准文件编号 / 节目编号），当前未填满，请确认是否有遗漏。"
+      );
+    }
+  }
+
+  // ③ 单集时长 <20 分钟（办法第二条的微短剧定义边界）
+  const totalSec =
+    scenes.reduce((sum, s) => sum + (s.duration || 0), 0) +
+    Math.max(0, cardExtraSec);
+  if (totalSec >= MICRO_DRAMA_MAX_SEC) {
+    warnHit = true;
+    lines.push(
+      `单集总时长 ${fmtSec(totalSec)}s 已达 ${MICRO_DRAMA_MAX_SEC / 60} 分钟——办法将「单集时长少于二十分钟」定义为微短剧，本集已超出该定义，适用的管理规则与本节判据可能不同，请自行确认。`
+    );
+    suggestions.push({
+      text: `单集时长 ${fmtSec(totalSec)}s 已达 ${MICRO_DRAMA_MAX_SEC / 60} 分钟，超出微短剧定义（单集 <20 分钟），请确认适用的管理规则。`,
+    });
+  } else {
+    lines.push(
+      `单集总时长 ${fmtSec(totalSec)}s，在微短剧定义范围内（单集 <${MICRO_DRAMA_MAX_SEC / 60} 分钟）。`
+    );
+  }
+
+  lines.push(
+    "依据：《微短剧管理办法》（国家广播电视总局令第 16 号，2026-09-01 施行）第二十七条、第三十四条。本节仅机检开关与字段，不判定标识是否「足够明显」（法规未规定量化标准）。"
+  );
+
+  const status: ReviewSectionStatus = badHit ? "bad" : warnHit ? "warn" : "ok";
+  return { key: "compliance", title: "合规检查", status, lines };
 }

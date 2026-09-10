@@ -86,7 +86,8 @@ export const END_CARD_SEC = 2.5;
  * 跨分辨率视觉占比一致。颜色 / 描边倍率同样集中于此，改数值只动这一处。
  *
  * 消费方：
- * - video-synthesis.buildAssHeader（片头/片尾卡的 CardTitle/CardSub/CardHook/CardCta 样式）
+ * - video-synthesis.buildAssHeader（片头/片尾卡的 CardTitle/CardSub/CardHook/CardCta
+ *   /CardCredential 样式，后者为第二十七条片头信息位编号行）
  * - services/cover（平台封面的剧名主字 / 副题字号与颜色）
  * 二者读同一份倍率，保证「封面剧名大字」与「片头卡剧名大字」字形字号一脉相承。
  */

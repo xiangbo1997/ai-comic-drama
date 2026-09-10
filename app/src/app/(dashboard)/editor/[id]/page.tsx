@@ -771,6 +771,8 @@ export default function EditorPage() {
               emphasisSceneIds={project.generationParams?.emphasis}
               colorGrade={project.generationParams?.colorGrade}
               titleCards={titleCards}
+              // AI 生成提示标识（合规，第三十四条）：缺省即显示，与导出端同契约
+              aiDisclosure={project.generationParams?.aiDisclosure}
             />
           </div>
         </DialogContent>
@@ -793,6 +795,8 @@ export default function EditorPage() {
         // 成片包装（批6）初值 + 系列判定 + 持久化回调（写回 generationParams 让主预览同步）
         initialColorGrade={project.generationParams?.colorGrade}
         initialTitleCards={project.generationParams?.titleCards}
+        // 合规标识初值（第三十四条）：缺省时表单按「缺省即启用」显示为已开启
+        initialAiDisclosure={project.generationParams?.aiDisclosure}
         isSeries={isSeries}
         // 专属封面：底图候选 + 标题/副题缺省 + 已存封面 URL
         coverSourceCandidates={coverSourceCandidates}

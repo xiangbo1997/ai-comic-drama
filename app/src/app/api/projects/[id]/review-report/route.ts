@@ -24,6 +24,7 @@ import {
   END_CARD_SEC,
   type TitleCardsConfig,
 } from "@/lib/title-cards";
+import type { AiDisclosure } from "@/lib/ai-disclosure";
 import { NextRequest, NextResponse } from "next/server";
 
 const log = createLogger("api:projects:[id]:review-report");
@@ -128,6 +129,15 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       hookType,
       continuitySummary,
       cardExtraSec,
+      // 合规检查节（广电总局令第 16 号第二十七/三十四条）：
+      // aiDisclosure 原样透传（缺省由 resolveAiDisclosure 解析为「已启用」）；
+      // credentials 与片头卡开关决定编号是否真会出现在成片。
+      aiDisclosure:
+        genParams.aiDisclosure && typeof genParams.aiDisclosure === "object"
+          ? (genParams.aiDisclosure as AiDisclosure)
+          : null,
+      credentials: titleCardsConfig?.credentials ?? null,
+      titleCardEnabled: cardsEnabled.title,
     });
 
     return NextResponse.json({ report });

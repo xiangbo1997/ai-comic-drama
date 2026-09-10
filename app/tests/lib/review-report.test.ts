@@ -298,6 +298,20 @@ describe("assembleReviewReport · 完整性", () => {
   });
 });
 
+/**
+ * 合规节全 ok 所需的最小输入（第二十七条三项编号齐全 + 片头卡开启；
+ * AI 标识缺省即启用，故无需显式传）。等级边界用例复用它，
+ * 以便「全 ok → A」仍然表达「六节全 ok」而非漏掉合规节。
+ */
+const compliantInput = {
+  credentials: {
+    licenseNo: "甲第123号",
+    approvalNo: "批2026-001",
+    programNo: "节目0007",
+  },
+  titleCardEnabled: true,
+};
+
 describe("assembleReviewReport · 综合等级边界", () => {
   it("全 ok → A", () => {
     const report = assembleReviewReport({
@@ -309,6 +323,8 @@ describe("assembleReviewReport · 综合等级边界", () => {
       ],
       hookType: "悬念",
       continuitySummary: okContinuity,
+      // 合规节（第二十七/三十四条）亦须 ok，否则 A 不可达
+      ...compliantInput,
     });
     expect(report.grade).toBe("A");
   });
@@ -322,6 +338,7 @@ describe("assembleReviewReport · 综合等级边界", () => {
       ],
       hookType: null, // hook warn
       continuitySummary: okContinuity,
+      ...compliantInput,
     });
     expect(report.grade).toBe("B");
   });
@@ -336,6 +353,7 @@ describe("assembleReviewReport · 综合等级边界", () => {
       hookType: "悬念",
       // 连贯性 bad
       continuitySummary: { grade: "D", summary: "评级 D", issueCount: 3 },
+      ...compliantInput,
     });
     expect(report.grade).toBe("C");
   });
@@ -703,5 +721,164 @@ describe("assembleReviewReport · 变速换算（speechSpeed）", () => {
       continuitySummary: okContinuity,
     });
     expect(findSection(report, "pacing").status).toBe("bad");
+  });
+});
+
+/**
+ * 合规检查节（《微短剧管理办法》，国家广播电视总局令第 16 号，2026-09-01 施行）。
+ *
+ * 三道机检：第三十四条 AI 标识开关、第二十七条片头信息位、单集 <20 分钟的
+ * 微短剧定义边界。重点守「缺省即合规」与「填了编号但片头卡关着」两种易错态。
+ */
+describe("assembleReviewReport · 合规检查（广电总局令第 16 号）", () => {
+  it("缺省（老项目无 aiDisclosure）→ 标识视为已开启，不报 bad", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+    });
+    const s = findSection(report, "compliance");
+    expect(s.status).not.toBe("bad");
+    expect(s.lines.join("\n")).toContain("AI 生成提示标识已开启");
+  });
+
+  it("显式关闭 AI 标识 → bad（第三十四条是法定强制要求）", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      aiDisclosure: { enabled: false },
+    });
+    const s = findSection(report, "compliance");
+    expect(s.status).toBe("bad");
+    expect(s.lines.join("\n")).toContain("第三十四条");
+    // 给出可操作建议
+    expect(
+      report.suggestions.some((x) => x.text.includes("AI 生成提示标识"))
+    ).toBe(true);
+  });
+
+  it("mode=head 时节内说明片头显示秒数（而非笼统说已开启）", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      aiDisclosure: { mode: "head", headSec: 8 },
+    });
+    expect(findSection(report, "compliance").lines.join("\n")).toContain(
+      "片头 8s 内显示"
+    );
+  });
+
+  it("未填片头编号 → warn + 建议（第二十七条）", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      titleCardEnabled: true,
+    });
+    const s = findSection(report, "compliance");
+    expect(s.status).toBe("warn");
+    expect(s.lines.join("\n")).toContain("片头未标注");
+    expect(report.suggestions.some((x) => x.text.includes("第二十七条"))).toBe(
+      true
+    );
+  });
+
+  it("三项编号齐全 + 片头卡开启 → 该项不告警", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      credentials: {
+        licenseNo: "甲第123号",
+        approvalNo: "批2026-001",
+        programNo: "节目0007",
+      },
+      titleCardEnabled: true,
+    });
+    const s = findSection(report, "compliance");
+    expect(s.status).toBe("ok");
+    expect(s.lines.join("\n")).toContain("片头信息位已标注 3 项编号");
+  });
+
+  it("填了编号但片头卡关闭 → warn（编号只渲染在片头卡，成片里看不到）", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      credentials: { licenseNo: "甲第123号" },
+      titleCardEnabled: false,
+    });
+    const s = findSection(report, "compliance");
+    expect(s.status).toBe("warn");
+    expect(s.lines.join("\n")).toContain("片头标题卡未开启");
+  });
+
+  it("编号未填满三项 → warn 提示可能遗漏", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      credentials: { licenseNo: "甲第123号" },
+      titleCardEnabled: true,
+    });
+    const s = findSection(report, "compliance");
+    expect(s.status).toBe("warn");
+    expect(s.lines.join("\n")).toContain("未填满");
+  });
+
+  it("单集 <20 分钟 → 节内确认落在微短剧定义内", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+      credentials: {
+        licenseNo: "a",
+        approvalNo: "b",
+        programNo: "c",
+      },
+      titleCardEnabled: true,
+    });
+    expect(findSection(report, "compliance").lines.join("\n")).toContain(
+      "在微短剧定义范围内"
+    );
+  });
+
+  it("单集 ≥20 分钟 → warn（超出微短剧定义，适用规则不同）", () => {
+    // 单镜 1200s = 20 分钟，正好触达定义边界
+    const report = assembleReviewReport({
+      scenes: [scene({ duration: 1200 })],
+      continuitySummary: okContinuity,
+      credentials: {
+        licenseNo: "a",
+        approvalNo: "b",
+        programNo: "c",
+      },
+      titleCardEnabled: true,
+    });
+    const s = findSection(report, "compliance");
+    expect(s.status).toBe("warn");
+    expect(s.lines.join("\n")).toContain("超出该定义");
+  });
+
+  it("20 分钟判据计入片头尾卡时长（与成片实际时长一致）", () => {
+    // 分镜 1198s + 卡片 4.5s 越过 1200s 边界
+    const report = assembleReviewReport({
+      scenes: [scene({ duration: 1198 })],
+      continuitySummary: okContinuity,
+      cardExtraSec: 4.5,
+      credentials: {
+        licenseNo: "a",
+        approvalNo: "b",
+        programNo: "c",
+      },
+      titleCardEnabled: true,
+    });
+    expect(findSection(report, "compliance").lines.join("\n")).toContain(
+      "超出该定义"
+    );
+  });
+
+  it("节末附法规依据，且明确不判定「是否足够明显」", () => {
+    const report = assembleReviewReport({
+      scenes: [scene()],
+      continuitySummary: okContinuity,
+    });
+    const text = findSection(report, "compliance").lines.join("\n");
+    expect(text).toContain("第 16 号");
+    expect(text).toContain("法规未规定量化标准");
   });
 });

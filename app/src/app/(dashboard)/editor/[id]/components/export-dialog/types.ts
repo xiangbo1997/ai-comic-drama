@@ -8,6 +8,7 @@
 import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import type { ColorGrade } from "@/lib/color-grade";
 import type { TitleCardsConfig } from "@/lib/title-cards";
+import type { AiDisclosure } from "@/lib/ai-disclosure";
 
 export interface ExportStatus {
   isExporting: boolean;
@@ -39,6 +40,11 @@ export interface ExportDialogOptions {
   titleCard: boolean;
   /** 片尾钩子卡开关（body 覆盖 generationParams.titleCards.end） */
   endCard: boolean;
+  /**
+   * AI 生成内容提示标识（合规，广电总局令第 16 号第三十四条）。
+   * body 覆盖 generationParams.aiDisclosure；缺省由合成端按「缺省即启用」解析。
+   */
+  aiDisclosure: AiDisclosure;
 }
 
 /**
@@ -49,6 +55,8 @@ export type ExportPersistHandler = (patch: {
   titleCards?: TitleCardsConfig;
   colorGrade?: ColorGrade;
   subtitleStyle?: SubtitleStyle;
+  /** AI 生成提示标识（合规，第三十四条）——落库后主编辑器预览同步显示 */
+  aiDisclosure?: AiDisclosure;
 }) => void;
 
 export interface ExportDialogProps {
@@ -69,6 +77,11 @@ export interface ExportDialogProps {
   initialColorGrade?: ColorGrade;
   /** 已存的片头/片尾卡开关（generationParams.titleCards），作为初值 */
   initialTitleCards?: TitleCardsConfig;
+  /**
+   * 已存的 AI 提示标识配置（generationParams.aiDisclosure），作为初值。
+   * 缺省时表单按 resolveAiDisclosure 的「缺省即启用」契约显示为已开启。
+   */
+  initialAiDisclosure?: AiDisclosure;
   /** 是否系列项目（决定片头/片尾卡缺省开关；与导出端契约一致） */
   isSeries: boolean;
   /**
@@ -94,6 +107,8 @@ export interface ExportFormProps {
   initialWatermark?: Watermark;
   initialColorGrade?: ColorGrade;
   initialTitleCards?: TitleCardsConfig;
+  /** 已存的 AI 提示标识配置（合规，第三十四条）；缺省即按「启用」显示 */
+  initialAiDisclosure?: AiDisclosure;
   isSeries: boolean;
   onPersist: ExportPersistHandler;
   projectId: string;
