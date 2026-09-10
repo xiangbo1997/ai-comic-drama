@@ -92,8 +92,11 @@ export function buildBgmFilter(
     );
     // 2) 用 [voice] 侧链压 [bgmout]。threshold 从 0.03 提到 0.05：0.03 太灵敏，
     //    配音底噪就能触发闪避，导致 BGM 全程被压、听感发闷。
+    //    attack 从 20ms 降到 8ms：对白 ducking 的行业区间是 5-15ms，20ms 会让
+    //    台词头一个字仍被 BGM 盖住一瞬（中文首字多为声母爆破音，最吃这段延迟）。
+    //    release 300ms 落在 250-400ms 推荐区间内，保持不变——过短会「抽吸」。
     filters.push(
-      `[bgmout][voice]sidechaincompress=threshold=0.05:ratio=8:attack=20:release=300[bgmducked]`
+      `[bgmout][voice]sidechaincompress=threshold=0.05:ratio=8:attack=8:release=300[bgmducked]`
     );
     // 3) 压好的 BGM 与对白再混合
     filters.push(`[voice][bgmducked]amix=inputs=2:normalize=0[aout]`);
@@ -132,7 +135,7 @@ export const LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.0:LRA=9";
  * BGM 最低（已在 buildBgmFilter 内给 0.6 权重或 ducking 压低）。三层都走 amix
  * 且 normalize=0——normalize=1（默认）会把总响度按输入数拉平，导致「分镜越多、
  * 对白越小声」的逐镜漂移（此前无水印 voice-only 路径正是漏了 normalize=0 的 bug）。
- * 最后统一 loudnorm 到 -16 LUFS，修「全片无统一响度」。
+ * 最后统一 loudnorm 到 -14 LUFS（见 LOUDNORM_FILTER），修「全片无统一响度」。
  *
  * 分支：
  *   1. 先得到「对白+BGM」的基混音标签 baseLabel：
@@ -201,7 +204,7 @@ export function buildFinalAudioChain(params: {
 
   if (!mixedLabel) return null; // 完全无音频
 
-  // ── 3. loudnorm 归一化到 -16 LUFS ────────────────────────────────
+  // ── 3. loudnorm 归一化（目标见 LOUDNORM_FILTER）────────────────────
   filters.push(`${mixedLabel}${LOUDNORM_FILTER}[amaster]`);
   return { filters, outLabel: "[amaster]" };
 }
