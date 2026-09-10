@@ -23,6 +23,7 @@ import {
   listSystemConfigKeys,
   validateSystemConfigValue,
 } from "@/lib/system-config";
+import type { SystemConfigDef } from "@/lib/system-config";
 
 describe("isSystemConfigKey — 键白名单", () => {
   it("注册表内的键返回 true", () => {
@@ -122,14 +123,46 @@ describe("validateSystemConfigValue — min / max 边界", () => {
 });
 
 describe("validateSystemConfigValue — boolean / string / number 类型", () => {
-  // 注册表当前没有这三类的键，用临时断言覆盖分支：
-  // 直接构造一个假键会被白名单拦下，所以这里改为断言「若将来注册了
-  // 非 int 键，分支行为符合预期」——通过对现有 int 键的反证来守住类型分派。
-  it("注册表当前全部为 int 类型（新增其他类型时请补充对应用例）", () => {
+  // 注册表已含 int 与 boolean 两类（boolean 来自 CLOSED_LOOP_* 闭环开关）。
+  // 本用例是「新增类型必须补测」的绊线：类型集合变化时会失败，提醒补充对应分支用例。
+  it("注册表类型集合为 int + boolean（新增其他类型时请补充对应用例）", () => {
     const types = new Set(
       listSystemConfigKeys().map((k) => SYSTEM_CONFIG_DEFS[k].type)
     );
-    expect([...types]).toEqual(["int"]);
+    expect([...types].sort()).toEqual(["boolean", "int"]);
+  });
+
+  it("boolean 键接受真布尔值", () => {
+    expect(validateSystemConfigValue("CLOSED_LOOP_STORYBOARD", true)).toEqual({
+      ok: true,
+      value: true,
+    });
+    expect(validateSystemConfigValue("CLOSED_LOOP_STORYBOARD", false)).toEqual({
+      ok: true,
+      value: false,
+    });
+  });
+
+  // DB 里存的是字符串，回读时必须能还原成布尔
+  it("boolean 键接受 'true' / 'false' 字符串（DB 回读形态）", () => {
+    expect(validateSystemConfigValue("CLOSED_LOOP_STORYBOARD", "true")).toEqual(
+      { ok: true, value: true }
+    );
+    expect(
+      validateSystemConfigValue("CLOSED_LOOP_VIDEO_COHERENCE", "false")
+    ).toEqual({ ok: true, value: false });
+  });
+
+  it("boolean 键拒绝非布尔值（不静默转换成脏数据）", () => {
+    expect(validateSystemConfigValue("CLOSED_LOOP_STORYBOARD", 1).ok).toBe(
+      false
+    );
+    expect(validateSystemConfigValue("CLOSED_LOOP_STORYBOARD", "yes").ok).toBe(
+      false
+    );
+    expect(validateSystemConfigValue("CLOSED_LOOP_STORYBOARD", null).ok).toBe(
+      false
+    );
   });
 });
 
@@ -157,7 +190,9 @@ describe("SYSTEM_CONFIG_DEFS — 注册表自身的完整性", () => {
 
   it("min 不大于 max", () => {
     for (const key of listSystemConfigKeys()) {
-      const def = SYSTEM_CONFIG_DEFS[key];
+      // 按声明的接口读：boolean 类型的配置项没有 min/max 字段，
+      // 直接读联合类型的字面量会因缺字段而类型报错（运行时判断本就有 undefined 守卫）。
+      const def: SystemConfigDef = SYSTEM_CONFIG_DEFS[key];
       if (def.min !== undefined && def.max !== undefined) {
         expect(def.min, `${key} 的 min > max`).toBeLessThanOrEqual(def.max);
       }

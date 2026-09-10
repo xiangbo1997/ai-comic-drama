@@ -16,16 +16,45 @@
  * 由导出路由负责补齐首/尾转场项（见 export/route.ts）。
  */
 
+/**
+ * 片头信息位编号（合规）——《微短剧管理办法》（广电总局令第 16 号，
+ * 2026-09-01 施行）第二十七条：片头应「在明显位置标注剧名、许可证号、
+ * 批准文件编号、节目编号」。
+ *
+ * 剧名取自 Project.title（我们已有），这三项编号由持证方向主管部门取得，
+ * 系统无法生成，只能由用户填写；留空即不渲染该项（不编造占位号）。
+ * 存于 generationParams.titleCards.credentials（零 schema 变更）。
+ */
+export interface TitleCardCredentials {
+  /** 许可证号（《网络剧片发行许可证》号等） */
+  licenseNo?: string;
+  /** 批准文件编号 */
+  approvalNo?: string;
+  /** 节目编号 */
+  programNo?: string;
+}
+
+/** 单条编号的最大长度（编号是短标识，防超长文案压画面） */
+export const CREDENTIAL_MAX_LEN = 64;
+
 /** 片头/片尾卡开关配置（存 generationParams.titleCards） */
 export interface TitleCardsConfig {
   /** 片头标题卡；缺省时按 resolveTitleCardsEnabled 契约解析 */
   title?: boolean;
   /** 片尾钩子卡；缺省时按 resolveTitleCardsEnabled 契约解析 */
   end?: boolean;
+  /**
+   * 片头信息位编号（第二十七条）。缺省/全空时片头卡只显示剧名+集数（旧行为）；
+   * 填了哪项就渲染哪项，不编造占位号。
+   */
+  credentials?: TitleCardCredentials;
 }
 
-/** 卡片文字行角色（决定两端渲染样式：字号/字体/颜色档位） */
-export type CardLineRole = "title" | "sub" | "hook" | "cta";
+/**
+ * 卡片文字行角色（决定两端渲染样式：字号/字体/颜色档位）。
+ * "credential" = 片头信息位编号行（小字，见 CARD_STYLE.credentialScale）。
+ */
+export type CardLineRole = "title" | "sub" | "hook" | "cta" | "credential";
 
 /** 卡片单行文字 */
 export interface CardLine {
@@ -74,6 +103,12 @@ export const CARD_STYLE = {
   fillColor: "#FFFFFF",
   /** 描边黑 */
   outlineColor: "#000000",
+  /**
+   * 片头信息位编号（第二十七条：许可证号/批准文件编号/节目编号）：正文字号 × 0.6。
+   * 编号是「标注」而非视觉主体，取小字号；法规只要求「明显位置标注」，
+   * 未规定字号——0.6 为工程默认值。
+   */
+  credentialScale: 0.6,
   /** 追更贴字暖金强调色（与金句花字同色系） */
   ctaColor: "#FFD24D",
   /** 描边相对正文描边宽的放大倍率（大字需更粗描边保可读，最小 2px 由消费端钳制） */
@@ -107,6 +142,32 @@ export function resolveTitleCardsEnabled(
     title: config?.title ?? isSeries,
     end: config?.end ?? isSeries,
   };
+}
+
+/**
+ * 构建片头信息位编号行（第二十七条）。
+ *
+ * 三项编号各占一行（许可证号 / 批准文件编号 / 节目编号），带中文前缀便于辨识；
+ * 只渲染用户实际填写的项——留空即省略该行，绝不编造占位编号。
+ * 全部为空时返回空数组，片头卡回到「剧名 + 集数」的旧行为。
+ */
+export function buildCredentialLines(
+  credentials: TitleCardCredentials | null | undefined
+): CardLine[] {
+  if (!credentials) return [];
+  const items: Array<[string, string | undefined]> = [
+    ["许可证号", credentials.licenseNo],
+    ["批准文号", credentials.approvalNo],
+    ["节目编号", credentials.programNo],
+  ];
+  const lines: CardLine[] = [];
+  for (const [label, raw] of items) {
+    if (typeof raw !== "string") continue;
+    const value = sanitizeCardText(raw, CREDENTIAL_MAX_LEN);
+    if (!value) continue;
+    lines.push({ text: `${label}：${value}`, role: "credential" });
+  }
+  return lines;
 }
 
 /** buildTitleCards 入参 */
@@ -155,6 +216,8 @@ export function buildTitleCards(input: BuildTitleCardsInput): {
         role: "sub",
       });
     }
+    // 片头信息位（第二十七条）：填了哪项编号就追加哪行，全空则不追加（旧行为）
+    lines.push(...buildCredentialLines(input.config?.credentials));
     intro = {
       kind: "title",
       imageUrl: input.coverImageUrl ?? null,

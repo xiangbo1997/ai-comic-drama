@@ -9,6 +9,7 @@ import {
   deriveIdentityPrompt,
   deriveTailFrame,
   projectAspectRatio,
+  type WarningSurfacer,
 } from "./use-generation-actions";
 import {
   runGenerationTask,
@@ -40,6 +41,11 @@ interface UseMultiGenerateArgs {
   onCloseImage: () => void;
   onCloseVideo: () => void;
   onCloseAudio: () => void;
+  /**
+   * 展示服务端能力告知（GenerateImageResult.warnings）。
+   * 由页面从 useGenerationActions 取，三条出图路径共享同一去重账本。
+   */
+  onWarnings?: WarningSurfacer;
 }
 
 /**
@@ -56,6 +62,7 @@ export function useMultiGenerate({
   onCloseImage,
   onCloseVideo,
   onCloseAudio,
+  onWarnings,
 }: UseMultiGenerateArgs) {
   // 读取用户偏好的并发上限：PARALLEL 分支据此做有界并发（而非无界 allSettled）。
   // MultiGenerateDialog 的 onGenerate 只透传 mode，不带 maxConcurrent，故在此
@@ -86,15 +93,27 @@ export function useMultiGenerate({
       const { prompt, negativePrompt, referenceImage, referenceImages } =
         derivePromptInputs(selectedScene, project);
 
-      const generateOne = (configId?: string) =>
-        generateSceneImage(projectId, selectedScene!.id, prompt, {
-          style: project.style,
-          imageConfigId: configId,
-          negativePrompt,
-          referenceImage,
-          referenceImages,
-          aspectRatio: projectAspectRatio(project),
-        });
+      // 能力告知（如「当前图像模型不支持参考图」）：多版本抽卡是第三条出图路径，
+      // 此前直接丢弃 generateSceneImage 的返回值，warnings 到此断链。参考图被
+      // 静默忽略时每个模型都会退化成纯文生图、人物必然不一致，而日志之外零信号。
+      // 展示器由页面注入（与单张/批量共享同一去重账本，N 个模型同一条只弹一次）。
+      const generateOne = async (configId?: string) => {
+        const result = await generateSceneImage(
+          projectId,
+          selectedScene!.id,
+          prompt,
+          {
+            style: project.style,
+            imageConfigId: configId,
+            negativePrompt,
+            referenceImage,
+            referenceImages,
+            aspectRatio: projectAspectRatio(project),
+          }
+        );
+        onWarnings?.(result?.warnings);
+        return result;
+      };
 
       if (mode === "PARALLEL") {
         // 有界并发：同时最多 maxConcurrent 个在飞（此前无界 allSettled 无视偏好）
@@ -116,6 +135,7 @@ export function useMultiGenerate({
       invalidateProject,
       onCloseImage,
       maxConcurrent,
+      onWarnings,
     ]
   );
 

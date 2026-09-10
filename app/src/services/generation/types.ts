@@ -21,6 +21,15 @@ export interface SceneCharacterInfo extends CharacterInfo {
   role: CharacterRole;
   canonicalImageUrl?: string;
   /**
+   * 「真」定妆锚图：仅当 Character.canonicalImageUrl 本身真实非空时才有值。
+   *
+   * canonicalImageUrl 为出图服务，带 `|| referenceImages[0]` 回退链（没有三视图
+   * 定妆也要有张参考图能用）。但该回退会让一致性校验退化成自证——客户端喂进来的
+   * 参考图被当成「校验基准」，于是「生成图像不像参考图吗」恒为否，校验永远通过。
+   * 校验层应消费本字段，无值即没有可信基准，应判为「跳过校验」而非「通过」。
+   */
+  trueCanonicalImageUrl?: string;
+  /**
    * 多角度参考图（三视图 front/side/back 在前 + 定妆图兜底，已去重）。
    * 与手动路径客户端 collectCharacterRefs 的收集规则一致；
    * 提供时 strategy-resolver 优先消费本字段，缺失时回退单张 canonicalImageUrl。
@@ -108,6 +117,11 @@ export interface StrategyDecision {
   referenceImageUrls?: string[];
   enhancedPrompt: string;
   capability: ImageProviderCapability;
+  /**
+   * 能力错配等「不阻断生成但用户必须知道」的中文告知（如参考图被当前模型忽略）。
+   * 由 orchestrator 透传进 OrchestratorResult.warnings，最终落任务 output 供 UI 展示。
+   */
+  warnings?: string[];
 }
 
 /** 验证结果 */
@@ -132,4 +146,6 @@ export interface OrchestratorResult {
   strategy: GenerationStrategy;
   attemptCount: number;
   validation?: ValidationResult;
+  /** 不阻断生成的中文告知（当前仅「参考图被模型忽略」一类能力错配） */
+  warnings?: string[];
 }

@@ -9,6 +9,8 @@
  * 消除用户的「空白页恐惧」。
  */
 
+import { buildGenreContextBlock } from "@/lib/genre-matrix";
+
 export interface WorldviewDraftInput {
   /** 一句话想法（必填，如「重生复仇爽剧，女主是被陷害的豪门千金」） */
   idea: string;
@@ -36,13 +38,18 @@ export function buildWorldviewDraftPrompt(input: WorldviewDraftInput): string {
   const genreLine = input.genre?.trim()
     ? `\n- 题材倾向：${input.genre.trim()}`
     : "";
+  // 题材上下文块（批 3）：把矩阵内题材的创作要点作为补充上下文注入，
+  // 让 genre 不只是一行标签，而真正影响世界观的设定与冲突走向。
+  // 矩阵外的自由文本题材只声明题材名，不编造要点；空题材返回空串（零回归）。
+  const genreBlock = buildGenreContextBlock(input.genre);
+  const genreSection = genreBlock ? `\n\n${genreBlock}` : "";
   const seriesLine = input.seriesContext?.trim()
     ? `\n\n【系列前情（新世界观需与之衔接，不要另起炉灶）】\n${input.seriesContext.trim()}`
     : "";
 
   return `请根据以下一句话想法，起草一个适合竖屏短剧的完整世界观。
 
-- 一句话想法：${input.idea.trim()}${genreLine}${seriesLine}
+- 一句话想法：${input.idea.trim()}${genreLine}${genreSection}${seriesLine}
 
 创作要求：
 1. worldview（世界观）：150-300 字。交代故事发生的背景/设定，并**必须**埋入至少一个强冲突钩子（爽点、悬念或反转张力），让人第一眼就想看下去。语言画面感强、口语化，避免文绉绉的设定说明书。

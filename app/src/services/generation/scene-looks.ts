@@ -35,11 +35,21 @@ export interface SceneLookResult {
   lookOverrides: Map<string, string>;
   /** 换装 prompt 子句（进 effectivePrompt→cacheKey），多角色多条 */
   promptClauses: string[];
+  /**
+   * characterId → 原始换装短语（如「白色婚纱」）。
+   *
+   * 与 lookOverrides 的区别：后者要求换装定妆照【衍生成功】才有值，而一致性校验
+   * 只要知道「剧情声明了本镜换装」就该豁免服装维度——哪怕定妆照没衍生出来，
+   * 服装不同也是剧情要的，不该判成身份错误（防过度纠正）。故本表在匹配到角色时
+   * 即写入，不等定妆照结果。
+   */
+  outfitByCharacterId: Map<string, string>;
 }
 
 const EMPTY: SceneLookResult = {
   lookOverrides: new Map(),
   promptClauses: [],
+  outfitByCharacterId: new Map(),
 };
 
 /** 解析入参 */
@@ -69,12 +79,17 @@ export async function resolveSceneCharacterLooks(
 
     const lookOverrides = new Map<string, string>();
     const promptClauses: string[] = [];
+    const outfitByCharacterId = new Map<string, string>();
 
     for (const entry of entries) {
       const char = matchOutfitToCharacter(args.characters, entry.name);
       if (!char) continue;
-      // 已为该角色解析过换装（同名多条）→ 跳过，避免重复生成
-      if (lookOverrides.has(char.id)) continue;
+      // 已为该角色解析过换装（同名多条）→ 跳过，避免重复生成。
+      // 用 outfitByCharacterId 判重而非 lookOverrides：后者只在定妆照衍生成功时才写，
+      // 拿它判重会让「首条衍生失败」的角色被后续同名条目重复触发一次生成。
+      if (outfitByCharacterId.has(char.id)) continue;
+      // 剧情声明即记录，不等定妆照结果（供一致性校验豁免服装维度）
+      outfitByCharacterId.set(char.id, entry.outfit);
 
       const lookUrl = await resolveCharacterLookUrl({
         characterId: char.id,
@@ -104,7 +119,7 @@ export async function resolveSceneCharacterLooks(
       });
     }
 
-    return { lookOverrides, promptClauses };
+    return { lookOverrides, promptClauses, outfitByCharacterId };
   } catch (err) {
     log.warn("分镜换装解析失败（不阻断出图）", {
       sceneId: args.sceneId,

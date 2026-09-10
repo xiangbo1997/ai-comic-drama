@@ -22,7 +22,9 @@ import {
   TITLE_CARD_SCENE_ID,
   END_CARD_SCENE_ID,
   type TitleCardsConfig,
+  type CardLine,
 } from "@/lib/title-cards";
+import type { AiDisclosure } from "@/lib/ai-disclosure";
 import { resolveEpisodeEndingHook } from "@/lib/series";
 import { parseStoryBible } from "@/types/series-bible";
 
@@ -88,6 +90,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       colorGrade: bodyColorGrade,
       titleCard: bodyTitleCard,
       endCard: bodyEndCard,
+      // AI 生成内容提示标识（合规，第三十四条）的 body 覆盖
+      aiDisclosure: bodyAiDisclosure,
     } = await request.json();
 
     // 从 generationParams 中解析样式配置（兼容旧项目：缺失时使用默认值）
@@ -155,6 +159,19 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       };
     }
 
+    // AI 生成内容提示标识（合规：广电总局令第 16 号第三十四条「每集明显位置
+    // 添加提示标识」）。body 可覆盖（与 subtitleStyle 同优先级模式）。
+    //
+    // ⚠️ 这里刻意**不做**「缺省→undefined」之外的处理：传 undefined 给合成端后，
+    // 由 video-synthesis 的 resolveAiDisclosure 按「缺省即启用」契约解析，
+    // 存量项目（无此字段）照样带标识。若在此回填 enabled:false 会破坏法定默认。
+    const resolvedAiDisclosure =
+      bodyAiDisclosure && typeof bodyAiDisclosure === "object"
+        ? (bodyAiDisclosure as AiDisclosure)
+        : genParams.aiDisclosure && typeof genParams.aiDisclosure === "object"
+          ? (genParams.aiDisclosure as AiDisclosure)
+          : undefined;
+
     // 检查是否有足够的内容可以导出。
     // keepMask 与全量分镜等长，记录每个镜是否进入导出——转场按全量索引对齐，
     // 滤镜后必须按这份掩码重建（见下方 remapTransitionsByKeepMask）。
@@ -185,12 +202,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // body 覆盖优先（仅当为 boolean 时生效），否则用已存配置。
     // 缺省契约（系列默认开、非系列默认关）由 buildTitleCards 内部
     // resolveTitleCardsEnabled(config, isSeries) 统一解析，这里不重复判断。
+    // credentials（片头信息位编号，合规第二十七条）无 body 覆盖，直接透传已存配置——
+    // 此处是逐字段重建，漏带字段即静默丢失（编号不会出现在片头）。
     const titleCardsConfig: TitleCardsConfig = {
       title:
         typeof bodyTitleCard === "boolean"
           ? bodyTitleCard
           : rawTitleCards?.title,
       end: typeof bodyEndCard === "boolean" ? bodyEndCard : rawTitleCards?.end,
+      credentials: rawTitleCards?.credentials,
     };
 
     // 片尾钩子文案：系列项目取本集在故事圣经里的 endingHook；取不到 → null
@@ -233,9 +253,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       narration: scene.narration,
       // 导演运镜：供图片分镜默认 Ken Burns 运镜按 resolveDefaultMotion 派生（尊重导演意图）
       cameraMovement: scene.cameraMovement,
+      // lines 用 CardLine 单一真源（原先手写字面量联合，CardLineRole 新增
+      // "credential" 后漏改导致类型不匹配）
       card: null as {
         kind: "title" | "end";
-        lines: { text: string; role: "title" | "sub" | "hook" | "cta" }[];
+        lines: CardLine[];
       } | null,
     }));
 
@@ -355,6 +377,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       sfx: resolvedSfx,
       emphasisSceneIds: resolvedEmphasis,
       colorGrade: resolvedColorGrade,
+      // AI 生成提示标识（合规，第三十四条）：undefined 时合成端按「缺省即启用」解析
+      aiDisclosure: resolvedAiDisclosure,
     };
 
     // 如果是同步模式，立即处理

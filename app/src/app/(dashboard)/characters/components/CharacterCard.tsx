@@ -11,6 +11,7 @@ import {
   X,
   Check,
   BadgeCheck,
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -180,6 +181,8 @@ function CharacterCardImpl({
             character={character}
             onStartEdit={() => onStartEdit(character)}
             onDelete={() => onDelete(character.id)}
+            onGenerateAnchor={() => onOpenGenerateModal(character.id, "none")}
+            isGenerating={isGenerating}
           />
         )}
       </div>
@@ -201,6 +204,8 @@ function CharacterCardImpl({
  * 的 props 变化不影响其渲染输出，可以安全忽略。
  *
  * 对称地，onStartEdit 只在非编辑态的 CharacterViewInfo 里用到；编辑态可忽略。
+ * 「缺定妆照」提示与其「拍定妆照」按钮同样只在非编辑态渲染，它们依赖的
+ * onOpenGenerateModal / isGenerating 已在下方「始终参与比较」的清单里，无需新增比较项。
  *
  * 始终参与比较（两种状态下都影响渲染）：character（按引用——React Query 缓存
  * 只为变化的角色创建新对象，其余引用保持稳定）、currentImageIndex、isEditing、
@@ -444,24 +449,42 @@ function CharacterViewInfo({
   character,
   onStartEdit,
   onDelete,
+  onGenerateAnchor,
+  isGenerating,
 }: {
   character: CharacterListItem;
   onStartEdit: () => void;
   onDelete: () => void;
+  /** 一键补拍定妆照（打开 AI 生成弹窗，纯 AI 生成分支） */
+  onGenerateAnchor: () => void;
+  isGenerating: boolean;
 }) {
+  const finalized = isCharacterFinalized(character);
   return (
     <>
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <h3 className="text-lg font-semibold">{character.name}</h3>
           {/* 已定稿徽标（批次 2 · 1.5）：canonicalImageUrl 非空即已确认定妆照 */}
-          {isCharacterFinalized(character) && (
+          {finalized && (
             <span
               className="text-agent flex items-center gap-0.5 text-[10px] font-medium"
               title="已定稿：已确认定妆照，可放心用于跨镜头出图"
             >
               <BadgeCheck size={13} />
               已定稿
+            </span>
+          )}
+          {/* 未定稿警示（包 B · B4）：此前只在成功后显示绿标，没做的角色
+              没有任何提示——用户根本不知道自己漏了一步。用「定妆照」而不是
+              「三视图」（后者只在已生成的三联区出现，新手没见过这个词）。 */}
+          {!finalized && (
+            <span
+              className="text-primary flex items-center gap-0.5 text-[10px] font-medium"
+              title="没有定妆照时，这个角色在不同镜头里会长得不一样"
+            >
+              <AlertTriangle size={12} />
+              缺定妆照
             </span>
           )}
         </div>
@@ -513,6 +536,31 @@ function CharacterViewInfo({
           </p>
         )}
       </div>
+      {/* 缺定妆照的后果 + 一键补拍入口（包 B · B4）：讲清「为什么重要」，
+          并直接给操作出口，不让用户自己去找右上角那个魔杖图标。
+          走与图片区魔杖同一个入口（AI 生成弹窗，纯 AI 生成分支），
+          弹窗内已明码标价积分，不在此处静默消费。 */}
+      {!finalized && (
+        <div className="border-primary/30 bg-primary/10 mt-3 rounded-lg border p-2">
+          <p className="text-muted-foreground text-xs">
+            还没有定妆照。定妆照是这个角色在所有画面里的长相基准，
+            缺了它，同一个人在不同镜头会长得不一样。
+          </p>
+          <button
+            type="button"
+            onClick={onGenerateAnchor}
+            disabled={isGenerating}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 mt-2 flex items-center gap-1 rounded px-2 py-1 text-xs transition disabled:opacity-50"
+          >
+            {isGenerating ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Wand2 size={12} />
+            )}
+            拍定妆照
+          </button>
+        </div>
+      )}
     </>
   );
 }

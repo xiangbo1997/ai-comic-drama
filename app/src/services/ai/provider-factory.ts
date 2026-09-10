@@ -100,11 +100,88 @@ const DEFAULT_CAPABILITY: ImageProviderCapability = {
   maxReferenceImages: 0,
 };
 
-/** 获取图像 Provider 能力 */
+/**
+ * 按【模型名】的能力覆盖表——单一真源，接新网关只改这一处。
+ *
+ * 为什么需要：`apiProtocol` 同时承担两个职责——① 路由到哪个 Provider 实现、
+ * ② 查该通道的参考图能力。当用户用「OpenAI 兼容网关」代理一个非 OpenAI 的
+ * 底层模型时（例如 grok2api / 各类中转站把 grok-imagine 包成 /v1/images 接口），
+ * protocol 必须填 `openai` 才能路由正确，于此同时能力表就会错判成
+ * 「支持 4 张参考图」。结果：系统把角色三视图全部递过去，底层模型根本不吃
+ * 参考图、静默忽略，每张分镜都退化成纯文生图 → 人物必然不一致，而日志还记
+ * 着 hasReference: true，排查时完全看不出来。
+ *
+ * 因此在 protocol 表之上叠一层按模型名的覆盖：protocol 继续管路由，模型名
+ * 管能力。匹配规则为「模型名（小写）包含下列任一片段」，无匹配时回落
+ * protocol 表（向后兼容，零回归）。
+ */
+const MODEL_CAPABILITY_OVERRIDES: ReadonlyArray<{
+  /** 模型名匹配规则（对小写后的模型名做 test） */
+  match: RegExp;
+  /** 覆盖项：仅覆盖声明的字段，其余沿用 protocol 表 */
+  capability: Partial<ImageProviderCapability>;
+  /** 为什么覆盖（供日志与用户告知） */
+  reason: string;
+}> = [
+  {
+    // xAI grok 图像系列：/v1/images 只接受纯文本 prompt，无 image/mask 入参。
+    // 经 OpenAI 兼容网关代理时 protocol 会是 openai，必须在此强制关掉参考图。
+    //
+    // 用正则而非精确相等：网关给的模型名常带前后缀与版本号（用户库里实际是
+    // `grok-imagine-image`）。规则 = 名字里同时出现 grok 和 image/imagine，
+    // 这样 grok-2-image / grok-imagine-image / 未来的 grok-5-image 都能兜住，
+    // 不必逐个版本号维护清单。
+    match: /grok.*(image|imagine)/,
+    capability: {
+      supportsReferenceImage: false,
+      supportsMultipleReferences: false,
+      maxReferenceImages: 0,
+    },
+    reason: "grok 图像模型本身不支持参考图（即使经 OpenAI 兼容网关代理）",
+  },
+];
+
+/** 命中的模型覆盖项；未命中返回 undefined */
+function findModelOverride(
+  model: string | undefined
+): (typeof MODEL_CAPABILITY_OVERRIDES)[number] | undefined {
+  const name = model?.trim().toLowerCase();
+  if (!name) return undefined;
+  return MODEL_CAPABILITY_OVERRIDES.find((o) => o.match.test(name));
+}
+
+/**
+ * 获取图像 Provider 能力。
+ *
+ * @param protocol 路由协议（决定 Provider 实现与基础能力）
+ * @param model 选中的模型名；传入时叠加 MODEL_CAPABILITY_OVERRIDES
+ *              （网关代理导致协议与能力解耦，见该表注释）。缺省时行为与旧版一致。
+ */
 export function getImageProviderCapability(
-  protocol: string
+  protocol: string,
+  model?: string
 ): ImageProviderCapability {
-  return IMAGE_PROVIDER_CAPABILITIES[protocol] ?? DEFAULT_CAPABILITY;
+  const base = IMAGE_PROVIDER_CAPABILITIES[protocol] ?? DEFAULT_CAPABILITY;
+  const override = findModelOverride(model);
+  if (!override) return base;
+  return { ...base, ...override.capability };
+}
+
+/**
+ * 能力被模型覆盖表下调时的中文说明（无覆盖返回 null）。
+ * 供上游把「参考图不被支持」这件事显式告知用户，而不是静默丢弃参考图。
+ */
+export function describeImageCapabilityOverride(
+  protocol: string,
+  model?: string
+): string | null {
+  const override = findModelOverride(model);
+  if (!override) return null;
+  const base = IMAGE_PROVIDER_CAPABILITIES[protocol] ?? DEFAULT_CAPABILITY;
+  // 仅在「基础表认为支持、覆盖表判定不支持」时才有告知价值
+  if (!base.supportsReferenceImage) return null;
+  if (override.capability.supportsReferenceImage !== false) return null;
+  return override.reason;
 }
 
 /** 获取 LLM Provider */

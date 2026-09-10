@@ -40,6 +40,11 @@ interface BatchActionsBarProps {
   anyBatchPending: boolean;
   /** 图/视/音三类媒体配置控制 */
   mediaConfig: MediaConfigControls;
+  /**
+   * 批量出图前的定妆锚关口（包 B · B3）：返回 Promise<false> 表示中止本次批量。
+   * 缺省时视为放行。
+   */
+  onBeforeBatchImages?: () => Promise<boolean>;
 }
 
 type MediaKind = "image" | "video" | "audio";
@@ -49,8 +54,11 @@ type MediaKind = "image" | "video" | "audio";
  *
  * 每个 split-button = 主区（icon + 标签 + 完成计数 + 底部进度条）+ 右侧 ChevronDown
  * 小按钮（打开该媒体类型的模型配置浮层）。计数口径与 targets 过滤逻辑与原底部三行
- * 逐字保留；底部图片批量**不走** onBeforeBatchImages 关口（保持原语义，仅顶部
- * 「批量生成」走关口）。
+ * 逐字保留。
+ *
+ * 「批量图片」现在与顶部「批量生成」一样走 onBeforeBatchImages 定妆锚关口
+ * （包 B · B3）：此前刻意不走，结果这里成了唯一绕过关口的出图入口——而制片人
+ * 审阅完成后的引导恰好把新手指向这个按钮，必然得到一整批不一致的图。
  */
 export function BatchActionsBar({
   scenes,
@@ -61,6 +69,7 @@ export function BatchActionsBar({
   onCancelBatch,
   anyBatchPending,
   mediaConfig,
+  onBeforeBatchImages,
 }: BatchActionsBarProps) {
   // 同一时刻最多打开一个模型配置浮层
   const [openConfigFor, setOpenConfigFor] = useState<MediaKind | null>(null);
@@ -89,11 +98,13 @@ export function BatchActionsBar({
   const audioTotal = scenes.filter((s) => s.dialogue || s.narration).length;
 
   // 各类点击行为（targets 过滤逻辑逐字迁移自原底部三行）
-  const handleBatchImages = () => {
+  const handleBatchImages = async () => {
     const targets = scenes.filter(
       (s) => !s.imageUrl && s.imageStatus !== "PROCESSING"
     );
     if (targets.length === 0 || !batchGenerateImagesMutation) return;
+    // 定妆锚关口（包 B · B3 路径 3/4）：缺锚时先补定妆照再批量出图
+    if (onBeforeBatchImages && !(await onBeforeBatchImages())) return;
     batchGenerateImagesMutation.mutate({
       scenes: targets,
       imageConfigId: mediaConfig.image.selected,
@@ -172,7 +183,9 @@ export function BatchActionsBar({
       Icon: ImageIcon,
       done: imageDone,
       total: imageTotal,
-      onClick: handleBatchImages,
+      // 关口是异步的（可能弹补锚弹窗并等待补锚完成），这里 fire-and-forget：
+      // 内部已用 toast 汇报成败，按钮无需等待返回值
+      onClick: () => void handleBatchImages(),
       config: mediaConfig.image,
     },
     {

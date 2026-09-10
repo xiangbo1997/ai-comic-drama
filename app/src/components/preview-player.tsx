@@ -50,6 +50,13 @@ import { resolveLutPreset } from "@/lib/color-grade";
 import type { ColorGrade } from "@/lib/color-grade";
 import { isCardSceneId } from "@/lib/title-cards";
 import type { CardSpec } from "@/lib/title-cards";
+// AI 生成内容提示标识（合规，广电总局令第 16 号第三十四条）：与导出端
+// （ass/builder 的 AiDisclosure 样式）共用 lib/ai-disclosure 的配置解析与几何契约。
+import {
+  resolveAiDisclosure,
+  isDisclosureVisibleAt,
+  type AiDisclosure,
+} from "@/lib/ai-disclosure";
 // ── 抽出的纯函数 helper 与 hook（零行为变更的结构化拆分）──────────────
 import {
   aspectRatioToCss,
@@ -64,12 +71,16 @@ import {
 import { useMediaRegistry } from "./preview-player/use-media-registry";
 import { usePlaybackClock } from "./preview-player/use-playback-clock";
 import { useTransitionBuffer } from "./preview-player/use-transition-buffer";
-import { useStageHeight } from "./preview-player/use-stage-height";
+import {
+  useStageHeight,
+  useStageWidth,
+} from "./preview-player/use-stage-height";
 import { useOverlayDrag } from "./preview-player/use-overlay-drag";
 import { useBgm } from "./preview-player/use-bgm";
 import { useSfxScheduler } from "./preview-player/use-sfx-scheduler";
 import { useSubtitleTimeline } from "./preview-player/use-subtitle-timeline";
 import { CardOverlay } from "./preview-player/card-overlay";
+import { DisclosureOverlay } from "./preview-player/disclosure-overlay";
 import { SubtitleOverlay } from "./preview-player/subtitle-overlay";
 import { StickerLayer } from "./preview-player/sticker-layer";
 import { MediaLayers } from "./preview-player/media-layers";
@@ -138,6 +149,13 @@ interface PreviewPlayerProps {
    * （底图 + Ken Burns 缓推 + 得意黑大字覆盖层），与导出端注入成片首尾同源。
    */
   titleCards?: { intro: CardSpec | null; outro: CardSpec | null };
+  /**
+   * AI 生成内容提示标识（generationParams.aiDisclosure，合规）。
+   *
+   * ⚠️ 缺省即启用（法定要求，见 lib/ai-disclosure 的 resolveAiDisclosure 契约）——
+   * 不传此 prop 的调用方预览里同样会看到标识，与导出成片一致（预览=成片铁律）。
+   */
+  aiDisclosure?: AiDisclosure;
 }
 
 export function PreviewPlayer({
@@ -159,6 +177,7 @@ export function PreviewPlayer({
   emphasisSceneIds,
   colorGrade,
   titleCards,
+  aiDisclosure,
 }: PreviewPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -344,6 +363,9 @@ export function PreviewPlayer({
 
   // ── effect 7：ResizeObserver 跟踪画面框高 ──
   const stageHeight = useStageHeight(stageRef);
+  // ── effect 7b：ResizeObserver 跟踪画面框宽（AI 标识边距按画面宽换算，
+  //    与导出端 disclosureAssPos 的 margin 同基准）──
+  const stageWidth = useStageWidth(stageRef);
 
   // ── effect 8~12：拖拽乐观值收尾 ×3 + 切镜清 dragXY + 滚轮计时器卸载清理 ──
   const {
@@ -489,6 +511,24 @@ export function PreviewPlayer({
   const emphasisFontPx = isEmphasisScene
     ? Math.round(subtitleFontPx * EMPHASIS_STYLE.fontScale)
     : subtitleFontPx;
+
+  // ── AI 生成内容提示标识（合规，广电总局令第 16 号第三十四条）────────────
+  // 配置解析与导出端共用 resolveAiDisclosure（缺省即启用），可见性判据共用
+  // isDisclosureVisibleAt——两端读同一份时间窗语义，预览所见即成片所见。
+  const resolvedDisclosure = useMemo(
+    () => resolveAiDisclosure(aiDisclosure),
+    [aiDisclosure]
+  );
+  // 成片轴已播秒数 = 本镜之前的前缀时长 + 镜内已播（与导出端 ASS 时间轴同源）。
+  // mode="head" 时据此判断是否已过片头窗口；mode="always" 时恒可见。
+  const elapsedSec =
+    (prefixDurations[currentIndex] ?? 0) +
+    progress * (effDurs[currentIndex] ?? 0);
+  const disclosureVisible = isDisclosureVisibleAt(
+    resolvedDisclosure,
+    elapsedSec,
+    totalDuration
+  );
 
   // 逐句字幕时间窗 + 当前生效句（纯 memo，无副作用，故不影响 effect 顺序）
   const { activeSubtitleIndex, activeSubtitleText, activeSubtitleDuration } =
@@ -648,6 +688,19 @@ export function PreviewPlayer({
             <div className="pointer-events-none absolute right-3 bottom-3 z-10 rounded-md border border-amber-400/60 bg-amber-500/15 px-2 py-1 text-[11px] text-amber-200 backdrop-blur-sm">
               水印已开启，但未上传 Logo
             </div>
+          )}
+
+          {/* AI 生成内容提示标识（合规：广电总局令第 16 号第三十四条「每集明显
+              位置添加提示标识」）。缺省即显示——与导出端 resolveAiDisclosure
+              同一缺省契约，保证「预览所见 = 成片所见」。
+              z-10：同水印/卡片层，显式高于带 zIndex 的媒体层。 */}
+          {disclosureVisible && (
+            <DisclosureOverlay
+              disclosure={resolvedDisclosure}
+              subtitleFontPx={subtitleFontPx}
+              stageHeight={stageHeight}
+              stageWidth={stageWidth}
+            />
           )}
 
           {/* Stickers — 当前分镜的贴图预览（与导出 overlay 位置一致）。

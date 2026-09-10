@@ -13,6 +13,9 @@
  *   （如「血腥」在 BLOCKED_KEYWORDS 中），中文负面词会导致请求自我 400。
  */
 
+import { CAMERA_MOVEMENTS, type CameraMovement } from "./camera-movements";
+import { buildLimitedAnimationBlock } from "./limited-animation";
+
 /** 视频场景 prompt 构建输入 */
 export interface VideoScenePromptInput {
   /** 画面动作描述（中文，原样作为 Action 段） */
@@ -57,6 +60,18 @@ export interface VideoScenePromptInput {
    * 镜不该动嘴）。管线仍自叠 TTS 并丢弃模型音轨，故指令始终「no audible dialogue」。
    */
   hasDialogue?: boolean;
+  /**
+   * 半动（limited animation）纪律（C2，默认开启）。
+   *
+   * 动态漫主流形态即半动：人物只做微表情，大幅「动」由运镜 + 多层视差提供。
+   * 这是成本最低的一致性方案——不给模型大幅重绘人物的机会，它就画不崩。
+   * 规则块来自 `limited-animation.ts`（不重述外貌 / 微表情 / 视差 1.5:1:0.5 /
+   * 视角 delta ≤30°）。
+   *
+   * 置 false 时完全不注入，prompt 与本次改动前逐字相同（廉价回滚）。
+   * impact 节拍镜（beatType==="impact"）自动放宽微表情限制——打击镜本就该大动。
+   */
+  limitedAnimation?: boolean;
 }
 
 /** 景别 → 取景短语 */
@@ -78,28 +93,9 @@ const ANGLE_MODIFIER_MAP: Record<string, string> = {
   pov: " from a POV perspective",
 };
 
-/**
- * 合法运镜标识符（13 值枚举）。解析器 / 导演增强 / Zod 校验共用唯一真源，
- * 避免枚举在多处漂移。顺序与 CAMERA_MOVEMENT_MAP 键一致。
- */
-export const CAMERA_MOVEMENTS = [
-  "static",
-  "zoom_in",
-  "zoom_out",
-  "pan_left",
-  "pan_right",
-  "tilt_up",
-  "tilt_down",
-  "dolly_in",
-  "dolly_out",
-  "orbit",
-  "tracking",
-  "handheld",
-  "crane",
-] as const;
-
-/** 运镜标识符字面量联合类型 */
-export type CameraMovement = (typeof CAMERA_MOVEMENTS)[number];
+// 运镜枚举已提取到叶子模块 camera-movements.ts（打破 video-prompt ↔
+// limited-animation 的循环 import），此处重导出保持既有调用方零改动。
+export { CAMERA_MOVEMENTS, type CameraMovement };
 
 /** 运镜标识符 → 视频模型可理解的复合运镜短语（升级自旧 12 个单动词） */
 const CAMERA_MOVEMENT_MAP: Record<string, string> = {
@@ -275,19 +271,29 @@ function buildNegatives(style?: string | null): string {
   return `Avoid: ${negatives.slice(0, 9).join(", ")}`;
 }
 
-/** 长度上限（字符）。超限时按优先级丢弃整段。 */
+/**
+ * 长度上限（字符）。超限时按优先级丢弃整段。
+ *
+ * 半动纪律块（C2）约 700 字符，四块全开会顶掉原有 900 上限，故开启半动时
+ * 上限抬到 1800——现代视频模型（Veo / Kling / Seedance）对这个量级的指令
+ * 无压力，而半动纪律正是一致性的主力，不能被长度守卫悄悄丢掉。
+ * 未开启半动时沿用 900（零回归）。
+ */
 const LENGTH_LIMIT = 900;
+const LENGTH_LIMIT_LIMITED_ANIMATION = 1800;
 
 /**
  * 构建统一的视频场景 prompt。
  *
  * 段落顺序（Veo 五段式，I2V 适配）：
  * ① 运镜（取景 + 机位）② 动作（原中文 description）③ 氛围（情绪 + 风格 + 光线）
- * ④ 运动弧线（duration>=10 且非 FL）⑤ 连续性 ⑥ 音频指令 ⑦ 负面词
+ * ④ 运动弧线（duration>=10 且非 FL）⑤ 连续性 ⑥ 半动纪律（C2，默认开启）
+ * ⑦ 音频指令 ⑧ 负面词
  *
  * 空段跳过；用 ". " 连接；末尾以负面词句收尾。
- * 超过 900 字符时按 lighting → atmosphere → arc → style 短句 优先级丢弃整段
- * （绝不丢 description/运镜/连续性/音频/负面词，绝不中途截断）。
+ * 超长时按 lighting → atmosphere → arc → style 短句 优先级丢弃整段
+ * （绝不丢 description/运镜/连续性/半动纪律/音频/负面词，绝不中途截断）。
+ * 长度上限：开启半动时 1800，否则 900（见 LENGTH_LIMIT*）。
  */
 export function buildVideoScenePrompt(input: VideoScenePromptInput): string {
   const framing = buildFraming(input.shotType, input.cameraAngle);
@@ -327,6 +333,18 @@ export function buildVideoScenePrompt(input: VideoScenePromptInput): string {
   const audioDirective = buildAudioDirective(input);
   const negatives = buildNegatives(input.style);
 
+  // 半动纪律（C2）：默认开启。impact 节拍镜放宽微表情限制（打击镜本该大动）；
+  // FL 首尾帧模式跳过视差与视角 delta（两端关键帧已钉死角度，插值自带位移，
+  // 再叠视差指令会与插值打架）。
+  const limitedAnimationEnabled = input.limitedAnimation !== false;
+  const limitedAnimation = limitedAnimationEnabled
+    ? buildLimitedAnimationBlock({
+        allowLargeMotion: input.beatType === "impact",
+        skipParallax: input.hasLastFrame,
+        skipCameraDelta: input.hasLastFrame,
+      })
+    : "";
+
   // 组装氛围段的辅助：从三个可选片段（可被长度守卫单独丢弃）拼出逗号串。
   // 氛围段落作为句子开头，故首字母大写（映射值为小写，如 melancholic → Melancholic）。
   const assembleAmbiance = (
@@ -356,6 +374,8 @@ export function buildVideoScenePrompt(input: VideoScenePromptInput): string {
       ambiance,
       keepArc ? arc : undefined,
       continuity,
+      // 半动纪律紧跟连续性段：两者同属「别把人画崩」的一致性指令，相邻更易被遵循
+      limitedAnimation,
       audioDirective,
       negatives,
     ].filter((s): s is string => Boolean(s && s.trim()));
@@ -372,10 +392,14 @@ export function buildVideoScenePrompt(input: VideoScenePromptInput): string {
     [false, false, false, false], // 再丢 style 短句
   ];
 
+  const lengthLimit = limitedAnimation
+    ? LENGTH_LIMIT_LIMITED_ANIMATION
+    : LENGTH_LIMIT;
+
   let result = assemble(true, true, true, true);
   for (const [keepLighting, keepAtmosphere, keepArc, keepStyle] of dropOrder) {
     result = assemble(keepLighting, keepAtmosphere, keepArc, keepStyle);
-    if (result.length <= LENGTH_LIMIT) break;
+    if (result.length <= lengthLimit) break;
   }
 
   return result;

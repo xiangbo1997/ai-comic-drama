@@ -20,6 +20,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { draftWorldview } from "@/lib/assist-client";
 import { STYLE_PACK_OPTIONS } from "@/lib/prompts/style-packs";
+import { GenreSelectField } from "./GenreSelectField";
 import type { ProjectListItem, SeriesSummary } from "@/types";
 
 /** 世界观框内容达到此长度即视为「已较完整」，AI 起草前需二次确认（会覆盖） */
@@ -182,19 +183,17 @@ export function CreateSeriesDialog({
             />
           </div>
 
+          {/* 题材（批 3）：从自由文本输入框升级为按平台数据分档的引导选择器。
+              选中后同屏给数据依据与风险提示，但不阻断创建；AI 起草回填的矩阵外
+              类型名仍能承接（显示为「其它：xxx」）。 */}
+          <GenreSelectField
+            value={genre}
+            onChange={setGenre}
+            label="题材类型"
+          />
+
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="text-muted-foreground mb-1 block text-sm">
-                类型
-              </label>
-              <input
-                value={genre}
-                onChange={(e) => setGenre(e.target.value)}
-                placeholder="如：玄幻冒险"
-                className="bg-card focus:ring-primary w-full rounded-lg p-2 text-sm focus:ring-2 focus:outline-none"
-              />
-            </div>
-            <div>
               <label className="text-muted-foreground mb-1 block text-sm">
                 风格
               </label>

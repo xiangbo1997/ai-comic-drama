@@ -25,3 +25,28 @@ export function useStageHeight(stageRef: RefObject<HTMLDivElement | null>) {
 
   return stageHeight;
 }
+
+/**
+ * 跟踪画面框实际像素宽 → 驱动「按画面宽比例」的覆盖层边距等比缩放。
+ *
+ * 与 useStageHeight 同构（同一 ResizeObserver 模式，只是读 width）。
+ * 消费方：AI 生成提示标识覆盖层（DisclosureOverlay）——其边距在导出端定义为
+ * 「画面宽 × DISCLOSURE_MARGIN_RATIO」，预览端须用同一基准换算才等距。
+ */
+export function useStageWidth(stageRef: RefObject<HTMLDivElement | null>) {
+  const [stageWidth, setStageWidth] = useState(0);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const update = () => setStageWidth(el.getBoundingClientRect().width);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+    // 同 useStageHeight：stageRef 为恒定 ref 容器，仅挂载时接管。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return stageWidth;
+}

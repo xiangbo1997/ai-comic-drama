@@ -19,6 +19,13 @@ import {
   typewriterDelays,
   SUBTITLE_ANIM,
 } from "@/lib/subtitle-segments";
+// AI 生成内容提示标识（合规，广电总局令第 16 号第三十四条）：
+// 字号倍率 / 位置锚点 / 透明度 / 时间窗全部读 lib/ai-disclosure 单一真源（与预览端同源）。
+import {
+  disclosureAssPos,
+  disclosureTimeWindow,
+  type ResolvedAiDisclosure,
+} from "@/lib/ai-disclosure";
 
 /** 卡片文字行角色 → ASS Style 名映射（片头/片尾卡，批6） */
 const CARD_ROLE_TO_STYLE: Record<CardLine["role"], string> = {
@@ -26,6 +33,8 @@ const CARD_ROLE_TO_STYLE: Record<CardLine["role"], string> = {
   sub: "CardSub",
   hook: "CardHook",
   cta: "CardCta",
+  // 片头信息位编号（第二十七条：许可证号/批准文号/节目编号）
+  credential: "CardCredential",
 };
 
 /**
@@ -58,10 +67,25 @@ export function buildCardEvents(
   // 上排（title/hook）在 45% 高，下排（sub/cta）在 58% 高——上下分层不重叠
   const topY = Math.round(height * 0.45);
   const bottomY = Math.round(height * 0.58);
+  // 片头信息位编号（第二十七条）自 72% 高起逐行下排，行距 = 编号字号 × 1.4，
+  // 与 title/sub 分层不重叠。位置为工程默认值，法规未规定量化参数。
+  const credentialFontPx = resolveSubtitleFontPx(
+    CARD_CREDENTIAL_BASE_FONT * CARD_STYLE.credentialScale,
+    height
+  );
+  const credentialLineGap = Math.round(credentialFontPx * 1.4);
+  const credentialTopY = Math.round(height * 0.72);
+  let credentialIndex = 0;
 
   for (const line of card.lines) {
     const styleName = CARD_ROLE_TO_STYLE[line.role];
-    const py = line.role === "title" || line.role === "hook" ? topY : bottomY;
+    let py: number;
+    if (line.role === "credential") {
+      py = credentialTopY + credentialIndex * credentialLineGap;
+      credentialIndex += 1;
+    } else {
+      py = line.role === "title" || line.role === "hook" ? topY : bottomY;
+    }
     // \an5 中心锚点 + \pos 居中偏排 + \fad 柔和进出；文本转义防注入
     const text = `{\\an5\\pos(${cx},${py})\\fad(300,200)}${escapeAssText(line.text)}`;
     events.push(`Dialogue: 0,${start},${end},${styleName},,0,0,0,,${text}`);
@@ -83,7 +107,8 @@ export function buildCardEvents(
 export function buildAssHeader(
   width: number,
   height: number,
-  style?: SubtitleStyle
+  style?: SubtitleStyle,
+  disclosure?: ResolvedAiDisclosure
 ): string {
   const s: SubtitleStyle = {
     fontSize: style?.fontSize ?? 24,
@@ -140,6 +165,11 @@ export function buildAssHeader(
     s.fontSize * CARD_STYLE.ctaScale,
     height
   );
+  // 片头信息位编号（第二十七条）：小字号标注
+  const cardCredentialSize = resolveSubtitleFontPx(
+    s.fontSize * CARD_STYLE.credentialScale,
+    height
+  );
   const whiteColor = hexToAssColor(CARD_STYLE.fillColor);
   const blackOutline = hexToAssColor(CARD_STYLE.outlineColor);
   const cardCtaColor = hexToAssColor(CARD_STYLE.ctaColor);
@@ -148,6 +178,26 @@ export function buildAssHeader(
     2,
     Math.round(s.outlineWidth * CARD_STYLE.outlineScale)
   );
+
+  // ── AI 生成内容提示标识样式（合规，广电总局令第 16 号第三十四条）──
+  // 字号 = 正文字号 × fontScale（倍率读 lib/ai-disclosure 的用户配置/默认值，
+  // 经 resolveSubtitleFontPx 跨分辨率换算）；白字黑描边保证任意底图可读；
+  // 不透明度经 PrimaryColour/OutlineColour 的 alpha 通道表达（见 withAssAlpha）。
+  // Alignment 写 7 仅作缺省，逐事件 \an + \pos 会覆盖。
+  const disclosureStyle = disclosure
+    ? (() => {
+        const size = resolveSubtitleFontPx(
+          s.fontSize * disclosure.fontScale,
+          height
+        );
+        const alpha = opacityToAssAlpha(disclosure.opacity);
+        const fill = withAssAlpha(hexToAssColor(DISCLOSURE_FILL), alpha);
+        const stroke = withAssAlpha(hexToAssColor(DISCLOSURE_OUTLINE), alpha);
+        // 描边宽沿用正文描边（最小 1），标识字小不需要卡片那种粗描边
+        const outlineW = Math.max(1, Math.round(s.outlineWidth));
+        return `Style: AiDisclosure,${bodyFont},${size},${fill},&H000000FF,${stroke},${backColour},0,0,0,0,100,100,0,0,1,${outlineW},0,7,20,20,20,1`;
+      })()
+    : null;
 
   // Alignment 用 5（中心）；逐事件 \an5\pos 会覆盖，这里仅作缺省
   return [
@@ -171,6 +221,11 @@ export function buildAssHeader(
     `Style: CardHook,${titleFont},${cardHookSize},${whiteColor},&H000000FF,${blackOutline},${backColour},-1,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
     // 卡片追更贴字（暖金强调色，读 CARD_STYLE.ctaColor 单一真源）
     `Style: CardCta,${titleFont},${cardCtaSize},${cardCtaColor},&H000000FF,${blackOutline},${backColour},0,0,0,0,100,100,0,0,1,${cardOutline},0,5,20,20,20,1`,
+    // 片头信息位编号（第二十七条）：小字白字，用正文字体（编号含数字/字母，
+    // 正文字体比显示型标题字更适合辨识）
+    `Style: CardCredential,${bodyFont},${cardCredentialSize},${whiteColor},&H000000FF,${blackOutline},${backColour},0,0,0,0,100,100,0,0,1,${Math.max(1, s.outlineWidth)},0,5,20,20,20,1`,
+    // AI 生成提示标识（仅传入 disclosure 时声明；未传则不写该样式行）
+    ...(disclosureStyle ? [disclosureStyle] : []),
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -337,6 +392,71 @@ export function formatAssTime(seconds: number): string {
   const secs = Math.floor(seconds % 60);
   const cs = Math.floor((seconds % 1) * 100);
   return `${hours}:${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}.${cs.toString().padStart(2, "0")}`;
+}
+
+/**
+ * buildCardEvents 计算编号行距时用的正文字号基准。
+ *
+ * buildCardEvents 不接收 SubtitleStyle（卡片文字的字号由 ASS Style 决定，事件里
+ * 只需定位），故行距按与 buildAssHeader 相同的正文字号缺省值（24）估算。
+ * 用户改了字幕字号时行距不随之变化——编号是小字标注，行距略有出入不影响可读，
+ * 换取「不必把样式对象贯穿到事件构建」的简单性。
+ */
+const CARD_CREDENTIAL_BASE_FONT = 24;
+
+/** AI 标识填充色（白字，与卡片主字同色系；非法规要求，工程取值） */
+const DISCLOSURE_FILL = "#FFFFFF";
+/** AI 标识描边色（黑描边压住任意底图） */
+const DISCLOSURE_OUTLINE = "#000000";
+
+/**
+ * 不透明度（0-1）→ ASS alpha 十六进制两位（ASS 里 00=完全不透明、FF=完全透明，
+ * 与 CSS opacity 方向相反，故取 1-opacity）。
+ */
+export function opacityToAssAlpha(opacity: number): string {
+  const clamped = Math.max(0, Math.min(1, opacity));
+  const v = Math.round((1 - clamped) * 255);
+  return v.toString(16).padStart(2, "0").toUpperCase();
+}
+
+/**
+ * 把 hexToAssColor 产出的 `&H00BBGGRR` 换成指定 alpha（`&HAABBGGRR`）。
+ * hexToAssColor 恒写 alpha=00（不透明），标识需要半透明故在此覆写。
+ */
+export function withAssAlpha(assColor: string, alpha: string): string {
+  return assColor.replace(/^&H[0-9A-F]{2}/i, `&H${alpha}`);
+}
+
+/**
+ * 构建 AI 生成提示标识的 ASS 字幕事件（合规，广电总局令第 16 号第三十四条）。
+ *
+ * 实现要点：
+ * - 单条 Dialogue 覆盖整个显示时间窗（mode="always" 即全片、"head" 即片头若干秒），
+ *   时间窗由 disclosureTimeWindow 统一判定（与预览端同一判据）。
+ * - Layer 写 1（高于正文字幕的 Layer 0）：正文字幕与标识万一位置重叠时标识在上，
+ *   法定标识不被遮挡。
+ * - \an + \pos 贴边定位，锚点像素由 disclosureAssPos 按同一边距比例算出。
+ * - 不加任何入场动效：标识是静态提示，淡入淡出反而削弱「明显」。
+ *
+ * @param disclosure 已解析的标识配置（resolveAiDisclosure 产出）
+ * @param totalSec   成片总时长（秒）——决定时间窗终点
+ * @param width      成片画面宽（px）
+ * @param height     成片画面高（px）
+ * @returns Dialogue 事件数组；未启用 / 时长非正时为空数组
+ */
+export function buildDisclosureEvents(
+  disclosure: ResolvedAiDisclosure,
+  totalSec: number,
+  width: number,
+  height: number
+): string[] {
+  const win = disclosureTimeWindow(disclosure, totalSec);
+  if (!win) return [];
+  const { x, y, an } = disclosureAssPos(disclosure.position, width, height);
+  const text = `{\\an${an}\\pos(${x},${y})}${escapeAssText(disclosure.text)}`;
+  return [
+    `Dialogue: 1,${formatAssTime(win.start)},${formatAssTime(win.end)},AiDisclosure,,0,0,0,,${text}`,
+  ];
 }
 
 /**

@@ -35,6 +35,10 @@ import {
   getSceneNegativePrompt,
   type NegativePromptPreset,
 } from "@/lib/prompts/negative-prompts";
+import {
+  buildCanonicalCharacterEntry,
+  STYLE_LIGHTING_LOCK,
+} from "@/lib/prompts/canonical-appearance";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("lib:prompt-builder");
@@ -166,16 +170,15 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     );
   }
 
-  // 3. 角色外貌描述（固定特征）
+  // 3. 角色外貌描述（冻结文本，逐字不变）
+  //    收口到 canonical-appearance.ts：此前这里只拼 性别/年龄/description，
+  //    **完全忽略结构化外貌的 9 个字段**——同一角色在定妆照 prompt 里是
+  //    "navy blue bomber jacket, amber eyes"，到场景 prompt 只剩 description 里
+  //    一句模糊的「蓝夹克」，模型据此画出明显不同的人。这是人物漂移的主要来源。
   if (characters.length > 0) {
-    const characterDescriptions = characters.map((c) => {
-      const features = [
-        c.gender === "male" ? "male" : c.gender === "female" ? "female" : null,
-        c.age ? `${c.age} years old` : null,
-        c.description || null,
-      ].filter(Boolean);
-      return `${c.name}: ${features.join(", ")}`;
-    });
+    const characterDescriptions = characters.map((c) =>
+      buildCanonicalCharacterEntry(c.name, c)
+    );
     if (characterDescriptions.length === 1) {
       parts.push(`character: ${characterDescriptions[0]}`);
     } else {
@@ -226,8 +229,13 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
   // 8. 原始提示词（自定义内容）
   if (originalPrompt) parts.push(originalPrompt);
 
-  // 9. 一致性护栏 + 质量词（按协议分风格：SD 系用 booru 标签，指令类用自然语言）
+  // 9. 一致性护栏 + 画风/打光锁定 + 质量词
+  //    （质量词按协议分风格：SD 系用 booru 标签，指令类用自然语言）
+  //    画风/打光锁定只声明「同项目内不得重新诠释」，不重复具体画风与光线内容
+  //    （那两者已分别由 pack.anchor 与 getLightingPrefix 各注入一次），
+  //    二次描述反而会引入漂移。
   parts.push(buildConsistencyGuard(characters.length));
+  parts.push(STYLE_LIGHTING_LOCK);
   parts.push(qualityWords(promptStyle));
 
   return parts.filter(Boolean).join(", ");

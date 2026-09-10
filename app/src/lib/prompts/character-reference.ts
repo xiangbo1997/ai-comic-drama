@@ -5,6 +5,7 @@
  */
 
 import { getStylePack } from "./style-packs";
+import { buildCanonicalAppearanceFields } from "./canonical-appearance";
 
 /**
  * 结构化外貌字段（与 Prisma CharacterAppearance 的 9 个文本字段对齐；
@@ -39,27 +40,16 @@ export interface CharacterPromptInput {
 
 /**
  * 把结构化外貌的 9 个文本字段拼成一段英文/中文混排的外貌特征描述。
- * 拼接风格对齐分镜出图路径 strategy-resolver.ts#buildCharacterFeatures：
- * 发色 + 发型合并、眼睛加 "eyes"、肤色加 "skin" 后缀，其余字段原样。
- * 全部为空时返回空串，调用方按「无外貌」处理（零回归）。
+ *
+ * 实现已收口到 `canonical-appearance.ts#buildCanonicalAppearanceFields`（冻结文本
+ * 单一真源）：字段顺序由模块级常量固定、空白统一折叠，保证同一角色在定妆照 /
+ * 三视图 / 分镜出图 / 场景增强四条路径上拿到**逐字相同**的外貌串。
+ * 本函数保留为既有调用方的薄门面。全空返回空串（调用方按「无外貌」处理）。
  */
 export function buildAppearanceFeatures(
   appearance?: CharacterAppearanceInput | null
 ): string {
-  if (!appearance) return "";
-  const fields = [
-    appearance.hairColor && appearance.hairStyle
-      ? `${appearance.hairColor} ${appearance.hairStyle}`
-      : appearance.hairStyle || appearance.hairColor || null,
-    appearance.faceShape,
-    appearance.eyeColor ? `${appearance.eyeColor} eyes` : null,
-    appearance.bodyType,
-    appearance.skinTone ? `${appearance.skinTone} skin` : null,
-    appearance.height,
-    appearance.accessories,
-    appearance.freeText,
-  ];
-  return fields.filter(Boolean).join(", ");
+  return buildCanonicalAppearanceFields(appearance);
 }
 
 /**

@@ -22,6 +22,14 @@ export interface PersistCandidate {
       passed?: boolean | null;
       faceCount?: number | null;
       reason?: string | null;
+      /**
+       * 一致性闸门是否真的执行过（"checked" | "skipped" | "error"）。
+       * 必须落库：passed=true 可能只是「为不阻断出图而放行」，拿它当「质量已验证」
+       * 会把跳过伪装成合格——这正是闸门此前空转却无人发现的原因。
+       */
+      status?: string | null;
+      /** 三档判定（PASS / BORDERLINE / FAIL）；status!=="checked" 时为空 */
+      grade?: string | null;
     } | null;
   };
 }
@@ -48,7 +56,16 @@ export interface PersistImageResultParams {
   /** 推荐张的图 URL */
   imageUrl: string;
   /** 推荐张的编排器结果（output 的 strategy / attemptCount 取自它） */
-  chosenResult: { strategy: string; attemptCount: number };
+  chosenResult: {
+    strategy: string;
+    attemptCount: number;
+    warnings?: string[];
+  };
+  /**
+   * 不阻断生成的中文告知（如「当前模型不支持参考图」），写进 task output 供
+   * 客户端轮询后展示。能力错配是完全静默的失败，这是用户唯一能看见的信号（A1）。
+   */
+  warnings?: string[];
   /** 实际扣费额度（成功张数 × 单张实际成本） */
   actualCost: number;
   /** 生成所用 provider 协议与模型（落 attempt 便于溯源） */
@@ -81,6 +98,7 @@ export async function persistImageResult(
     provider,
     model,
     iterationNote,
+    warnings,
   } = params;
 
   return prisma.$transaction(async (tx) => {
@@ -112,6 +130,10 @@ export async function persistImageResult(
         const mergedScores = mergeSimilarityScores(
           {
             faceCount: c.result.validation?.faceCount ?? undefined,
+            // 闸门执行状态与三档判定一并入 JSON 列（零 schema 变更），
+            // 让「放行」与「验证通过」在数据层可区分
+            identityStatus: c.result.validation?.status ?? undefined,
+            identityGrade: c.result.validation?.grade ?? undefined,
           },
           scores[i]
         );
@@ -166,6 +188,8 @@ export async function persistImageResult(
           // candidates 是具名接口数组，需显式转成 Prisma 的 Json 输入类型
           // （拆分前该对象为内联字面量，由 Prisma 自行推断）
           candidates: candidates as unknown as Prisma.InputJsonValue,
+          // 能力错配等告知：轮询端点原样返回 output 作为 result，客户端据此提示用户
+          ...(warnings && warnings.length > 0 ? { warnings } : {}),
         },
         completedAt: new Date(),
         cost: actualCost,

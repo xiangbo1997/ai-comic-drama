@@ -16,6 +16,7 @@
  * - history 跨轮记忆：每轮的 verdict 累积传给 reflect，支持"避免重复犯错"
  */
 
+import type { SystemConfigKey } from "@/lib/system-config";
 import type {
   ClosedLoopPolicy,
   ObserverVerdict,
@@ -25,20 +26,34 @@ import type {
 
 /**
  * 四闭环默认策略 (P3.5)。
- * 仅角色一致性默认开启（保持现有行为）；其余三个默认关闭，先上线采集评分数据，
- * 验证稳定后再逐步开启，符合渐进、可回滚原则。
+ *
+ * `enabled` 的取值依据「额外 LLM 调用数 × 用户感知延迟」（审计 D3）：
+ * - imageConsistency：一直默认开（行为不变）。
+ * - characterBible：评分函数 reviewCharacterBible 是【纯函数】，零 LLM 调用、零积分；
+ *   只有评分不达标才重生成圣经（上界 maxRounds=2）。成本≈0，故默认开。
+ * - storyboard / videoCoherence：各固定增加 1 次纯文本 LLM 调用，且当前实现
+ *   【只评分不重生成】—— 用户多等数秒只换来一条评分记录，性价比低，故默认关。
+ *
+ * 三项均可被系统配置覆盖（见 CLOSED_LOOP_* 键），不必改代码即可开关。
  */
 export const DEFAULT_CLOSED_LOOP_POLICIES = {
   imageConsistency: { enabled: true, maxRounds: 3, passThreshold: 75 },
-  characterBible: { enabled: false, maxRounds: 2, passThreshold: 70 },
+  characterBible: { enabled: true, maxRounds: 2, passThreshold: 70 },
   storyboard: { enabled: false, maxRounds: 2, passThreshold: 70 },
   videoCoherence: { enabled: false, maxRounds: 1, passThreshold: 60 },
 } as const satisfies Record<string, ClosedLoopPolicy>;
 
 export type ClosedLoopName = keyof typeof DEFAULT_CLOSED_LOOP_POLICIES;
 
+/** 闭环 → 系统配置键（imageConsistency 无开关：一直开，行为不变） */
+const POLICY_CONFIG_KEY: Partial<Record<ClosedLoopName, SystemConfigKey>> = {
+  characterBible: "CLOSED_LOOP_CHARACTER_BIBLE",
+  storyboard: "CLOSED_LOOP_STORYBOARD",
+  videoCoherence: "CLOSED_LOOP_VIDEO_COHERENCE",
+};
+
 /**
- * 解析某闭环的最终策略。
+ * 解析某闭环的最终策略（同步版，不读系统配置）。
  * 优先级：config.closedLoops[name] > 默认值。
  * 对 imageConsistency 额外兼容旧字段 maxImageReflectionRounds。
  */
@@ -54,6 +69,34 @@ export function resolvePolicy(
     return { ...base, maxRounds: ctx.config.maxImageReflectionRounds };
   }
   return base;
+}
+
+/**
+ * 解析某闭环的最终策略（异步版，含系统配置开关）。
+ *
+ * 优先级：ctx.config.closedLoops[name]（项目级显式策略，最高）
+ *       > SystemConfig 的 CLOSED_LOOP_* 开关（运维级）
+ *       > DEFAULT_CLOSED_LOOP_POLICIES（代码默认）。
+ *
+ * 项目级策略优先于运维开关：调用方显式传了策略就是显式意图，不该被全局开关反悔。
+ * 读配置失败时 getSystemConfig 自身回落默认值，故本函数不会因 DB 抖动抛错。
+ */
+export async function resolvePolicyAsync(
+  ctx: WorkflowContext,
+  name: ClosedLoopName
+): Promise<ClosedLoopPolicy> {
+  const fromConfig = ctx.config.closedLoops?.[name];
+  if (fromConfig) return fromConfig;
+
+  const base = resolvePolicy(ctx, name);
+  const key = POLICY_CONFIG_KEY[name];
+  if (!key) return base;
+
+  // 动态 import：本文件是纯编排逻辑，静态引入 system-config 会把 lib/prisma
+  // （模块加载即要求 DATABASE_URL）拖进所有引用者的依赖图，让纯逻辑单测也必须备 DB。
+  const { getSystemConfig } = await import("@/lib/system-config");
+  const enabled = await getSystemConfig(key);
+  return { ...base, enabled: Boolean(enabled) };
 }
 
 /** 单轮记录，累积构成跨轮记忆 */

@@ -190,6 +190,39 @@ export const SYSTEM_CONFIG_DEFS = {
     max: 10000,
     description: "15 秒档成本。",
   },
+
+  // ---- feature：质量闭环开关（成本/耗时敏感，故做成可配置而非硬编码全开）----
+  //
+  // 四闭环里 imageConsistency 一直默认开（无开关，行为不变）；其余三个此前硬编码
+  // enabled:false。这里把它们提为运维可调项，默认值按「额外 LLM 调用数 × 用户感知延迟」定：
+  CLOSED_LOOP_CHARACTER_BIBLE: {
+    default: true,
+    type: "boolean",
+    label: "闭环：角色圣经评审",
+    group: "feature",
+    description:
+      "评分函数 reviewCharacterBible 是纯函数（零 LLM 调用、零积分、毫秒级），" +
+      "仅在评分不达标时才重新生成圣经（上界 maxRounds=2，每轮 1 次 LLM）。" +
+      "绝大多数项目一轮过，成本≈0，故默认开启。",
+  },
+  CLOSED_LOOP_STORYBOARD: {
+    default: false,
+    type: "boolean",
+    label: "闭环：分镜叙事连贯评审",
+    group: "feature",
+    description:
+      "每次 workflow 固定增加 1 次纯文本 LLM 调用（整套分镜摘要进 prompt，约 1-3k tokens），" +
+      "当前实现只评分不重生成。会给用户感知路径增加数秒等待，收益仅为一条评分记录，故默认关闭。",
+  },
+  CLOSED_LOOP_VIDEO_COHERENCE: {
+    default: false,
+    type: "boolean",
+    label: "闭环：视频连贯评审",
+    group: "feature",
+    description:
+      "每次 workflow 固定增加 1 次纯文本 LLM 调用，只评分不重生成（视频重生成成本最高，未接）。" +
+      "与分镜评审同理，默认关闭；需要采集质量数据时再开。",
+  },
 } as const satisfies Record<string, SystemConfigDef>;
 
 /** 合法配置键 */

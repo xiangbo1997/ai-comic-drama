@@ -49,10 +49,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { id } = await params;
 
-    // 项目归属校验（带系列字段：续集自动衔接前情用）
+    // 项目归属校验（带系列字段：续集自动衔接前情用；带 generationParams：读题材）
     const project = await prisma.project.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true, seriesId: true, episodeNumber: true },
+      select: {
+        id: true,
+        seriesId: true,
+        episodeNumber: true,
+        generationParams: true,
+      },
     });
     if (!project) {
       return NextResponse.json({ error: "项目不存在" }, { status: 404 });
@@ -68,8 +73,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // 系列第 N>1 集：服务端自动生成上一集前情提要，让本集剧情承接结尾钩子
     const previousEpisodeRecap = await derivePreviousEpisodeRecap(project);
+    // 题材（批 3）：客户端显式传入优先；未传则回落项目已存的 generationParams.genre。
+    // 回落在服务端做而非各前端调用点做——否则新增一个调用方就漏一次题材注入
+    // （编辑器脚本面板、制片人向导、系列续集三条路径都靠这一处收口）。
+    const genre = parsed.data.genre?.trim() || readStoredGenre(project);
     const input: DramaScriptInput = {
       ...parsed.data,
+      ...(genre ? { genre } : {}),
       ...(previousEpisodeRecap ? { previousEpisodeRecap } : {}),
     };
 
@@ -122,6 +132,24 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         : "Failed to generate drama script";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+/**
+ * 读取项目已存的题材（generationParams.genre，批 3）。
+ *
+ * generationParams 是 Prisma Json 列，运行时形状不受类型保护，故逐层做类型收窄；
+ * 非对象 / 非字符串 / 空串一律返回 undefined（调用方按「无题材」处理，零回归）。
+ */
+function readStoredGenre(project: {
+  generationParams: unknown;
+}): string | undefined {
+  const params = project.generationParams;
+  if (!params || typeof params !== "object" || Array.isArray(params)) {
+    return undefined;
+  }
+  const genre = (params as Record<string, unknown>).genre;
+  if (typeof genre !== "string") return undefined;
+  return genre.trim() || undefined;
 }
 
 /**

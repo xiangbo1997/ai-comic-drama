@@ -34,6 +34,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { STYLE_PACK_OPTIONS } from "@/lib/prompts/style-packs";
+import { resolveSerializationHint } from "@/lib/genre-matrix";
+import { GenreSelectField } from "./GenreSelectField";
 import {
   draftWorldview,
   draftCharacterRoster,
@@ -58,11 +60,14 @@ const ASPECT_RATIOS: Array<{ value: string; label: string }> = [
 type StepKey = "worldview" | "project" | "script" | "characters" | "scenes";
 type StepStatus = "pending" | "running" | "done" | "failed";
 
+// 「角色建档 + 外貌预填」原文案让用户以为角色已经办好了，实际这一步只产出
+// 文字设定，一张定妆照都没有（包 B · B4）。措辞改成如实说明「只有文字设定」，
+// 避免用户带着「角色已就绪」的预期直接去出图、拿到一批不一致的人物。
 const STEP_LABELS: Record<StepKey, string> = {
   worldview: "AI 起草世界观",
   project: "创建项目",
   script: "生成短剧脚本（约 1 分钟）",
-  characters: "角色建档 + 外貌预填",
+  characters: "角色建档（文字设定，暂无定妆照）",
   scenes: "直转分镜列表",
 };
 
@@ -89,6 +94,9 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
   const [style, setStyle] = useState("anime");
   const [aspectRatio, setAspectRatio] = useState("9:16");
   const [durationSec, setDurationSec] = useState(90);
+  // 题材（批 3）：空串 = 不指定，由 AI 判断（与改前行为一致）。
+  // 选中后会一路透传：世界观起草 → 落库 generationParams.genre → 脚本生成 prompt。
+  const [genre, setGenre] = useState("");
 
   // 执行态
   const [running, setRunning] = useState(false);
@@ -126,6 +134,9 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
       setFailedStep(null);
       setErrorMsg(null);
 
+      // 题材（批 3）：空串归一成 undefined 语义，避免把空字符串当题材下传
+      const selectedGenre = genre.trim() || null;
+
       // 承接上次已产出的中间产物（续跑时复用，不重算）
       let localProjectId = projectId;
       let localArtifact = scriptArtifact;
@@ -141,8 +152,13 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
           setStatus(key, "running");
 
           if (key === "worldview") {
-            // 世界观：一句话点子扩写为完整世界观（承接进后续脚本生成）
-            const draft = await draftWorldview({ idea: idea.trim() });
+            // 世界观：一句话点子扩写为完整世界观（承接进后续脚本生成）。
+            // 题材（批 3）选了就下传：让起草的设定与冲突服务于该题材的核心看点，
+            // 而不是先起草完再贴标签。未选则不传，由 LLM 自行判断（行为同改前）。
+            const draft = await draftWorldview({
+              idea: idea.trim(),
+              ...(selectedGenre ? { genre: selectedGenre } : {}),
+            });
             localArtifact = {
               ...(localArtifact ?? ({} as DramaScriptArtifact)),
               worldview: draft.worldview,
@@ -161,6 +177,21 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
               });
               localProjectId = project.id;
               setProjectId(project.id);
+              // 题材落库（批 3）：写进 generationParams.genre，让题材成为项目的
+              // 持久创作参数——编辑器里重新生成脚本、系列续集都能读到（服务端
+              // drama-script 路由会在客户端未显式传题材时回落读取它）。
+              // 失败不阻断：本轮脚本生成仍会显式传题材，仅影响后续重生成。
+              if (selectedGenre) {
+                await fetch(`/api/projects/${localProjectId}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    generationParams: { genre: selectedGenre },
+                  }),
+                }).catch(() => {
+                  // 静默：题材仅影响 prompt 上下文，存不进去不该让整个向导失败
+                });
+              }
             }
           } else if (key === "script") {
             if (!localProjectId) throw new Error("项目缺失，请从头重试");
@@ -170,6 +201,9 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
               durationSec,
               aspectRatio,
               style,
+              // 题材显式下传（批 3）：不依赖服务端回落，避免上一步 PATCH 失败
+              // 时本轮脚本丢掉题材上下文
+              ...(selectedGenre ? { genre: selectedGenre } : {}),
             });
             localArtifact = result.artifact;
             setScriptArtifact(result.artifact);
@@ -257,11 +291,18 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
                 scenes: [],
               },
             };
+            // ⚠️ generationParams 的 PATCH 是【整体替换】（服务端
+            // normalizeGenerationParams 按白名单逐字段重建，不做 merge），
+            // 所以这里必须把题材一起带上 —— 否则末步 PATCH 会把第 2 步存进去的
+            // generationParams.genre 抹掉，脚本重生成时题材上下文静默丢失。
             await fetch(`/api/projects/${localProjectId}`, {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                generationParams: { producerReview },
+                generationParams: {
+                  producerReview,
+                  ...(selectedGenre ? { genre: selectedGenre } : {}),
+                },
               }),
             });
           }
@@ -285,6 +326,7 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
       style,
       aspectRatio,
       durationSec,
+      genre,
       projectId,
       scriptArtifact,
       createdCharNames,
@@ -309,6 +351,9 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
   };
 
   const started = running || done || failedStep !== null;
+  // 连载提示（批 3 · F4）：目标时长偏长时提醒「拆连载比做长单集更划算」。
+  // 纯提示，返回 null 即不展示，不改变任何生成参数。
+  const serializationHint = resolveSerializationHint(durationSec);
 
   return (
     <Dialog open onOpenChange={(open) => !open && !running && onClose()}>
@@ -392,6 +437,21 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
               </div>
             </div>
           </div>
+
+          {/* 题材选择（批 3）：按平台数据分档 + 选中后同屏给依据与风险，不硬阻断 */}
+          <GenreSelectField
+            value={genre}
+            onChange={setGenre}
+            disabled={started}
+          />
+
+          {/* 连载提示（批 3 · F4）：平台按「有效观看时长」分账而非播放量，
+              长单集不如拆连载。纯提示，不强制，也不改变任何参数。 */}
+          {serializationHint && (
+            <p className="border-border bg-card/60 text-muted-foreground rounded-lg border p-2 text-xs leading-relaxed">
+              {serializationHint}
+            </p>
+          )}
         </div>
 
         {/* 步骤进度（开始后展示） */}
@@ -412,6 +472,18 @@ export function ProducerWizardDialog({ onClose }: ProducerWizardDialogProps) {
             {errorMsg && (
               <p className="text-xs text-red-400">
                 {STEP_LABELS[failedStep ?? "worldview"]}失败：{errorMsg}
+              </p>
+            )}
+            {/* 完成态如实说明「还差什么」（包 B · B4）：向导只产出文字草稿，
+                角色还没有定妆照——而定妆照是人物跨镜头一致的地基。
+                下一步入口就在同一个按钮上（进入审阅 → 审阅完成时一键补拍），
+                不让用户自己去猜要去哪个页面做什么。 */}
+            {done && (
+              <p className="border-primary/30 bg-primary/10 text-muted-foreground rounded-lg border p-2 text-xs">
+                草稿齐了，但{charCount > 0 ? ` ${charCount} 个` : ""}
+                角色目前只有文字设定、还没有定妆照——定妆照是角色在所有画面里的
+                长相基准，缺了它同一个人在不同镜头会长得不一样。
+                点下方「进入审阅」，确认完草稿即可一键补拍，再开始出图。
               </p>
             )}
           </div>

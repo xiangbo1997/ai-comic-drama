@@ -148,18 +148,47 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 },
               },
             },
+            // selectedCharacter 必须与下方 characters.character 那份【字段对齐】：
+            // 单角色分镜（占绝大多数）走本分支，客户端 collectCharacterRefs /
+            // deriveIdentityPrompt 要的 canonicalImageUrl（定妆锚）、referenceAssets
+            // （三视图）、description（身份描述）此前全部缺失，于是单角色分镜既拿不到
+            // 定妆锚也拿不到三视图，出图退化成纯文生图 → 人物跨镜漂移。
+            // 新增字段均为轻量标识/URL，不含 @db.Text 大字段以外的冗余。
             selectedCharacter: {
               select: {
                 id: true,
                 name: true,
+                description: true,
+                gender: true,
+                age: true,
                 referenceImages: true,
+                canonicalImageUrl: true,
+                referenceAssets: {
+                  select: { url: true, pose: true, createdAt: true },
+                },
+                appearance: {
+                  select: {
+                    hairStyle: true,
+                    hairColor: true,
+                    faceShape: true,
+                    eyeColor: true,
+                    bodyType: true,
+                    height: true,
+                    skinTone: true,
+                    accessories: true,
+                    freeText: true,
+                  },
+                },
               },
             },
           },
         },
-        // characters.character：编辑器 derivePromptInputs 消费 id/name/
-        // description/referenceImages + referenceAssets(url/pose/createdAt，
-        // 供三视图锁形象)。只取这些，不拉 appearance/voiceProvider 等冗余。
+        // characters.character：编辑器 derivePromptInputs 消费 id/name/description/
+        // referenceImages + referenceAssets(url/pose/createdAt，供三视图锁形象)，
+        // deriveIdentityPrompt 另需 gender/age/appearance 拼身份前缀。
+        // ⚠️ 字段集必须与上面 selectedCharacter 那份保持一致（单/多角色分镜走不同
+        // 分支，任一边漏字段都会让该类分镜静默丢锚），并与 types/scene.ts 的
+        // Scene.selectedCharacter 内联类型同步——漏声明不会被类型系统发现。
         characters: {
           include: {
             character: {
@@ -167,11 +196,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
                 id: true,
                 name: true,
                 description: true,
+                gender: true,
+                age: true,
                 referenceImages: true,
                 canonicalImageUrl: true,
                 voiceId: true,
                 referenceAssets: {
                   select: { url: true, pose: true, createdAt: true },
+                },
+                // 结构化外貌：视频端 deriveIdentityPrompt 据此拼身份前缀。
+                // 此前只有 description，为空就完全没有身份约束、I2V 一动人物就漂。
+                // 窄 select（不含 clothingPresets 等大字段），仅取外貌描述用得上的项。
+                appearance: {
+                  select: {
+                    hairStyle: true,
+                    hairColor: true,
+                    faceShape: true,
+                    eyeColor: true,
+                    bodyType: true,
+                    height: true,
+                    skinTone: true,
+                    accessories: true,
+                    freeText: true,
+                  },
                 },
               },
             },

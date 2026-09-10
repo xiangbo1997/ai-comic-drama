@@ -3,9 +3,35 @@ import {
   buildVideoScenePrompt,
   describeCameraMovement,
 } from "@/lib/prompts/video-prompt";
+import { buildLimitedAnimationBlock } from "@/lib/prompts/limited-animation";
 
 describe("buildVideoScenePrompt — 全字段映射与段落顺序", () => {
-  it("特写 + eye-level + sad + anime + lighting 命中验收参考", () => {
+  // 半动纪律（C2）默认注入，位于连续性段之后、音频指令之前。
+  // 这里用 limitedAnimation:false 保留「改动前」的逐字验收基线，
+  // 半动段落本身的验收在 limited-animation.test.ts。
+  it("特写 + eye-level + sad + anime + lighting 命中验收参考（半动关闭）", () => {
+    const out = buildVideoScenePrompt({
+      description: "林萧靠在墙边，泪水在眼眶里打转",
+      style: "anime",
+      shotType: "特写",
+      cameraAngle: "eye-level",
+      cameraMovement: null,
+      lighting: "soft window light",
+      emotion: "sad",
+      duration: 5,
+      limitedAnimation: false,
+    });
+    expect(out).toBe(
+      "Extreme close-up, slow, smooth push-in, building intimacy. " +
+        "林萧靠在墙边，泪水在眼眶里打转. " +
+        "Melancholic, subdued mood, consistent 2D anime aesthetic, soft window light. " +
+        "Maintain the exact character appearance, outfit, and setting from the first frame; consistent lighting throughout. " +
+        "No spoken dialogue, no lip-sync, ambient sound only. " +
+        "Avoid: on-screen text, subtitles, watermark, extra limbs, deformed hands, face morphing, flickering, photorealistic rendering, live-action look."
+    );
+  });
+
+  it("半动默认开启：同一输入在连续性段与音频指令之间插入半动纪律", () => {
     const out = buildVideoScenePrompt({
       description: "林萧靠在墙边，泪水在眼眶里打转",
       style: "anime",
@@ -21,6 +47,7 @@ describe("buildVideoScenePrompt — 全字段映射与段落顺序", () => {
         "林萧靠在墙边，泪水在眼眶里打转. " +
         "Melancholic, subdued mood, consistent 2D anime aesthetic, soft window light. " +
         "Maintain the exact character appearance, outfit, and setting from the first frame; consistent lighting throughout. " +
+        `${buildLimitedAnimationBlock()}. ` +
         "No spoken dialogue, no lip-sync, ambient sound only. " +
         "Avoid: on-screen text, subtitles, watermark, extra limbs, deformed hands, face morphing, flickering, photorealistic rendering, live-action look."
     );

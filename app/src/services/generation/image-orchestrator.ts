@@ -58,7 +58,11 @@ export async function orchestrateImageGeneration(
           projectId: request.projectId,
           style: request.style,
         })
-      : { lookOverrides: new Map<string, string>(), promptClauses: [] };
+      : {
+          lookOverrides: new Map<string, string>(),
+          promptClauses: [],
+          outfitByCharacterId: new Map<string, string>(),
+        };
 
   const decision = resolveStrategy(
     request.characters,
@@ -267,6 +271,19 @@ export async function orchestrateImageGeneration(
     seed: seedForAttempt(attempt),
   });
 
+  /**
+   * 主角色的原始换装短语（如「白色婚纱」），供一致性闸门豁免服装/配饰维度。
+   *
+   * 取主角色而非全部角色：闸门只校验主角色（远景/群像本就跳过），把所有角色的
+   * 换装拼在一起只会稀释语义，让模型误以为主角也换了别人的那身。
+   * 用 outfitByCharacterId 而非 promptClauses：后者是面向出图的英文指令句，
+   * 且只在定妆照衍生成功时才有；剧情声明了换装就该豁免，与定妆照成败无关。
+   */
+  const primaryOutfitNote =
+    sceneLooks.outfitByCharacterId.get(
+      request.characters.find((c) => c.role === "primary")?.id ?? ""
+    ) ?? "";
+
   // 缓存命中路径：跳过生成但仍要通过 face-validator 把关。
   // 只查「第 1 次尝试」的 key——命中即等价于跳过第 1 次生成。
   const firstAttemptCacheKey = cacheKeyInputFor(1);
@@ -277,7 +294,15 @@ export async function orchestrateImageGeneration(
       cached.imageUrl,
       request.characters,
       request.shotType,
-      { llmConfig: request.llmConfig }
+      {
+        llmConfig: request.llmConfig,
+        // 剧情意图（换装/战损）与重试余量必须传入，否则一致性闸门的
+        // 「有意变化豁免」不生效——婚纱/战损镜会被判服装不一致而白白重试。
+        // 缓存命中路径尚未消耗重试，余量给满。
+        sceneDescription: request.prompt,
+        outfitNote: primaryOutfitNote,
+        retriesRemaining: maxRetries,
+      }
     );
     if (validation.passed) {
       return {
@@ -285,6 +310,9 @@ export async function orchestrateImageGeneration(
         strategy: (cached.strategy as GenerationStrategy) ?? decision.strategy,
         attemptCount: 0,
         validation,
+        // 能力错配告知（如参考图被当前模型忽略）必须透传到结果，
+        // 否则防呆只落在服务端日志里、用户永远看不到（A1）
+        warnings: decision.warnings,
       };
     }
     log.debug("Cached image failed validation, regenerating", {
@@ -312,7 +340,14 @@ export async function orchestrateImageGeneration(
       imageUrl,
       request.characters,
       request.shotType,
-      { llmConfig: request.llmConfig }
+      {
+        llmConfig: request.llmConfig,
+        // 同缓存命中路径：传剧情意图以启用换装豁免；重试余量按本轮已用次数递减，
+        // 余量耗尽时闸门不再要求重试（避免判定 FAIL 却无处可退时空转烧积分）。
+        sceneDescription: request.prompt,
+        outfitNote: primaryOutfitNote,
+        retriesRemaining: maxRetries - attempt,
+      }
     );
 
     if (lastValidation.passed || !lastValidation.shouldRetry) {
@@ -329,6 +364,7 @@ export async function orchestrateImageGeneration(
         strategy: decision.strategy,
         attemptCount: attempt,
         validation: lastValidation,
+        warnings: decision.warnings,
       };
     }
   }
@@ -339,6 +375,7 @@ export async function orchestrateImageGeneration(
     strategy: decision.strategy,
     attemptCount: maxRetries,
     validation: lastValidation,
+    warnings: decision.warnings,
   };
 }
 

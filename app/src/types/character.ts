@@ -18,6 +18,13 @@ export interface Character {
   canonicalImageUrl?: string | null;
   /** 参考图资产（含三视图 pose），生视频多参考用；老数据为 undefined */
   referenceAssets?: CharacterReferenceAsset[];
+  /**
+   * 结构化外貌。视频端 deriveIdentityPrompt 据此拼身份前缀（description 为空时
+   * 的唯一身份约束来源）。
+   * 注意：项目 GET（api/projects/[id]）走的是窄 select，只回传描述性字段，
+   * 不含 clothingPresets —— 需要服装预设的调用方请走角色端点。
+   */
+  appearance?: CharacterAppearance | null;
 }
 
 /** 角色列表项（角色管理页使用，含额外字段） */
@@ -25,9 +32,8 @@ export interface CharacterListItem extends Character {
   voiceProvider: string | null;
   createdAt: string;
   tags?: CharacterTag[];
-  appearance?: CharacterAppearance | null;
-  /** 参考图资产（含三视图 pose=front/side/back），用于独立三联展示与生视频多参考 */
-  referenceAssets?: CharacterReferenceAsset[];
+  // appearance / referenceAssets 已提到基接口 Character（两处声明完全相同，
+  // 此前的重复声明只是冗余），角色管理页读法不变。
 }
 
 /** 角色标签关联 */

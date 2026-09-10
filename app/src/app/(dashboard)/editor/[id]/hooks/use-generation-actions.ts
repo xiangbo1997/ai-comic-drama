@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Scene, ProjectDetail } from "@/types";
 import { buildFinalPrompt } from "@/lib/prompt-builder";
 import { buildVideoScenePrompt } from "@/lib/prompts";
+import { buildCanonicalCharacterEntry } from "@/lib/prompts/canonical-appearance";
 import { getThreeViewUrls } from "@/lib/three-views";
 import { apiUpdateScene } from "./use-editor-project";
 import { useToast } from "@/components/ui/toast";
@@ -30,6 +31,14 @@ export interface GenerateImageResult {
   cost?: number;
   /** 多候选抽卡：本次生成的所有候选（含推荐张标记）；单张时长度为 1 */
   candidates?: ImageCandidate[];
+  /**
+   * 服务端能力告知（A1 防呆）：例如「当前图像模型不支持参考图」。
+   *
+   * 必须展示给用户——参考图被模型静默忽略时，出图会退化成纯文生图、
+   * 人物必然不一致，而日志之外没有任何可见信号。链路：
+   * strategy-resolver → orchestrator → image route → task output → 此处。
+   */
+  warnings?: string[];
 }
 
 interface GenerateSceneImageOptions {
@@ -112,9 +121,16 @@ async function generateSceneImage(
  */
 /**
  * 收集单个角色的参考图：优先三视图（front/side/back 多角度锁形象），
- * 再追加定妆照兜底；去重。无三视图则回落到 referenceImages[0]。
+ * 再追加定妆锚兜底；去重。
+ *
+ * 定妆锚必须取 `canonicalImageUrl`（见 lib/character-finalized.ts 的权威说明：
+ * 出图编排器 / strategy-resolver / workflow-engine 实际消费的都是该字段）。
+ * 此前这里硬编码 `referenceImages[0]`，且类型签名里根本没有 canonicalImageUrl
+ * ——用户做完三视图定妆，编辑器手动路径却仍拿遗留数组首图当锚，定稿白做。
+ * referenceImages[0] 仅作老数据兜底（canonicalImageUrl 为空时）。
  */
 function collectCharacterRefs(character: {
+  canonicalImageUrl?: string | null;
   referenceImages?: string[];
   referenceAssets?: { url: string; pose?: string | null; createdAt?: string }[];
 }): string[] {
@@ -123,8 +139,9 @@ function collectCharacterRefs(character: {
   for (const url of getThreeViewUrls(character.referenceAssets)) {
     if (!urls.includes(url)) urls.push(url);
   }
-  // 定妆照兜底（referenceImages[0]）
-  const canonical = character.referenceImages?.[0];
+  // 定妆锚兜底：权威字段优先，老数据回落遗留数组首图
+  const canonical =
+    character.canonicalImageUrl?.trim() || character.referenceImages?.[0];
   if (canonical && !urls.includes(canonical)) urls.push(canonical);
   return urls;
 }
@@ -184,6 +201,12 @@ function projectAspectRatio(
  * buildSceneCharacterContext），编辑器手动路径此前完全没传——I2V 只靠首帧
  * 锚定，画面一动人物就漂。这里取主角色的外貌描述补齐，provider 会把它
  * 前置注入视频 prompt（见 flow2api-video.ts#buildVideoPrompt）。
+ *
+ * 外貌文本走 `buildCanonicalCharacterEntry`（冻结外貌单一真源）而非手拼
+ * `${name}: ${description}`：一是与定妆照 / 分镜出图 / 场景增强三条路径逐字同源
+ * （见 lib/prompts/canonical-appearance.ts 的根因说明），二是原写法在
+ * `description` 为空时直接返回 undefined，视频端就彻底没有身份约束了——而
+ * 名字本身就是可用的身份锚，结构化外貌字段也比自由文本精确。
  */
 function deriveIdentityPrompt(
   scene: Scene,
@@ -200,9 +223,24 @@ function deriveIdentityPrompt(
     scene.selectedCharacter?.id ??
     scene.selectedCharacterId ??
     undefined;
-  const primary = primaryId ? byId.get(primaryId) : undefined;
-  if (!primary?.description) return undefined;
-  return `${primary.name}: ${primary.description}`.slice(0, 200);
+  // 回落 scene.selectedCharacter：角色未关联到项目（或 project 尚未加载）时，
+  // 查表落空但分镜自己带着角色详情。与 derivePromptInputs 的双分支同构——
+  // 两处只要有一处漏了回落，同一分镜就会出现「有参考图没身份前缀」的错配。
+  const primary =
+    (primaryId ? byId.get(primaryId) : undefined) ??
+    scene.selectedCharacter ??
+    undefined;
+  if (!primary?.name) return undefined;
+  // gender/age/appearance 由项目 GET 的窄 select 回传（见 api/projects/[id] 的
+  // characters.character 与 selectedCharacter 两份对齐的 select）；任一字段缺失时
+  // 函数自动跳过。全空时至少保留名字锚点（不再像原实现那样回落成 undefined）。
+  const entry = buildCanonicalCharacterEntry(primary.name, {
+    gender: primary.gender,
+    age: primary.age,
+    description: primary.description,
+    appearance: primary.appearance,
+  });
+  return entry.slice(0, 200);
 }
 
 /**
@@ -229,6 +267,44 @@ export {
   projectAspectRatio,
 };
 
+/** 展示一条服务端能力告知的最小 toast 接口（避免把整个 ToastApi 拖进签名） */
+type WarningToast = (message: string) => void;
+
+/** 消费 GenerateImageResult.warnings 的展示函数 */
+export type WarningSurfacer = (warnings?: string[]) => void;
+
+/**
+ * 构造一个「带去重账本」的能力告知展示函数。
+ *
+ * 为什么需要去重：模型能力是全局的（如「当前图像模型不支持参考图」），
+ * 一次批量的 N 张分镜、一次多版本抽卡的 N 个模型，都会各自带回同一条文案。
+ * 逐条弹会把屏幕刷满，用户反而看不见。账本记住已弹过的文案，同一条只弹一次。
+ *
+ * 为什么用 warning 级而非 error 级：出图本身是**成功**的，只是参考图被静默
+ * 忽略、跨镜头一致性没有保证——用 error 会让用户以为图没生成出来。
+ *
+ * 做成模块级工厂（而非 hook 内闭包）是为了让不走 useGenerationActions 的路径
+ * （多版本抽卡走 use-multi-generate 直接调 generateSceneImage）也能共用同一个
+ * 账本实例——三条出图路径共享去重，才不会「批量弹过一次、多版本又弹一次」。
+ */
+export function createWarningSurfacer(toastWarning: WarningToast): {
+  surface: WarningSurfacer;
+} {
+  const shown = new Set<string>();
+  return {
+    surface: (warnings?: string[]) => {
+      for (const warning of warnings ?? []) {
+        // 项目 toast 只吃单 string（不支持 { description } 对象形式），
+        // 故逐条弹而非合并成一条——多条告知本就该分开读。
+        const text = warning.trim();
+        if (!text || shown.has(text)) continue;
+        shown.add(text);
+        toastWarning(text);
+      }
+    },
+  };
+}
+
 /** 批量生成进度（驱动底部按钮的 X/Y 显示与「停止后续」入口） */
 export interface BatchProgress {
   kind: "image" | "video" | "audio";
@@ -249,6 +325,14 @@ export function useGenerationActions(
   const toast = useToast();
   const invalidateProject = () =>
     queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+
+  // 能力告知展示器：useMemo 持有，保证整个编辑器会话共享同一份去重账本
+  // （若每次渲染重建，内部的 Set 随之重置，去重立刻失效、又变回逐张刷屏）。
+  // 依赖 toast 而非 toast.warning：ToastApi 由 context 提供、引用稳定。
+  const surfaceGenerationWarnings = useMemo(
+    () => createWarningSurfacer(toast.warning).surface,
+    [toast]
+  );
 
   // 精确更新缓存中单个 scene 的字段，不触发整 project 重拉/全量重渲染。
   // 批量生成时用它替代逐张 invalidateProject()，避免 N 张 = ~2N 次全量刷新
@@ -507,6 +591,10 @@ export function useGenerationActions(
         imageStatus: "COMPLETED",
         ...(result?.imageUrl ? { imageUrl: result.imageUrl } : {}),
       });
+      // 能力告知（包 A 的 warnings 链路终点）：如「当前图像模型不支持参考图」。
+      // 这类情况生成是"成功"的，但参考图被静默忽略、人物必然不像——不弹出来
+      // 用户只会以为是模型画得差，反复重试白花钱。
+      surfaceGenerationWarnings(result?.warnings);
       // 刷新版本历史，让新版本缩略图立即出现在 SceneVersionStrip
       queryClient.invalidateQueries({ queryKey: ["scene-versions", sceneId] });
     },
@@ -610,6 +698,8 @@ export function useGenerationActions(
             referenceImages,
             aspectRatio: projectAspectRatio(project),
           });
+          // 能力告知同样要在批量路径可见（已去重，整批只弹一次）
+          surfaceGenerationWarnings(result?.warnings);
           return (
             result?.imageUrl ? { imageUrl: result.imageUrl } : {}
           ) as Partial<Scene>;
@@ -706,5 +796,11 @@ export function useGenerationActions(
     batchProgress,
     cancelBatch,
     invalidateProject,
+    /**
+     * 能力告知展示器（共享去重账本）。多版本抽卡走 use-multi-generate 直接调
+     * generateSceneImage、不经本 hook 的 mutation，需由页面把它接到那条路径上，
+     * 三条出图路径才算全覆盖。
+     */
+    surfaceGenerationWarnings,
   };
 }

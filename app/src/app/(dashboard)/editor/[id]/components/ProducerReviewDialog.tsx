@@ -40,6 +40,7 @@ import {
   isProducerReviewComplete,
   countProducerReviewProgress,
 } from "@/lib/producer-review";
+import { collectUnfinalizedCharacterNames } from "@/lib/character-finalized";
 import type { ProjectDetail, ProducerReview, CharacterListItem } from "@/types";
 
 interface ProducerReviewDialogProps {
@@ -52,6 +53,11 @@ interface ProducerReviewDialogProps {
   invalidateProject: () => void;
   /** 点某分镜「跳转查看」→ 选中该分镜并关闭弹窗 */
   onJumpToScene: (sceneId: string) => void;
+  /**
+   * 定妆锚关口（包 B · B4）：审阅完成后调用，缺定妆照时引导补拍。
+   * 返回是否继续（用户取消则不关闭本弹窗）。缺省时视为放行。
+   */
+  onEnsureAnchors?: () => Promise<boolean>;
 }
 
 /** 空审阅态（向导写入的初值一致）：所有分区未确认 */
@@ -76,6 +82,7 @@ export function ProducerReviewDialog({
   updateProject,
   invalidateProject,
   onJumpToScene,
+  onEnsureAnchors,
 }: ProducerReviewDialogProps) {
   const toast = useToast();
 
@@ -91,6 +98,13 @@ export function ProducerReviewDialog({
 
   const progress = countProducerReviewProgress(review, characterIds, sceneIds);
   const allConfirmed = isProducerReviewComplete(review, characterIds, sceneIds);
+
+  // 缺定妆照的角色名（包 B · B4）：向导建档的角色全都还没有定妆照，
+  // 审阅完成的那一刻正是「最该提醒、而原文案偏偏说可以去出图了」的时刻。
+  const unanchoredNames = useMemo(
+    () => collectUnfinalizedCharacterNames(project.characters),
+    [project.characters]
+  );
 
   // 分区折叠态
   const [openSection, setOpenSection] = useState<string | null>("worldview");
@@ -190,7 +204,17 @@ export function ProducerReviewDialog({
           scenes: [...sceneIds],
         },
       });
-      toast.success("已全部确认，可以去生成图片了");
+      // 原文案「已全部确认，可以去生成图片了」会在所有角色都还没定妆照时出现，
+      // 把新手直接推向出图 → 一整批人物不一致的图（包 B · B4）。
+      // 缺定妆照时改为引导先补，由下方「审阅完成」按钮串起补锚流程。
+      if (unanchoredNames.length > 0) {
+        toast.warning(
+          `已全部确认。${unanchoredNames.join("、")} 还没有定妆照，` +
+            `点「审阅完成」会先帮你补拍，再去出图`
+        );
+      } else {
+        toast.success("已全部确认，可以去生成图片了");
+      }
     } catch {
       toast.error("保存失败，请重试");
     } finally {
@@ -198,9 +222,18 @@ export function ProducerReviewDialog({
     }
   };
 
-  const handleFinish = () => {
-    // 软关口：全部确认后关闭弹窗（滚动到分镜列表由编辑器承载）
+  /**
+   * 软关口收尾：先关审阅弹窗，再过定妆锚关口（缺定妆照则引导补拍）。
+   *
+   * 顺序是刻意的：两个都是 Radix Dialog（同为 z-50，且 DialogContent 内部自带
+   * overlay 不可单独提层），叠在一起会让遮罩与焦点陷阱互相打架。先关后开即可
+   * 规避，代价是用户在补锚弹窗点「取消」时不会退回审阅弹窗——但此时所有草稿
+   * 已确认完，审阅弹窗已无待办；真正的待办（补定妆照）在任何出图入口都会再次
+   * 弹出同一个关口，不会丢。
+   */
+  const handleFinish = async () => {
     onClose();
+    if (onEnsureAnchors) await onEnsureAnchors();
   };
 
   return (
@@ -277,6 +310,17 @@ export function ProducerReviewDialog({
             <div className="space-y-2 pl-2">
               {project.characters.length === 0 && (
                 <p className="text-muted-foreground text-xs">本项目暂无角色</p>
+              )}
+              {/* 缺定妆照警示（包 B · B4）：向导只建了角色档案（名字/外貌文字），
+                  没有任何角色长相的图。这一步没做，后面每镜都会画出不同的人。 */}
+              {unanchoredNames.length > 0 && (
+                <p className="border-primary/30 bg-primary/10 text-muted-foreground rounded-lg border p-2 text-xs">
+                  <span className="text-foreground font-medium">
+                    {unanchoredNames.join("、")}
+                  </span>{" "}
+                  还只有文字设定、没有定妆照。定妆照是角色在所有画面里的长相基准；
+                  缺了它，同一个人在不同镜头会长得不一样。点底部「审阅完成」即可一键补拍。
+                </p>
               )}
               {project.characters.map(({ character }) => (
                 <CharacterReviewItem
@@ -358,16 +402,21 @@ export function ProducerReviewDialog({
           </button>
           <button
             type="button"
-            onClick={handleFinish}
+            onClick={() => void handleFinish()}
             disabled={!allConfirmed}
             className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50"
             title={
-              allConfirmed
-                ? "全部已确认，去分镜列表生成图片"
-                : "请先逐项确认所有草稿"
+              !allConfirmed
+                ? "请先逐项确认所有草稿"
+                : unanchoredNames.length > 0
+                  ? "先为缺定妆照的角色补拍定妆照，再去分镜列表出图"
+                  : "全部已确认，去分镜列表生成图片"
             }
           >
-            审阅完成，去生成图片
+            {/* 缺定妆照时按钮文案如实说明下一步是补拍，不再承诺「去生成图片」 */}
+            {unanchoredNames.length > 0
+              ? "审阅完成，先拍定妆照"
+              : "审阅完成，去生成图片"}
           </button>
         </div>
       </DialogContent>

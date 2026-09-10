@@ -277,6 +277,15 @@ export async function POST(request: NextRequest) {
               colorPalette: true,
               locationKey: true,
               selectedCharacterIds: true,
+              // 零角色回退（A4）：仅在 selectedCharacterIds 与 selectedCharacter
+              // 都空时消费。SceneCharacter 是分镜↔角色关联表（continuity-check /
+              // projects 路由均读它），剧本解析等路径可能只写了关联表而没回写
+              // selectedCharacterIds；此前本路由完全不读它，这类分镜角色数为 0 →
+              // 退化纯文生图 → 人物完全变个人。只取 characterId，角色详情复用
+              // 下面那次 character.findMany（同一套 select，保证字段不漂）。
+              sceneCharacters: {
+                select: { characterId: true },
+              },
               selectedCharacter: {
                 select: {
                   id: true,
@@ -355,6 +364,11 @@ export async function POST(request: NextRequest) {
             // 缺失时回落到旧 referenceImages[0]（角色一致性闭环）。
             canonicalImageUrl:
               c.canonicalImageUrl || (c.referenceImages as string[])?.[0],
+            // 「真」定妆锚：不带上面那条回退链，仅 Character.canonicalImageUrl
+            // 真实非空时才有值。上面的回退是为出图服务的（没定妆也得有图能用），
+            // 但会让一致性校验变成自证——把客户端喂进来的参考图当作「校验基准」，
+            // 于是「像不像参考图」恒为真、校验永远通过。校验层应只认本字段。
+            trueCanonicalImageUrl: c.canonicalImageUrl || undefined,
             appearance: c.appearance as SceneCharacterInfo["appearance"],
             // 朝向感知三视图选择：按 isCanonical desc、qualityScore desc 排序后取 url+pose，
             // 供 orchestrator 按分镜朝向挑对应视图。不改变上面的 canonicalImageUrl 回退链。
@@ -367,9 +381,22 @@ export async function POST(request: NextRequest) {
               undefined,
           });
 
-          if ((scene?.selectedCharacterIds?.length ?? 0) > 0) {
+          // 角色解析优先级：selectedCharacterIds（显式多选，顺序即主次）→
+          // selectedCharacter（单角色旧字段）→ SceneCharacter 关联表（A4 回退）。
+          // 前两者都空时才查关联表：剧本解析等路径只写了关联表没回写
+          // selectedCharacterIds 的分镜，此前角色数为 0 → 纯文生图 → 人物变个人。
+          const relatedCharacterIds =
+            scene?.sceneCharacters?.map((sc) => sc.characterId) ?? [];
+          const resolvedCharacterIds =
+            (scene?.selectedCharacterIds?.length ?? 0) > 0
+              ? scene!.selectedCharacterIds
+              : scene?.selectedCharacter
+                ? []
+                : relatedCharacterIds;
+
+          if (resolvedCharacterIds.length > 0) {
             const dbCharacters = await prisma.character.findMany({
-              where: { id: { in: scene!.selectedCharacterIds } },
+              where: { id: { in: resolvedCharacterIds } },
               select: {
                 id: true,
                 name: true,
@@ -391,7 +418,20 @@ export async function POST(request: NextRequest) {
                 },
               },
             });
-            sceneCharacters = dbCharacters.map((c, i) => buildSceneChar(c, i));
+            // findMany 不保证返回顺序，而 index 0 决定 primary 角色（身份 seed /
+            // 参考图首位都靠它）。按 resolvedCharacterIds 的顺序重排，保证
+            // 「选中的第一个角色」稳定就是主角色。
+            const byId = new Map(dbCharacters.map((c) => [c.id, c]));
+            sceneCharacters = resolvedCharacterIds
+              .map((id) => byId.get(id))
+              .filter((c): c is (typeof dbCharacters)[number] => Boolean(c))
+              .map((c, i) => buildSceneChar(c, i));
+            if (relatedCharacterIds === resolvedCharacterIds) {
+              log.info("分镜角色取自 SceneCharacter 关联表（A4 回退）", {
+                sceneId,
+                characterCount: sceneCharacters.length,
+              });
+            }
           } else if (scene?.selectedCharacter) {
             sceneCharacters = [buildSceneChar(scene.selectedCharacter, 0)];
           }
@@ -708,6 +748,9 @@ export async function POST(request: NextRequest) {
           provider: imageConfig?.protocol ?? "unknown",
           model: imageConfig?.model ?? "",
           iterationNote,
+          // 能力错配告知（参考图被当前模型忽略等）：各候选的告知内容相同，
+          // 取推荐张的即可，去重后落 task output 供客户端提示用户（A1）
+          warnings: chosenResult.warnings,
         });
 
         log.info("Image candidates generated", {

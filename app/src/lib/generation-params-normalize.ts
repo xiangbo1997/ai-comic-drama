@@ -15,6 +15,18 @@ import { normalizeProducerReview } from "@/lib/producer-review";
 import { getSfxById } from "@/lib/sfx-library";
 import { MAX_EMPHASIS_SCENES } from "@/types/export-style";
 import { resolveLutPreset, DEFAULT_COLOR_GRADE } from "@/lib/color-grade";
+// 片头信息位编号长度上限（合规，第二十七条）
+import { CREDENTIAL_MAX_LEN } from "@/lib/title-cards";
+// AI 生成提示标识的白名单枚举与数值区间（合规，第三十四条）
+import {
+  DISCLOSURE_POSITIONS,
+  DISCLOSURE_MODES,
+  DISCLOSURE_TEXT_MAX_LEN,
+  DISCLOSURE_FONT_SCALE_MIN,
+  DISCLOSURE_FONT_SCALE_MAX,
+  DISCLOSURE_HEAD_SEC_MIN,
+  DISCLOSURE_HEAD_SEC_MAX,
+} from "@/lib/ai-disclosure";
 import type { GenerationParams } from "@/types/project";
 
 const log = createLogger("lib:generation-params-normalize");
@@ -56,6 +68,8 @@ export const GENERATION_PARAM_KEY_MAP: Record<keyof GenerationParams, true> = {
   titleCards: true,
   producerReview: true,
   renderStrategy: true,
+  genre: true,
+  aiDisclosure: true,
 };
 
 const GENERATION_PARAM_KEYS = new Set(Object.keys(GENERATION_PARAM_KEY_MAP));
@@ -316,10 +330,72 @@ export function normalizeGenerationParams(
   // 弹窗里的卡片开关怎么存都进不了 DB。
   if (src.titleCards && typeof src.titleCards === "object") {
     const tc = src.titleCards as Record<string, unknown>;
-    const titleCards: Record<string, boolean> = {};
+    const titleCards: Record<string, unknown> = {};
     if (typeof tc.title === "boolean") titleCards.title = tc.title;
     if (typeof tc.end === "boolean") titleCards.end = tc.end;
+    // 片头信息位编号（合规：广电总局令第 16 号第二十七条要求片头标注剧名、
+    // 许可证号、批准文件编号、节目编号）。三项编号是用户填的持证信息，逐项
+    // trim + 截 CREDENTIAL_MAX_LEN；空串不收录（留空即片头不渲染该行，不编造占位号）。
+    if (tc.credentials && typeof tc.credentials === "object") {
+      const cred = tc.credentials as Record<string, unknown>;
+      const credentials: Record<string, string> = {};
+      for (const key of ["licenseNo", "approvalNo", "programNo"] as const) {
+        const raw = cred[key];
+        if (typeof raw !== "string") continue;
+        const value = raw.trim().slice(0, CREDENTIAL_MAX_LEN);
+        if (value) credentials[key] = value;
+      }
+      if (Object.keys(credentials).length > 0) {
+        titleCards.credentials = credentials;
+      }
+    }
     out.titleCards = titleCards;
+  }
+  // AI 生成内容提示标识（合规：广电总局令第 16 号第三十四条「每集明显位置添加
+  // 提示标识」）—— 不加这段则导出弹窗里的标识配置怎么存都进不了 DB，
+  // 成片与预览只会用默认值（同 BGM / 花字「白存」教训）。
+  //
+  // ⚠️ 不做「enabled 缺省 = false」的归一化：enabled 三态（true/false/缺省）
+  // 必须原样保留，缺省由 resolveAiDisclosure 解析为 true（法定要求默认开）。
+  // 若在此把缺省写成 false，存量项目会静默变成无标识导出。
+  if (src.aiDisclosure && typeof src.aiDisclosure === "object") {
+    const ad = src.aiDisclosure as Record<string, unknown>;
+    const aiDisclosure: Record<string, unknown> = {};
+    if (typeof ad.enabled === "boolean") aiDisclosure.enabled = ad.enabled;
+    if (typeof ad.text === "string") {
+      const text = ad.text.trim().slice(0, DISCLOSURE_TEXT_MAX_LEN);
+      if (text) aiDisclosure.text = text;
+    }
+    if (
+      typeof ad.position === "string" &&
+      (DISCLOSURE_POSITIONS as readonly string[]).includes(ad.position)
+    ) {
+      aiDisclosure.position = ad.position;
+    }
+    if (
+      typeof ad.mode === "string" &&
+      (DISCLOSURE_MODES as readonly string[]).includes(ad.mode)
+    ) {
+      aiDisclosure.mode = ad.mode;
+    }
+    if (typeof ad.fontScale === "number") {
+      aiDisclosure.fontScale = clampNumber(
+        ad.fontScale,
+        DISCLOSURE_FONT_SCALE_MIN,
+        DISCLOSURE_FONT_SCALE_MAX
+      );
+    }
+    if (typeof ad.opacity === "number") {
+      aiDisclosure.opacity = clampNumber(ad.opacity, 0, 1);
+    }
+    if (typeof ad.headSec === "number") {
+      aiDisclosure.headSec = clampNumber(
+        ad.headSec,
+        DISCLOSURE_HEAD_SEC_MIN,
+        DISCLOSURE_HEAD_SEC_MAX
+      );
+    }
+    out.aiDisclosure = aiDisclosure;
   }
   // 制片人审阅态（一键 AI 制片人 3.1）：白名单归一化后整体放行 —— 不加这段则
   // 前端逐项确认怎么存都进不了 DB，审阅进度静默丢失（同 subtitleStyle 白存教训）。
@@ -331,6 +407,14 @@ export function normalizeGenerationParams(
   // 编辑器「混合出片（经济模式）」开关怎么存都进不了 DB，一键管线读不到策略。
   if (src.renderStrategy === "full" || src.renderStrategy === "hybrid") {
     out.renderStrategy = src.renderStrategy;
+  }
+  // 题材（批 3）：非空字符串截 64 后放行 —— 不加这段则题材选择怎么存都进不了 DB，
+  // 起草/脚本 prompt 永远读不到题材（同 subtitleStyle / BGM「白存」教训）。
+  // 刻意不校验「必须命中 GENRE_OPTIONS」：允许用户手填矩阵外的自由文本题材，
+  // 下游 buildGenreContextBlock 对矩阵外题材只注入题材名、不编造创作要点。
+  if (typeof src.genre === "string") {
+    const genre = src.genre.trim().slice(0, 64);
+    if (genre) out.genre = genre;
   }
 
   // 防漏机制：本函数是白名单【重建】——新增 GenerationParams 字段却忘了在上面挂一

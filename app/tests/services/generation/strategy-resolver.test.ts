@@ -113,7 +113,7 @@ describe("resolveStrategy（多角度参考图收集）", () => {
     expect(d.referenceImageUrl).toBeUndefined();
   });
 
-  it("显式 referenceImagesOverride 优先于角色推断", () => {
+  it("显式 referenceImagesOverride 占首位，服务端角色锚图合并追加在后", () => {
     const override = ["https://x/override.png"];
     const d = resolveStrategy(
       [makeChar({ name: "林烬", referenceImageUrls: threeViews })],
@@ -122,6 +122,36 @@ describe("resolveStrategy（多角度参考图收集）", () => {
       undefined,
       { referenceImagesOverride: override }
     );
+    // 合并语义（A3）：override 不再整段跳过服务端收集，否则三视图/朝向重排/
+    // canonical 回退链在手动路径全部失效，与 workflow 路径出图质量不对等。
+    expect(d.referenceImageUrls?.[0]).toBe(override[0]);
+    expect(d.referenceImageUrls).toEqual([...override, ...threeViews]);
+  });
+
+  it("单图 provider 下 override 仍然是那唯一生效的一张（不回归）", () => {
+    const override = ["https://x/override.png"];
+    const d = resolveStrategy(
+      [makeChar({ name: "林烬", referenceImageUrls: threeViews })],
+      "walking in rain",
+      singleRefConfig,
+      undefined,
+      { referenceImagesOverride: override }
+    );
     expect(d.referenceImageUrls).toEqual(override);
+    expect(d.referenceImageUrl).toBe(override[0]);
+  });
+
+  it("模型名命中覆盖表时判定为不支持参考图，并给出中文告知", () => {
+    // 网关代理场景：protocol 填 openai（能力表说支持 4 张），但底层是
+    // grok-imagine，实际不吃参考图——必须按模型名判定，且不静默丢弃。
+    const d = resolveStrategy(
+      [makeChar({ name: "林烬", referenceImageUrls: threeViews })],
+      "walking in rain",
+      { ...multiRefConfig, model: "grok-imagine-image" }
+    );
+    expect(d.capability.supportsReferenceImage).toBe(false);
+    expect(d.strategy).toBe("prompt_only");
+    expect(d.warnings?.length).toBeGreaterThan(0);
+    expect(d.warnings?.[0]).toContain("不支持参考图");
   });
 });

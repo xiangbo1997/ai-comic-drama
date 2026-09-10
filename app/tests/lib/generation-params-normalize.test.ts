@@ -84,6 +84,19 @@ const FULL_FIXTURE: Required<GenerationParams> = {
     },
   },
   renderStrategy: "hybrid",
+  // 题材 id（GENRE_OPTIONS 内的稳定 id）；矩阵外自由文本同样放行，见下方专项断言
+  genre: "yineng",
+  // AI 生成内容提示标识（合规第三十四条）：每个字段都取合法值，
+  // fontScale/opacity/headSec 落在 clamp 区间内，position/mode 走枚举白名单
+  aiDisclosure: {
+    enabled: true,
+    text: "AI 生成",
+    position: "br",
+    mode: "always",
+    fontScale: 0.6,
+    opacity: 0.8,
+    headSec: 5,
+  },
 };
 
 describe("normalizeGenerationParams · round-trip 白名单完备性", () => {
@@ -175,6 +188,15 @@ describe("normalizeGenerationParams · 范围钳制仍生效（抽出为 lib 后
       ],
     })!;
     expect(out.sfx).toHaveLength(1);
+  });
+
+  it("题材放行自由文本但 trim + 截断，空串不落字段", () => {
+    expect(normalizeGenerationParams({ genre: "  玄幻仙侠  " })).toEqual({
+      genre: "玄幻仙侠",
+    });
+    expect(normalizeGenerationParams({ genre: "   " })).toEqual({});
+    const long = normalizeGenerationParams({ genre: "题".repeat(200) })!;
+    expect((long.genre as string).length).toBe(64);
   });
 
   it("非法 lutId 回退默认预设而非放行任意字符串", () => {

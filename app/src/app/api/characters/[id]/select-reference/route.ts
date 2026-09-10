@@ -54,7 +54,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 归属校验
     const character = await prisma.character.findFirst({
       where: { id, userId: session.user.id },
-      select: { id: true, referenceImages: true },
+      select: { id: true, referenceImages: true, canonicalImageUrl: true },
     });
     if (!character) {
       return NextResponse.json(
@@ -63,12 +63,36 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 幂等：已存在则直接返回（用户误重复点选不重复写库）
+    // 是否需要补写定妆锚：判据是「canonicalImageUrl 为空」，而不是「这是第一张图」。
+    // 原判据 referenceImages.length === 0 会漏掉一整类角色——历史数据、上传过垫图、
+    // 或早期生成过参考图但从未定稿的角色，它们 referenceImages 非空而
+    // canonicalImageUrl 为 null。这类角色走完整条补锚流程后 canonical 仍是 null，
+    // 门禁继续报「未定稿」，用户花了积分却看不出哪里没做对。
+    // 且 PATCH /api/characters/[id] 的白名单不收 canonicalImageUrl，没有任何
+    // 其它端点能把已有图提为定妆锚，纯客户端无路可走。
+    const needsCanonical = !character.canonicalImageUrl;
+    const isFirstImage = character.referenceImages.length === 0;
+
+    // 幂等：图已在库里则不重复追加，但仍要补齐缺失的定妆锚——
+    // 否则用户重复点选同一张时永远补不上锚（这正是上面那类角色的常见操作）。
     if (character.referenceImages.includes(imageUrl)) {
+      if (needsCanonical) {
+        const patched = await prisma.character.update({
+          where: { id },
+          data: { canonicalImageUrl: imageUrl },
+        });
+        log.info("已有参考图补设为定妆锚（幂等路径）", {
+          characterId: id,
+        });
+        return NextResponse.json({
+          imageUrl,
+          alreadyExists: true,
+          canonicalUpdated: true,
+          character: patched,
+        });
+      }
       return NextResponse.json({ imageUrl, alreadyExists: true });
     }
-
-    const isFirstImage = character.referenceImages.length === 0;
 
     // 写 CharacterReferenceAsset（带 schema 容错，兼容未迁移的本地环境）
     try {
@@ -76,9 +100,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         data: {
           characterId: id,
           url: imageUrl,
-          sourceType: isFirstImage ? "canonical" : "ai_generated",
-          isCanonical: isFirstImage,
-          pose: isFirstImage ? "front" : null,
+          // 与 Character.canonicalImageUrl 的补写判据保持一致：这张图成为定妆锚时，
+          // 资产表也要标 canonical，否则两处对「谁是定妆照」的认定会分叉
+          sourceType: needsCanonical ? "canonical" : "ai_generated",
+          isCanonical: needsCanonical,
+          pose: needsCanonical ? "front" : null,
         },
       });
     } catch (assetError) {
@@ -89,15 +115,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 追加到 referenceImages 末尾；首张时同步初始化 canonicalImageUrl 定妆锚
-    // （与三视图/首图定妆语义一致，供出图编排器消费）
+    // 追加到 referenceImages 末尾；canonicalImageUrl 为空时补设定妆锚
+    // （与三视图/首图定妆语义一致，供出图编排器消费）。
+    // 注意判据用 needsCanonical 而非 isFirstImage，见上方注释。
     const updated = await prisma.character.update({
       where: { id },
       data: {
         referenceImages: isFirstImage
           ? [imageUrl]
           : [...character.referenceImages, imageUrl],
-        ...(isFirstImage ? { canonicalImageUrl: imageUrl } : {}),
+        ...(needsCanonical ? { canonicalImageUrl: imageUrl } : {}),
       },
     });
 

@@ -67,11 +67,40 @@ export interface Scene {
   selectedCharacterId?: string | null;
   /** 编辑器使用：选中的多个角色 ID */
   selectedCharacterIds?: string[];
-  /** 编辑器使用：选中的角色详情 */
+  /**
+   * 编辑器使用：选中的角色详情（单角色分镜走此分支）。
+   *
+   * 字段必须与 `api/projects/[id]/route.ts` 的 selectedCharacter select 保持一致：
+   * 漏声明字段不会被类型系统发现（消费方 collectCharacterRefs 的入参字段皆可选），
+   * 只会在运行时静默拿到 undefined —— 三视图与定妆锚就此失效、人物出图不一致。
+   */
   selectedCharacter?: {
     id: string;
     name: string;
+    description?: string | null;
+    gender?: string | null;
+    age?: string | null;
     referenceImages: string[];
+    /** 定妆锚权威字段，见 lib/character-finalized.ts */
+    canonicalImageUrl?: string | null;
+    /** 三视图等参考资产（pose: front/side/back） */
+    referenceAssets?: {
+      url: string;
+      pose?: string | null;
+      createdAt?: string;
+    }[];
+    /** 结构化外貌：deriveIdentityPrompt 拼身份前缀用，比自由文本 description 精确 */
+    appearance?: {
+      hairStyle?: string | null;
+      hairColor?: string | null;
+      faceShape?: string | null;
+      eyeColor?: string | null;
+      bodyType?: string | null;
+      height?: string | null;
+      skinTone?: string | null;
+      accessories?: string | null;
+      freeText?: string | null;
+    } | null;
   } | null;
 }
 

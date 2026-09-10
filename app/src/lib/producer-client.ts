@@ -57,6 +57,8 @@ export async function runDramaScript(
     durationSec?: number;
     aspectRatio?: string;
     style?: string;
+    /** 题材（批 3）：注入脚本 prompt 的题材上下文；未传则服务端回落项目已存题材 */
+    genre?: string;
   }
 ): Promise<DramaScriptResult> {
   const startRes = await fetch(`/api/projects/${projectId}/drama-script`, {

@@ -21,6 +21,10 @@ const CARD_ROLE: Record<
     color: EMPHASIS_STYLE.color,
     strong: false,
   },
+  // 片头信息位编号（许可证号/批准文号/节目编号）：小字标注，与导出端
+  // ASS CardCredential 样式同源（CARD_STYLE.credentialScale = 0.6）。
+  // 置于卡片下部，避让 title/hook 主视觉。
+  credential: { scale: 0.6, topPct: 72, color: "#FFFFFF", strong: false },
 };
 
 /**

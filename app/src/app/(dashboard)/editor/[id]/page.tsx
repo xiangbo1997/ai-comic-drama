@@ -34,7 +34,8 @@ import { useExport } from "./hooks/use-export";
 import { useMultiGenerate } from "./hooks/use-multi-generate";
 import { EditorSkeleton } from "@/components/ui/query-state";
 import { useToast } from "@/components/ui/toast";
-import { collectUnfinalizedCharacterNames } from "@/lib/character-finalized";
+import { useCharacterAnchor } from "./hooks/use-character-anchor";
+import { CharacterAnchorDialog } from "./components/CharacterAnchorDialog";
 import { ProducerReviewDialog } from "./components/ProducerReviewDialog";
 import {
   isProducerReviewComplete,
@@ -180,18 +181,17 @@ export default function EditorPage() {
     editor.parseMutation.mutate();
   }, [confirmSceneRebuild, editor.parseMutation]);
 
-  // 角色定稿关口（批次 2 · 1.5）：批量出图 / 一键 workflow 前检查项目关联角色，
-  // 存在未定稿（无 canonicalImageUrl）时提示，可跳过不硬阻断（toast.confirm）。
-  // 返回 true 放行、false 取消。全部已定稿 / 无角色时直接放行不打扰。
+  // 角色定妆锚关口 + 自动补锚（包 B · B2/B3）：所有出图入口共用。
+  // 原实现只是一句「建议先到角色页生成三视图」的劝退式 confirm（而且只挂在
+  // 两条路径上），用户点「继续」就得到一整批不像的图；现在改成检测缺锚 →
+  // 明码标价 → 用户确认后就地补锚再出图，并留「不补也继续」的出口。
+  // 全部已定妆 / 无角色时 ensureAnchors 直接放行，零打扰。
   const editorProjectCharacters = editor.project?.characters;
-  const confirmCharacterFinalization = useCallback(async () => {
-    const names = collectUnfinalizedCharacterNames(editorProjectCharacters);
-    if (names.length === 0) return true;
-    return toast.confirm(
-      `角色 ${names.join("、")} 尚未定稿定妆照，跨镜头一致性可能受影响，` +
-        `建议先到角色页生成三视图。仍要继续吗？`
-    );
-  }, [editorProjectCharacters, toast]);
+  const anchor = useCharacterAnchor({
+    projectId,
+    projectCharacters: editorProjectCharacters,
+  });
+  const ensureAnchors = anchor.ensureAnchors;
 
   // 短剧脚本「直接生成分镜列表」：结构化直转（含九宫格镜头语言），
   // 零 LLM 调用零积分；与重新解析共用防丢确认。
@@ -393,6 +393,9 @@ export default function EditorPage() {
     onCloseImage: closeMultiImage,
     onCloseVideo: closeMultiVideo,
     onCloseAudio: closeMultiAudio,
+    // 能力告知接到多版本抽卡路径（第三条出图路径）：与单张/批量共享同一
+    // 去重账本，N 个模型带回同一条「不支持参考图」只弹一次
+    onWarnings: generation.surfaceGenerationWarnings,
   });
 
   // 制片人审阅弹窗可见性（3.1，纯派生，无 effect）：
@@ -582,8 +585,8 @@ export default function EditorPage() {
           }
           onManageCharacters={() => editor.setShowCharacterManager(true)}
           onStartWorkflow={async () => {
-            // 定稿关口（批次 2 · 1.5）：一键全自动前提示未定稿角色，可跳过
-            if (!(await confirmCharacterFinalization())) return;
+            // 定妆锚关口（包 B · B3 路径 1/4）：缺锚时先补定妆照再跑全自动
+            if (!(await ensureAnchors())) return;
             workflow.start(editor.inputText, { style: project.style });
           }}
           isWorkflowRunning={workflow.isRunning}
@@ -611,7 +614,7 @@ export default function EditorPage() {
           batchGenerateAudiosMutation={generation.batchGenerateAudiosMutation}
           batchProgress={generation.batchProgress}
           onCancelBatch={generation.cancelBatch}
-          onBeforeBatchImages={confirmCharacterFinalization}
+          onBeforeBatchImages={ensureAnchors}
           updateScene={handleUpdateSceneFromList}
           mediaConfig={mediaConfig}
           queryClient={editor.queryClient}
@@ -648,14 +651,23 @@ export default function EditorPage() {
           onUpdateScene={(sceneId, data) =>
             editor.updateSceneMutation.mutate({ sceneId, data })
           }
-          onGenerateImage={(sceneId, scene, count) =>
-            generation.generateImageMutation.mutate({
-              sceneId,
-              scene,
-              imageConfigId: selectedImageConfig,
-              count,
-            })
-          }
+          // 定妆锚关口（包 B · B3 路径 4/4）：逐镜出图此前完全没有关口，
+          // 用户在右栏一张一张点，每张都拿不到定妆锚，这是最常走的路径。
+          onGenerateImage={(sceneId, scene, count) => {
+            void (async () => {
+              if (!(await ensureAnchors())) return;
+              generation.generateImageMutation.mutate({
+                sceneId,
+                scene,
+                imageConfigId: selectedImageConfig,
+                count,
+              });
+            })();
+          }}
+          // 迭代模式刻意**不走**关口：它把上一版整图当参考基准（见
+          // use-generation-actions 的 iterate 分支，referenceImages 被
+          // [baseImageUrl] 覆盖），角色定妆锚在这条路径上不参与，
+          // 插一道补锚弹窗只会白花积分且打断「改成夜晚」这类微调节奏。
           onIterateImage={(sceneId, scene, note) =>
             generation.generateImageMutation.mutate({
               sceneId,
@@ -807,7 +819,16 @@ export default function EditorPage() {
         category="IMAGE"
         isOpen={showMultiImageDialog}
         onClose={() => setShowMultiImageDialog(false)}
-        onGenerate={multiGenerate.handleGenerateImages}
+        // 定妆锚关口（包 B · B3 补漏）：多模型对比出图是第 6 条出图路径，
+        // 同样消费 derivePromptInputs 的参考图，缺锚照样不像。它一次打 N 个
+        // 模型、最烧积分，更不该漏掉关口。
+        // 先手动关掉本弹窗再过关口：两个 Radix Dialog 同为 z-50，叠在一起
+        // 遮罩与焦点陷阱会互相打架（同 ProducerReviewDialog#handleFinish 的处理）。
+        onGenerate={async (configs, mode) => {
+          closeMultiImage();
+          if (!(await ensureAnchors())) return;
+          await multiGenerate.handleGenerateImages(configs, mode);
+        }}
       />
       <MultiGenerateDialog
         category="VIDEO"
@@ -844,6 +865,9 @@ export default function EditorPage() {
           project={project}
           updateProject={editor.updateProject}
           invalidateProject={editor.invalidateProject}
+          // 定妆锚关口（包 B · B3 路径 5/5）：制片人路径此前完全无门禁，
+          // 审阅完成就把新手放出去出图，而那一刻所有角色都还没定妆照
+          onEnsureAnchors={ensureAnchors}
           onJumpToScene={(sceneId) => {
             editor.setSelectedSceneId(sceneId);
             setReviewManuallyOpened(false);
@@ -854,6 +878,21 @@ export default function EditorPage() {
             setReviewManuallyOpened(false);
             setReviewDismissed(true);
           }}
+        />
+      )}
+
+      {/* 定妆照补齐确认（包 B · B2）：任一出图入口检测到缺锚角色时弹出，
+          三选一（拍定妆照 / 不拍直接出图 / 取消），由 useCharacterAnchor 驱动。
+          制片人审阅路径会先关审阅弹窗再过本关口（见 ProducerReviewDialog
+          #handleFinish 的注释），两个 Dialog 不会同时在场。 */}
+      {anchor.anchorPrompt && (
+        <CharacterAnchorDialog
+          missing={anchor.anchorPrompt.missing}
+          isAnchoring={anchor.isAnchoring}
+          anchorProgress={anchor.anchorProgress}
+          onConfirmAnchor={anchor.anchorPrompt.onConfirmAnchor}
+          onSkip={anchor.anchorPrompt.onSkip}
+          onCancel={anchor.anchorPrompt.onCancel}
         />
       )}
     </div>

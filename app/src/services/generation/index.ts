@@ -14,7 +14,34 @@ export type {
 } from "./image-orchestrator";
 
 export { resolveStrategy } from "./strategy-resolver";
-export { validateFaceConsistency } from "./face-validator";
+export {
+  validateFaceConsistency,
+  clearFaceValidationMemo,
+  parseAttributeFindings,
+} from "./face-validator";
+export type {
+  FaceValidatorOptions,
+  IdentityValidationResult,
+  ValidationStatus,
+} from "./face-validator";
+
+// 属性级身份判据（纯函数，非对称判据 + 三档映射）
+export {
+  aggregateIdentityVerdict,
+  mapGradeToAction,
+  IDENTITY_THRESHOLDS,
+  IDENTITY_CRITICAL_ATTRIBUTES,
+  APPEARANCE_ATTRIBUTES,
+  ALL_IDENTITY_ATTRIBUTES,
+} from "./identity-verdict";
+export type {
+  IdentityAttribute,
+  AttributeJudgement,
+  AttributeFinding,
+  IdentityGrade,
+  IdentityVerdict,
+  IdentityAction,
+} from "./identity-verdict";
 
 export {
   buildDirectorPrompt,

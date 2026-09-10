@@ -34,6 +34,24 @@ export {
 } from "./video-prompt";
 export type { VideoScenePromptInput, CameraMovement } from "./video-prompt";
 export {
+  buildCanonicalAppearanceText,
+  buildCanonicalAppearanceFields,
+  buildCanonicalCharacterEntry,
+  STYLE_LIGHTING_LOCK,
+} from "./canonical-appearance";
+export type { CanonicalAppearanceInput } from "./canonical-appearance";
+export {
+  NO_APPEARANCE_RESTATEMENT,
+  MICRO_EXPRESSION_RULES,
+  PARALLAX_RULES,
+  CAMERA_DELTA_RULES,
+  buildLimitedAnimationBlock,
+  LIMITED_ANIMATION_CAMERA_MOVEMENTS,
+  HIGH_RISK_CAMERA_MOVEMENTS,
+  isHighRiskCameraMovement,
+} from "./limited-animation";
+export type { LimitedAnimationOptions } from "./limited-animation";
+export {
   EPISODE_HOOK_RULES,
   EPISODE_PACING_RULES,
   EPISODE_ENDING_RULES,

@@ -13,6 +13,7 @@ import {
   EPISODE_ENDING_RULES,
   EPISODE_CONFLICT_RULES,
 } from "../episode-structure";
+import { buildGenreContextBlock } from "@/lib/genre-matrix";
 
 export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅长把"世界观设定"扩写为可直接用于 AI 视频生成 / 分镜制作的短剧脚本。
 
@@ -57,6 +58,13 @@ export function buildDramaScriptUserPrompt(input: DramaScriptInput): string {
       ? `已有角色（脚本应围绕这些角色展开）：${input.characterNames.join("、")}`
       : "";
 
+  // 题材上下文块（批 3）：作为**补充上下文**注入，与上方 DRAMA_SCRIPT_SYSTEM 里的
+  // 爆款方法论规则（开场钩子/节奏骨架/结尾钩子/冲突升级）并列共存，绝不替换它们。
+  // 置于世界观之后、创作要求之前——让 LLM 先知道「这是什么题材、该往哪写」，
+  // 再去执行通用方法论。空题材返回空串，拼接后与改前逐字一致（零回归）。
+  const genreBlock = buildGenreContextBlock(input.genre);
+  const genreSection = genreBlock ? `${genreBlock}\n\n` : "";
+
   // 系列续集：注入累积系列记忆（优先故事圣经 digest，覆盖全部前作；老系列回落
   // 上一集前情提要）。由服务端生成，见 lib/series-memory.ts / lib/series.ts。
   const recapBlock = input.previousEpisodeRecap
@@ -74,7 +82,7 @@ ${input.previousEpisodeRecap}
 世界观：
 ${input.worldview}
 
-${recapBlock}${input.protagonist ? `主角身份：${input.protagonist}` : ""}
+${genreSection}${recapBlock}${input.protagonist ? `主角身份：${input.protagonist}` : ""}
 ${charactersLine}
 ${input.filmTitle ? `指定片名：${input.filmTitle}` : "片名：由你拟定，要有记忆点"}
 ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血冒险、奇幻成长等）"}

@@ -12,7 +12,7 @@ import {
   reviewVideoSequence,
 } from "../../narrative-observer";
 import { reviewCharacterBible } from "../../character-bible-observer";
-import { resolvePolicy, runClosedLoop } from "../../closed-loop";
+import { resolvePolicyAsync, runClosedLoop } from "../../closed-loop";
 import { emitEvent } from "../../event-bus";
 import { log, setReviewArtifact } from "../context";
 import type {
@@ -36,7 +36,7 @@ export async function reviewAndRefineCharacterBible(
   bible: CharacterBible,
   ctx: WorkflowContext
 ): Promise<CharacterBible> {
-  const policy = resolvePolicy(ctx, "characterBible");
+  const policy = await resolvePolicyAsync(ctx, "characterBible");
   if (!policy.enabled) return bible;
 
   const agent = new CharacterBibleAgent();
@@ -114,7 +114,7 @@ export async function reviewStoryboardCoherence(
   storyboard: StoryboardArtifact,
   ctx: WorkflowContext
 ): Promise<void> {
-  const policy = resolvePolicy(ctx, "storyboard");
+  const policy = await resolvePolicyAsync(ctx, "storyboard");
   if (!policy.enabled) return;
 
   const summaries = storyboard.scenes.map((s) => ({
@@ -169,7 +169,7 @@ export async function reviewVideoCoherence(
   storyboard: StoryboardArtifact,
   ctx: WorkflowContext
 ): Promise<void> {
-  const policy = resolvePolicy(ctx, "videoCoherence");
+  const policy = await resolvePolicyAsync(ctx, "videoCoherence");
   if (!policy.enabled) return;
 
   const summaries = storyboard.scenes.map((s) => ({

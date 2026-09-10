@@ -66,9 +66,17 @@ import {
   buildAssEventText,
   buildAssHeader,
   buildCardEvents,
+  buildDisclosureEvents,
   formatAssTime,
   wrapSubtitleText,
 } from "@/services/video-synthesis/ass/builder";
+// AI 生成内容提示标识（合规，广电总局令第 16 号第三十四条）：
+// 与预览端共用 lib/ai-disclosure 的配置解析与几何/时间窗契约。
+import {
+  resolveAiDisclosure,
+  type AiDisclosure,
+  type ResolvedAiDisclosure,
+} from "@/lib/ai-disclosure";
 // FFmpeg 进程执行 + URL 绝对化 + 防 SSRF 下载：video-synthesis/ffmpeg-run.ts
 import {
   absolutizeUrl,
@@ -187,6 +195,15 @@ export interface ExportOptions {
    * 显式开启才生效）。
    */
   colorGrade?: ColorGrade;
+  /**
+   * AI 生成内容提示标识（合规）——《微短剧管理办法》（广电总局令第 16 号，
+   * 2026-09-01 施行）第三十四条要求「每集明显位置添加提示标识」。
+   *
+   * ⚠️ 缺省语义与其他可选功能相反：**缺省即启用默认标识**（法定要求，
+   * 存量项目不能静默导出成无标识成片）。仅 enabled:false 显式关闭。
+   * 具体文案/位置/字号/时长为可配置默认值，法规原文未规定量化参数。
+   */
+  aiDisclosure?: AiDisclosure;
 }
 
 /**
@@ -401,7 +418,14 @@ async function generateSubtitleFile(
   subtitleStyle?: SubtitleStyle,
   subtitlePositions?: SubtitlePosition[],
   voiceDurations?: (number | undefined)[],
-  emphasisSceneIds?: string[]
+  emphasisSceneIds?: string[],
+  /**
+   * 对白/旁白字幕开关。false 时只产出 AI 标识事件（合规标识不随字幕开关消失）——
+   * 见 synthesizeVideoToPath 里 needSubtitleFile 的说明。
+   */
+  includeDialogueSubtitles: boolean = true,
+  /** AI 生成提示标识（已解析）；未启用时不产出标识事件 */
+  disclosure?: ResolvedAiDisclosure
 ): Promise<string> {
   const events: string[] = [];
   let currentTime = 0;
@@ -409,6 +433,8 @@ async function generateSubtitleFile(
   const emphasisSet = new Set(emphasisSceneIds ?? []);
 
   for (let i = 0; i < scenes.length; i += 1) {
+    // 字幕关闭时跳过全部对白/卡片事件，仅保留下方 AI 标识事件
+    if (!includeDialogueSubtitles) break;
     const scene = scenes[i];
     // 字幕时轴用「实测有效时长」（变速+真实视频长度后），与画面/配音对齐
     const effDuration = effDurations[i];
@@ -486,8 +512,17 @@ async function generateSubtitleFile(
     currentTime += effDuration;
   }
 
+  // AI 生成提示标识（合规，第三十四条）：时间窗覆盖全片/片头，故用全片总时长
+  // （实测有效时长之和，与画面同轴）。Layer 1 保证不被正文字幕遮挡。
+  if (disclosure?.enabled) {
+    const totalSec = effDurations.reduce((sum, d) => sum + (d || 0), 0);
+    events.push(...buildDisclosureEvents(disclosure, totalSec, width, height));
+  }
+
   const assContent =
-    buildAssHeader(width, height, subtitleStyle) + events.join("\n") + "\n";
+    buildAssHeader(width, height, subtitleStyle, disclosure) +
+    events.join("\n") +
+    "\n";
   const assPath = path.join(outputPath, "subtitles.ass");
   await writeFile(assPath, assContent, "utf-8");
   return assPath;
@@ -1109,8 +1144,17 @@ export async function synthesizeVideoToPath<T>(
       options.quality,
       options.aspectRatio
     );
+    // AI 生成提示标识（合规，广电总局令第 16 号第三十四条）：缺省即启用
+    // （resolveAiDisclosure 的缺省契约），故存量项目导出也会带标识。
+    const resolvedDisclosure = resolveAiDisclosure(options.aiDisclosure);
+
+    // ASS 文件的产出条件：对白字幕开启 **或** AI 标识启用。
+    // 标识是法定要求，不能因用户关字幕而消失——故二者任一为真都要生成 ASS，
+    // 由 generateSubtitleFile 内部按 includeDialogueSubtitles 决定是否发对白事件。
+    const needSubtitleFile =
+      options.includeSubtitles || resolvedDisclosure.enabled;
     let subtitlePath: string | null = null;
-    if (options.includeSubtitles) {
+    if (needSubtitleFile) {
       subtitlePath = await generateSubtitleFile(
         scenes,
         effDurations,
@@ -1120,7 +1164,9 @@ export async function synthesizeVideoToPath<T>(
         options.subtitleStyle,
         options.subtitlePositions,
         voiceDurations,
-        options.emphasisSceneIds
+        options.emphasisSceneIds,
+        options.includeSubtitles,
+        resolvedDisclosure
       );
     }
 

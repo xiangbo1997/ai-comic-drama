@@ -103,8 +103,10 @@ interface SceneListProps {
   /** 停止批量的后续排队（已发出的请求会继续完成） */
   onCancelBatch?: () => void;
   /**
-   * 批量出图前的关口（批次 2 · 1.5）：返回 Promise<false> 表示用户取消（不启动批量）。
-   * 用于提示存在未定稿角色，可跳过不硬阻断。缺省时视为放行。
+   * 批量出图前的定妆锚关口（包 B · B3）：返回 Promise<false> 表示中止本次批量。
+   * 检测到角色缺定妆锚时会弹窗让用户选择「补拍定妆照 / 不补直接出图 / 取消」，
+   * 选补则就地生成完再放行。缺省时视为放行。顶部「批量生成」与底部「批量图片」
+   * 都走这一个关口（两处语义必须一致，否则底部就成了绕过检查的后门）。
    */
   onBeforeBatchImages?: () => Promise<boolean>;
   updateScene: (sceneId: string, data: Partial<Scene>) => void;
@@ -371,7 +373,7 @@ function SceneListImpl({
             <button
               onClick={async (e) => {
                 e.stopPropagation();
-                // 定稿关口（批次 2 · 1.5）：存在未定稿角色时提示，可跳过不硬阻断
+                // 定妆锚关口（包 B · B3 路径 2/4）：缺锚时先补定妆照再批量出图
                 if (onBeforeBatchImages && !(await onBeforeBatchImages()))
                   return;
                 const scenesWithoutImage = project.scenes.filter(
@@ -599,7 +601,12 @@ function SceneListImpl({
 
       {/* Batch Actions — 三类批量统一走串行 batch mutation（逐张生成 + 成败
           汇总 + 可停止）。压成单行 split-button，逻辑抽到 BatchActionsBar。
-          底部图片批量不走 onBeforeBatchImages 关口（保持原语义）。 */}
+
+          底部图片批量现在也走 onBeforeBatchImages 定妆锚关口（包 B · B3）：
+          原先「保持原语义」不挂关口，让这里成了唯一能绕开定妆锚检查的出图入口。
+          而制片人审阅完成的引导正好把新手指向这个按钮——审阅刚做完时所有角色
+          都还没定妆照，于是必然产出一整批人物不一致的图，全程零提示。
+          四条出图路径（一键 workflow / 顶部批量 / 底部批量 / 逐镜）现已对等。 */}
       {project.scenes.length > 0 && (
         <BatchActionsBar
           scenes={project.scenes}
@@ -610,6 +617,7 @@ function SceneListImpl({
           onCancelBatch={onCancelBatch}
           anyBatchPending={anyBatchPending}
           mediaConfig={mediaConfig}
+          onBeforeBatchImages={onBeforeBatchImages}
         />
       )}
 

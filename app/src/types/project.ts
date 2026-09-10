@@ -14,6 +14,7 @@ import type {
 } from "./export-style";
 import type { ColorGrade } from "@/lib/color-grade";
 import type { TitleCardsConfig } from "@/lib/title-cards";
+import type { AiDisclosure } from "@/lib/ai-disclosure";
 
 /** 项目状态 — 与 Prisma enum ProjectStatus 对齐 */
 export type ProjectStatus = "DRAFT" | "PROCESSING" | "COMPLETED" | "FAILED";
@@ -59,11 +60,26 @@ export interface GenerationParams {
   /** 一键 AI 制片人审阅态（仅向导创建的项目有此字段；常规项目缺省） */
   producerReview?: ProducerReview;
   /**
+   * 题材（批 3）：存 lib/genre-matrix.ts 的 GenreOption.id，或用户手填的自由文本。
+   * 选择时 UI 给出数据依据与风险提示；生成时作为补充上下文注入起草/脚本 prompt。
+   * 刻意不加 Project.genre 列 —— 题材是创作参数，与 generationParams 的其它参数同质。
+   */
+  genre?: string;
+  /**
    * 混合出片策略（一键管线 generate_videos 步骤读取）：
    *   - "full"（缺省）：全部镜生成视频，行为不变；
    *   - "hybrid"：按 lib/render-mode 只对高动态/冲击/高潮镜生成视频，其余镜走图片运镜（零成本）。
    */
   renderStrategy?: "full" | "hybrid";
+  /**
+   * AI 生成内容提示标识（合规）——《微短剧管理办法》（国家广播电视总局令
+   * 第 16 号，2026-09-01 施行）第三十四条要求 AI 生成制作的微短剧
+   * 「在每集明显位置添加提示标识」。
+   *
+   * ⚠️ 缺省语义与本接口其他字段相反：**缺省即启用**（法定要求，存量项目不能
+   * 静默导出成无标识成片），解析走 lib/ai-disclosure 的 resolveAiDisclosure。
+   */
+  aiDisclosure?: AiDisclosure;
 }
 
 /** 一键 AI 制片人审阅确认集（计划 §6 · 3.1） */
