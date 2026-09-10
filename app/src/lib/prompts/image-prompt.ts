@@ -5,7 +5,11 @@
  * 原 STYLE_MAP / SIMPLE_STYLE_MAP 已折进画风包，避免多处重复的风格规则文本。
  */
 
+import { createLogger } from "@/lib/logger";
+import { normalizeShotType } from "@/lib/shot-type-normalize";
 import { getStylePack } from "./style-packs";
+
+const log = createLogger("prompts:image-prompt");
 
 /** 风格前缀：取画风包的英文锚定词（anchor）。未知 style 由 getStylePack 回落 anime。 */
 export function getStylePrefix(style?: string): string {
@@ -39,8 +43,28 @@ const SHOT_MAP: Record<string, string> = {
     "high-angle oppression shot, steep top-down view, subject small and vulnerable, looming negative space",
 };
 
+/**
+ * 景别 → 镜头语言描述。
+ *
+ * 查表前先过一遍归一（防御手动输入 / 历史数据里的复合值「大特写·急推」——
+ * 这类值精确匹配必然 miss，会静默回落成默认中景，丢掉用户打磨的镜头语言）。
+ * 归一后仍未命中才回落默认值，并记 warn 暴露出来（此前完全静默）。
+ */
 export function getShotTypeDescription(shotType?: string): string {
-  return SHOT_MAP[shotType || "中景"] || "medium shot, 50mm lens";
+  if (!shotType) return SHOT_MAP["中景"];
+
+  const direct = SHOT_MAP[shotType];
+  if (direct) return direct;
+
+  // 精确未命中：可能是复合值或别名，归一后重试
+  const normalized = normalizeShotType(shotType);
+  if (normalized) {
+    const mapped = SHOT_MAP[normalized];
+    if (mapped) return mapped;
+  }
+
+  log.warn("未识别的景别，回落默认中景", { shotType, normalized });
+  return "medium shot, 50mm lens";
 }
 
 /**

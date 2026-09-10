@@ -16,6 +16,8 @@
  *   否则夹到区间——只纠正明显不合理（对白镜太短 / 空镜拉太长）的值。
  */
 
+import { normalizeShotType } from "./shot-type-normalize";
+
 /** 中文口播速率：字 / 秒（漫剧行业估算惯例） */
 const CN_CHARS_PER_SEC = 2.5;
 
@@ -102,8 +104,9 @@ export function computeShotDuration(input: ShotTimingInput): number {
   const speechFloor =
     estimateSpeechSeconds(dialogue) + estimateSpeechSeconds(narration);
 
-  // 2. 景别下限
-  const shotType = input.shotType ?? "";
+  // 2. 景别下限。查表前归一：复合值（「大特写·急推」）与别名（「大全景」）在
+  //    精确匹配下必然 miss，全片景别时长差异被抹平成统一的 3s/2s 兜底。
+  const shotType = normalizeShotType(input.shotType) ?? "";
   let shotFloor: number;
   if (hasSpeech) {
     shotFloor = SHOT_TYPE_DIALOGUE_MIN[shotType] ?? 2;

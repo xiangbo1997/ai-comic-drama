@@ -13,8 +13,12 @@
  *   （如「血腥」在 BLOCKED_KEYWORDS 中），中文负面词会导致请求自我 400。
  */
 
+import { createLogger } from "@/lib/logger";
+import { normalizeShotType } from "@/lib/shot-type-normalize";
 import { CAMERA_MOVEMENTS, type CameraMovement } from "./camera-movements";
 import { buildLimitedAnimationBlock } from "./limited-animation";
+
+const log = createLogger("prompts:video-prompt");
 
 /** 视频场景 prompt 构建输入 */
 export interface VideoScenePromptInput {
@@ -171,16 +175,28 @@ const UNIVERSAL_NEGATIVES = [
 /** 情绪速度修饰：angry/surprised/fear 在特写/近景上偏快 */
 const FAST_EMOTIONS = new Set(["angry", "surprised", "fear"]);
 
-/** 取景段（景别 + 角度修饰）。无 shotType → 空串。 */
+/**
+ * 取景段（景别 + 角度修饰）。无 shotType → 空串。
+ *
+ * 精确未命中时先归一再重试：复合值（「大特写·急推」）与别名（「大全景」）此前
+ * 直接返回空串——整个取景段从 prompt 里消失，视频完全丢失景别约束且无任何日志。
+ */
 function buildFraming(
   shotType?: string | null,
   cameraAngle?: string | null
 ): string {
   if (!shotType) return "";
-  const base = FRAMING_MAP[shotType];
-  if (!base) return "";
   const modifier = cameraAngle ? (ANGLE_MODIFIER_MAP[cameraAngle] ?? "") : "";
-  return `${base}${modifier}`;
+
+  const direct = FRAMING_MAP[shotType];
+  if (direct) return `${direct}${modifier}`;
+
+  const normalized = normalizeShotType(shotType);
+  const mapped = normalized ? FRAMING_MAP[normalized] : undefined;
+  if (mapped) return `${mapped}${modifier}`;
+
+  log.warn("未识别的景别，取景段留空", { shotType, normalized });
+  return "";
 }
 
 /** 运镜段：FL 模式 / 显式 cameraMovement / 按 shotType+emotion 派生 三分支。 */
@@ -202,8 +218,11 @@ function buildCameraMove(input: VideoScenePromptInput): string {
     return describeCameraMovement(input.cameraMovement);
   }
 
-  // c) cameraMovement 为空（常态）：按 shotType 派生默认运镜
-  const { shotType, emotion } = input;
+  // c) cameraMovement 为空（常态）：按 shotType 派生默认运镜。
+  //    景别先归一——下方是 === 精确比较，复合值/别名会全部落到「无 shotType」
+  //    的兜底漂移文案上，特写该有的推进感丢失。
+  const shotType = normalizeShotType(input.shotType);
+  const { emotion } = input;
   const fast = emotion ? FAST_EMOTIONS.has(emotion) : false;
 
   if (shotType === "特写" || shotType === "近景") {

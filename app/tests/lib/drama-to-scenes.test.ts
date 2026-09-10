@@ -80,13 +80,17 @@ describe("dramaScriptToScenes", () => {
     expect(scenes[1].dialogue).toBe("林烬：不……这不可能！");
   });
 
-  it("有九宫格：shot 进 shotType、特写并入描述、按 index 对位", () => {
+  it("有九宫格：shot 归一进 shotType、特写并入描述、按 index 对位", () => {
     const scenes = dramaScriptToScenes(makeDoc(), storyboard);
-    expect(scenes[0].shotType).toBe("大全景·高速俯冲");
+    // 复合值归一（景别静默丢弃修复）：此前原样落库「大全景·高速俯冲」，
+    // 下游 SHOT_MAP / FRAMING_MAP / SHOT_TYPE_BASE 精确匹配全 miss 回落默认中景。
+    expect(scenes[0].shotType).toBe("远景");
     expect(scenes[0].description).toBe(
       "雨夜天幕城的霓虹，大全景俯瞰\n特写要点：雨滴撞碎在霓虹灯牌上"
     );
-    expect(scenes[1].shotType).toBe("中景→特写·快速推近");
+    // 镜内景别变化取终点景别（静帧画落点），运镜由「快速推近」拆出
+    expect(scenes[1].shotType).toBe("特写");
+    expect(scenes[1].cameraMovement).toBe("dolly_in");
   });
 
   it("脚本对白优先，缺失时用九宫格格内对白兜底", () => {
@@ -139,7 +143,7 @@ describe("dramaScriptToScenes", () => {
     };
     const scenes = dramaScriptToScenes(makeDoc(), partial);
     expect(scenes[0].shotType).toBeNull();
-    expect(scenes[1].shotType).toBe("中景→特写·快速推近");
+    expect(scenes[1].shotType).toBe("特写");
   });
 
   it("空场景数组安全返回空", () => {

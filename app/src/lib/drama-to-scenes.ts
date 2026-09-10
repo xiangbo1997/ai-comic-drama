@@ -21,6 +21,7 @@ import type {
 } from "@/types";
 import type { TransitionType } from "@/types/export-style";
 import { computeShotDuration } from "@/lib/shot-timing";
+import { parseCompositeShot } from "@/lib/shot-type-normalize";
 
 /** POST /api/projects/[id]/scenes 接受的单镜字段（route 侧按此消费） */
 export interface SceneDraft {
@@ -172,6 +173,11 @@ export function dramaScriptToScenes(
     // 命中即下传，供后端聚合为 generationParams.transitions；未命中缺席（回落硬切）。
     const transition = mapTransitionWord(cell?.transition);
 
+    // 景别归一（断裂修复）：九宫格 prompt 要求 LLM 产出复合值（「大特写·急推」），
+    // 而下游 SHOT_MAP / FRAMING_MAP / SHOT_TYPE_BASE 全是精确键匹配，复合值一律
+    // miss 回落默认中景——用户打磨的镜头语言被静默丢弃。这里拆成正交两字段。
+    const parsedShot = parseCompositeShot(cell?.shot);
+
     const dialogue = scene.dialogue ?? cell?.dialogue ?? null;
     const narration = scene.narration ?? null;
 
@@ -190,18 +196,19 @@ export function dramaScriptToScenes(
     );
 
     return {
-      shotType: cell?.shot || null,
+      shotType: parsedShot.shotType,
       description,
       dialogue,
       narration,
       emotion: scene.emotion || "neutral",
       // 时长校准（断裂 C 修复）：短剧脚本路径同源走对白驱动时长，
-      // 而非仅 clamp 脚本给的 durationSec。九宫格 shot 非标准五景别时，
-      // computeShotDuration 有兜底（对白下限逻辑仍生效）。
+      // 而非仅 clamp 脚本给的 durationSec。景别用归一后的值——此前传原始复合值，
+      // SHOT_TYPE_BASE / SHOT_TYPE_DIALOGUE_MIN 一律 miss 回落 3/2s，
+      // 归一后特写/远景等档位的时长差异才真正生效。
       duration: computeShotDuration({
         dialogue,
         narration,
-        shotType: cell?.shot ?? null,
+        shotType: parsedShot.shotType,
         emotion: scene.emotion ?? null,
         llmDuration: scene.durationSec ?? null,
       }),
@@ -215,7 +222,14 @@ export function dramaScriptToScenes(
       ...(scene.composition ? { composition: scene.composition } : {}),
       ...(scene.colorPalette ? { colorPalette: scene.colorPalette } : {}),
       ...(scene.actionBeat ? { actionBeat: scene.actionBeat } : {}),
-      ...(scene.cameraMovement ? { cameraMovement: scene.cameraMovement } : {}),
+      // 运镜：脚本自带优先（LLM 在场景级显式产出的 13 值枚举），缺席时用九宫格
+      // 复合景别里拆出的运镜补位（「大特写·急推」的「急推」→ dolly_in），
+      // 两者都无则缺席（video-prompt 按 shotType+emotion 派生默认运镜）。
+      ...(scene.cameraMovement
+        ? { cameraMovement: scene.cameraMovement }
+        : parsedShot.cameraMovement
+          ? { cameraMovement: parsedShot.cameraMovement }
+          : {}),
       // 转场（命中九宫格 transition 词才下传）：type + duration 供后端聚合。
       ...(transition
         ? {
