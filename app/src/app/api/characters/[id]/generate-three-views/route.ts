@@ -15,6 +15,7 @@ import {
   THREE_VIEW_NEGATIVE,
 } from "@/lib/prompts/character-reference";
 import { hashStringToSeed } from "@/services/generation";
+import { shouldSuggestCanonicalUpgrade } from "@/lib/canonical-anchor";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { NextRequest, NextResponse } from "next/server";
@@ -252,6 +253,13 @@ async function runThreeViewsTask(
     // front 补一个初始锚。
     const hasAnchor = Boolean(anchorImageUrl);
 
+    // 锚点升级建议（批 5 · H2）：已有锚、但锚**不是**本次三视图之一时，说明锚
+    // 是更早的图——线上真实案例是一张多格角色设定拼贴图，喂模型时模型不知道
+    // 该复现哪个视角，而同一角色刚生成的干净正面图才是理想参考。
+    // 只回传建议、不静默替换：用户可能有意挑了别的图当锚，静默覆盖既抹掉这个
+    // 决定，也会让下次重生成锚到本次产物导致画风逐轮漂移。
+    const upgrade = shouldSuggestCanonicalUpgrade(anchorImageUrl, results);
+
     // 落库 + 扣费 + 完成任务（事务）。CharacterReferenceAsset 写入带 schema 容错。
     await prisma.$transaction(async (tx) => {
       for (const { pose, url } of results) {
@@ -306,7 +314,15 @@ async function runThreeViewsTask(
         where: { id: taskId },
         data: {
           status: "COMPLETED",
-          output: { views: results, cost: THREE_VIEW_COST },
+          output: {
+            views: results,
+            cost: THREE_VIEW_COST,
+            // 前端据此弹一次「是否把定妆照换成正面图」确认（H2）
+            suggestCanonicalUpgrade: upgrade.suggest,
+            ...(upgrade.suggestedUrl
+              ? { suggestedCanonicalUrl: upgrade.suggestedUrl }
+              : {}),
+          },
           completedAt: new Date(),
         },
       });

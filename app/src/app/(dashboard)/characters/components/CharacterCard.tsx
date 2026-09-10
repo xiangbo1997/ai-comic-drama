@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Star,
 } from "lucide-react";
 import type { CharacterListItem, Tag } from "@/types";
 import { isCharacterFinalized } from "@/lib/character-finalized";
@@ -46,6 +47,13 @@ interface CharacterCardProps {
   uploadingBaseImageId: string | null;
   /** 仅本角色的参考图生成中（并发生成互不阻塞，不再是全局 pending） */
   isGenerating: boolean;
+  /**
+   * 把某张已在库的参考图设为定妆照（批 5 · H1）。
+   * 此前用户完全无法选锚，只能靠生成顺序碰运气。
+   */
+  onSetCanonical: (characterId: string, imageUrl: string) => void;
+  /** 正在提交的定妆照 URL（本角色范围内）；null 表示无提交进行中 */
+  settingCanonicalUrl: string | null;
   updateMutationPending: boolean;
   generateDescriptionMutation: UseMutationResult<
     { description: string },
@@ -73,9 +81,12 @@ function CharacterCardImpl({
   onOpenGenerateModal,
   uploadingBaseImageId,
   isGenerating,
+  onSetCanonical,
+  settingCanonicalUrl,
   updateMutationPending,
   generateDescriptionMutation,
 }: CharacterCardProps) {
+  const currentImageUrl = character.referenceImages[currentImageIndex];
   return (
     <div className="bg-card overflow-hidden rounded-xl">
       {/* Reference Image */}
@@ -91,6 +102,19 @@ function CharacterCardImpl({
             <User size={48} />
             <span className="mt-2 text-sm">无参考图</span>
           </div>
+        )}
+
+        {/* 定妆照选择（批 5 · H1）：当前轮播这张是不是定妆锚，一眼可见且可一键改。
+            放左上角，避开右下角既有的生成按钮组与底部轮播控件。 */}
+        {currentImageUrl && (
+          <CanonicalToggle
+            imageUrl={currentImageUrl}
+            isCanonical={character.canonicalImageUrl === currentImageUrl}
+            pending={settingCanonicalUrl === currentImageUrl}
+            disabled={settingCanonicalUrl !== null}
+            onSetCanonical={() => onSetCanonical(character.id, currentImageUrl)}
+            className="absolute top-2 left-2"
+          />
         )}
 
         {character.referenceImages.length > 1 && (
@@ -160,7 +184,11 @@ function CharacterCardImpl({
       </div>
 
       {/* 三视图三联展示（防生成崩坏的转面图，与普通参考图区分） */}
-      <ThreeViewStrip character={character} />
+      <ThreeViewStrip
+        character={character}
+        onSetCanonical={onSetCanonical}
+        settingCanonicalUrl={settingCanonicalUrl}
+      />
 
       {/* Info */}
       <div className="p-4">
@@ -214,6 +242,9 @@ function CharacterCardImpl({
  * onNextImage / onPrevImage / onDeleteImage /
  * onOpenGenerateModal / onDelete（onDelete 在编辑态不渲染，但为简洁一律比较其
  * 稳定引用，页面已 useCallback 固定，不会误触发）。
+ * 批 5 追加 onSetCanonical / settingCanonicalUrl：定妆照选择按钮在主图区与
+ * 三视图区都是「无论编辑态都渲染」的（它们在 isEditing 分支之外），必须始终比较。
+ * settingCanonicalUrl 由页面按角色 ID 派生，并发改锚时只有对应卡片变化。
  */
 function arePropsEqual(
   prev: CharacterCardProps,
@@ -231,7 +262,9 @@ function arePropsEqual(
     prev.onDeleteImage !== next.onDeleteImage ||
     prev.onOpenGenerateModal !== next.onOpenGenerateModal ||
     prev.onDelete !== next.onDelete ||
-    prev.onStartEdit !== next.onStartEdit
+    prev.onStartEdit !== next.onStartEdit ||
+    prev.onSetCanonical !== next.onSetCanonical ||
+    prev.settingCanonicalUrl !== next.settingCanonicalUrl
   ) {
     return false;
   }
@@ -566,11 +599,84 @@ function CharacterViewInfo({
 }
 
 /**
+ * 定妆照选择控件（批 5 · H1）：已是定妆照时显示选中态徽标（不可点），
+ * 否则显示「设为定妆照」按钮。
+ *
+ * 同一控件复用在主图轮播与三视图三联两处，保证两处对「谁是定妆照」的
+ * 呈现与操作完全一致（全局一致性：展示定妆状态的位置必须都能改）。
+ */
+function CanonicalToggle({
+  imageUrl,
+  isCanonical,
+  pending,
+  disabled,
+  onSetCanonical,
+  className = "",
+  compact = false,
+}: {
+  imageUrl: string;
+  isCanonical: boolean;
+  /** 本张正在提交 */
+  pending: boolean;
+  /** 同卡内有别的张在提交（避免并发改锚互相覆盖） */
+  disabled: boolean;
+  onSetCanonical: () => void;
+  className?: string;
+  /** 三视图小格用紧凑尺寸 */
+  compact?: boolean;
+}) {
+  const sizeCls = compact
+    ? "px-1.5 py-0.5 text-[9px] gap-0.5"
+    : "px-2 py-1 text-[10px] gap-1";
+  const iconSize = compact ? 9 : 11;
+
+  if (isCanonical) {
+    return (
+      <span
+        className={`bg-agent text-agent-foreground pointer-events-none flex items-center rounded font-medium backdrop-blur-sm ${sizeCls} ${className}`}
+        title="当前定妆照：所有镜头以这张为长相基准"
+      >
+        <Star size={iconSize} className="fill-current" />
+        定妆照
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onSetCanonical}
+      disabled={disabled}
+      title={`把这张设为定妆照（${imageUrl.split("/").pop() ?? "当前图片"}）`}
+      className={`text-foreground flex items-center rounded bg-black/60 font-medium backdrop-blur-sm transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-50 ${sizeCls} ${className}`}
+    >
+      {pending ? (
+        <Loader2 size={iconSize} className="animate-spin" />
+      ) : (
+        <Star size={iconSize} />
+      )}
+      设为定妆照
+    </button>
+  );
+}
+
+/**
  * 三视图三联展示：把 front/side/back 三张转面图独立横排展示，
  * 与普通参考图轮播区分，一眼看出是角色定妆/锁形象图。
  * 无三视图（任一角度缺失）时不渲染。
+ *
+ * 每格带「设为定妆照」（批 5 · H1）：线上真实问题正是干净的正面三视图当不上
+ * 定妆锚（锚位被更早生成的多格设定拼贴图占住），这里给出直接的改锚出口。
  */
-function ThreeViewStrip({ character }: { character: CharacterListItem }) {
+function ThreeViewStrip({
+  character,
+  onSetCanonical,
+  settingCanonicalUrl,
+}: {
+  character: CharacterListItem;
+  onSetCanonical: (characterId: string, imageUrl: string) => void;
+  settingCanonicalUrl: string | null;
+}) {
   const views = extractThreeViews(character.referenceAssets);
   const items: { pose: ThreeViewPose; label: string; url?: string }[] = [
     { pose: "front", label: "正面", url: views.front },
@@ -596,11 +702,24 @@ function ThreeViewStrip({ character }: { character: CharacterListItem }) {
           <div key={it.pose} className="space-y-1">
             <div className="bg-secondary relative aspect-square overflow-hidden rounded-lg">
               {it.url ? (
-                <img
-                  src={it.url}
-                  alt={it.label}
-                  className="h-full w-full object-cover"
-                />
+                <>
+                  <img
+                    src={it.url}
+                    alt={it.label}
+                    className="h-full w-full object-cover"
+                  />
+                  <CanonicalToggle
+                    imageUrl={it.url}
+                    isCanonical={character.canonicalImageUrl === it.url}
+                    pending={settingCanonicalUrl === it.url}
+                    disabled={settingCanonicalUrl !== null}
+                    onSetCanonical={() =>
+                      onSetCanonical(character.id, it.url as string)
+                    }
+                    className="absolute top-1 left-1"
+                    compact
+                  />
+                </>
               ) : (
                 <div className="text-muted-foreground/50 flex h-full w-full items-center justify-center text-[10px]">
                   缺{it.label}
@@ -613,6 +732,11 @@ function ThreeViewStrip({ character }: { character: CharacterListItem }) {
           </div>
         ))}
       </div>
+      {/* H3 参考图质量提示：拼贴/多格图当定妆锚是容易重犯的错（模型不知复现哪个
+          视角），这里讲清什么样的图适合。不做校验——无法可靠自动判断拼贴图。 */}
+      <p className="text-muted-foreground/70 mt-2 text-[10px] leading-relaxed">
+        定妆照建议选：单人、正面全身、纯色背景、无多格拼贴、无文字标注。
+      </p>
     </div>
   );
 }

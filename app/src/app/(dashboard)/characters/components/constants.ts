@@ -197,12 +197,22 @@ export async function generateReference(
 /**
  * 把用户在候选画廊点选的一张参考图入库（批次 2 · 1.4B）。
  * 候选图生成阶段已上传并扣费，本步骤只持久化选中张，不扣费。
+ *
+ * `setCanonical: true`（批 5 · H1）用于角色卡的「设为定妆照」：对**已在库**的
+ * 图强制改锚（即使已有别的锚）。画廊点选路径不传，保持既有语义——只在没锚时补锚。
  */
-export async function selectReference(id: string, imageUrl: string) {
+export async function selectReference(
+  id: string,
+  imageUrl: string,
+  options: { setCanonical?: boolean } = {}
+) {
   const res = await fetch(`/api/characters/${id}/select-reference`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ imageUrl }),
+    body: JSON.stringify({
+      imageUrl,
+      ...(options.setCanonical ? { setCanonical: true } : {}),
+    }),
   });
   if (!res.ok) {
     const error = await res.json().catch(() => null);
@@ -216,10 +226,19 @@ export async function selectReference(id: string, imageUrl: string) {
  *
  * 异步化（绕开 Cloudflare 100s 超时）：POST 拿 taskId → 轮询任务状态。
  */
+export interface ThreeViewsResult {
+  views: { pose: string; url: string }[];
+  cost: number;
+  /** 当前定妆锚不是本次三视图之一，建议升级为正面图（批 5 · H2） */
+  suggestCanonicalUpgrade?: boolean;
+  /** 建议升级到的 URL（正面图）；suggestCanonicalUpgrade 为 true 时必有 */
+  suggestedCanonicalUrl?: string;
+}
+
 export async function generateThreeViews(
   id: string,
   options: { imageConfigId?: string; customPrompt?: string } = {}
-): Promise<{ views: { pose: string; url: string }[]; cost: number }> {
+): Promise<ThreeViewsResult> {
   const startRes = await fetch(`/api/characters/${id}/generate-three-views`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -245,7 +264,7 @@ export async function generateThreeViews(
     }
     const data = (await pollRes.json()) as {
       status: string;
-      result?: { views: { pose: string; url: string }[]; cost: number };
+      result?: ThreeViewsResult;
       error?: string;
     };
     if (data.status === "COMPLETED" && data.result) return data.result;

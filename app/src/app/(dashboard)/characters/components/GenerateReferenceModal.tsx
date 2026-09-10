@@ -450,6 +450,12 @@ export function GenerateReferenceModal({
             <p className="text-muted-foreground text-xs">
               提示：将与角色基础信息合并生成
             </p>
+            {/* 参考图质量提示（批 5 · H3）：定妆照会被原样喂给模型当长相基准，
+                多格拼贴/带道具特写的「设定集」会让模型搞不清该复现哪个视角。
+                只说清标准，不做校验——无法可靠自动判断一张图是不是拼贴。 */}
+            <p className="text-muted-foreground/80 text-[11px] leading-relaxed">
+              定妆照适合：单人、正面全身、纯色背景、无多格拼贴、无文字标注。
+            </p>
 
             {/* 智能引导：已有定妆照 + 填了提示词 + 却选纯 AI 生成时，
                 提示改用「当前图片作为参考」，让提示词基于原图改而非重画 */}

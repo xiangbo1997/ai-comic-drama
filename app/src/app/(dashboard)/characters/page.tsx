@@ -77,6 +77,12 @@ export default function CharactersPage() {
   >([]);
   const [selectingUrl, setSelectingUrl] = useState<string | null>(null);
 
+  // 改定妆锚进行中的图片 URL，按角色 ID 记录（批 5 · H1）。
+  // 与 generatingIds 同模式按角色隔离：A 角色改锚不该禁掉 B 角色的按钮。
+  const [settingCanonicalUrls, setSettingCanonicalUrls] = useState<
+    Record<string, string>
+  >({});
+
   // 按角色 ID 记录进行中的生成任务，多路并发互不阻塞
   //（此前全局 isPending 一人生成、整个角色库按钮全禁用）
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
@@ -332,6 +338,38 @@ export default function CharactersPage() {
     },
   });
 
+  // 把某张已在库的参考图设为定妆照（批 5 · H1）：不扣费，只改锚。
+  // 服务端经 lib/canonical-anchor 在同一事务里同步 Character.canonicalImageUrl
+  // 与 CharacterReferenceAsset.isCanonical 两处，避免手动/自动出图路径锚到不同图。
+  const setCanonicalMutation = useMutation({
+    mutationFn: ({ id, imageUrl }: { id: string; imageUrl: string }) =>
+      selectReference(id, imageUrl, { setCanonical: true }),
+    onMutate: ({ id, imageUrl }) => {
+      setSettingCanonicalUrls((prev) => ({ ...prev, [id]: imageUrl }));
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["characters"] });
+      toast.success("已设为定妆照，后续出图以这张为长相基准");
+    },
+    onError: (error) => {
+      toast.error(toFriendlyError(error, "设置定妆照失败").message);
+    },
+    onSettled: (_data, _error, { id }) => {
+      setSettingCanonicalUrls((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    },
+  });
+
+  const handleSetCanonical = useCallback(
+    (characterId: string, imageUrl: string) => {
+      setCanonicalMutation.mutate({ id: characterId, imageUrl });
+    },
+    [setCanonicalMutation]
+  );
+
   const generateMutation = useMutation({
     mutationFn: ({
       id,
@@ -399,9 +437,25 @@ export default function CharactersPage() {
     onMutate: ({ id }) => {
       setThreeViewsGeneratingIds((prev) => new Set(prev).add(id));
     },
-    onSuccess: () => {
+    onSuccess: async (data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
       toast.success("三视图生成成功");
+
+      // 锚点升级确认（批 5 · H2）：服务端判定「当前定妆锚不是本次三视图之一」时
+      // 建议换成正面图。刻意问一次而不是静默替换——用户可能有意挑了别的图当锚。
+      if (data.suggestCanonicalUpgrade && data.suggestedCanonicalUrl) {
+        const ok = await toast.confirm(
+          "当前定妆照不是这次生成的三视图。\n" +
+            "正面三视图是单人、单视角的干净参考图，作为定妆照比多格设定图更稳（模型不会搞错该复现哪个视角）。\n" +
+            "要把定妆照换成这次的正面图吗？"
+        );
+        if (ok) {
+          setCanonicalMutation.mutate({
+            id,
+            imageUrl: data.suggestedCanonicalUrl,
+          });
+        }
+      }
     },
     onError: (error) => {
       const fe = toFriendlyError(error, "生成三视图失败");
@@ -585,6 +639,8 @@ export default function CharactersPage() {
               onOpenGenerateModal={openGenerateModal}
               uploadingBaseImageId={uploadingBaseImageId}
               isGenerating={generatingIds.has(character.id)}
+              onSetCanonical={handleSetCanonical}
+              settingCanonicalUrl={settingCanonicalUrls[character.id] ?? null}
               updateMutationPending={updateMutation.isPending}
               generateDescriptionMutation={generateDescriptionMutation}
             />
