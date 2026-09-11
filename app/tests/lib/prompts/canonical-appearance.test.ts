@@ -223,3 +223,95 @@ describe("STYLE_LIGHTING_LOCK — 画风/打光锁定句", () => {
     expect(STYLE_LIGHTING_LOCK).not.toMatch(/anime|rembrandt|golden hour/i);
   });
 });
+
+/**
+ * 2026-09 新增的 6 个美术工业字段（hairParting/eyeHighlight/headToBodyRatio/
+ * defaultOutfit/asymmetry/outfitDetails）。
+ *
+ * CANONICAL_FIELD_ORDER 是「冻结」实体，改动它通常属破坏性变更（需重生成定妆照）。
+ * 本组测试钉死这次改动的安全性前提：**只新增字段、不动已有字段的顺序与措辞**，
+ * 新字段对存量角色恒为 null 从而被过滤掉 —— 存量产出串逐字不变。
+ */
+describe("新增美术工业字段 — 存量零回归", () => {
+  it("新字段全部缺省时，产出与新增前逐字相同", () => {
+    // 这是新增字段前 fullAppearance 的历史产出串（硬编码快照，防未来改动悄悄漂移）
+    expect(buildCanonicalAppearanceFields(fullAppearance)).toBe(
+      "navy blue short bob, oval face, amber eyes, slender, fair skin, 165cm, silver earrings, navy blue bomber jacket"
+    );
+  });
+
+  it("新字段显式为 null / undefined 与缺省等价", () => {
+    const withNulls: CharacterAppearanceInput = {
+      ...fullAppearance,
+      hairParting: null,
+      eyeHighlight: undefined,
+      headToBodyRatio: null,
+      defaultOutfit: undefined,
+      asymmetry: null,
+      outfitDetails: undefined,
+    };
+    expect(buildCanonicalAppearanceFields(withNulls)).toBe(
+      buildCanonicalAppearanceFields(fullAppearance)
+    );
+  });
+
+  it("新字段有值时按固定措辞与位置渲染", () => {
+    const text = buildCanonicalAppearanceFields({
+      ...fullAppearance,
+      hairParting: "left",
+      eyeHighlight: "top-right dot",
+      headToBodyRatio: "7.5",
+      defaultOutfit: "white cotton shirt under navy wool cardigan",
+      asymmetry: "silver earring on left ear only",
+      outfitDetails: "three white stripes on cuffs",
+    });
+    expect(text).toBe(
+      "navy blue short bob, hair parted left, oval face, amber eyes, " +
+        "top-right dot eye highlight, slender, 7.5 head-to-body ratio, fair skin, 165cm, " +
+        "white cotton shirt under navy wool cardigan, " +
+        "asymmetric detail: silver earring on left ear only, silver earrings, " +
+        "outfit details: three white stripes on cuffs, navy blue bomber jacket"
+    );
+  });
+
+  it("分缝紧跟发型、高光紧跟瞳色、头身比紧跟体型（相邻不被其它字段插开）", () => {
+    const text = buildCanonicalAppearanceFields({
+      hairColor: "black",
+      hairStyle: "long straight",
+      hairParting: "center",
+      eyeColor: "brown",
+      eyeHighlight: "double",
+      bodyType: "slender",
+      headToBodyRatio: "7",
+    });
+    expect(text).toBe(
+      "black long straight, hair parted center, brown eyes, double eye highlight, slender, 7 head-to-body ratio"
+    );
+  });
+
+  it("常服排在配饰之前（服装权重高于配饰）", () => {
+    const text = buildCanonicalAppearanceFields({
+      accessories: "round glasses",
+      defaultOutfit: "grey hoodie",
+    });
+    expect(text).toBe("grey hoodie, round glasses");
+  });
+
+  it("服装标志物排在 freeText 之前（结构化身份信息不被自由文本淹没）", () => {
+    const text = buildCanonicalAppearanceFields({
+      freeText: "气质冷淡",
+      outfitDetails: "silver badge on left chest",
+    });
+    expect(text).toBe("outfit details: silver badge on left chest, 气质冷淡");
+  });
+
+  it("新字段同样走空白折叠（与既有字段一致的规范化）", () => {
+    expect(
+      buildCanonicalAppearanceFields({ defaultOutfit: "  grey   hoodie  " })
+    ).toBe(buildCanonicalAppearanceFields({ defaultOutfit: "grey hoodie" }));
+    // 尾随逗号同样被去掉（与 hairColor 等既有字段行为一致）
+    expect(
+      buildCanonicalAppearanceFields({ defaultOutfit: "grey hoodie," })
+    ).toBe(buildCanonicalAppearanceFields({ defaultOutfit: "grey hoodie" }));
+  });
+});

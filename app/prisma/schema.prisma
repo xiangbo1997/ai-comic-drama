@@ -451,6 +451,15 @@ model CharacterAppearance {
   accessories     String?
   freeText        String? @db.Text
 
+  // 美术工业高频一致性线索：以下 6 项是人眼判断「是不是同一个角色」的实际依据，
+  // 缺失时模型会逐镜自由发挥（全景显矮壮、特写被拉长；刘海左右横跳；服装持续微变）。
+  defaultOutfit   String? @db.Text // 常服：层次（内搭/外套）+ 材质 + 主色，是每张原画的默认服装约束
+  outfitDetails   String? @db.Text // 服装标志物（肩章/纽扣/腰带等），特写镜头的身份锚
+  headToBodyRatio String? // 头身比，如 "7.5" / "7-7.5"；角色级属性，优先于画风包区间默认值
+  hairParting     String? // 分缝位置：左三七分 / 中分 / 右三七分 / 无缝
+  eyeHighlight    String? // 瞳孔高光：右上圆点 / 左上方块 / 双高光 / 无高光
+  asymmetry       String? // 不对称特征：左耳银色耳环 / 右眼下泪痣 / 左侧发辫
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

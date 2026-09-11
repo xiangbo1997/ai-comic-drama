@@ -42,6 +42,12 @@ export interface CanonicalAppearanceInput {
  * 这张表就是「冻结」的实体：键的先后决定 prompt 里短语的先后，`render` 决定措辞
  * （如 eyeColor 恒为 `${value} eyes`，绝不会有时写 `eyes: blue`）。
  * 改动此表会整体改变所有历史角色的 prompt 文本 —— 属破坏性变更，需同步重生成定妆照。
+ *
+ * 例外（本表唯一的安全改动方式）：**只新增字段、不改动已有字段的顺序与措辞**。
+ * 新增键对存量角色恒为 null，`normalizeFragment` 返回空串后被下方 `if (value)`
+ * 过滤，`render` 根本不会被调用 —— 产出串与新增前逐字相同。2026-09 新增的 6 个
+ * 美术工业字段（hairParting/eyeHighlight/headToBodyRatio/defaultOutfit/
+ * asymmetry/outfitDetails）即按此规则插入，**不需要重生成任何历史定妆照**。
  */
 const CANONICAL_FIELD_ORDER: ReadonlyArray<{
   key: keyof CharacterAppearanceInput;
@@ -50,12 +56,23 @@ const CANONICAL_FIELD_ORDER: ReadonlyArray<{
   // 发色 + 发型合并成一个短语（两者都有时），与历史拼法一致
   { key: "hairColor", render: (v) => v },
   { key: "hairStyle", render: (v) => v },
+  // 分缝紧跟发型：刘海左右横跳是最容易被观众察觉的漂移之一
+  { key: "hairParting", render: (v) => `hair parted ${v}` },
   { key: "faceShape", render: (v) => v },
   { key: "eyeColor", render: (v) => `${v} eyes` },
+  // 瞳孔高光紧跟瞳色：高光形状/位置是角色「眼神」的身份特征
+  { key: "eyeHighlight", render: (v) => `${v} eye highlight` },
   { key: "bodyType", render: (v) => v },
+  // 头身比紧跟体型：同一角色在全景与特写间被拉长/压扁的直接成因
+  { key: "headToBodyRatio", render: (v) => `${v} head-to-body ratio` },
   { key: "skinTone", render: (v) => `${v} skin` },
   { key: "height", render: (v) => v },
+  // 常服与不对称特征排在配饰之前：服装是每张原画的默认约束，权重高于配饰
+  { key: "defaultOutfit", render: (v) => v },
+  { key: "asymmetry", render: (v) => `asymmetric detail: ${v}` },
   { key: "accessories", render: (v) => v },
+  // 服装标志物排在自由文本之前：仍属结构化身份信息，不应被 freeText 淹没
+  { key: "outfitDetails", render: (v) => `outfit details: ${v}` },
   { key: "freeText", render: (v) => v },
 ];
 

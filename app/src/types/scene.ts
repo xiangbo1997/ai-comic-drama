@@ -107,6 +107,13 @@ export interface Scene {
       skinTone?: string | null;
       accessories?: string | null;
       freeText?: string | null;
+      // 美术工业一致性 6 项（与 api/projects/[id] 的 select 同步，漏声明不会被类型系统发现）
+      defaultOutfit?: string | null;
+      outfitDetails?: string | null;
+      headToBodyRatio?: string | null;
+      hairParting?: string | null;
+      eyeHighlight?: string | null;
+      asymmetry?: string | null;
     } | null;
   } | null;
 }
@@ -147,6 +154,14 @@ export interface SceneScript {
   actionBeat?: string;
   /** 地点标签：同一物理地点的分镜共用同一短标签（≤12 字），供场景锚定图分组 */
   locationKey?: string;
+  /**
+   * 叙事节拍类型：impact / reveal / emotional（解析层克制标注，常规镜省略）。
+   * 解析 prompt 一直在产出该字段（见 prompts/script-parse.ts），此前类型未声明
+   * 导致它在类型层被静默丢弃——全片节奏曲线要据它压缩高潮镜时长。
+   */
+  beatType?: string;
+  /** 高潮镜标记（每集 1-2 镜，全集情绪顶点）：驱动节奏曲线的高潮段压缩 */
+  isClimax?: boolean;
   /**
    * 尾帧衔接下一镜（可选）：与下一镜同地点且动作/时间连续时置 true，默认省略。
    * 落库映射到 Scene.videoLinkNext，供视频生成走 FL 首尾帧插值（计划 §5 · 2.1）。

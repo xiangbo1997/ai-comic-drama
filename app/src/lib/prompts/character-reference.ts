@@ -22,6 +22,18 @@ export interface CharacterAppearanceInput {
   skinTone?: string | null;
   accessories?: string | null;
   freeText?: string | null;
+  /** 常服（层次+材质+主色）：每张原画的默认服装约束 */
+  defaultOutfit?: string | null;
+  /** 服装标志物（肩章/纽扣/腰带等） */
+  outfitDetails?: string | null;
+  /** 头身比，如 "7.5" / "7-7.5"；角色级属性，优先于画风包区间默认值 */
+  headToBodyRatio?: string | null;
+  /** 分缝位置：左三七分 / 中分 / 右三七分 / 无缝 */
+  hairParting?: string | null;
+  /** 瞳孔高光：右上圆点 / 左上方块 / 双高光 / 无高光 */
+  eyeHighlight?: string | null;
+  /** 不对称特征：左耳银色耳环 / 右眼下泪痣 / 左侧发辫 */
+  asymmetry?: string | null;
 }
 
 /**
