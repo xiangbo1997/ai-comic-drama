@@ -32,9 +32,9 @@ const ClothingPresetSchema = z.object({
   description: z.string().trim(),
 });
 
-// LLM 输出校验：10 字段结构对齐 AppearanceFormData。
+// LLM 输出校验：16 字段结构对齐 AppearanceFormData。
 // 除 clothingPresets 外均为字符串（允许空串，因为「只填空字段」在前端做，
-// 服务端产出完整 10 字段即可）；LLM 若把某项漏成 null，用 catch 回落空串防整单挂。
+// 服务端产出完整 16 字段即可）；LLM 若把某项漏成 null，用 catch 回落空串防整单挂。
 const DraftSchema = z.object({
   hairStyle: z.string().catch("").default(""),
   hairColor: z.string().catch("").default(""),
@@ -46,6 +46,13 @@ const DraftSchema = z.object({
   accessories: z.string().catch("").default(""),
   freeText: z.string().catch("").default(""),
   clothingPresets: z.array(ClothingPresetSchema).catch([]).default([]),
+  // 美术工业一致性 6 项（角色跨镜头「是不是同一个人」的高频线索）
+  defaultOutfit: z.string().catch("").default(""),
+  outfitDetails: z.string().catch("").default(""),
+  headToBodyRatio: z.string().catch("").default(""),
+  hairParting: z.string().catch("").default(""),
+  eyeHighlight: z.string().catch("").default(""),
+  asymmetry: z.string().catch("").default(""),
 });
 
 export async function POST(request: NextRequest) {

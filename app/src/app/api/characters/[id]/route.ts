@@ -134,33 +134,31 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         const clothingPresets = Array.isArray(appearance.clothingPresets)
           ? appearance.clothingPresets
           : [];
+        // create 与 update 共用同一份字段映射：此前两处手抄同一列表，
+        // 新增外貌字段时漏改其一就会「新建能存、编辑存不上」（或反之）。
+        const appearanceFields = {
+          hairStyle: appearance.hairStyle || null,
+          hairColor: appearance.hairColor || null,
+          faceShape: appearance.faceShape || null,
+          eyeColor: appearance.eyeColor || null,
+          bodyType: appearance.bodyType || null,
+          height: appearance.height || null,
+          skinTone: appearance.skinTone || null,
+          accessories: appearance.accessories || null,
+          freeText: appearance.freeText || null,
+          // 美术工业一致性 6 项
+          defaultOutfit: appearance.defaultOutfit || null,
+          outfitDetails: appearance.outfitDetails || null,
+          headToBodyRatio: appearance.headToBodyRatio || null,
+          hairParting: appearance.hairParting || null,
+          eyeHighlight: appearance.eyeHighlight || null,
+          asymmetry: appearance.asymmetry || null,
+          clothingPresets,
+        };
         await prisma.characterAppearance.upsert({
           where: { characterId: id },
-          create: {
-            characterId: id,
-            hairStyle: appearance.hairStyle || null,
-            hairColor: appearance.hairColor || null,
-            faceShape: appearance.faceShape || null,
-            eyeColor: appearance.eyeColor || null,
-            bodyType: appearance.bodyType || null,
-            height: appearance.height || null,
-            skinTone: appearance.skinTone || null,
-            accessories: appearance.accessories || null,
-            freeText: appearance.freeText || null,
-            clothingPresets,
-          },
-          update: {
-            hairStyle: appearance.hairStyle || null,
-            hairColor: appearance.hairColor || null,
-            faceShape: appearance.faceShape || null,
-            eyeColor: appearance.eyeColor || null,
-            bodyType: appearance.bodyType || null,
-            height: appearance.height || null,
-            skinTone: appearance.skinTone || null,
-            accessories: appearance.accessories || null,
-            freeText: appearance.freeText || null,
-            clothingPresets,
-          },
+          create: { characterId: id, ...appearanceFields },
+          update: appearanceFields,
         });
       }
     }

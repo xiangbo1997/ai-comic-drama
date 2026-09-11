@@ -142,6 +142,13 @@ export async function POST(request: NextRequest) {
               skinTone: appearance.skinTone || null,
               accessories: appearance.accessories || null,
               freeText: appearance.freeText || null,
+              // 美术工业一致性 6 项：漏写会让表单填的值静默丢失（与 clothingPresets 同类根因）
+              defaultOutfit: appearance.defaultOutfit || null,
+              outfitDetails: appearance.outfitDetails || null,
+              headToBodyRatio: appearance.headToBodyRatio || null,
+              hairParting: appearance.hairParting || null,
+              eyeHighlight: appearance.eyeHighlight || null,
+              asymmetry: appearance.asymmetry || null,
               // 换装预设：前端 appearance-editor 收集、下游出图/换装消费，
               // 此前漏写导致用户手填/AI 起草的服装预设静默丢失（A1 根因）。
               // 空数组存 []（非 JsonNull），与消费侧 toAppearanceFormData / character-look

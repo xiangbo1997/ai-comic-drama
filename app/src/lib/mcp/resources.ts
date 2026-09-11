@@ -218,6 +218,13 @@ export function registerResources(server: McpServer, userId: string): void {
                   clothingPresets: true,
                   accessories: true,
                   freeText: true,
+                  // 美术工业一致性 6 项（外部 MCP 消费方同样需要完整角色设定）
+                  defaultOutfit: true,
+                  outfitDetails: true,
+                  headToBodyRatio: true,
+                  hairParting: true,
+                  eyeHighlight: true,
+                  asymmetry: true,
                 },
               },
             },

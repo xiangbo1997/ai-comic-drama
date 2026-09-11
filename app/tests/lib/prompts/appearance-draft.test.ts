@@ -8,7 +8,7 @@ import {
 } from "@/lib/prompts/appearance-draft";
 import { parseLooseJSON } from "@/lib/json-repair";
 
-// 与路由 DraftSchema 一致：10 字段，缺失/null 回落
+// 与路由 DraftSchema 一致：16 字段，缺失/null 回落
 const ClothingPresetSchema = z.object({
   name: z.string().trim().min(1),
   description: z.string().trim(),
@@ -24,6 +24,13 @@ const DraftSchema = z.object({
   accessories: z.string().catch("").default(""),
   freeText: z.string().catch("").default(""),
   clothingPresets: z.array(ClothingPresetSchema).catch([]).default([]),
+  // 美术工业一致性 6 项
+  defaultOutfit: z.string().catch("").default(""),
+  outfitDetails: z.string().catch("").default(""),
+  headToBodyRatio: z.string().catch("").default(""),
+  hairParting: z.string().catch("").default(""),
+  eyeHighlight: z.string().catch("").default(""),
+  asymmetry: z.string().catch("").default(""),
 });
 
 function makeInput(
@@ -89,8 +96,9 @@ describe("buildAppearanceDraftPrompt", () => {
     expect(prompt).toContain("仅凭名字");
   });
 
-  it("预设常量与 appearance-editor 六个下拉字段数量对齐", () => {
-    // 防止预设漂移：编辑器有 6 个 chip 字段
+  it("预设常量与 appearance-editor 八个下拉字段数量对齐", () => {
+    // 防止预设漂移：编辑器有 8 个 chip 字段
+    // （后两项 hairParting/eyeHighlight 在「高级一致性选项」折叠区内）
     expect(Object.keys(APPEARANCE_PRESETS)).toEqual([
       "hairStyle",
       "hairColor",
@@ -98,6 +106,8 @@ describe("buildAppearanceDraftPrompt", () => {
       "eyeColor",
       "bodyType",
       "skinTone",
+      "hairParting",
+      "eyeHighlight",
     ]);
   });
 });
@@ -153,6 +163,43 @@ describe("appearance DraftSchema 解析（含畸形 JSON 容错）", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.hairStyle).toBe("长直发");
+    }
+  });
+});
+
+/**
+ * 美术工业一致性 6 项必须出现在起草 prompt 的输出契约里——
+ * 漏掉任一项，AI 起草永远填不上该字段，表单里那一栏就永远靠用户手打。
+ */
+describe("buildAppearanceDraftPrompt — 美术工业一致性 6 项", () => {
+  it("输出 JSON 模板含全部 6 个新键", () => {
+    const prompt = buildAppearanceDraftPrompt(makeInput());
+    for (const key of [
+      "defaultOutfit",
+      "outfitDetails",
+      "headToBodyRatio",
+      "hairParting",
+      "eyeHighlight",
+      "asymmetry",
+    ]) {
+      expect(prompt, `${key} 未出现在起草 prompt`).toContain(`"${key}"`);
+    }
+  });
+
+  it("常服字段明确要求「层次 + 材质 + 主色」", () => {
+    const prompt = buildAppearanceDraftPrompt(makeInput());
+    expect(prompt).toContain("层次");
+    expect(prompt).toContain("材质");
+    expect(prompt).toContain("主色");
+  });
+
+  it("分缝/高光选项与 APPEARANCE_PRESETS 同源（改预设即改 prompt）", () => {
+    const prompt = buildAppearanceDraftPrompt(makeInput());
+    for (const opt of APPEARANCE_PRESETS.hairParting) {
+      expect(prompt).toContain(opt);
+    }
+    for (const opt of APPEARANCE_PRESETS.eyeHighlight) {
+      expect(prompt).toContain(opt);
     }
   });
 });

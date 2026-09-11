@@ -5,6 +5,7 @@ import { Plus, X, Sparkles, Loader2 } from "lucide-react";
 import type { CharacterAppearance, ClothingPreset } from "@/types";
 import { draftAppearance } from "@/lib/assist-client";
 import { useToast } from "@/components/ui/toast";
+import { APPEARANCE_PRESETS } from "@/lib/prompts/appearance-draft";
 
 /** 外貌编辑器用的表单数据（不含 id/characterId） */
 export interface AppearanceFormData {
@@ -18,6 +19,13 @@ export interface AppearanceFormData {
   accessories: string;
   freeText: string;
   clothingPresets: ClothingPreset[];
+  // 美术工业一致性 6 项：人眼判断「是不是同一个角色」的实际依据
+  defaultOutfit: string;
+  outfitDetails: string;
+  headToBodyRatio: string;
+  hairParting: string;
+  eyeHighlight: string;
+  asymmetry: string;
 }
 
 const EMPTY_APPEARANCE: AppearanceFormData = {
@@ -31,6 +39,12 @@ const EMPTY_APPEARANCE: AppearanceFormData = {
   accessories: "",
   freeText: "",
   clothingPresets: [],
+  defaultOutfit: "",
+  outfitDetails: "",
+  headToBodyRatio: "",
+  hairParting: "",
+  eyeHighlight: "",
+  asymmetry: "",
 };
 
 export function toAppearanceFormData(
@@ -49,6 +63,12 @@ export function toAppearanceFormData(
     freeText: appearance.freeText || "",
     clothingPresets:
       (appearance.clothingPresets as ClothingPreset[] | null) || [],
+    defaultOutfit: appearance.defaultOutfit || "",
+    outfitDetails: appearance.outfitDetails || "",
+    headToBodyRatio: appearance.headToBodyRatio || "",
+    hairParting: appearance.hairParting || "",
+    eyeHighlight: appearance.eyeHighlight || "",
+    asymmetry: appearance.asymmetry || "",
   };
 }
 
@@ -92,21 +112,31 @@ export function mergeAppearanceDraft(
           return drafted;
         })();
 
+  // 文本字段从 EMPTY_APPEARANCE 的键集派生，而非手写枚举——新增外貌字段时
+  // 漏改这里会让 AI 起草的值被静默丢弃（表单看起来没填、用户无从察觉）。
+  const mergedText = Object.fromEntries(
+    (Object.keys(EMPTY_APPEARANCE) as (keyof AppearanceFormData)[])
+      .filter((key) => key !== "clothingPresets")
+      .map((key) => [key, pick(key)])
+  ) as Omit<AppearanceFormData, "clothingPresets">;
+
   return {
-    merged: {
-      hairStyle: pick("hairStyle"),
-      hairColor: pick("hairColor"),
-      faceShape: pick("faceShape"),
-      eyeColor: pick("eyeColor"),
-      bodyType: pick("bodyType"),
-      height: pick("height"),
-      skinTone: pick("skinTone"),
-      accessories: pick("accessories"),
-      freeText: pick("freeText"),
-      clothingPresets,
-    },
+    merged: { ...mergedText, clothingPresets },
     filledCount,
   };
+}
+
+/** 折叠区内的字段集（单一真源：展开判定与 AI 起草后的自动展开共用） */
+const ADVANCED_FIELDS = [
+  "headToBodyRatio",
+  "hairParting",
+  "eyeHighlight",
+  "asymmetry",
+] as const satisfies readonly (keyof AppearanceFormData)[];
+
+/** 折叠区是否已有值——有值就必须展开，否则填过的内容被藏起来等同于没填 */
+export function hasAdvancedValue(data: AppearanceFormData): boolean {
+  return ADVANCED_FIELDS.some((field) => data[field].trim() !== "");
 }
 
 const HAIR_STYLES = [
@@ -136,6 +166,9 @@ const FACE_SHAPES = ["瓜子脸", "圆脸", "鹅蛋脸", "方脸", "心形脸", 
 const EYE_COLORS = ["黑色", "棕色", "蓝色", "绿色", "灰色", "琥珀色", "紫色"];
 const BODY_TYPES = ["纤细", "标准", "健壮", "丰满", "高挑纤细", "娇小"];
 const SKIN_TONES = ["白皙", "自然肤色", "小麦色", "古铜色", "深色"];
+// 分缝/高光选项与 AI 起草 prompt 同源（APPEARANCE_PRESETS），改一处即可
+const HAIR_PARTINGS = [...APPEARANCE_PRESETS.hairParting];
+const EYE_HIGHLIGHTS = [...APPEARANCE_PRESETS.eyeHighlight];
 
 interface AppearanceEditorProps {
   value: AppearanceFormData;
@@ -164,6 +197,10 @@ export function AppearanceEditor({
   const [newClothingName, setNewClothingName] = useState("");
   const [newClothingDesc, setNewClothingDesc] = useState("");
   const [drafting, setDrafting] = useState(false);
+  // 已填过任一高级项时默认展开——否则用户/AI 填过的值被折叠藏起来，等同于没填
+  const [showAdvanced, setShowAdvanced] = useState(() =>
+    hasAdvancedValue(value)
+  );
 
   const canDraft = !!characterContext?.name.trim();
 
@@ -184,6 +221,8 @@ export function AppearanceEditor({
         return;
       }
       onChange(merged);
+      // AI 可能填进折叠区的字段，此时必须展开——否则用户看不到这些值也改不了
+      if (hasAdvancedValue(merged)) setShowAdvanced(true);
       toast.success(`AI 已填入 ${filledCount} 个空字段，可继续修改`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "外貌预填失败");
@@ -296,6 +335,75 @@ export function AppearanceEditor({
           className="border-border bg-card focus:border-primary w-full rounded border px-2 py-1 text-sm focus:outline-none"
         />
       </div>
+      {/* 常服 + 服装标志物：服装是每张原画的默认约束，填写价值最高，故放主区 */}
+      <div className={compact ? "mb-2" : "mb-3"}>
+        <label className="text-muted-foreground mb-1 block text-xs">
+          常服（每张原画的默认服装）
+        </label>
+        <textarea
+          value={value.defaultOutfit}
+          onChange={(e) => update("defaultOutfit", e.target.value)}
+          placeholder="含层次+材质+主色，如：白色棉质衬衫内搭，藏青色羊毛开衫外套"
+          rows={2}
+          className="border-border bg-card focus:border-primary w-full resize-none rounded border px-2 py-1 text-sm focus:outline-none"
+        />
+      </div>
+      <div className={compact ? "mb-2" : "mb-3"}>
+        <label className="text-muted-foreground mb-1 block text-xs">
+          服装标志物
+        </label>
+        <input
+          type="text"
+          value={value.outfitDetails}
+          onChange={(e) => update("outfitDetails", e.target.value)}
+          placeholder="如：左胸口银色校徽、袖口三道白线、棕色皮质窄腰带"
+          className="border-border bg-card focus:border-primary w-full rounded border px-2 py-1 text-sm focus:outline-none"
+        />
+      </div>
+
+      {/* 高级选项：头身比/分缝/高光/不对称特征。
+          这四项是美术判断「是不是同一个角色」的高频线索，但对新手概念门槛较高，
+          折叠起来避免主表单过长；已填过任一项时默认展开，防止填过的值被藏起来。 */}
+      <div className={compact ? "mb-2" : "mb-3"}>
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs"
+        >
+          {showAdvanced ? "▾" : "▸"} 高级一致性选项（头身比/分缝/高光/不对称）
+        </button>
+        {showAdvanced && (
+          <div className="border-border mt-2 space-y-2 rounded border p-2">
+            <div className={compact ? "mb-2" : "mb-3"}>
+              <label className="text-muted-foreground mb-1 block text-xs">
+                头身比
+              </label>
+              <input
+                type="text"
+                value={value.headToBodyRatio}
+                onChange={(e) => update("headToBodyRatio", e.target.value)}
+                placeholder="如：7.5 或 7-7.5（留空则按画风默认区间）"
+                className="border-border bg-card focus:border-primary w-full rounded border px-2 py-1 text-sm focus:outline-none"
+              />
+            </div>
+            {renderChips("hairParting", HAIR_PARTINGS, "分缝位置")}
+            {renderChips("eyeHighlight", EYE_HIGHLIGHTS, "瞳孔高光")}
+            <div className={compact ? "mb-2" : "mb-3"}>
+              <label className="text-muted-foreground mb-1 block text-xs">
+                不对称特征
+              </label>
+              <input
+                type="text"
+                value={value.asymmetry}
+                onChange={(e) => update("asymmetry", e.target.value)}
+                placeholder="只在单侧出现的记号，如：左耳银色耳环、右眼下泪痣"
+                className="border-border bg-card focus:border-primary w-full rounded border px-2 py-1 text-sm focus:outline-none"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className={compact ? "mb-2" : "mb-3"}>
         <label className="text-muted-foreground mb-1 block text-xs">
           补充描述

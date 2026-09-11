@@ -38,6 +38,10 @@ export const APPEARANCE_PRESETS = {
   eyeColor: ["黑色", "棕色", "蓝色", "绿色", "灰色", "琥珀色", "紫色"],
   bodyType: ["纤细", "标准", "健壮", "丰满", "高挑纤细", "娇小"],
   skinTone: ["白皙", "自然肤色", "小麦色", "古铜色", "深色"],
+  /** 分缝位置（美术工业一致性线索：刘海左右横跳是最易被察觉的漂移） */
+  hairParting: ["左三七分", "中分", "右三七分", "无缝"],
+  /** 瞳孔高光（角色「眼神」的身份特征） */
+  eyeHighlight: ["右上圆点", "左上方块", "双高光", "无高光"],
 } as const;
 
 export interface AppearanceDraftInput {
@@ -66,9 +70,10 @@ function presetLine(label: string, options: readonly string[]): string {
 /**
  * 构建外貌预填的用户 prompt。
  *
- * 输出字段（10 项，与 AppearanceFormData 对齐）：
+ * 输出字段（16 项，与 AppearanceFormData 对齐）：
  * hairStyle/hairColor/faceShape/eyeColor/bodyType/height/skinTone/accessories/
- * freeText/clothingPresets（1 套 {name, description}）。
+ * freeText/clothingPresets（1 套 {name, description}）+ 美术工业一致性 6 项
+ * defaultOutfit/outfitDetails/headToBodyRatio/hairParting/eyeHighlight/asymmetry。
  *
  * 语言与预设策略：发型/发色/脸型/瞳色/体型/肤色 6 个字段尽量从预设选项集合中选，
  * 落不进预设的补充信息一律写进 freeText；height/accessories/clothing 为自由文本。
@@ -99,8 +104,16 @@ ${presetLine("skinTone 肤色", APPEARANCE_PRESETS.skinTone)}
 - freeText 补充描述：以上预设装不下的外貌特征放这里（如特殊纹身、发饰、气质），没有就填空字符串
 - clothingPresets 服装预设：给出 1 套代表性服装，格式 [{"name":"日常装","description":"具体的服装描述"}]
 
+以下 6 项是美术判断「是不是同一个角色」的高频线索，必须逐项给出具体值（不要留空、不要写"无"）：
+- defaultOutfit 常服：角色最常穿的那一套，**必须含层次（内搭/外套）+ 材质 + 主色**，如「白色棉质衬衫内搭，藏青色羊毛开衫外套，同色系直筒长裤」
+- outfitDetails 服装标志物：常服上可被特写认出的细节，如「左胸口银色校徽、袖口三道白线、棕色皮质窄腰带」
+- headToBodyRatio 头身比：单个数字或区间，如「7.5」或「7-7.5」；按角色年龄体型定（儿童 5-6、成年女性 6.5-7.5、成年男性 7-8、魁梧巨汉 8）
+- hairParting 分缝位置：从「${APPEARANCE_PRESETS.hairParting.join(" / ")}」中选一个
+- eyeHighlight 瞳孔高光：从「${APPEARANCE_PRESETS.eyeHighlight.join(" / ")}」中选一个
+- asymmetry 不对称特征：只在单侧出现的记号，如「左耳银色耳环」「右眼下泪痣」「左侧一缕发辫」
+
 上述带「优先从这些选项里选」的字段，**必须**尽量选预设中的一项；确实不匹配时可另写，但会失去与界面一致的体验，请谨慎。
 
 严格只输出如下 JSON：
-{"hairStyle":"","hairColor":"","faceShape":"","eyeColor":"","bodyType":"","height":"","skinTone":"","accessories":"","freeText":"","clothingPresets":[{"name":"","description":""}]}`;
+{"hairStyle":"","hairColor":"","faceShape":"","eyeColor":"","bodyType":"","height":"","skinTone":"","accessories":"","freeText":"","clothingPresets":[{"name":"","description":""}],"defaultOutfit":"","outfitDetails":"","headToBodyRatio":"","hairParting":"","eyeHighlight":"","asymmetry":""}`;
 }
