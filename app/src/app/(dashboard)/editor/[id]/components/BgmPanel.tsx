@@ -17,6 +17,14 @@ interface BgmPanelProps {
   onChange: (m: BackgroundMusic) => void;
   /** 当前项目 ID（用户上传归档用） */
   projectId: string;
+  /**
+   * 分段自动配乐开关当前值（缺省即开）。
+   * 该字段存在 generationParams.autoBgmSegments，不属于 BackgroundMusic，
+   * 故与 value/onChange 分开传。
+   */
+  autoSegments?: boolean;
+  /** 分段开关变更回调 */
+  onAutoSegmentsChange?: (enabled: boolean) => void;
 }
 
 /**
@@ -24,7 +32,13 @@ interface BgmPanelProps {
  * 包含：启用开关、内置分类曲库 + 试听、用户上传、音量/淡入/淡出滑块、
  * 循环铺满、对白自动压低（ducking）开关。
  */
-export function BgmPanel({ value, onChange, projectId }: BgmPanelProps) {
+export function BgmPanel({
+  value,
+  onChange,
+  projectId,
+  autoSegments,
+  onAutoSegmentsChange,
+}: BgmPanelProps) {
   const [activeCategory, setActiveCategory] = useState(BGM_CATEGORIES[0].id);
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -36,6 +50,14 @@ export function BgmPanel({ value, onChange, projectId }: BgmPanelProps) {
   // 以及导出端 buildBgmFilter 的 `!== false` 判据同源。老配置缺此字段时开关
   // 必须显示为「开」，否则 UI 说关、导出实际在闪避，两边对不上。
   const duckingOn = value.ducking !== false;
+
+  // 分段自动配乐缺省即开（`!== false`），与导出端 options.autoBgmSegments
+  // 及 generation-params-normalize 的判据同源——老配置缺此字段时开关必须
+  // 显示为「开」，否则 UI 说关、导出实际在分段，两边对不上。
+  const autoSegmentsOn = autoSegments !== false;
+  // 用户手动选定内置曲目后，导出端尊重其选曲不再分段——UI 必须如实反映，
+  // 否则开关显示「开」而成片仍是一首，用户会认为功能坏了。
+  const segmentsOverriddenByTrack = Boolean(value.trackId);
 
   // 卸载时停止试听，避免音频残留播放
   useEffect(() => {
@@ -277,6 +299,39 @@ export function BgmPanel({ value, onChange, projectId }: BgmPanelProps) {
               />
             </div>
           </div>
+
+          {/* 分段自动配乐（按剧情情绪切换曲目） */}
+          {onAutoSegmentsChange && (
+            <div>
+              <label className="flex cursor-pointer items-center justify-between">
+                <span className="text-sm">分段自动配乐</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoSegmentsOn}
+                  onClick={() => onAutoSegmentsChange(!autoSegmentsOn)}
+                  className={`relative h-5 w-9 rounded-full transition-colors ${
+                    autoSegmentsOn
+                      ? "bg-primary"
+                      : "bg-secondary border-border border"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                      autoSegmentsOn ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+              </label>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {segmentsOverriddenByTrack
+                  ? "已手动选定曲目，全片将统一使用该曲；清除选曲后分段才生效。"
+                  : autoSegmentsOn
+                    ? "按剧情情绪把全片切成数段，各段自动配不同曲目，段间交叉淡化衔接。"
+                    : "全片统一使用一首曲目。"}
+              </p>
+            </div>
+          )}
 
           {/* 循环铺满 */}
           <label className="flex cursor-pointer items-center justify-between">

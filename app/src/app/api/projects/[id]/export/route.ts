@@ -129,6 +129,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       genParams.backgroundMusic && typeof genParams.backgroundMusic === "object"
         ? genParams.backgroundMusic
         : undefined;
+    // BGM 情绪分段：缺省即开（`!== false`），存量项目也享受分段配乐。
+    // 仅显式存 false 才回到「全片一首」。
+    const resolvedAutoBgmSegments = genParams.autoBgmSegments !== false;
     // 音效（SFX，批1）：从 generationParams 读取，缺省时合成端零音效（存量零回归）。
     const resolvedSfx = Array.isArray(genParams.sfx)
       ? genParams.sfx
@@ -253,6 +256,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       narration: scene.narration,
       // 导演运镜：供图片分镜默认 Ken Burns 运镜按 resolveDefaultMotion 派生（尊重导演意图）
       cameraMovement: scene.cameraMovement,
+      // 情绪/高潮：驱动 BGM 按情绪分段切换（planBgmSegments）
+      emotion: scene.emotion,
+      isClimax: scene.isClimax,
+      // 地点：驱动环境底噪按场景合并成持续铺底时间窗（换镜不断）
+      locationKey: scene.locationKey,
       // lines 用 CardLine 单一真源（原先手写字面量联合，CardLineRole 新增
       // "credential" 后漏改导致类型不匹配）
       card: null as {
@@ -283,6 +291,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           dialogue: null,
           narration: null,
           cameraMovement: null,
+          // 卡片分镜无剧情属性：不参与 BGM 情绪分段，也不参与环境音地点合并
+          emotion: null,
+          isClimax: false,
+          locationKey: null,
           card: { kind: intro.kind, lines: intro.lines },
         });
         introInjected = true;
@@ -302,6 +314,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           dialogue: null,
           narration: null,
           cameraMovement: null,
+          // 卡片分镜无剧情属性：不参与 BGM 情绪分段，也不参与环境音地点合并
+          emotion: null,
+          isClimax: false,
+          locationKey: null,
           card: { kind: outro.kind, lines: outro.lines },
         });
         outroInjected = true;
@@ -374,6 +390,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       transitions: resolvedTransitionsWithCards,
       sceneEffects: resolvedSceneEffects,
       backgroundMusic: resolvedBackgroundMusic,
+      autoBgmSegments: resolvedAutoBgmSegments,
       sfx: resolvedSfx,
       emphasisSceneIds: resolvedEmphasis,
       colorGrade: resolvedColorGrade,

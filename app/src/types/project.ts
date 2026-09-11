@@ -49,6 +49,11 @@ export interface GenerationParams {
   sceneEffects?: SceneEffect[];
   /** 全片背景音乐（BGM）配置 */
   backgroundMusic?: BackgroundMusic;
+  /**
+   * BGM 按剧情情绪分段自动切换，缺省即开（导出端判据 `!== false`）。
+   * 关闭时回到「全片一首」。用户手动选定 trackId 时导出端自动不分段。
+   */
+  autoBgmSegments?: boolean;
   /** 音效列表（按 sceneId + 镜内偏移触发；导出/预览的第三音频层） */
   sfx?: SceneSfx[];
   /** 金句花字分镜 id 列表（批6）：命中且有对白的分镜其字幕用大字号强调色 pop 花字 */

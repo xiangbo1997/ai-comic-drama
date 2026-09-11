@@ -168,7 +168,17 @@ function aggregateSceneSfx(
         typeof item?.offsetSec === "number" && Number.isFinite(item.offsetSec)
           ? Math.max(0, item.offsetSec)
           : 0;
-      result.push({ sceneId, sfxId: entry.id, offsetSec: offset });
+      // 环境底噪：解析层显式标 mode="ambient"，或 tag 命中 ambient 分类时
+      // 一律按场景级持续铺底处理。后者是兜底——环境音被当点触发会「雨声响
+      // 一秒就没了，比不加更假」，故不依赖模型每次都记得写 mode。
+      const isAmbient =
+        item?.mode === "ambient" || entry.category === "ambient";
+      result.push({
+        sceneId,
+        sfxId: entry.id,
+        offsetSec: offset,
+        ...(isAmbient ? { mode: "ambient" as const } : {}),
+      });
       taken += 1;
     }
   }

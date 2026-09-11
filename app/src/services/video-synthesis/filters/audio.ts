@@ -9,6 +9,8 @@
 import type { BackgroundMusic, SceneSfx } from "@/types/export-style";
 // 音效库（解析标签 → 实际音频文件 + 默认音量），与前端/解析层共用单一真源。
 import { getSfxById } from "@/lib/sfx-library";
+// BGM 分段的交叉淡化时长（与 planBgmSegments 同源常量，避免两边写死不同值）
+import { BGM_CROSSFADE_SEC } from "@/lib/bgm-segments";
 
 /**
  * 把任意变速倍率拆成 FFmpeg atempo 允许的 0.5–2.0 链。
@@ -30,49 +32,83 @@ export function buildAtempoChain(speed: number): string[] {
 }
 
 /**
+ * 一段已就绪的 BGM 分段：ffmpeg 输入索引 + 该段在全片时间轴上的时间窗。
+ *
+ * 由调用方（video-synthesis）把 planBgmSegments 的规划结果逐段下载曲目后构造：
+ * 每段一首曲 = 一个独立 `-i` 输入，故各段各有 inputIndex。
+ */
+export interface BgmSegmentInput {
+  /** 该段曲目在 ffmpeg -i 列表中的输入索引 */
+  inputIndex: number;
+  /** 段起始（全片绝对秒） */
+  startSec: number;
+  /** 段结束（全片绝对秒） */
+  endSec: number;
+}
+
+/**
  * 构建 BGM（背景音乐）混音滤镜片段。
  *
- * 两个合成分支（有水印 / 无水印）共用，避免重复。处理链：
- *   [bgm]volume → (loop ? aloop+atrim) → afade in → afade out → [bgmout]
- * 然后与对白配音轨混合：
- *   - 有配音：所有 [aK] 与 [bgmout] 一起 amix（normalize=0 防对白变小声，
- *     BGM 给低权重让对白突出）；ducking=true 时改走 sidechaincompress 闪避。
- *   - 无配音：[bgmout] 直接作为唯一音轨输出。
+ * 两个合成分支（有水印 / 无水印）共用，避免重复。
  *
- * @param bgm BGM 配置（已确保 enabled && url）
- * @param bgmInputIndex BGM 在 ffmpeg -i 列表中的输入索引
+ * ## 单曲路径（segments 缺省 / 长度 ≤1，存量项目零回归）
+ *   [bgm]volume → (loop ? aloop+atrim) → afade in → afade out → [bgmout]
+ *
+ * ## 分段路径（segments 长度 ≥2）
+ * 每段各自 volume/aloop/atrim/afade，再用 acrossfade 链式串成单条 [bgmout]。
+ * 段内不再各自淡入淡出（交给 acrossfade 处理衔接），仅全片首端 fadeIn、
+ * 末端 fadeOut 保留——中间段若各自淡出再淡入，会听到明显的「音乐断一下」。
+ *
+ * ⚠️ **acrossfade 的时长会吞掉重叠部分**（overlap 默认 true）：
+ * 实测 10s+10s+10s 经两次 `d=2` 串联后总长 26s 而非 30s。故非末段的 atrim
+ * 必须补偿 +d，末段不补——实测 trim 14/10/10 经两次 d=2 串联恰得 30s。
+ * 该补偿是本函数正确对齐成片总时长的关键，改动时勿删。
+ *
+ * 串好的 [bgmout] 之后的 ducking / 权重逻辑两条路径完全共用（它们只消费
+ * [bgmout] 这一个标签，不关心它是一首还是多首拼的）。
+ *
+ * @param bgm BGM 配置（已确保 enabled && url）；分段路径下 volume/fadeIn/fadeOut 仍生效
+ * @param bgmInputIndex 单曲路径下 BGM 在 ffmpeg -i 列表中的输入索引（分段路径忽略）
  * @param totalDuration 成片总时长（秒），用于 atrim 截断和 afade out 起点
  * @param voiceLabels 对白配音轨标签数组（如 ["[a0]","[a1]"]），可空
+ * @param segments 分段列表（≥2 段时走分段路径）；缺省即单曲，保证向后兼容
  * @returns { filters: 滤镜片段[], outLabel: 最终音频输出标签 }
  */
 export function buildBgmFilter(
   bgm: BackgroundMusic,
   bgmInputIndex: number,
   totalDuration: number,
-  voiceLabels: string[]
+  voiceLabels: string[],
+  segments?: BgmSegmentInput[]
 ): { filters: string[]; outLabel: string } {
   const filters: string[] = [];
   const vol = Math.min(1, Math.max(0, bgm.volume ?? 0.25));
   const fadeOutStart = Math.max(0, totalDuration - (bgm.fadeOut ?? 2));
 
-  // ── BGM 处理链：volume → (aloop) → atrim → afade ──
-  const chain: string[] = [`volume=${vol.toFixed(3)}`];
-  if (bgm.loop !== false) {
-    // 无限循环；size 给足采样数上限（约 12h@44.1k），随后必须 atrim 截断
-    chain.push(`aloop=loop=-1:size=2000000000`);
-  }
-  // 截到成片时长并重置时间戳（loop 后必须；非 loop 时 BGM 超长也截断）
-  chain.push(`atrim=0:${totalDuration.toFixed(3)}`, `asetpts=N/SR/TB`);
-  if ((bgm.fadeIn ?? 0) > 0) {
-    chain.push(`afade=t=in:st=0:d=${(bgm.fadeIn ?? 1.5).toFixed(3)}`);
-  }
-  if ((bgm.fadeOut ?? 0) > 0) {
-    // afade 的 st 不支持表达式，必须是常量秒数（已在 TS 算好）
-    chain.push(
-      `afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${(bgm.fadeOut ?? 2).toFixed(3)}`
+  if (segments && segments.length >= 2) {
+    filters.push(
+      ...buildSegmentedBgmChain(bgm, segments, totalDuration, vol, fadeOutStart)
     );
+  } else {
+    // ── 单曲路径：volume → (aloop) → atrim → afade（原行为，逐字保留）──
+    const chain: string[] = [`volume=${vol.toFixed(3)}`];
+    if (bgm.loop !== false) {
+      // 无限循环；size 给足采样数上限（约 12h@44.1k），随后必须 atrim 截断
+      chain.push(`aloop=loop=-1:size=2000000000`);
+    }
+    // 截到成片时长并重置时间戳（loop 后必须；非 loop 时 BGM 超长也截断）
+    chain.push(`atrim=0:${totalDuration.toFixed(3)}`, `asetpts=N/SR/TB`);
+    if ((bgm.fadeIn ?? 0) > 0) {
+      chain.push(`afade=t=in:st=0:d=${(bgm.fadeIn ?? 1.5).toFixed(3)}`);
+    }
+    if ((bgm.fadeOut ?? 0) > 0) {
+      // afade 的 st 不支持表达式，必须是常量秒数（已在 TS 算好）
+      chain.push(
+        `afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${(bgm.fadeOut ?? 2).toFixed(3)}`
+      );
+    }
+    filters.push(`[${bgmInputIndex}:a]${chain.join(",")}[bgmout]`);
   }
-  filters.push(`[${bgmInputIndex}:a]${chain.join(",")}[bgmout]`);
 
   // ── 无对白配音：BGM 即唯一音轨 ──
   if (voiceLabels.length === 0) {
@@ -86,10 +122,18 @@ export function buildBgmFilter(
   // 缺省落在「已闪避」一侧才不会静默出一条压着对白的 BGM。
   if (bgm.ducking !== false) {
     // ducking：对白响时自动压低 BGM（剪映"语音增强"同款 sidechaincompress）
-    // 1) 对白先 amix 成一条 sidechain key [voice]
+    // 1) 对白先 amix 成一条 sidechain key，再 asplit 成两路。
+    //
+    // ⚠️ asplit 不可省：ffmpeg 的滤镜图里**每个标签只能被消费一次**，而对白
+    // 在这里要用两次——一次作为 sidechaincompress 的侧链 key（压 BGM），一次
+    // 作为最终 amix 的音源（成片里得听见对白）。此前直接复用 `[voice]` 两次，
+    // ffmpeg 会以 `Stream specifier 'voice' ... matches no streams` 报错并
+    // 整个导出失败（凡「有 BGM + 有对白 + ducking 开」即命中，而这三者都是
+    // 默认值）。已用真实 ffmpeg 复现并验证 asplit 修复。
     filters.push(
-      `${voiceLabels.join("")}amix=inputs=${voiceLabels.length}:normalize=0[voice]`
+      `${voiceLabels.join("")}amix=inputs=${voiceLabels.length}:normalize=0[voicemixed]`
     );
+    filters.push(`[voicemixed]asplit=2[voice][voicedry]`);
     // 2) 用 [voice] 侧链压 [bgmout]。threshold 从 0.03 提到 0.05：0.03 太灵敏，
     //    配音底噪就能触发闪避，导致 BGM 全程被压、听感发闷。
     //    attack 从 20ms 降到 8ms：对白 ducking 的行业区间是 5-15ms，20ms 会让
@@ -98,8 +142,9 @@ export function buildBgmFilter(
     filters.push(
       `[bgmout][voice]sidechaincompress=threshold=0.05:ratio=8:attack=8:release=300[bgmducked]`
     );
-    // 3) 压好的 BGM 与对白再混合
-    filters.push(`[voice][bgmducked]amix=inputs=2:normalize=0[aout]`);
+    // 3) 压好的 BGM 与「另一路对白」再混合（用 asplit 的第二路 [voicedry]，
+    //    [voice] 已被上一步的侧链消费掉）
+    filters.push(`[voicedry][bgmducked]amix=inputs=2:normalize=0[aout]`);
     return { filters, outLabel: "[aout]" };
   }
 
@@ -112,6 +157,77 @@ export function buildBgmFilter(
     `${allInputs.join("")}amix=inputs=${allInputs.length}:normalize=0:weights='${weights}'[aout]`
   );
   return { filters, outLabel: "[aout]" };
+}
+
+/**
+ * 构建「多段 BGM 交叉淡化串联」滤镜片段，产出单条 [bgmout]。
+ *
+ * 每段：`[idx:a]volume,aloop,atrim=0:<trimLen>,asetpts` → `[bgmseg{i}]`
+ * 串联：`[bgmseg0][bgmseg1]acrossfade=d=2[bgmx1]` → `[bgmx1][bgmseg2]acrossfade…`
+ *
+ * trimLen 的补偿见 buildBgmFilter 的注释：非末段 = 段长 + d，末段 = 段长。
+ * 每段都无条件 aloop——内置曲库里 15s 的短曲（如 upbeat-80s-rocker）铺不满
+ * 一个 30s 的情绪段，不循环就会中途静音。段长短于曲长时 atrim 自然截断，
+ * aloop 不产生副作用（已实测 20s 素材截 6s 窗正常）。
+ *
+ * 全片首端 fadeIn 与末端 fadeOut 分别只加在第一段与最后一段上；中间衔接
+ * 完全交给 acrossfade，避免「淡出到零再淡入」的断裂听感。
+ */
+function buildSegmentedBgmChain(
+  bgm: BackgroundMusic,
+  segments: BgmSegmentInput[],
+  totalDuration: number,
+  vol: number,
+  fadeOutStart: number
+): string[] {
+  const filters: string[] = [];
+  const d = BGM_CROSSFADE_SEC;
+  const last = segments.length - 1;
+
+  // ── 1. 逐段处理成独立音轨 [bgmseg{i}] ──────────────────────────────
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = segments[i];
+    const segLen = Math.max(0, seg.endSec - seg.startSec);
+    // 非末段补偿 acrossfade 吃掉的 d 秒（实测规则，见 buildBgmFilter 注释）
+    const trimLen = i < last ? segLen + d : segLen;
+    const chain: string[] = [
+      `volume=${vol.toFixed(3)}`,
+      `aloop=loop=-1:size=2000000000`,
+      `atrim=0:${trimLen.toFixed(3)}`,
+      `asetpts=N/SR/TB`,
+    ];
+    // 首段淡入（全片开头）
+    if (i === 0 && (bgm.fadeIn ?? 0) > 0) {
+      chain.push(`afade=t=in:st=0:d=${(bgm.fadeIn ?? 1.5).toFixed(3)}`);
+    }
+    // 末段淡出（全片结尾）：st 是「该段内的相对秒」——段自己的时间轴从 0 起算，
+    // 而 fadeOutStart 是全片绝对秒，必须减去该段起点才落在正确位置。
+    if (i === last && (bgm.fadeOut ?? 0) > 0) {
+      const relStart = Math.max(0, fadeOutStart - seg.startSec);
+      chain.push(
+        `afade=t=out:st=${relStart.toFixed(3)}:d=${(bgm.fadeOut ?? 2).toFixed(3)}`
+      );
+    }
+    filters.push(`[${seg.inputIndex}:a]${chain.join(",")}[bgmseg${i}]`);
+  }
+
+  // ── 2. 链式 acrossfade 串成单条 [bgmout] ───────────────────────────
+  // 标签命名：中间产物用 [bgmx{i}]，与段标签 [bgmseg{i}] 不冲突；
+  // 最后一次串联直接输出 [bgmout]，供下游 ducking/权重消费。
+  let cur = "[bgmseg0]";
+  for (let i = 1; i < segments.length; i += 1) {
+    const out = i === last ? "[bgmout]" : `[bgmx${i}]`;
+    filters.push(`${cur}[bgmseg${i}]acrossfade=d=${d}:c1=tri:c2=tri${out}`);
+    cur = out;
+  }
+
+  // 防御：单段不该走到这里（buildBgmFilter 已拦 length>=2），
+  // 万一走到则补一条恒等重命名，保证 [bgmout] 一定存在。
+  if (segments.length === 1) {
+    filters.push(`[bgmseg0]atrim=0:${totalDuration.toFixed(3)}[bgmout]`);
+  }
+
+  return filters;
 }
 
 /**
@@ -186,19 +302,31 @@ export function buildFinalAudioChain(params: {
   bgmInputIndex: number;
   bgmTotalDuration: number;
   sfxLabels: string[];
+  /** BGM 情绪分段（≥2 段时走分段切换）；缺省即单曲，存量项目零回归 */
+  bgmSegments?: BgmSegmentInput[];
 }): { filters: string[]; outLabel: string } | null {
-  const { voiceLabels, bgm, bgmInputIndex, bgmTotalDuration, sfxLabels } =
-    params;
+  const {
+    voiceLabels,
+    bgm,
+    bgmInputIndex,
+    bgmTotalDuration,
+    sfxLabels,
+    bgmSegments,
+  } = params;
   const filters: string[] = [];
 
   // ── 1. 对白 + BGM 基混音 ──────────────────────────────────────────
   let baseLabel: string | null = null;
-  if (bgm && bgmInputIndex >= 0) {
+  // 分段路径下 bgmInputIndex 可为 -1（BGM 不占独立输入，各段自带索引），
+  // 故判据要放行「有 ≥2 段」的情形，否则分段配乐会被整条跳过。
+  const hasSegmented = (bgmSegments?.length ?? 0) >= 2;
+  if (bgm && (bgmInputIndex >= 0 || hasSegmented)) {
     const bgmBuilt = buildBgmFilter(
       bgm,
       bgmInputIndex,
       bgmTotalDuration,
-      voiceLabels
+      voiceLabels,
+      bgmSegments
     );
     filters.push(...bgmBuilt.filters);
     baseLabel = bgmBuilt.outLabel;
@@ -255,7 +383,26 @@ export interface SfxScheduleItem {
   volume: number;
   /** 来源标记：显式配置 or 转场自动补的 whoosh（便于调试/去重） */
   origin: "config" | "transition";
+  /**
+   * 触发模式，缺省 "oneshot"。ambient 时 durationSec 必定有值，
+   * 表示从 triggerSec 起持续铺底的时长（循环填满 + 淡入淡出）。
+   */
+  mode?: "oneshot" | "ambient";
+  /** ambient 模式的铺底时长（秒）；oneshot 时为 undefined */
+  durationSec?: number;
 }
+
+/** 环境底噪的淡入/淡出时长（秒）——场景切换处交叉，不硬切 */
+export const AMBIENT_FADE_SEC = 0.8;
+
+/**
+ * 环境底噪默认音量（相对 SfxEntry.defaultVolume 的覆盖值）。
+ *
+ * 从 0.35 降到 0.2：真正的 room tone 应「察觉不到、去掉就发空」，
+ * 行业电平 -35~-30 dBFS。0.35 在竖屏小喇叭上已经能被明确听见，
+ * 会与对白抢注意力——环境音一旦「听得见」就不再是底噪而是音效了。
+ */
+export const AMBIENT_DEFAULT_VOLUME = 0.2;
 
 /** 转场自动 whoosh 用的音效 id 与默认音量（转场处补一记疾风，掩盖切换硬感） */
 const AUTO_TRANSITION_SFX_ID = "whoosh-fast";
@@ -277,19 +424,35 @@ const AUTO_TRANSITION_SFX_VOLUME = 0.5;
  *   3. 按 triggerSec 升序稳定排序，便于导出/预览按序处理。
  *
  * 未命中的 sfxId / 未知 sceneId 一律跳过（不抛错、不阻断），保证「引用缺失 → 跳过」。
+ *
+ * ## ambient 模式（mode="ambient"）
+ * 不产出点触发，而是**场景级持续铺底**：把「同一 locationKey 的连续分镜」合并成
+ * 一个时间窗，同一音效在同一窗内只产出一条（durationSec = 窗长）。同地点的多个
+ * 连续镜共享一条 room tone，换镜不断——断了观众会察觉空间跳变。
+ * 需要 sceneDurations 与 sceneLocationKeys 才能算窗；二者缺省时 ambient 退化为
+ * oneshot（保证老调用方不因缺参数而出错）。
  */
 export function buildSfxSchedule(
   sfx: SceneSfx[] | undefined,
   sceneStarts: number[],
   sceneIds: string[],
-  transitionSfx: number[] = []
+  transitionSfx: number[] = [],
+  sceneDurations?: number[],
+  sceneLocationKeys?: (string | null | undefined)[]
 ): SfxScheduleItem[] {
   const startById = new Map<string, number>();
+  const indexById = new Map<string, number>();
   for (let i = 0; i < sceneIds.length; i += 1) {
     startById.set(sceneIds[i], sceneStarts[i]);
+    indexById.set(sceneIds[i], i);
   }
 
   const items: SfxScheduleItem[] = [];
+  // ambient 去重：同一「音效 + 地点窗」只产出一条，避免同地点每镜各配一条
+  // 环境音导致 N 条雨声叠加（音量翻倍且 ffmpeg 输入暴涨）
+  const ambientSeen = new Set<string>();
+  const canGroupAmbient =
+    Array.isArray(sceneDurations) && Array.isArray(sceneLocationKeys);
 
   for (const s of sfx ?? []) {
     const entry = getSfxById(s.sfxId);
@@ -300,7 +463,36 @@ export function buildSfxSchedule(
     const vol =
       typeof s.volume === "number" && Number.isFinite(s.volume)
         ? Math.min(1, Math.max(0, s.volume))
-        : entry.defaultVolume;
+        : s.mode === "ambient"
+          ? AMBIENT_DEFAULT_VOLUME
+          : entry.defaultVolume;
+
+    // ── ambient：按 locationKey 合并连续同地点分镜成一个时间窗 ──────
+    if (s.mode === "ambient" && canGroupAmbient) {
+      const idx = indexById.get(s.sceneId);
+      if (idx === undefined) continue;
+      const win = resolveLocationWindow(
+        idx,
+        sceneStarts,
+        sceneDurations,
+        sceneLocationKeys
+      );
+      const dedupeKey = `${s.sfxId}@${win.startSec.toFixed(3)}`;
+      if (ambientSeen.has(dedupeKey)) continue;
+      ambientSeen.add(dedupeKey);
+      items.push({
+        url: entry.file,
+        // ambient 铺底从整个地点窗的起点开始，忽略镜内 offset
+        //（底噪是整场的，不该因为配在第二镜就晚进来）
+        triggerSec: win.startSec,
+        volume: vol,
+        origin: "config",
+        mode: "ambient",
+        durationSec: Math.max(0, win.endSec - win.startSec),
+      });
+      continue;
+    }
+
     items.push({
       url: entry.file,
       triggerSec: base + offset,
@@ -328,6 +520,36 @@ export function buildSfxSchedule(
 }
 
 /**
+ * 求某分镜所属的「连续同地点时间窗」（ambient 铺底的覆盖范围）。
+ *
+ * 从 idx 向前、向后各扩张，只要 locationKey 相同就并入。locationKey 为
+ * 空/null 时不跨镜合并（只覆盖本镜）——地点未知时无从判断是否同一空间，
+ * 盲目合并会把两场不同的戏铺上同一条环境音。
+ */
+function resolveLocationWindow(
+  idx: number,
+  sceneStarts: number[],
+  sceneDurations: number[],
+  sceneLocationKeys: (string | null | undefined)[]
+): { startSec: number; endSec: number } {
+  const key = sceneLocationKeys[idx];
+  const endOf = (i: number) => sceneStarts[i] + Math.max(0, sceneDurations[i]);
+
+  // 地点未知：只覆盖本镜
+  if (!key || typeof key !== "string" || key.trim() === "") {
+    return { startSec: sceneStarts[idx], endSec: endOf(idx) };
+  }
+
+  let lo = idx;
+  while (lo - 1 >= 0 && sceneLocationKeys[lo - 1] === key) lo -= 1;
+  let hi = idx;
+  const n = Math.min(sceneStarts.length, sceneDurations.length);
+  while (hi + 1 < n && sceneLocationKeys[hi + 1] === key) hi += 1;
+
+  return { startSec: sceneStarts[lo], endSec: endOf(hi) };
+}
+
+/**
  * 构建 SFX（音效）混音滤镜片段——第三音频层，与 buildBgmFilter 同构。
  *
  * 每条已下载的音效：[输入]volume=v,adelay=ms|ms → [sfxK]，作为独立音轨。
@@ -351,6 +573,29 @@ export function buildSfxFilters(
     const delayMs = Math.max(0, Math.round(it.triggerSec * 1000));
     const label = `[sfx${i}]`;
     const vol = Math.min(1, Math.max(0, it.volume)).toFixed(3);
+
+    // ── ambient：循环铺满时间窗 + 淡入淡出（场景级底噪）───────────────
+    if (it.mode === "ambient" && (it.durationSec ?? 0) > 0) {
+      const win = it.durationSec!;
+      // 淡入淡出各取 AMBIENT_FADE_SEC，但窗极短时按窗长的 1/3 收缩，
+      // 否则淡入淡出重叠会把整段压得几乎无声。
+      const fade = Math.min(AMBIENT_FADE_SEC, win / 3);
+      const chain = [
+        // aloop 的 size 单位是**采样数**（非秒），给足上限后必须 atrim 截断。
+        // 素材短于窗长时靠它铺满；素材长于窗长时 atrim 自然截断，无副作用。
+        `aloop=loop=-1:size=2000000000`,
+        `atrim=0:${win.toFixed(3)}`,
+        `asetpts=N/SR/TB`,
+        `afade=t=in:st=0:d=${fade.toFixed(3)}`,
+        `afade=t=out:st=${Math.max(0, win - fade).toFixed(3)}:d=${fade.toFixed(3)}`,
+        `volume=${vol}`,
+        `adelay=${delayMs}|${delayMs}`,
+      ];
+      filters.push(`[${inputIdx}:a]${chain.join(",")}${label}`);
+      labels.push(label);
+      continue;
+    }
+
     filters.push(
       `[${inputIdx}:a]volume=${vol},adelay=${delayMs}|${delayMs}${label}`
     );

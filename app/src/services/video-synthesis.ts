@@ -31,6 +31,9 @@ import {
 } from "@/types/export-style";
 // 混合出片成本路由：图片分镜默认运镜先按导演 cameraMovement 派生（双端同构单一真源）。
 import { resolveDefaultMotion } from "@/lib/render-mode";
+// BGM 情绪分段（纯函数规划）+ 分类选曲（内置曲库）
+import { planBgmSegments, type BgmSegment } from "@/lib/bgm-segments";
+import { getBgmTracksByCategory, type BgmTrack } from "@/lib/bgm-library";
 import { reconcileDuration } from "@/lib/av-duration-reconcile";
 // 全片 LUT 调色（批6）：id → .cube 预设白名单，导出端 lut3d 统一色调。
 import { type ColorGrade } from "@/lib/color-grade";
@@ -57,6 +60,7 @@ import {
   buildSfxSchedule,
   VOICE_CHAIN,
   type SfxScheduleItem,
+  type BgmSegmentInput,
 } from "@/services/video-synthesis/filters/audio";
 // 调色 / 字幕 / 水印滤镜串：video-synthesis/filters/color.ts
 import {
@@ -138,6 +142,20 @@ export interface SceneMedia {
    */
   cameraMovement?: string | null;
   /**
+   * 分镜情绪标签（解析层产出）。驱动 BGM 情绪分段（planBgmSegments）——
+   * 缺省时该镜落 calm 分类，不影响其他能力。
+   */
+  emotion?: string | null;
+  /**
+   * 高潮镜标记。BGM 分段在此强制断段（情绪转折点必换曲）。
+   */
+  isClimax?: boolean | null;
+  /**
+   * 地点标识。环境底噪（mode="ambient" 的 SFX）按它把连续同地点分镜合并成
+   * 一个持续铺底时间窗——同一场戏换镜不断底噪。缺省时底噪只覆盖本镜。
+   */
+  locationKey?: string | null;
+  /**
    * 片头/片尾卡（批6 成片包装）：非空时该分镜是卡片合成分镜，
    * 字幕层不走对白逻辑，改为按行角色发卡片文字事件（见 generateSubtitleFile）。
    * 由 export/route.ts 用 buildTitleCards 构造后注入 sceneMediaList 首/尾。
@@ -175,6 +193,17 @@ export interface ExportOptions {
   sceneEffects?: SceneEffect[];
   /** 背景音乐（BGM）配置；缺省或 enabled=false 时不混入。 */
   backgroundMusic?: BackgroundMusic;
+  /**
+   * BGM 按剧情情绪分段自动切换（默认开）。
+   *
+   * 开启时按 planBgmSegments 把全片切成 3-6 段情绪段落，每段在对应情绪分类里
+   * 挑一首曲，段间 acrossfade 2s 衔接——修「一首曲从头铺到尾，打斗/落泪/反转
+   * 全是同一首」。只规划出单段时自动退化为原单曲行为。
+   *
+   * 显式传 false 可回到「全片一首」。用户手动指定了 trackId 时不分段
+   * （尊重用户选曲，见下方调用点）。
+   */
+  autoBgmSegments?: boolean;
   /**
    * 音效（SFX）列表（按 sceneId + 镜内偏移触发），作为「第三音频层」混入。
    * 缺省或空时不加音效；导出层级 voice > SFX > BGM > ambient。
@@ -692,6 +721,22 @@ export function buildSceneStarts(effDurations: number[]): number[] {
 /** 成片总时长 = 各镜实测有效时长之和（BGM atrim/afade out 起点用）。 */
 export function sumDurations(effDurations: number[]): number {
   return effDurations.reduce((acc, d) => acc + d, 0);
+}
+
+/**
+ * 为某个 BGM 情绪分类挑一首内置曲（分段配乐用）。
+ *
+ * 用 segIndex 轮转取曲而非恒取第一首：全片若有两段同分类（例如「紧张 → 舒缓
+ * → 紧张」），恒取第一首会让两段紧张段用同一首曲，听感上等于没换。
+ * 分类下无曲目时返回 null，调用方跳过该段。
+ */
+function pickBgmTrackForCategory(
+  category: BgmSegment["category"],
+  segIndex: number
+): BgmTrack | null {
+  const tracks = getBgmTracksByCategory(category);
+  if (tracks.length === 0) return null;
+  return tracks[segIndex % tracks.length];
 }
 
 /**
@@ -1213,21 +1258,83 @@ export async function synthesizeVideoToPath<T>(
     const bgm = options.backgroundMusic;
     let bgmPath: string | null = null;
     let bgmTotalDuration = 0;
+    // 情绪分段配乐：每段一首曲 → 每段一个独立 ffmpeg 输入。
+    // 元素为「段时间窗 + 本地文件」，输入索引在下方拼 ffmpegArgs 时才分配
+    //（两条合成分支的输入排布不同，索引不能在这里写死）。
+    let preparedBgmSegments: {
+      startSec: number;
+      endSec: number;
+      path: string;
+    }[] = [];
     if (bgm?.enabled && bgm.url) {
       bgmTotalDuration = sumDurations(effDurations);
-      try {
-        bgmPath = await downloadFile(
-          absolutizeUrl(bgm.url),
-          "bgm_track.mp3",
-          tmpDir
+
+      // ── 先尝试情绪分段（默认开；用户手动选定曲目时尊重其选择，不分段）──
+      // 判据用 `!== false`：存量项目无此字段，缺省要落在「已分段」一侧才能
+      // 真正修掉「一首铺到尾」，与 ducking 的缺省即开同一套写法。
+      const wantSegments = options.autoBgmSegments !== false && !bgm.trackId;
+      if (wantSegments) {
+        const plan = planBgmSegments(
+          scenes.map((s) => ({ emotion: s.emotion, isClimax: s.isClimax })),
+          buildSceneStarts(effDurations),
+          effDurations
         );
-      } catch (err) {
-        // BGM 下载失败不阻塞主流程，记录后跳过（成片仍有对白）
-        log.warn("BGM 下载失败，跳过背景音乐:", err);
-        bgmPath = null;
+        // 仅 ≥2 段才值得走分段路径（单段与原行为等价，省一次多余下载）
+        if (plan.length >= 2) {
+          for (let i = 0; i < plan.length; i += 1) {
+            const track = pickBgmTrackForCategory(plan[i].category, i);
+            if (!track) continue;
+            try {
+              const p = await downloadFile(
+                absolutizeUrl(track.url),
+                `bgm_seg_${i}.mp3`,
+                tmpDir
+              );
+              preparedBgmSegments.push({
+                startSec: plan[i].startSec,
+                endSec: plan[i].endSec,
+                path: p,
+              });
+            } catch (err) {
+              // 单段下载失败不阻塞：记录后跳过该段（其余段仍分段播放）
+              log.warn(
+                `BGM 分段 ${i}(${plan[i].category}) 下载失败，跳过:`,
+                err
+              );
+            }
+          }
+          // 有段掉队导致时间轴出现空隙时，把前一段的 endSec 接到后一段起点，
+          // 保证串联出的 [bgmout] 总长仍等于成片时长（acrossfade 依赖首尾相接）。
+          for (let i = 1; i < preparedBgmSegments.length; i += 1) {
+            preparedBgmSegments[i - 1].endSec = preparedBgmSegments[i].startSec;
+          }
+          if (preparedBgmSegments.length > 0) {
+            preparedBgmSegments[0].startSec = 0;
+            preparedBgmSegments[preparedBgmSegments.length - 1].endSec =
+              bgmTotalDuration;
+          }
+          // 掉到只剩 1 段 → 放弃分段，回落单曲路径（下方统一处理）
+          if (preparedBgmSegments.length < 2) preparedBgmSegments = [];
+        }
+      }
+
+      // ── 单曲路径（未分段 / 分段失败）：保持原行为 ─────────────────
+      if (preparedBgmSegments.length === 0) {
+        try {
+          bgmPath = await downloadFile(
+            absolutizeUrl(bgm.url),
+            "bgm_track.mp3",
+            tmpDir
+          );
+        } catch (err) {
+          // BGM 下载失败不阻塞主流程，记录后跳过（成片仍有对白）
+          log.warn("BGM 下载失败，跳过背景音乐:", err);
+          bgmPath = null;
+        }
       }
     }
-    const hasBgm = bgmPath !== null;
+    const hasBgmSegments = preparedBgmSegments.length >= 2;
+    const hasBgm = bgmPath !== null || hasBgmSegments;
 
     // 4.6 准备音效（SFX）：解析时间表 → 下载到本地 → 预备第三音频层混音。
     //
@@ -1250,11 +1357,15 @@ export async function synthesizeVideoToPath<T>(
         }
       }
     }
+    // sceneDurations/locationKeys 供 ambient 模式按地点合并连续分镜成铺底时间窗
+    //（同一场戏换镜不断底噪）；oneshot 不受影响。
     const sfxSchedule = buildSfxSchedule(
       options.sfx,
       sceneStarts,
       sceneIds,
-      transitionSfxPoints
+      transitionSfxPoints,
+      effDurations,
+      scenes.map((s) => s.locationKey)
     );
     // 下载各音效到本地（失败项置 null，后续按索引对齐过滤跳过 → 优雅降级）
     const sfxLocalPaths: (string | null)[] = [];
@@ -1356,14 +1467,28 @@ export async function synthesizeVideoToPath<T>(
       // 先添加音频输入；BGM 与 overlay 图片输入排在音频之后
       ffmpegArgs.push(...audioInputs);
       const audioCount = audioInputs.length / 2;
-      // BGM 作为额外 -i，排在所有配音轨之后；记录其输入索引
+      // BGM 作为额外 -i，排在所有配音轨之后；记录其输入索引。
+      // 分段配乐时每段各占一个输入（bgmInputIndex 保持 -1，由 segments 带索引）。
       let bgmInputIndex = -1;
-      if (hasBgm && bgmPath) {
+      let bgmInputCount = 0;
+      const bgmSegmentsWm: BgmSegmentInput[] = [];
+      if (hasBgmSegments) {
+        for (const seg of preparedBgmSegments) {
+          ffmpegArgs.push("-i", seg.path);
+          bgmSegmentsWm.push({
+            inputIndex: 1 + audioCount + bgmInputCount,
+            startSec: seg.startSec,
+            endSec: seg.endSec,
+          });
+          bgmInputCount += 1;
+        }
+      } else if (hasBgm && bgmPath) {
         ffmpegArgs.push("-i", bgmPath);
         bgmInputIndex = 1 + audioCount;
+        bgmInputCount = 1;
       }
-      // overlay 图片输入索引：在 merged([0]) + 配音轨 + BGM(占 1 位) 之后
-      let nextInputIndex = 1 + audioCount + (hasBgm ? 1 : 0);
+      // overlay 图片输入索引：在 merged([0]) + 配音轨 + BGM(占 bgmInputCount 位) 之后
+      let nextInputIndex = 1 + audioCount + bgmInputCount;
 
       // ── 视频基链 ────────────────────────────────────────────────────
       // [0:v] → scale+pad → 可选 LUT 调色 → 可选字幕 → [base]
@@ -1461,6 +1586,7 @@ export async function synthesizeVideoToPath<T>(
         bgmInputIndex,
         bgmTotalDuration,
         sfxLabels: sfxLabelsWm,
+        bgmSegments: bgmSegmentsWm,
       });
       const audioOutLabel = audioChain?.outLabel ?? null;
       if (audioChain) filterParts.push(...audioChain.filters);
@@ -1493,17 +1619,30 @@ export async function synthesizeVideoToPath<T>(
       // 添加音频输入
       ffmpegArgs.push(...audioInputs);
       const audioCountNoWm = audioInputs.length / 2;
-      // BGM 作为额外 -i，排在所有配音轨之后
+      // BGM 作为额外 -i，排在所有配音轨之后（分段时每段各占一个输入）
       let bgmIdxNoWm = -1;
-      if (hasBgm && bgmPath) {
+      let bgmInputCountNoWm = 0;
+      const bgmSegmentsNoWm: BgmSegmentInput[] = [];
+      if (hasBgmSegments) {
+        for (const seg of preparedBgmSegments) {
+          ffmpegArgs.push("-i", seg.path);
+          bgmSegmentsNoWm.push({
+            inputIndex: 1 + audioCountNoWm + bgmInputCountNoWm,
+            startSec: seg.startSec,
+            endSec: seg.endSec,
+          });
+          bgmInputCountNoWm += 1;
+        }
+      } else if (hasBgm && bgmPath) {
         ffmpegArgs.push("-i", bgmPath);
         bgmIdxNoWm = 1 + audioCountNoWm;
+        bgmInputCountNoWm = 1;
       }
       // SFX 音效输入（第三音频层），排在 BGM 之后
       const sfxLabelsNoWm: string[] = [];
       const sfxFilterPartsNoWm: string[] = [];
       if (hasSfx) {
-        const sfxStartIdx = 1 + audioCountNoWm + (bgmIdxNoWm >= 0 ? 1 : 0);
+        const sfxStartIdx = 1 + audioCountNoWm + bgmInputCountNoWm;
         for (const { localPath } of preparedSfx) {
           ffmpegArgs.push("-i", localPath);
         }
@@ -1537,10 +1676,11 @@ export async function synthesizeVideoToPath<T>(
       const voiceLabelsNoWm = audioFilters.map((_, i) => `[a${i}]`);
       const audioChainNoWm = buildFinalAudioChain({
         voiceLabels: voiceLabelsNoWm,
-        bgm: hasBgm && bgmIdxNoWm >= 0 ? bgm! : null,
+        bgm: hasBgm && (bgmIdxNoWm >= 0 || hasBgmSegments) ? bgm! : null,
         bgmInputIndex: bgmIdxNoWm,
         bgmTotalDuration,
         sfxLabels: sfxLabelsNoWm,
+        bgmSegments: bgmSegmentsNoWm,
       });
       if (audioChainNoWm) {
         const audioParts = [
@@ -1556,7 +1696,7 @@ export async function synthesizeVideoToPath<T>(
           "-map",
           audioChainNoWm.outLabel
         );
-        if (hasBgm && bgmIdxNoWm >= 0) {
+        if (hasBgm && (bgmIdxNoWm >= 0 || hasBgmSegments)) {
           // BGM loop=longest 时用总时长兜底截断，防拖尾
           ffmpegArgs.push("-t", bgmTotalDuration.toFixed(3));
         }

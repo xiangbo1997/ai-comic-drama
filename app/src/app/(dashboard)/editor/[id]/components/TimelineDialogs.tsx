@@ -93,11 +93,13 @@ export function TimelineDialogs({
         <BgmDialog
           projectId={projectId}
           initialValue={project.generationParams?.backgroundMusic}
-          onSave={(backgroundMusic) =>
+          initialAutoSegments={project.generationParams?.autoBgmSegments}
+          onSave={(backgroundMusic, autoBgmSegments) =>
             updateProject({
               generationParams: {
                 ...project.generationParams,
                 backgroundMusic,
+                autoBgmSegments,
               },
             })
           }

@@ -22,17 +22,24 @@ import {
  */
 export function BgmDialog({
   initialValue,
+  initialAutoSegments,
   projectId,
   onSave,
   onClose,
 }: {
   initialValue?: BackgroundMusic;
+  /** 分段自动配乐当前值（存 generationParams.autoBgmSegments，缺省即开） */
+  initialAutoSegments?: boolean;
   projectId: string;
-  onSave: (backgroundMusic: BackgroundMusic) => void;
+  onSave: (backgroundMusic: BackgroundMusic, autoBgmSegments: boolean) => void;
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<BackgroundMusic>(
     initialValue ?? DEFAULT_BACKGROUND_MUSIC
+  );
+  // 缺省即开，与导出端 `!== false` 判据同源
+  const [autoSegments, setAutoSegments] = useState<boolean>(
+    initialAutoSegments !== false
   );
 
   // 组件仅在父级为真时挂载，故恒为打开；关闭统一走 onClose。
@@ -51,7 +58,13 @@ export function BgmDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="overflow-y-auto p-5">
-          <BgmPanel value={draft} onChange={setDraft} projectId={projectId} />
+          <BgmPanel
+            value={draft}
+            onChange={setDraft}
+            projectId={projectId}
+            autoSegments={autoSegments}
+            onAutoSegmentsChange={setAutoSegments}
+          />
         </div>
         <DialogFooter className="border-border shrink-0 justify-end gap-2 border-t px-5 py-3">
           <button
@@ -62,7 +75,7 @@ export function BgmDialog({
           </button>
           <button
             onClick={() => {
-              onSave(draft);
+              onSave(draft, autoSegments);
               onClose();
             }}
             className="bg-primary hover:bg-primary/90 rounded-lg px-4 py-2 text-sm"

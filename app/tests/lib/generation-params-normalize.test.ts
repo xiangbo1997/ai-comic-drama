@@ -69,6 +69,7 @@ const FULL_FIXTURE: Required<GenerationParams> = {
     loop: true,
     ducking: false,
   },
+  autoBgmSegments: true,
   // sfxId 必须命中内置音效库（getSfxById），否则该条被过滤掉
   sfx: [{ sceneId: "scene-1", sfxId: "glass-shatter", offsetSec: 1 }],
   emphasis: ["scene-1"],

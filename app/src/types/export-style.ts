@@ -436,6 +436,15 @@ export interface SceneSfx {
   offsetSec: number;
   /** 音量 0-1；缺省时用该音效的 defaultVolume */
   volume?: number;
+  /**
+   * 触发模式，缺省 "oneshot"（零回归：存量配置全部按点触发，行为不变）。
+   *
+   * - `oneshot`：在 sceneStart + offsetSec 处播一次（击打/转场类音效）。
+   * - `ambient`：**场景级持续铺底**——按 locationKey 把同地点的连续分镜合并成
+   *   一个时间窗，循环铺满整个窗并带淡入淡出。环境音（雨/街道/虫鸣）必须用
+   *   这个模式：点触发会让雨声响一秒就没了，比不加更假。
+   */
+  mode?: "oneshot" | "ambient";
 }
 
 /**

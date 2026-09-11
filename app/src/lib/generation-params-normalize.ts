@@ -62,6 +62,7 @@ export const GENERATION_PARAM_KEY_MAP: Record<keyof GenerationParams, true> = {
   transitions: true,
   sceneEffects: true,
   backgroundMusic: true,
+  autoBgmSegments: true,
   sfx: true,
   emphasis: true,
   colorGrade: true,
@@ -297,8 +298,17 @@ export function normalizeGenerationParams(
         ...(typeof e.volume === "number"
           ? { volume: clampNumber(e.volume, 0, 1) }
           : {}),
+        // 触发模式：仅放行 "ambient"，其余一律缺省（= oneshot）。
+        // 不加这段则解析层/前端标注的环境底噪存不进 DB，导出永远按点触发，
+        // 雨声响一秒就没了（同 BGM/sfx「白存」教训）。
+        ...(e.mode === "ambient" ? { mode: "ambient" as const } : {}),
       }))
       .filter((e) => e.sceneId && e.sfxId);
+  }
+  // BGM 情绪分段开关：缺省即开（`!== false`），与导出端 options.autoBgmSegments
+  // 的缺省判据同源——存量项目无此字段时也应享受分段配乐。
+  if (src.autoBgmSegments !== undefined) {
+    out.autoBgmSegments = src.autoBgmSegments !== false;
   }
   // 金句花字分镜 id 列表（批6）：字符串数组，每项截 64、去重、cap 上限 ——
   // 不加这段则解析层聚合到的金句分镜怎么存都进不了 DB，导出/预览读不到花字。
