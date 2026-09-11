@@ -49,6 +49,37 @@ const SHOT_TYPE_DIALOGUE_MIN: Record<string, number> = {
   远景: 2.5,
 };
 
+/**
+ * 开场镜数：前 N 镜按开场快切处理。
+ * 竖屏短剧的 3 秒定生死，开场要 3-5 个镜头砸完，单镜 0.6-1.0s。
+ */
+const OPENING_SHOT_COUNT = 3;
+
+/** 开场镜的下限系数：把景别/情绪算出的 floor 压到约一半 */
+const OPENING_FLOOR_FACTOR = 0.55;
+
+/**
+ * 开场镜的绝对下限（秒）——**低于 ABSOLUTE_MIN**，这是刻意的。
+ *
+ * 原实现里「口播下限 + 景别下限先取 max」导致实际没有任何镜能低于 1.5s，
+ * 开场快切在物理上不可能出现。开场镜通常无对白或只念半句，允许压到 0.8s。
+ */
+const OPENING_ABSOLUTE_MIN = 0.8;
+
+/**
+ * 开场镜「可忽略的口播时长」阈值（秒）。
+ * 口播不超过此值（约 2 个字 / 1 个词）视为「无实质台词」，允许压到开场下限；
+ * 超过则以口播下限为准，保证台词念得完。
+ */
+const OPENING_SPEECH_TOLERANCE = 0.8;
+
+/** 高潮镜的下限系数：高潮段单镜 0.8-1.5s，比常规更密 */
+const CLIMAX_FLOOR_FACTOR = 0.7;
+
+/** 结尾钩子镜的下限系数与硬下限（秒）：最后一镜要留白，让钩子沉下去 */
+const ENDING_FLOOR_FACTOR = 1.3;
+const ENDING_MIN = 2.5;
+
 export interface ShotTimingInput {
   /** 对白（中文为主）；null / 空视为无对白 */
   dialogue?: string | null;
@@ -60,6 +91,56 @@ export interface ShotTimingInput {
   emotion?: string | null;
   /** LLM 给的原始时长（作为叙事意图参考，落在合理区间则采信） */
   llmDuration?: number | null;
+
+  // ---- 以下为「全片节奏曲线」的位置上下文（全部可选，缺省即退回逐镜独立计算） ----
+
+  /** 本镜在全片中的下标（0 起）。缺省时不套用任何节奏系数（零回归） */
+  sceneIndex?: number;
+  /** 全片总镜数。与 sceneIndex 配合判断「是否最后一镜」 */
+  totalScenes?: number;
+  /** 解析层落库的高潮标记 */
+  isClimax?: boolean | null;
+  /** 解析层落库的节拍类型：impact / reveal / emotional / calm */
+  beatType?: string | null;
+}
+
+/** 节奏段落（供日志/测试断言，也让分支意图自解释） */
+type PacingPhase = "opening" | "climax" | "ending" | "normal";
+
+/**
+ * 判定本镜属于哪个节奏段落。
+ *
+ * 优先级（互斥，从强到弱）：
+ * 1. `ending`——最后一镜。结尾钩子要留白，优先级高于开场/高潮：
+ *    极短剧（如 3 镜）里「最后一镜」同时也落在开场窗口内，此时必须按结尾处理，
+ *    否则全片最后一个镜头被压到 0.8s，钩子还没看清就黑屏了。
+ * 2. `opening`——前 3 镜。开场 3 秒定生死，优先级高于高潮：
+ *    冷开场（直接从高潮切入，isClimax=true）正是要快切，两者诉求一致。
+ * 3. `climax`——isClimax 或 impact 节拍。
+ * 4. `normal`——其余，不套用系数。
+ */
+function resolvePacingPhase(input: ShotTimingInput): PacingPhase {
+  const { sceneIndex, totalScenes } = input;
+  if (typeof sceneIndex !== "number") return "normal";
+
+  if (
+    typeof totalScenes === "number" &&
+    totalScenes > 0 &&
+    sceneIndex === totalScenes - 1
+  ) {
+    return "ending";
+  }
+
+  if (sceneIndex < OPENING_SHOT_COUNT) return "opening";
+
+  if (
+    input.isClimax === true ||
+    input.beatType?.trim().toLowerCase() === "impact"
+  ) {
+    return "climax";
+  }
+
+  return "normal";
 }
 
 /**
@@ -117,7 +198,20 @@ export function computeShotDuration(input: ShotTimingInput): number {
   }
 
   // 3. 综合下限
-  const floor = Math.max(speechFloor, shotFloor, ABSOLUTE_MIN);
+  const rawFloor = Math.max(speechFloor, shotFloor, ABSOLUTE_MIN);
+
+  // 3.5 全片节奏曲线：按本镜在全片中的位置调整下限。
+  //
+  // 此前 computeShotDuration 只看单镜自身（对白字数 + 景别 + 情绪），入参不含任何
+  // 位置信息——不知道这镜是第几镜、是否在开场 3 秒内、是否临近高潮。结果是全片
+  // 机械等长，而等长节奏 = 催眠。行业标准的竖屏短剧节奏曲线：
+  //   开场 0-3s：0.6-1.0s 快切 3-5 个镜头  |  铺垫段：2.5-4s
+  //   高潮段：0.8-1.5s                      |  结尾钩子最后一镜：2.5-3.5s 留白
+  // 全片 ASL 目标 2.0-2.8s。
+  //
+  // 缺省 sceneIndex 时 phase 恒为 "normal"、floor === rawFloor，与改动前逐字等价。
+  const phase = resolvePacingPhase(input);
+  const floor = applyPacingFloor(rawFloor, phase, speechFloor);
 
   // 4. LLM 值裁决：落在 [floor, 合理上限] 内则采信
   const llm = input.llmDuration;
@@ -132,13 +226,62 @@ export function computeShotDuration(input: ShotTimingInput): number {
     return clamp(Math.round(llm));
   }
 
-  // 5. 否则取下限向上取整
-  return clamp(Math.ceil(floor));
+  // 5. 否则取下限取整。
+  //
+  // 常规镜向上取整（`ceil`）：下限是「至少要这么长」的硬约束——有对白时向下取整
+  // 会让台词念不完。但**无实质台词的开场快切镜例外**：此时下限不保护任何口播，
+  // 而 ceil 会把 1.375s 顶成 2s，开场压缩被取整悄悄吃掉一半，
+  // 「实际没有任何镜能低于 1.5s」的老毛病换个形式复发。故改用四舍五入，
+  // 让 1.375 → 1s（DB 的 Int 列能表达的最快快切）。
+  const roundsDown =
+    phase === "opening" && speechFloor <= OPENING_SPEECH_TOLERANCE;
+  return clamp(roundsDown ? Math.round(floor) : Math.ceil(floor));
 }
 
 /** 夹到 [ABSOLUTE_MIN, ABSOLUTE_MAX] 的整数 */
 function clamp(n: number): number {
   return Math.min(ABSOLUTE_MAX, Math.max(ABSOLUTE_MIN, Math.round(n)));
+}
+
+/**
+ * 按节奏段落调整下限。纯函数，`phase === "normal"` 时原样返回（零回归）。
+ *
+ * 开场镜是唯一**允许突破口播下限**的段落：开场快切镜通常无对白或只念半句，
+ * 若仍被口播下限顶住就永远快不起来（这正是「实际没有任何镜能低于 1.5s」的根因）。
+ * 但突破是有条件的——`speechFloor <= OPENING_SPEECH_TOLERANCE` 时才放行。
+ * 有整句台词的开场镜（口播 3s）绝不能压到 0.8s，否则配音被硬生生截断，
+ * 这比节奏平淡严重得多。
+ *
+ * ⚠️ 已知精度损失：`Scene.duration` 在 DB 里是 `Int`（见 prisma/schema.prisma），
+ * 故 0.8s 落库后会被 `clamp` 取整成 1s，行业标准的 0.6-1.0s 开场快切实际只能
+ * 做到 1s。要真正落地亚秒级需把该列改为 Float/Decimal——属 schema 变更，
+ * 本次未做（见交付报告）。当前实现已把「开场比常规短一半」这层节奏差做出来了。
+ */
+function applyPacingFloor(
+  rawFloor: number,
+  phase: PacingPhase,
+  speechFloor: number
+): number {
+  switch (phase) {
+    case "opening": {
+      const compressed = rawFloor * OPENING_FLOOR_FACTOR;
+      // 有实质对白时不突破口播下限，只在 [口播下限, rawFloor] 间压缩
+      if (speechFloor > OPENING_SPEECH_TOLERANCE) {
+        return Math.max(compressed, speechFloor);
+      }
+      return Math.max(compressed, OPENING_ABSOLUTE_MIN);
+    }
+    case "climax": {
+      // 高潮镜同样不截断对白：压缩后不得低于口播下限
+      const compressed = rawFloor * CLIMAX_FLOOR_FACTOR;
+      return Math.max(compressed, speechFloor, ABSOLUTE_MIN);
+    }
+    case "ending":
+      // 结尾钩子拉长留白；口播更长时以口播为准（念完优先）
+      return Math.max(rawFloor * ENDING_FLOOR_FACTOR, ENDING_MIN, speechFloor);
+    case "normal":
+      return rawFloor;
+  }
 }
 
 /**
@@ -187,6 +330,10 @@ export interface CalibratableScene {
   narration?: string | null;
   emotion?: string | null;
   duration?: number | null;
+  /** 高潮标记（解析层落库）；驱动高潮段的节奏压缩 */
+  isClimax?: boolean | null;
+  /** 节拍类型（解析层落库）；"impact" 与 isClimax 等效触发高潮段 */
+  beatType?: string | null;
 }
 
 /**
@@ -195,12 +342,16 @@ export interface CalibratableScene {
  * 用于解析层产出后、落库前统一把 LLM 拍脑袋的 duration 校准为「对白驱动的
  * 确定值」。下游（视频分段 / TTS / 导出时轴）无需改动即受益。
  *
+ * 数组下标即分镜顺序（两条调用路径都在落库前、按下标写 order），故直接用
+ * index/length 作为节奏曲线的位置上下文——开场前 3 镜快切、高潮镜压缩、
+ * 末镜留白。
+ *
  * 泛型保留原 scene 的所有其它字段，只覆盖 duration。
  */
 export function calibrateSceneDurations<T extends CalibratableScene>(
   scenes: T[]
 ): T[] {
-  return scenes.map((scene) => ({
+  return scenes.map((scene, index) => ({
     ...scene,
     duration: computeShotDuration({
       dialogue: scene.dialogue,
@@ -208,6 +359,10 @@ export function calibrateSceneDurations<T extends CalibratableScene>(
       shotType: scene.shotType,
       emotion: scene.emotion,
       llmDuration: scene.duration ?? null,
+      sceneIndex: index,
+      totalScenes: scenes.length,
+      isClimax: scene.isClimax,
+      beatType: scene.beatType,
     }),
   }));
 }

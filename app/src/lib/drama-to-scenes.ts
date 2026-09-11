@@ -172,7 +172,9 @@ export function dramaScriptToScenes(
     (storyboard?.cells ?? []).map((c) => [c.index, c])
   );
 
-  return (doc.scenes ?? []).map((scene) => {
+  const allScenes = doc.scenes ?? [];
+
+  return allScenes.map((scene, sceneIndex) => {
     const cell = cellByIndex.get(scene.index);
 
     // 九宫格特写要点是镜头语言的一部分，并入画面描述增强出图 prompt
@@ -216,12 +218,21 @@ export function dramaScriptToScenes(
       // 而非仅 clamp 脚本给的 durationSec。景别用归一后的值——此前传原始复合值，
       // SHOT_TYPE_BASE / SHOT_TYPE_DIALOGUE_MIN 一律 miss 回落 3/2s，
       // 归一后特写/远景等档位的时长差异才真正生效。
+      // 全片节奏曲线：传入位置上下文（本镜下标 / 总镜数 / 高潮标记 / 节拍），
+      // 让开场前 3 镜快切、高潮镜压缩、末镜留白。与 script-parse 路径
+      // （走 calibrateSceneDurations）同源同参，两条路径节奏一致。
+      // ⚠️ 这里用 map 的 sceneIndex（数组下标即分镜顺序），而非 scene.index
+      // （那是 LLM 给的场景编号，可能从 1 起或有跳号，用它会让开场窗口错位）。
       duration: computeShotDuration({
         dialogue,
         narration,
         shotType: parsedShot.shotType,
         emotion: scene.emotion ?? null,
         llmDuration: scene.durationSec ?? null,
+        sceneIndex,
+        totalScenes: allScenes.length,
+        isClimax: scene.isClimax ?? null,
+        beatType: scene.beatType ?? null,
       }),
       characters: [...new Set([...declaredCharacters, ...matchedCharacters])],
       // 地点标签：短剧场景标题即地点/场景名，规整为 locationKey 供场景锚定分组

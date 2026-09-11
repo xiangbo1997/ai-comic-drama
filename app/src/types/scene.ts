@@ -131,6 +131,8 @@ export type ScenePreview = Pick<
   | "narration"
   // 图片分镜默认 Ken Burns 运镜按导演运镜派生（预览端与导出端同构，走 lib/render-mode）
   | "cameraMovement"
+  // 环境底噪按 locationKey 把连续同地点分镜合并成持续铺底窗（预览与导出同源）
+  | "locationKey"
 >;
 
 /** 剧本解析结果中的场景 */

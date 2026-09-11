@@ -129,12 +129,15 @@ describe("dramaScriptToScenes", () => {
 
   it("时长校准：LLM 异常值被对白/旁白驱动的确定时长取代", () => {
     // 断裂 C 修复：durationSec 异常值不再简单 clamp，而是回落到对白/旁白朗读时长。
+    // 全片节奏曲线叠加后（本 doc 只有 2 镜）：
+    //   scene[0]：开场镜，压缩系数生效但不得截断旁白（9 汉字 + AI ≈ 4s）→ 仍为 4
+    //   scene[1]：既是末镜（留白，≥2.5s 且 ×1.3），对白 7 汉字 ≈ 2.8s → 4
     const doc = makeDoc();
-    doc.scenes[0].durationSec = 0; // 旁白 9 汉字 + AI ≈ 4s → 校准为 4
-    doc.scenes[1].durationSec = 999; // 对白「林烬不这不可能」7 汉字 ≈ 2.8s，超软上限故回落 3
+    doc.scenes[0].durationSec = 0;
+    doc.scenes[1].durationSec = 999;
     const scenes = dramaScriptToScenes(doc, null);
     expect(scenes[0].duration).toBe(4);
-    expect(scenes[1].duration).toBe(3);
+    expect(scenes[1].duration).toBe(4);
   });
 
   it("九宫格 index 与场景错位时不串格", () => {
