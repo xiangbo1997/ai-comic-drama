@@ -6,7 +6,10 @@
  */
 
 import { CharacterBibleAgent } from "../../character-bible-agent";
-import { persistCharacterBible } from "../../character-bible-persist";
+import {
+  persistCharacterBible,
+  assignProjectVoices,
+} from "../../character-bible-persist";
 import { executeAgentStep } from "../context";
 import { backfillSelectedCharacterIds } from "../scene-persistence";
 import { reviewAndRefineCharacterBible } from "./review";
@@ -60,6 +63,17 @@ export async function runCharacterBibleStep(
   // 这里把 bible 画像"只补空字段"地落库（命中已有角色不覆盖用户手改；未命中则建档 +
   // 关联），让自动路径出图能拿到真实角色数据。静默失败，绝不阻断后续步骤。
   await persistCharacterBible(ctx.projectId, characterBible);
+
+  // 音色自动分配：此前角色没手动设音色就全部回落 provider 默认声线，典型成片是
+  // 旁白一个磁性男声、**所有角色不分男女老少全是同一个甜美女声**——这是听感上
+  // 最刺眼的 AI 破绽。这里在角色全部建档后统一分配一次（需项目级视野才能做到
+  // 互斥），写回 Character.voiceId 作单一真源：两条配音路径都已在读这个字段，
+  // 非空即生效，零改动受益。
+  //
+  // 幂等：只给 voiceId 为空的角色分配，已有音色（用户手选或上一集分配过）不动。
+  // 系列剧跨集一致性天然成立——续集继承的是 ProjectCharacter 关联，指向同一条
+  // Character 记录。静默失败，绝不阻断后续步骤。
+  await assignProjectVoices(ctx.projectId);
 
   // C3 回填：saveScenesToProject 在 Step 1 已按当时项目角色算过 selectedCharacterId，
   // 但纯自动项目那时角色尚未建档（C1 在本步才回写），故对 selectedCharacterId 仍为空的

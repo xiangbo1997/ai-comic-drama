@@ -26,6 +26,7 @@ import {
   bibleAppearanceToFields,
   buildNewAppearanceData,
 } from "./character-bible-merge";
+import { assignVoices, ASSIGNABLE_VOICE_COUNT } from "@/lib/voice-casting";
 
 const log = createLogger("agent:character-bible-persist");
 
@@ -176,4 +177,54 @@ async function upsertBibleCharacter(
       update: {},
     });
   });
+}
+
+/**
+ * 给项目下所有尚无音色的角色自动分配音色（按性别分池 + 项目内互斥）。
+ *
+ * 为什么在这里而不是配音路径：配音是每镜调用一次的热路径，现算会让同一角色
+ * 在不同镜因「当时已占用集合」不同而拿到不同音色（前 3 镜少年音、后 5 镜青年音）。
+ * 落库则天然幂等——算一次、存一次，两条配音路径只读。
+ *
+ * 不覆盖已有 voiceId：用户手选的音色、以及系列前作分配过的音色都保持不变。
+ *
+ * 静默失败：音色是增强项，分配失败不该阻断整个 workflow（角色仍可用 provider
+ * 默认声线出片）。
+ */
+export async function assignProjectVoices(projectId: string): Promise<void> {
+  try {
+    // 按 createdAt 排序：分配顺序稳定 → 同一项目重复跑结果一致（幂等）。
+    // 主角通常最早建档，能优先拿到池里第一条音色。
+    const characters = await prisma.character.findMany({
+      where: { projects: { some: { projectId } } },
+      select: { id: true, name: true, gender: true, voiceId: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (characters.length === 0) return;
+
+    const assigned = assignVoices(characters);
+    if (assigned.size === 0) return;
+
+    await prisma.$transaction(
+      [...assigned].map(([characterId, voiceId]) =>
+        prisma.character.update({
+          where: { id: characterId },
+          data: { voiceId, voiceProvider: "volcano" },
+        })
+      )
+    );
+
+    log.info("音色自动分配完成", {
+      projectId,
+      assignedCount: assigned.size,
+      totalCharacters: characters.length,
+      // 角色数超过可分配音色数时必然有复用，留痕便于排查「两个角色同声」
+      poolSize: ASSIGNABLE_VOICE_COUNT,
+    });
+  } catch (error) {
+    log.warn("音色自动分配失败，角色将回落 provider 默认声线", {
+      projectId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
