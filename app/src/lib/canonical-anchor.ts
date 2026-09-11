@@ -20,6 +20,7 @@
  */
 
 import type { Prisma } from "@prisma/client";
+import { isExpressionPose } from "./expression-sheet";
 
 /** 三视图的 pose 取值（与 lib/three-views.ts 的 THREE_VIEW_POSES 同集合） */
 const THREE_VIEW_POSE_SET = new Set(["front", "side", "back"]);
@@ -90,12 +91,21 @@ export function shouldSuggestCanonicalUpgrade(
  * 正面（朝向感知选图会据 pose 挑背影镜的参考，写错会挑错图）。
  * 无 pose 的普通参考图默认记 "front"，与 select-reference 首图补锚的既有
  * 行为一致。
+ *
+ * **表情图（`expr:*`）必须原样保留，绝不归一成 "front"**：表情图是胸上特写，
+ * 若被改写成 "front"，`facing.ts#pickAssetUrlForFacing` 会把这张脸部特写当作
+ * 正面全身立绘喂给出图，全片正面镜都会拿到一张没有身体、且锁死某种表情的参考。
+ * 用户确实可以把一张表情图提为定妆锚（是他的自由），但那只影响
+ * `Character.canonicalImageUrl`，不该顺手污染朝向语义。
  */
 export function resolveAnchorPose(
   existingPose: string | null | undefined
 ): string {
   const pose = existingPose?.trim();
-  return pose && THREE_VIEW_POSE_SET.has(pose) ? pose : "front";
+  if (!pose) return "front";
+  if (THREE_VIEW_POSE_SET.has(pose)) return pose;
+  if (isExpressionPose(pose)) return pose;
+  return "front";
 }
 
 /** 事务客户端（Prisma 事务回调入参形状） */

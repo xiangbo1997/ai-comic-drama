@@ -10,6 +10,7 @@ import {
   Upload,
   X,
   Grid2x2,
+  Smile,
   Sparkles,
 } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
@@ -29,6 +30,8 @@ import {
 /** 上传参考图大小上限：过大 base64 会撑爆请求体导致模糊失败 */
 const MAX_UPLOAD_MB = 10;
 const THREE_VIEWS_COST = 9;
+/** 表情集单价与三视图每视角同价（服务端复用 COST_THREE_VIEWS_PER_VIEW）× 6 种表情 */
+const EXPRESSIONS_COST = 18;
 
 async function fetchCredits(): Promise<{ credits: number }> {
   const res = await fetch("/api/user/credits");
@@ -48,6 +51,9 @@ interface GenerateReferenceModalProps {
   /** 一键三视图（正/侧/背，防崩坏），由父组件注入 mutation */
   onGenerateThreeViews?: () => void;
   threeViewsPending?: boolean;
+  /** 一键表情集（6 种表情，锁表情画法），由父组件注入 mutation */
+  onGenerateExpressions?: () => void;
+  expressionsPending?: boolean;
 }
 
 export function GenerateReferenceModal({
@@ -61,6 +67,8 @@ export function GenerateReferenceModal({
   generatePending,
   onGenerateThreeViews,
   threeViewsPending,
+  onGenerateExpressions,
+  expressionsPending,
 }: GenerateReferenceModalProps) {
   const toast = useToast();
   const character = characters.find((c) => c.id === characterId);
@@ -119,6 +127,13 @@ export function GenerateReferenceModal({
   const insufficient = typeof balance === "number" && balance < cost;
   const threeViewsInsufficient =
     typeof balance === "number" && balance < THREE_VIEWS_COST;
+  const expressionsInsufficient =
+    typeof balance === "number" && balance < EXPRESSIONS_COST;
+  // 表情图必须 i2i 锚定定妆照（否则画出来是「另一个人的愤怒脸」，表情集失去意义），
+  // 服务端无锚时直接 400。这里同步禁用并说明原因，避免用户点了才收到报错。
+  const hasAnchorForExpressions = Boolean(
+    character?.canonicalImageUrl || character?.referenceImages?.[0]
+  );
 
   const handleImageUpload = (file: File) => {
     setUploadError(null);
@@ -508,6 +523,39 @@ export function GenerateReferenceModal({
                 <>
                   <Grid2x2 size={16} />
                   一键生成三视图（正/侧/背，9 积分）
+                </>
+              )}
+            </button>
+          )}
+
+          {/* 一键表情集：6 种表情，锁跨镜头的五官画法（漫剧 80% 是表情特写） */}
+          {onGenerateExpressions && (
+            <button
+              onClick={onGenerateExpressions}
+              disabled={
+                expressionsPending ||
+                generatePending ||
+                expressionsInsufficient ||
+                !hasAnchorForExpressions
+              }
+              title={
+                !hasAnchorForExpressions
+                  ? "请先生成或上传定妆照——表情图需以定妆照为身份锚点"
+                  : expressionsInsufficient
+                    ? `积分不足（需 ${EXPRESSIONS_COST}，当前 ${balance}），请先充值`
+                    : undefined
+              }
+              className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {expressionsPending ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  生成表情集中（约2分钟）...
+                </>
+              ) : (
+                <>
+                  <Smile size={16} />
+                  一键生成表情集（6 种表情，{EXPRESSIONS_COST} 积分）
                 </>
               )}
             </button>

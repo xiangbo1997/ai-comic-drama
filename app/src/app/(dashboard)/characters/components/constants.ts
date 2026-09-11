@@ -274,6 +274,63 @@ export async function generateThreeViews(
   throw new Error("生成超时，请稍后刷新角色查看");
 }
 
+/**
+ * 一键生成角色表情集（默认 6 种：平静/喜悦/愤怒/悲伤/惊讶/羞怯）。
+ *
+ * 漫剧 80% 是表情特写，而此前表情完全无锚——靠 emotion 关键词让模型每次重画
+ * 一张脸，同角色同情绪跨镜头五官画法漂移。表情集给每种情绪一张定妆级参考图。
+ *
+ * 异步化（绕开 Cloudflare 100s 超时）：POST 拿 taskId → 轮询任务状态。
+ */
+export interface ExpressionsResult {
+  expressions: { key: string; url: string }[];
+  cost: number;
+}
+
+export async function generateExpressions(
+  id: string,
+  options: {
+    imageConfigId?: string;
+    customPrompt?: string;
+    /** 只补部分表情时传；缺省 = 全部 6 种 */
+    expressions?: string[];
+  } = {}
+): Promise<ExpressionsResult> {
+  const startRes = await fetch(`/api/characters/${id}/generate-expressions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options),
+  });
+  if (!startRes.ok) {
+    const error = await startRes.json().catch(() => null);
+    throw new Error(formatApiError(error, "生成表情集失败"));
+  }
+  const { taskId } = (await startRes.json()) as { taskId: string };
+
+  // 轮询：6 张串行生图，比三视图多一倍，给足 6 分钟（180 × 2s）
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_POLLS = 180;
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    const pollRes = await fetch(
+      `/api/characters/${id}/generate-expressions/${taskId}`
+    );
+    if (!pollRes.ok) {
+      const error = await pollRes.json().catch(() => null);
+      throw new Error(error?.error || "轮询表情集状态失败");
+    }
+    const data = (await pollRes.json()) as {
+      status: string;
+      result?: ExpressionsResult;
+      error?: string;
+    };
+    if (data.status === "COMPLETED" && data.result) return data.result;
+    if (data.status === "FAILED")
+      throw new Error(data.error || "生成表情集失败");
+  }
+  throw new Error("生成超时，请稍后刷新角色查看");
+}
+
 export async function fetchTags(): Promise<Tag[]> {
   const res = await fetch("/api/tags");
   if (!res.ok) throw new Error("获取标签列表失败");

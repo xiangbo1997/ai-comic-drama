@@ -9,6 +9,8 @@
  * 避免误命中把大量正面镜头判成侧/背。纯函数、可单测、无副作用。
  */
 
+import { isExpressionPose } from "@/lib/expression-sheet";
+
 /** 角色在画面中的朝向 */
 export type Facing = "front" | "side" | "back";
 
@@ -80,7 +82,13 @@ export interface FacingAsset {
  * 1. pose 与目标朝向完全匹配（back→back / side→side / front→front）
  * 2. side 无匹配时回退 3quarter（3/4 侧比正面更贴近侧面语义）
  * 3. 再回退 front（正面定妆是最通用的身份锚）
- * 4. 再回退第一张（至少有图）
+ * 4. 再回退第一张**非表情图**（至少有图）
+ *
+ * ⚠️ 第 4 步显式排除表情图（pose 为 `expr:*`）：表情图是胸上特写，拿它当
+ * 「通用朝向参考」会让全身镜失去身体信息，且把某种表情（愤怒/哭）锁进一个
+ * 本该平静的镜头。表情图有自己的消费路径（见 lib/expression-sheet.ts），
+ * 不参与朝向兜底。全是表情图时宁可返回 undefined，让调用方回落
+ * canonicalImageUrl —— 那是一张正经立绘。
  *
  * 无资产时返回 undefined，由调用方回落既有 canonicalImageUrl 逻辑（零回归）。
  */
@@ -107,6 +115,6 @@ export function pickAssetUrlForFacing(
   const front = byPose("front");
   if (front) return front;
 
-  // 4. 回退第一张
-  return assets[0]?.url;
+  // 4. 回退第一张非表情图；全是表情图则不兜底（见上方注释）
+  return assets.find((a) => !isExpressionPose(a.pose))?.url;
 }

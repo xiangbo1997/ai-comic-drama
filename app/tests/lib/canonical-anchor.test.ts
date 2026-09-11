@@ -124,3 +124,22 @@ describe("resolveAnchorPose", () => {
     expect(resolveAnchorPose("  back  ")).toBe("back");
   });
 });
+
+describe("resolveAnchorPose — 表情图防呆（角色表情集）", () => {
+  it("表情 pose 原样保留，不被归一成 front", () => {
+    // 表情图是胸上特写；改写成 "front" 会让朝向感知选图把它当正面全身立绘，
+    // 全片正面镜都拿到一张没有身体、且锁死某种表情的参考
+    expect(resolveAnchorPose("expr:anger")).toBe("expr:anger");
+    expect(resolveAnchorPose("expr:joy")).toBe("expr:joy");
+    expect(resolveAnchorPose("expr:embarrassed")).toBe("expr:embarrassed");
+  });
+
+  it("表情 pose 容忍首尾空白", () => {
+    expect(resolveAnchorPose("  expr:sorrow  ")).toBe("expr:sorrow");
+  });
+
+  it("非表情、非三视图的未知 pose 仍归一成 front（原行为不变）", () => {
+    expect(resolveAnchorPose("expression")).toBe("front");
+    expect(resolveAnchorPose("closeup")).toBe("front");
+  });
+});

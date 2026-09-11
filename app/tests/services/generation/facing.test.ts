@@ -102,3 +102,37 @@ describe("pickAssetUrlForFacing（按朝向挑参考图）", () => {
     expect(pickAssetUrlForFacing([], "front")).toBeUndefined();
   });
 });
+
+describe("pickAssetUrlForFacing — 表情图不参与朝向兜底", () => {
+  it("全是表情图时返回 undefined，让调用方回落 canonicalImageUrl", () => {
+    // 拿一张胸上特写当「通用朝向参考」会丢掉身体信息，并把某种表情
+    // 锁进一个本该平静的镜头；宁可不兜底，回落到正经立绘
+    const assets = [
+      { url: "/anger.png", pose: "expr:anger" },
+      { url: "/joy.png", pose: "expr:joy" },
+    ];
+    expect(pickAssetUrlForFacing(assets, "front")).toBeUndefined();
+    expect(pickAssetUrlForFacing(assets, "side")).toBeUndefined();
+    expect(pickAssetUrlForFacing(assets, "back")).toBeUndefined();
+  });
+
+  it("兜底跳过表情图，取第一张非表情图", () => {
+    const assets = [
+      { url: "/anger.png", pose: "expr:anger" },
+      { url: "/misc.png", pose: null },
+    ];
+    expect(pickAssetUrlForFacing(assets, "back")).toBe("/misc.png");
+  });
+
+  it("有三视图时表情图完全不干扰既有优先级", () => {
+    const assets = [
+      { url: "/anger.png", pose: "expr:anger" },
+      { url: "/front.png", pose: "front" },
+      { url: "/back.png", pose: "back" },
+    ];
+    expect(pickAssetUrlForFacing(assets, "front")).toBe("/front.png");
+    expect(pickAssetUrlForFacing(assets, "back")).toBe("/back.png");
+    // side 无匹配 → 回落 front，而非表情图
+    expect(pickAssetUrlForFacing(assets, "side")).toBe("/front.png");
+  });
+});

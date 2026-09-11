@@ -22,6 +22,7 @@ import {
   generateReference,
   selectReference,
   generateThreeViews,
+  generateExpressions,
   fetchTags,
   generateDescription,
   type CharacterFormData,
@@ -87,6 +88,9 @@ export default function CharactersPage() {
   //（此前全局 isPending 一人生成、整个角色库按钮全禁用）
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
   const [threeViewsGeneratingIds, setThreeViewsGeneratingIds] = useState<
+    Set<string>
+  >(new Set());
+  const [expressionsGeneratingIds, setExpressionsGeneratingIds] = useState<
     Set<string>
   >(new Set());
 
@@ -470,6 +474,37 @@ export default function CharactersPage() {
     },
   });
 
+  // 一键表情集（6 种表情，锁跨镜头五官画法）
+  const generateExpressionsMutation = useMutation({
+    mutationFn: ({
+      id,
+      imageConfigId,
+      customPrompt,
+    }: {
+      id: string;
+      imageConfigId?: string;
+      customPrompt?: string;
+    }) => generateExpressions(id, { imageConfigId, customPrompt }),
+    onMutate: ({ id }) => {
+      setExpressionsGeneratingIds((prev) => new Set(prev).add(id));
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["characters"] });
+      toast.success(`表情集生成成功（${data.expressions.length} 张）`);
+    },
+    onError: (error) => {
+      const fe = toFriendlyError(error, "生成表情集失败");
+      toast.error(fe.message, fe.cta);
+    },
+    onSettled: (_data, _error, { id }) => {
+      setExpressionsGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    },
+  });
+
   const generateDescriptionMutation = useMutation({
     mutationFn: generateDescription,
     onSuccess: (data) => {
@@ -716,6 +751,17 @@ export default function CharactersPage() {
             })
           }
           threeViewsPending={threeViewsGeneratingIds.has(
+            generateModalCharacterId
+          )}
+          onGenerateExpressions={() =>
+            generateExpressionsMutation.mutate({
+              id: generateModalCharacterId,
+              imageConfigId: generateOptions.imageConfigId,
+              // 同屏自定义提示词一并透传（与三视图路径同规）
+              customPrompt: generateOptions.customPrompt.trim() || undefined,
+            })
+          }
+          expressionsPending={expressionsGeneratingIds.has(
             generateModalCharacterId
           )}
         />

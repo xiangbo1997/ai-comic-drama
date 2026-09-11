@@ -19,6 +19,10 @@ import {
 import type { CharacterListItem, Tag } from "@/types";
 import { isCharacterFinalized } from "@/lib/character-finalized";
 import { extractThreeViews, type ThreeViewPose } from "@/lib/three-views";
+import {
+  extractExpressionSheet,
+  EXPRESSION_SPECS,
+} from "@/lib/expression-sheet";
 import { AppearanceEditor } from "@/components/appearance-editor";
 import type { AppearanceFormData } from "@/components/appearance-editor";
 import { VOICE_PRESETS, type CharacterFormData } from "./constants";
@@ -189,6 +193,9 @@ function CharacterCardImpl({
         onSetCanonical={onSetCanonical}
         settingCanonicalUrl={settingCanonicalUrl}
       />
+
+      {/* 表情集展示（锁跨镜头的五官画法） */}
+      <ExpressionStrip character={character} />
 
       {/* Info */}
       <div className="p-4">
@@ -737,6 +744,67 @@ function ThreeViewStrip({
       <p className="text-muted-foreground/70 mt-2 text-[10px] leading-relaxed">
         定妆照建议选：单人、正面全身、纯色背景、无多格拼贴、无文字标注。
       </p>
+    </div>
+  );
+}
+
+/**
+ * 表情集展示：把已生成的表情图按固定顺序横排，一眼看出缺哪几种。
+ *
+ * 与三视图分开展示（而非混进参考图轮播）：表情图是胸上特写，语义上属于
+ * 「同一角色的不同演绎」而非「不同参考角度」，混在一起用户分不清该拿哪张当定妆照。
+ *
+ * 刻意**不提供**「设为定妆照」入口：定妆锚是全身立绘语义，拿一张表情特写当锚
+ * 会让所有全身镜失去身体参考（服务端落库时也把表情图恒置 isCanonical=false）。
+ *
+ * 一张表情图都没有时不渲染（避免给未用此功能的角色平添 6 个空格子）。
+ */
+function ExpressionStrip({ character }: { character: CharacterListItem }) {
+  const sheet = extractExpressionSheet(character.referenceAssets);
+  const generated = EXPRESSION_SPECS.filter((s) => sheet[s.key]);
+  if (generated.length === 0) return null;
+
+  return (
+    <div className="border-border border-t px-4 py-3">
+      <div className="mb-2 flex items-center gap-1.5">
+        <span className="text-muted-foreground text-xs font-medium">
+          角色表情集
+        </span>
+        <span className="text-muted-foreground/60 text-[10px]">
+          锁表情画法 · 出图按分镜情绪自动选用
+        </span>
+      </div>
+      <div className="grid grid-cols-6 gap-1.5">
+        {EXPRESSION_SPECS.map((spec) => {
+          const url = sheet[spec.key];
+          return (
+            <div key={spec.key} className="space-y-1">
+              <div className="bg-secondary relative aspect-square overflow-hidden rounded-md">
+                {url ? (
+                  <img
+                    src={url}
+                    alt={spec.label}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="text-muted-foreground/50 flex h-full w-full items-center justify-center text-[9px]">
+                    缺
+                  </div>
+                )}
+              </div>
+              <p className="text-muted-foreground text-center text-[9px]">
+                {spec.label}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      {generated.length < EXPRESSION_SPECS.length && (
+        <p className="text-muted-foreground/70 mt-2 text-[10px] leading-relaxed">
+          已生成 {generated.length}/{EXPRESSION_SPECS.length} 种；
+          缺失的表情在出图时回落定妆照，画法可能逐镜漂移。
+        </p>
+      )}
     </div>
   );
 }
