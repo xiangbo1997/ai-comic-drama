@@ -368,7 +368,9 @@ describe("VOICE_CHAIN 人声预处理链", () => {
     expect(limit).toBeLessThan(1);
   });
 
-  it("不含 dB 后缀——ffmpeg 这几个滤镜的阈值参数均不接受 dB 单位", () => {
+  it("阈值统一写线性值——与 sidechaincompress 书写风格一致，避免同文件两套量纲", () => {
+    // 注：ffmpeg 其实两种都接受（`-18dB` 会被自动换算成 ≈0.126，实测等价），
+    // 这条约束是为了可读性一致性，不是功能正确性。
     expect(VOICE_CHAIN).not.toMatch(/=-?[\d.]+dB/i);
   });
 });

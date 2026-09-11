@@ -137,9 +137,13 @@ export const LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.0:LRA=9";
  *
  * 四段（顺序不可换）：
  * 1. `highpass=f=80` —— 切掉 80Hz 以下，TTS 合成音的低频隆隆声与直流偏移
- * 2. `acompressor` —— 把动态收到 6-8dB 内。⚠️ ffmpeg 的 threshold 是**线性值**
- *    （0.000976563–1）不是 dB：0.126 ≈ -18dB。ratio=3 是对白常用值（上限 20）。
- *    attack/release 单位 ms。makeup 是**增益倍数**（1–64），2 ≈ +6dB 补回压掉的响度。
+ * 2. `acompressor` —— 把动态收到 6-8dB 内。threshold 的原生量纲是线性值
+ *    （取值域 0.000976563–1），但 ffmpeg 选项解析器支持 `dB` 后缀并自动换算，
+ *    `0.126` 与 `-18dB` 等价（已用 volumedetect 实测比对：二者输出 -21.7/-21.8 dB，
+ *    而 0.9 明显不同为 -21.1 dB）。这里写线性值，与下方 sidechaincompress 的
+ *    threshold（同一套 AVOptions）书写风格保持一致。
+ *    ratio=3 是对白常用值（上限 20）。attack/release 单位 ms。
+ *    makeup 是**增益倍数**（1–64），2 ≈ +6dB 补回压掉的响度。
  * 3. `deesser` —— 齿音抑制。i=强度、f=频点（归一化 0-1，0.5 约对应 6kHz 附近）。
  *    TTS 的 s/sh/z 音尤其刺耳，中文「四、十、是」高频集中。
  * 4. `alimiter` —— 削峰兜底，limit 是线性值（0.0625–1），0.95 ≈ -0.45dBFS。

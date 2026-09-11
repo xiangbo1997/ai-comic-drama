@@ -31,6 +31,7 @@ import {
 } from "@/types/export-style";
 // 混合出片成本路由：图片分镜默认运镜先按导演 cameraMovement 派生（双端同构单一真源）。
 import { resolveDefaultMotion } from "@/lib/render-mode";
+import { reconcileDuration } from "@/lib/av-duration-reconcile";
 // 全片 LUT 调色（批6）：id → .cube 预设白名单，导出端 lut3d 统一色调。
 import { type ColorGrade } from "@/lib/color-grade";
 // 片头/片尾卡（批6）：卡片文字行角色 → 卡片字幕样式映射。
@@ -721,7 +722,13 @@ async function probeClipDuration(
 async function sceneToVideoClip(
   scene: SceneMedia,
   outputDir: string,
-  options: ExportOptions
+  options: ExportOptions,
+  /**
+   * 该镜配音的成片实长（秒，已按 speed 折算）；无配音/探测失败为 undefined。
+   * 仅图片镜消费——图片镜用 `-t` 钉死时长，配音更长时会切掉半句台词。
+   * 视频镜不消费：它明确不截断，问题是画面拖尾静默（反向问题）。
+   */
+  voiceDuration?: number
 ): Promise<SceneClip> {
   const { width, height } = ASPECT_RATIOS[options.aspectRatio];
   const outputPath = path.join(outputDir, `scene_${scene.order}.mp4`);
@@ -813,11 +820,30 @@ async function sceneToVideoClip(
       motion === undefined
         ? (resolveDefaultMotion(scene.cameraMovement) ?? "zoomIn")
         : motion;
+    // 音画协调：配音比画面长时延长画面（上限 1.25 倍），避免 `-t` 把台词切半句。
+    // 图片镜本就是「凭空生成指定时长的视频」，改这个数字即可——片段文件的真实
+    // 时长确实变了，probeClipDuration 探到的就是新值，effDurations 的语义契约
+    // （「片段文件真实时长」）不破，xfade/tpad 全链路无需改动。
+    const reconciled = reconcileDuration(declaredDuration, voiceDuration);
+    const imgDuration = reconciled.duration;
+    if (reconciled.stretched) {
+      log.info("图片镜画面时长按配音延长", {
+        sceneOrder: scene.order,
+        declared: declaredDuration.toFixed(3),
+        reconciled: imgDuration.toFixed(3),
+        voice: voiceDuration?.toFixed(3),
+        // >1 表示即便延长到上限仍装不下，配音需额外提速才能完整放完
+        suggestedSpeedup: reconciled.suggestedSpeedup.toFixed(3),
+      });
+    }
+
+    // ⚠️ durationSec 与 -t 必须同值：Ken Burns 按 durationSec 算帧数，
+    // 若这里仍传旧值，推拉会在片尾提前走完然后静止。
     const imgVf = buildClipVideoFilter(width, height, effect, 1, {
       isImage: true,
       motion: imgMotion,
       impact,
-      durationSec: declaredDuration,
+      durationSec: imgDuration,
     });
     await runFFmpeg([
       "-loop",
@@ -825,7 +851,7 @@ async function sceneToVideoClip(
       "-i",
       imagePath,
       "-t",
-      declaredDuration.toString(),
+      imgDuration.toString(),
       "-vf",
       imgVf,
       "-c:v",
@@ -842,11 +868,8 @@ async function sceneToVideoClip(
     ]);
 
     await unlink(imagePath);
-    // 图片是自造时长，探测只是确认（应≈declaredDuration）
-    const effectiveDuration = await probeClipDuration(
-      outputPath,
-      declaredDuration
-    );
+    // 图片是自造时长，探测只是确认（应≈imgDuration）
+    const effectiveDuration = await probeClipDuration(outputPath, imgDuration);
     return { path: outputPath, effectiveDuration };
   }
 
@@ -933,6 +956,40 @@ export async function synthesizeVideoToPath<T>(
   await mkdir(tmpDir, { recursive: true });
 
   try {
+    // 0. 配音预探测（图片镜的音画协调需要它）。
+    //
+    // 为什么提前：图片镜用 `-t declaredDuration` 钉死时长，配音比它长时台词
+    // 会被切掉半句。要在生成片段时就把时长协调好，就必须先知道配音多长——
+    // 原流程是「先做片段、再探配音」，这里调换成「先探配音、再做片段」。
+    // 配音下载是 IO，提前不影响正确性；探测失败一律回落 undefined（不阻断导出，
+    // 该镜退化为原行为）。
+    const voiceProbes: (number | undefined)[] = new Array(scenes.length).fill(
+      undefined
+    );
+    if (options.includeAudio !== false) {
+      await Promise.all(
+        scenes.map(async (scene, i) => {
+          if (!scene.audioUrl) return;
+          try {
+            const probePath = await downloadFile(
+              scene.audioUrl,
+              `probe_audio_${scene.order}.mp3`,
+              tmpDir
+            );
+            const probed = await getMediaDuration(probePath);
+            const { speed } = resolveSceneEffect(
+              scene.id,
+              options.sceneEffects
+            );
+            // 成片里的配音实长 = 源实长 / speed（与下方 adelay 分支同公式）
+            if (probed > 0) voiceProbes[i] = probed / speed;
+          } catch {
+            // 探测失败不阻塞导出：该镜不做音画协调，行为与接入前一致
+          }
+        })
+      );
+    }
+
     // 1. 生成每个分镜的视频片段（含滤镜/变速；返回变速后的有效时长）
     //
     // 有限并发：每个 sceneToVideoClip = 下载(IO) + FFmpeg(CPU)。原先纯串行
@@ -946,7 +1003,12 @@ export async function synthesizeVideoToPath<T>(
       const batch = scenes.slice(i, i + CLIP_CONCURRENCY);
       await Promise.all(
         batch.map(async (scene, j) => {
-          const clip = await sceneToVideoClip(scene, tmpDir, options);
+          const clip = await sceneToVideoClip(
+            scene,
+            tmpDir,
+            options,
+            voiceProbes[i + j]
+          );
           clips[i + j] = clip; // 按原始 index 归位，保持分镜顺序
           doneCount += 1;
           await onProgress?.(Math.round((doneCount / scenes.length) * 50));
