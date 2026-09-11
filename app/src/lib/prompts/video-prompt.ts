@@ -16,6 +16,7 @@
 import { createLogger } from "@/lib/logger";
 import { normalizeShotType } from "@/lib/shot-type-normalize";
 import { CAMERA_MOVEMENTS, type CameraMovement } from "./camera-movements";
+import { normalizeCameraAngle, type CameraAngle } from "./camera-angles";
 import { buildLimitedAnimationBlock } from "./limited-animation";
 
 const log = createLogger("prompts:video-prompt");
@@ -87,14 +88,25 @@ const FRAMING_MAP: Record<string, string> = {
   远景: "Extreme wide establishing shot",
 };
 
-/** 机位角度 → 取景修饰后缀 */
-const ANGLE_MODIFIER_MAP: Record<string, string> = {
+/**
+ * 机位角度 → 取景修饰后缀。
+ *
+ * 键为 `camera-angles.ts` 的规范枚举值；查表前必须先过 `normalizeCameraAngle`，
+ * 否则短剧创作路径产出的中文「低角度仰拍」全部 miss、静默返回空串——
+ * 用户以为设计了仰拍压迫感，成片是平视。
+ */
+const ANGLE_MODIFIER_MAP: Record<CameraAngle, string> = {
   "low-angle": " from a low angle",
   "high-angle": " from a high angle",
+  // 平视是镜头语言的**默认状态**，不是一种"效果"——专业分镜不会特意标注
+  // "这镜是平视的"，就像不会标"这镜是正常速度的"。注入反而是噪音，占 prompt
+  // 预算还可能让模型误以为需要强调。故留空串：归一成功但不产出修饰。
+  "eye-level": "",
   "dutch-angle": " with a slight Dutch tilt",
   "over-the-shoulder": " with over-the-shoulder framing",
-  POV: " from a POV perspective",
   pov: " from a POV perspective",
+  "birds-eye": " from a bird's-eye view directly above",
+  "worms-eye": " from an extreme worm's-eye view looking up",
 };
 
 // 运镜枚举已提取到叶子模块 camera-movements.ts（打破 video-prompt ↔
@@ -186,7 +198,13 @@ function buildFraming(
   cameraAngle?: string | null
 ): string {
   if (!shotType) return "";
-  const modifier = cameraAngle ? (ANGLE_MODIFIER_MAP[cameraAngle] ?? "") : "";
+  // 先归一再查表：短剧创作路径产出中文（"低角度仰拍"），解析路径产出英文，
+  // 不归一则前者全部 miss、机位信息在视频端 100% 丢失。
+  const normalizedAngle = normalizeCameraAngle(cameraAngle);
+  const modifier = normalizedAngle ? ANGLE_MODIFIER_MAP[normalizedAngle] : "";
+  if (cameraAngle?.trim() && !normalizedAngle) {
+    log.warn("机位角度无法归一，本镜取景不含角度修饰", { cameraAngle });
+  }
 
   const direct = FRAMING_MAP[shotType];
   if (direct) return `${direct}${modifier}`;

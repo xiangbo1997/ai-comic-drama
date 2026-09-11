@@ -37,7 +37,7 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
 - 每镜时长按叙事需要 2-15 秒（长动作可更长，系统会按视频模型能力自动分段衔接），总时长与目标偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
 - description 要视觉化、含环境/光线/人物动作，适合 AI 图像/视频生成
 - 尽量给每个场景补齐镜头语言（可选字段，缺失不报错，但补齐能显著提升成片电影感）：
-  - cameraAngle：镜头角度，如"低角度仰拍""俯视""平视"
+  - cameraAngle：镜头角度，必须是以下英文枚举之一：low-angle（仰拍，压迫感/仰视）、high-angle（俯拍，弱势/全局）、eye-level（平视，中性）、dutch-angle（斜角，失衡/不安）、over-the-shoulder（过肩，对话正反打）、pov（主观视角）、birds-eye（鸟瞰）、worms-eye（极低角度）
   - lighting：光线，如"逆光""柔和侧光""冷调夜景"
   - composition：构图，如"三分法""中心对称""前景遮挡"
   - colorPalette：色调，如"冷蓝调""暖橙调""高对比黑金"
@@ -160,7 +160,7 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
       "emotion": "neutral",
       "durationSec": 8,
       "characters": ["本镜实际登场的角色名"],
-      "cameraAngle": "低角度仰拍",
+      "cameraAngle": "low-angle",
       "lighting": "冷调夜景",
       "composition": "三分法",
       "colorPalette": "冷蓝调",
