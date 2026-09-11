@@ -16,6 +16,12 @@ import {
   type ReferenceCell,
 } from "./reference-composite";
 import { inferFacing, pickAssetUrlForFacing, type Facing } from "./facing";
+import {
+  inferExpressionKey,
+  pickExpressionAssetUrl,
+  type ExpressionKey,
+} from "@/lib/expression-sheet";
+import { normalizeShotType } from "@/lib/shot-type-normalize";
 import { resolveEnvironmentAnchor } from "./environment-anchor";
 import { resolveSceneCharacterLooks } from "./scene-looks";
 import {
@@ -62,6 +68,26 @@ export async function orchestrateImageGeneration(
   // 无 hints 时默认 front（零回归）。
   const facing: Facing = inferFacing(request.sceneFacingHints ?? {});
 
+  // 表情锚推断（角色表情集）：据分镜情绪 + 画面描述推一次该用哪张表情参考图。
+  // 漫剧 80% 是表情特写，而此前表情完全靠 emotion 关键词让模型每次重画一张脸，
+  // 同角色同情绪跨镜头五官画法漂移。有表情图时用它当代表参考，把画法钉死。
+  // 迭代路径跳过（迭代基底是上一版整图，换成表情特写会破坏构图）。
+  // 无 emotion / 无表情图时为 undefined，全链零回归。
+  const expressionKey: ExpressionKey | undefined = request.iterate
+    ? undefined
+    : inferExpressionKey({
+        emotion: request.emotion,
+        description: request.sceneFacingHints?.description,
+      });
+
+  // 表情图启用闸门（单一真源，单角色路径与多角色合成路径共用）：
+  // 只在「正面 + 特写/近景」时启用。表情图是胸上特写，在全景/背影镜里用它会
+  // 丢掉身体与朝向信息，反而比定妆立绘更差。
+  const effectiveExpressionKey: ExpressionKey | undefined =
+    expressionKey && facing === "front" && isFaceShot(request.shotType)
+      ? expressionKey
+      : undefined;
+
   // 场景定妆照（换装变体）：非迭代且有 sceneId 时，据分镜换装标注 characterOutfits
   // 把命中角色的参考图换成对应换装定妆照（服装正确性优先于身份三视图默认服装）。
   // iterate 路径跳过（迭代基底已含服装）。lookOverrides 空时全链零回归。
@@ -91,6 +117,11 @@ export async function orchestrateImageGeneration(
       iterateMode: request.iterate,
       facing,
       lookOverrides: sceneLooks.lookOverrides,
+      // 画风包角色规则（头身比区间等）需按项目画风取，缺省回落默认画风
+      style: request.style,
+      // 表情锚：与 buildReferenceCells 用同一个闸门（正面 + 特写/近景），
+      // 保证单角色路径与多角色合成路径挑到同一张代表图（两路径对等）。
+      expressionKey: effectiveExpressionKey,
     }
   );
 
@@ -118,7 +149,12 @@ export async function orchestrateImageGeneration(
   let effectivePrompt = lookPrefix + decision.enhancedPrompt;
   const referenceCells = request.iterate
     ? []
-    : buildReferenceCells(request.characters, facing, sceneLooks.lookOverrides);
+    : buildReferenceCells(
+        request.characters,
+        facing,
+        sceneLooks.lookOverrides,
+        effectiveExpressionKey
+      );
 
   // 场景锚定图（环境一致性）：非迭代且有 sceneId 时，取同地点最早已出图的分镜作锚，
   // 锁背景/布局/光线。锚是增强项，为 null 时全部注入分支自然跳过，绝不阻断出图。
@@ -409,9 +445,12 @@ export type {
  *
  * 代表图挑选优先级：
  * ① 换装定妆照（lookOverrides 命中）：服装正确性优先，覆盖朝向感知/canonical 的选择。
- * ② 朝向感知：角色有三视图 referenceAssets 时按分镜朝向挑（背影镜取背视图、侧面镜取
+ * ② 表情图（expressionKey 命中且角色有该表情图）：**仅限正面特写镜**。
+ *    表情图是胸上特写，只在「镜头本就是拍脸」时才是更好的参考；全景/背影镜用它
+ *    会丢掉身体与朝向信息，反而更差。判据见下方 useExpression。
+ * ③ 朝向感知：角色有三视图 referenceAssets 时按分镜朝向挑（背影镜取背视图、侧面镜取
  *    侧视图，避免正脸参考把画面拉回正面）。
- * ③ 无 referenceAssets 时回退既有 canonicalImageUrl || referenceImageUrls[0] 逻辑（零回归）。
+ * ④ 无 referenceAssets 时回退既有 canonicalImageUrl || referenceImageUrls[0] 逻辑（零回归）。
  *
  * 只取每角色一张（而非三视图全塞）：多角色 × 三视图会让合成图过宽、每格过小，
  * 稀释身份信息。按 role 排序（primary 在前）。
@@ -419,7 +458,9 @@ export type {
 function buildReferenceCells(
   characters: SceneCharacterInfo[],
   facing: Facing,
-  lookOverrides?: Map<string, string>
+  lookOverrides?: Map<string, string>,
+  /** 已经过「正面 + 特写/近景」闸门的表情锚（见调用方 effectiveExpressionKey） */
+  expressionKey?: ExpressionKey
 ): ReferenceCell[] {
   const ordered = [...characters].sort(
     (a, b) => roleRank(a.role) - roleRank(b.role)
@@ -429,16 +470,35 @@ function buildReferenceCells(
   for (const c of ordered) {
     // 换装定妆照优先：服装正确性优先于视角，覆盖朝向/canonical 的选择
     const lookUrl = lookOverrides?.get(c.id);
+    // 表情图次之：同一角色同一情绪跨镜头锁死同一套五官画法
+    const expressionUrl = expressionKey
+      ? pickExpressionAssetUrl(c.referenceAssets, expressionKey)
+      : undefined;
     const facingUrl = c.referenceAssets?.length
       ? pickAssetUrlForFacing(c.referenceAssets, facing)
       : undefined;
     const url =
-      lookUrl || facingUrl || c.canonicalImageUrl || c.referenceImageUrls?.[0];
+      lookUrl ||
+      expressionUrl ||
+      facingUrl ||
+      c.canonicalImageUrl ||
+      c.referenceImageUrls?.[0];
     if (!url || seen.has(url)) continue;
     seen.add(url);
     cells.push({ url, label: c.name });
   }
   return cells;
+}
+
+/**
+ * 是否为「拍脸」的景别（特写 / 近景）。
+ *
+ * 归一后精确匹配，复用 shot-type-normalize 的单一真源，避免复合值
+ * （「大特写·急推」）与别名在裸字符串比较下漏判。
+ */
+function isFaceShot(shotType?: string): boolean {
+  const normalized = normalizeShotType(shotType);
+  return normalized === "特写" || normalized === "近景";
 }
 
 function roleRank(role: SceneCharacterInfo["role"]): number {

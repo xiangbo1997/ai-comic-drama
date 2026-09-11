@@ -25,6 +25,7 @@ import {
   buildConsistencyGuard,
   getStylePack,
 } from "@/lib/prompts";
+import { normalizeCameraAngle } from "@/lib/prompts/camera-angles";
 import {
   buildEmotionPhrase,
   inferEmotionIntensity,
@@ -198,7 +199,13 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
   // 2. 镜头语言（前置高权重）：景别 → 机位/角度 → 构图。
   //    优先解析层的 cinematics.composition/cameraAngle；景别过 SHOT_MAP 翻译成焦段+景深。
   parts.push(getShotTypeDescription(shotType));
-  const cameraAngle = cinematics?.cameraAngle?.trim();
+  // 机位角度归一到英文枚举：解析路径产出英文、短剧创作路径产出中文
+  // （"低角度仰拍"），中文原样进英文 prompt 会被模型打折理解。
+  // 无法归一时保留原文（总比丢弃强——图像端不像视频端那样必须精确匹配）。
+  const rawAngle = cinematics?.cameraAngle?.trim();
+  const cameraAngle = rawAngle
+    ? (normalizeCameraAngle(rawAngle) ?? rawAngle)
+    : "";
   if (cameraAngle) parts.push(cameraAngle);
   const composition = cinematics?.composition?.trim();
   if (composition) parts.push(composition);
@@ -229,6 +236,11 @@ export function buildEnhancedPrompt(options: BuildPromptOptions): string {
     } else {
       parts.push(`characters: ${characterDescriptions.join("; ")}`);
     }
+    // 3b. 画风包角色规则（线条/上色/头身比区间）紧跟角色段之后。
+    //     语序即优先级：角色级的具体数字先入场，画风通则跟在后面做补充与兜底
+    //     （规则文本自带 "per-character spec overrides" 显式声明这个优先级）。
+    //     legacy 平面风格为空串自动跳过。
+    if (pack.characterRulesEn.trim()) parts.push(pack.characterRulesEn);
   }
 
   // 4. 角色动作 + 夸张表情（情绪语法）。动作来自分析；表情/符号来自 emotion-grammar，

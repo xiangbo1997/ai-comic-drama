@@ -8,7 +8,12 @@ import {
   describeImageCapabilityOverride,
 } from "@/services/ai/provider-factory";
 import { pickAssetUrlForFacing, type Facing } from "./facing";
+import {
+  pickExpressionAssetUrl,
+  type ExpressionKey,
+} from "@/lib/expression-sheet";
 import { buildCanonicalAppearanceText } from "@/lib/prompts/canonical-appearance";
+import { getStylePack } from "@/lib/prompts/style-packs";
 import { createLogger } from "@/lib/logger";
 import type { AIServiceConfig } from "@/types";
 import type {
@@ -41,6 +46,20 @@ export interface ResolveStrategyOptions {
    * 仅在 referenceImagesOverride 缺省（走逐角色收集分支）时生效。
    */
   lookOverrides?: Map<string, string>;
+  /**
+   * 项目画风 id（Project.style）。用于取画风包的英文角色规则（线条/上色/头身比区间）
+   * 注入到角色段之后。缺省时按默认画风（anime）解析——与 getStylePack 的回落一致。
+   */
+  style?: string | null;
+  /**
+   * 本镜的表情锚（角色表情集）：命中且该角色有对应表情图时，把表情图排到该角色
+   * URL 列表首位，让参考图第一张就带对的表情——同角色同情绪跨镜头锁死同一套
+   * 五官画法（漫剧 80% 是表情特写，此前表情完全无锚）。
+   *
+   * 仅在调用方判定为「正面 + 特写/近景」时传入（表情图是胸上特写，全景/背影镜
+   * 用它会丢身体与朝向信息）。缺省时行为与现状完全一致（零回归）。
+   */
+  expressionKey?: ExpressionKey;
 }
 
 export function resolveStrategy(
@@ -95,6 +114,19 @@ export function resolveStrategy(
     // 排到本角色 URL 列表首位（其余顺序不变），让参考图第一张就是对的朝向。
     // 无 referenceAssets / 无 facing 时 orderedUrls === urls（零回归）。
     let orderedUrls = reorderByFacing(urls, c, options?.facing);
+
+    // 表情图（角色表情集）：该角色有本镜情绪对应的表情图时，置于其 URL 列表首位。
+    // 排在换装之前处理、故最终位次低于换装——服装错了是硬伤（观众一眼看出穿错衣服），
+    // 表情画法漂移是软伤，冲突时让服装优先。
+    const expressionUrl = options?.expressionKey
+      ? pickExpressionAssetUrl(c.referenceAssets, options.expressionKey)
+      : undefined;
+    if (expressionUrl) {
+      orderedUrls = [
+        expressionUrl,
+        ...orderedUrls.filter((u) => u !== expressionUrl),
+      ];
+    }
 
     // 换装定妆照覆盖（场景定妆照）：该角色有换装图时，置于其 URL 列表首位
     // （服装正确性优先于朝向视角），其余参考图保留在后并去重。
@@ -153,7 +185,8 @@ export function resolveStrategy(
     characters,
     strategy,
     shotType,
-    options?.iterateMode
+    options?.iterateMode,
+    options?.style
   );
 
   return {
@@ -195,17 +228,29 @@ function buildStrategyPrompt(
   characters: SceneCharacterInfo[],
   strategy: GenerationStrategy,
   shotType?: string,
-  iterateMode?: boolean
+  iterateMode?: boolean,
+  style?: string | null
 ): string {
   const parts: string[] = [];
 
   // 角色外貌描述（结构化优先，fallback 到 description）
+  let hasCharacterFeatures = false;
   for (const char of characters) {
     const features = buildCharacterFeatures(char);
     if (features) {
+      hasCharacterFeatures = true;
       const roleLabel = char.role === "primary" ? "(main character)" : "";
       parts.push(`${char.name}${roleLabel}: ${features}`);
     }
+  }
+
+  // 画风包角色规则（线条/上色/头身比区间）紧跟角色段之后。
+  // 语序即优先级：角色级的具体数字先入场，画风通则跟在后面做补充与兜底
+  // （规则文本自带 "per-character spec overrides" 显式声明这个优先级）。
+  // 无角色段时不注入（纯场景图不需要角色规则）；legacy 平面风格为空串自动跳过。
+  if (hasCharacterFeatures) {
+    const characterRulesEn = getStylePack(style).characterRulesEn.trim();
+    if (characterRulesEn) parts.push(characterRulesEn);
   }
 
   parts.push(basePrompt);

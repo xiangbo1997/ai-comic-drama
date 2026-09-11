@@ -126,3 +126,45 @@ describe("buildEnhancedPrompt 新排序（漫剧化重排）", () => {
     expect(prompt.trim().length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * 画风包角色规则注入（线条/上色/头身比区间）。
+ *
+ * 语序即优先级：角色级的具体数字先入场，画风通则跟在后面做补充与兜底
+ * （规则文本自带 "per-character spec overrides" 显式声明这个优先级）。
+ */
+describe("buildEnhancedPrompt — 画风包角色规则注入", () => {
+  it("有角色时注入画风包英文角色规则", () => {
+    const prompt = buildEnhancedPrompt(makeOptions());
+    expect(prompt).toContain(getStylePack("anime").characterRulesEn);
+  });
+
+  it("角色规则排在角色段之后（具体优先、通则兜底）", () => {
+    const prompt = buildEnhancedPrompt(makeOptions());
+    const charIdx = prompt.indexOf("character: 林岚");
+    const rulesIdx = prompt.indexOf(getStylePack("anime").characterRulesEn);
+    expect(charIdx).toBeGreaterThanOrEqual(0);
+    expect(rulesIdx).toBeGreaterThan(charIdx);
+  });
+
+  it("无角色时不注入角色规则（纯场景图不需要）", () => {
+    const prompt = buildEnhancedPrompt(
+      makeOptions({
+        characters: [],
+        analysis: makeAnalysis({ characterActions: [] }),
+      })
+    );
+    expect(prompt).not.toContain(getStylePack("anime").characterRulesEn);
+  });
+
+  it("legacy 平面画风（角色规则为空串）不注入空段", () => {
+    const prompt = buildEnhancedPrompt(makeOptions({ style: "sketch" }));
+    expect(getStylePack("sketch").characterRulesEn).toBe("");
+    expect(prompt).not.toMatch(/,\s*,/);
+  });
+
+  it("legacyOrdering 回滚路径保持旧行为，不注入新特性", () => {
+    const legacy = buildEnhancedPrompt(makeOptions({ legacyOrdering: true }));
+    expect(legacy).not.toContain(getStylePack("anime").characterRulesEn);
+  });
+});
