@@ -39,6 +39,17 @@ export interface StylePack {
   moodPalettes: string;
   /** 中文角色定妆风格补充（≤400 chars）：线条/头身比默认/肤感/背景色值。 */
   characterRules: string;
+  /**
+   * 英文精炼角色规则（≤120 chars）：进分镜出图 prompt 用。
+   * 只保留线条/上色/头身比区间/肤感核心。
+   *
+   * ⚠️ 措辞硬约束：头身比是**角色级属性，不是画风级** —— 同一部片里儿童 5 头身、
+   * 男主 7.5 头身、巨汉 8 头身三个数字全部合法。画风包只能给区间默认值，
+   * 因此每条都必须以 "per-character spec overrides" 收尾，让指令遵循型模型
+   * 读懂「角色设定另有指定时以角色为准」的优先级。
+   * legacy 平面风格为空串。
+   */
+  characterRulesEn: string;
   /** 中文场景生成风格补充（≤300 chars）：空间质感/光影语言。 */
   sceneRules: string;
   /**
@@ -73,7 +84,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "日常温馨：暖黄主色+米白辅，柔和均匀光；心动瞬间：樱花粉主色+暖橙辅，肤色微红提亮；紧张对峙：冷蓝主色+墨黑辅，硬光高对比；黄昏抒情：琥珀暖主色+暖橙辅，逆光轮廓光；夜色独处：天空蓝主色+淡紫辅，冷调暖点。",
     characterRules:
-      "线条：清晰流畅描边，赛璐璐平涂上色；头身比默认 6.5-7 头身；肤感：平涂柔和光泽、无数字化磨皮痕迹；三视图/定妆照统一面容·发型·基础服装，纯白或浅灰背景 #F5F0E8。",
+      "线条：清晰流畅描边，赛璐璐平涂上色；头身比区间 6.5-7（角色设定另有指定时以设定为准）；肤感：平涂柔和光泽、无数字化磨皮痕迹；三视图/定妆照统一面容·发型·基础服装，纯白或浅灰背景 #F5F0E8。",
+    characterRulesEn:
+      "clean cel-shaded linework, flat color fills, 6.5-7 head-to-body ratio typical for this style; per-character spec overrides",
     sceneRules:
       "空间必须有前/中/后景纵深；线条清晰+块面阴影；柔和电影光，单一光源逻辑；避免纯色无场景背景。",
     sceneRulesEn:
@@ -94,7 +107,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "白昼自然：中性白主色+柔和阴影，均匀自然光；黄金时刻：暖橙主色+金黄辅，长柔阴影+轮廓光；夜景都市：冷蓝主色+暖灯点缀，霓虹反光；室内温馨：暖黄主色+木色辅，暖侧光。",
     characterRules:
-      "追求真实骨相与皮肤质感（毛孔/次表面散射），自然光影建模；三视图/定妆照保持同一人物身份与真实肤质，中性灰背景，避免卡通比例。",
+      "追求真实骨相与皮肤质感（毛孔/次表面散射），自然光影建模；头身比区间 7-8（真实人体比例，角色设定另有指定时以设定为准）；三视图/定妆照保持同一人物身份与真实肤质，中性灰背景，避免卡通比例。",
+    characterRulesEn:
+      "true anatomy with pore-level skin and subsurface scattering, 7-8 realistic head-to-body ratio; per-character spec overrides",
     sceneRules:
       "真实空间透视与材质质感，物理正确的光影与阴影；空气透视表现纵深；避免插画平涂感。",
     sceneRulesEn:
@@ -115,7 +130,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "英雄登场：主色红/蓝对撞，硬光高对比；紧张战斗：墨黑主色+橙红辅，速度线+强阴影；悬疑推理：冷青主色+暗部墨黑，低调打光；胜利时刻：金黄主色+暖橙辅，全局提亮。",
     characterRules:
-      "线条：粗黑描边+网点阴影，块面平涂上色；头身比英雄式 7-8 头身；肤感：块面高光无渐变；三视图/定妆照保持同一人物剪影与描边风格，纯白背景。",
+      "线条：粗黑描边+网点阴影，块面平涂上色；头身比区间英雄式 7-8（角色设定另有指定时以设定为准）；肤感：块面高光无渐变；三视图/定妆照保持同一人物剪影与描边风格，纯白背景。",
+    characterRulesEn:
+      "bold black outlines with halftone shading, flat block fills, 7-8 heroic head-to-body ratio; per-character spec overrides",
     sceneRules:
       "强透视与动态构图，块面光影+网点质感；背景可简化聚焦主体；避免柔和写实光。",
     sceneRulesEn:
@@ -136,7 +153,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "清晨微光：淡蓝主色+米白辅，柔和漫射光；温柔回忆：樱粉主色+淡紫辅，朦胧晕染；雨后清新：青绿主色+浅蓝辅，湿润透明感；黄昏静谧：暖橙主色+灰紫辅，低对比柔光。",
     characterRules:
-      "线条：淡墨柔边或无硬描边，水彩晕染上色；头身比 6.5-7 头身；肤感：透明水润、留白高光；三视图/定妆照保持同一人物与水彩笔触，浅色纸质背景。",
+      "线条：淡墨柔边或无硬描边，水彩晕染上色；头身比区间 6.5-7（角色设定另有指定时以设定为准）；肤感：透明水润、留白高光；三视图/定妆照保持同一人物与水彩笔触，浅色纸质背景。",
+    characterRulesEn:
+      "soft ink edges or no hard outline, watercolor wash fills, 6.5-7 head-to-body ratio; per-character spec overrides",
     sceneRules:
       "柔边晕染表现空间，留白呼吸；水润透明光影；避免硬边与 3D 塑料质感。",
     sceneRulesEn:
@@ -159,7 +178,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "日常温馨：暖黄主色+米白/高级灰辅，柔和均匀暖光；心动瞬间：樱花粉主色+暖黄/暖橙辅，肤色微红；黄昏浪漫：琥珀暖主色+暖橙/樱花粉辅，逆光轮廓光；夜晚月色：天空蓝主色+淡紫/暖黄辅，冷调暖点缀；回忆闪回：暖黄主色+淡紫/高级灰辅，柔焦雾化轻微褪色。",
     characterRules:
-      "线条：精细流畅手绘描边、无数字锐利边缘，平涂块面阴影；头身比女 6-6.5 头身、男 6.5-7.5 头身（90年代比例）；肤感：冷白/暖调米白、平涂柔和光泽、手绘质感；三视图/定妆照素颜无妆、无发饰，暖调米白背景 #F8F4E8。",
+      "线条：精细流畅手绘描边、无数字锐利边缘，平涂块面阴影；头身比区间女 6-6.5、男 6.5-7.5（90年代比例）；角色设定另有指定时以设定为准；肤感：冷白/暖调米白、平涂柔和光泽、手绘质感；三视图/定妆照素颜无妆、无发饰，暖调米白背景 #F8F4E8。",
+    characterRulesEn:
+      "hand-drawn flowing linework, flat block shadows, 6-6.5 (female) / 6.5-7.5 (male) head-to-body ratio; per-character spec overrides",
     sceneRules:
       "前/中/后景纵深必备，室外含空气透视远景偏灰；清晰线条+块面阴影，材质带自然使用痕迹（拒 CG 全新感）；柔和电影暖光、自然光照。",
     sceneRulesEn:
@@ -180,7 +201,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "仙侠飘逸：月白+青绿主色，金黄/胭脂辅，柔和飘逸光；宫廷华贵：朱红+金黄主色，月白/墨黑辅，暖光高光景深；武侠对决：墨黑+靛蓝主色，青绿/赭石辅，冷调硬光紧张；少女日常：胭脂+月白主色，藤黄/灰紫辅，柔和暖光清新；月夜诗意：靛蓝+月白主色，墨黑/金黄点缀，冷月光局部暖光。",
     characterRules:
-      "线条：清晰细腻墨色描边、赛璐璐平涂结合日式渲染；二次元古风比例；肤感：胭脂 #A94A5F 腮红唇色、细腻通透；古风服饰精致（汉服形制）；三视图/定妆照保持同一人物与古风服饰，浅色留白背景。",
+      "线条：清晰细腻墨色描边、赛璐璐平涂结合日式渲染；头身比区间 7-8（二次元古风修长比例，角色设定另有指定时以设定为准）；肤感：胭脂 #A94A5F 腮红唇色、细腻通透；古风服饰精致（汉服形制）；三视图/定妆照保持同一人物与古风服饰，浅色留白背景。",
+    characterRulesEn:
+      "fine ink outlines, cel fills with Japanese rendering, 7-8 slender guofeng head-to-body ratio; per-character spec overrides",
     sceneRules:
       "东方意境+留白构图，传统建筑细节丰富；诗意光影层次，青绿山水氛围；避免西方奇幻/赛博/现代元素。",
     sceneRulesEn:
@@ -201,7 +224,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "日常温馨：暖黄主色+米白/高级灰辅，柔和均匀暖光；心动瞬间：樱花粉主色+暖橙/暖黄辅，肤色微红提亮；黄昏浪漫：琥珀暖主色+暖橙/樱花粉辅，逆光霞光轮廓光；夜晚街景：天空蓝主色+淡紫/暖橙辅，冷调暖点缀；室内日常：暖黄主色+米白/高级灰辅，暖光柔焦温馨。",
     characterRules:
-      "线条：清晰轮廓描边+高细节材质，写实材质与卡通比例结合；头身比 6.5-7.5 头身；肤感：暖橙通透、次表面柔光、无写实毛孔；发丝清晰轮廓+自然光影层次；三视图/定妆照保持同一人物与 3D 质感，中性灰背景，勿转 2D 平涂。",
+      "线条：清晰轮廓描边+高细节材质，写实材质与卡通比例结合；头身比区间 6.5-7.5（角色设定另有指定时以设定为准）；肤感：暖橙通透、次表面柔光、无写实毛孔；发丝清晰轮廓+自然光影层次；三视图/定妆照保持同一人物与 3D 质感，中性灰背景，勿转 2D 平涂。",
+    characterRulesEn:
+      "crisp contour lines with toon-shaded detailed materials, 6.5-7.5 head-to-body ratio; per-character spec overrides",
     sceneRules:
       "现代都市空间（街道/咖啡厅/居家/办公室），空间层次丰富、材质细腻；电影级柔光氛围、明快温暖；避免暗调重阴影与写实照片感。",
     sceneRulesEn:
@@ -222,7 +247,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "宫廷皇城：鎏金+朱红主色，全息盘龙辅，体积光穿云史诗感；江南水乡：青绿+墨黑主色，中式霓虹招牌辅，烟雨朦胧水墨光；仙侠秘境：靛蓝+月白主色，全息云海辅，流光萦绕虚实相生；侠女雨夜：墨黑+朱砂红主色，霓虹反光辅，雨水湿发冷硬光；祭司神殿：靛蓝渐变主色，银线星象/朱砂光纹辅，体积光穿透仙气。",
     characterRules:
-      "线条：3D 次世代高精度建模、东方古典骨相；完美人体比例、五官精致立体（丹凤眼/桃花眼）；肤感：细腻通透+赛博光效面纹；汉服形制+机能改造、鎏金机械发饰；三视图/定妆照保持同一人物与国风赛博造型，中性背景，织物发丝纤毫毕现。",
+      "线条：3D 次世代高精度建模、东方古典骨相；头身比区间 7.5-8.5（修长理想化比例，角色设定另有指定时以设定为准）、五官精致立体（丹凤眼/桃花眼）；肤感：细腻通透+赛博光效面纹；汉服形制+机能改造、鎏金机械发饰；三视图/定妆照保持同一人物与国风赛博造型，中性背景，织物发丝纤毫毕现。",
+    characterRulesEn:
+      "next-gen 3D modeling with oriental bone structure, 7.5-8.5 idealized head-to-body ratio; per-character spec overrides",
     sceneRules:
       "中式飞檐斗拱古建筑+全息霓虹，榫卯摩天楼宇；烟雨水墨意境+赛博光影层次，留白对称构图；体积光穿透雨雾、全局光照，避免无国风内核的纯西方赛博。",
     sceneRulesEn:
@@ -243,7 +270,9 @@ export const STYLE_PACKS: readonly StylePack[] = [
     moodPalettes:
       "初见心动：冷白肤主色+烟霞粉/银灰辅，冷基底局部柔暖高光；暧昧升温：烟霞粉主色+琥珀暖/素白辅，中近景提暖软焦；守护承诺：素白主色+浅蓝/墨黑辅，明暗清晰仪式感；分离误会：青灰主色+冷白/中性灰辅，降饱和拉大冷暖反差；重逢释怀：冷白肤主色+琥珀暖/烟霞粉辅，先冷后暖面部暖光。",
     characterRules:
-      "线条：清晰赛璐璐上色、面容细腻渲染；现代都市二次元比例；肤感：冷白/暖白通透、皮肤细腻、纹理超清晰；发丝层次分明；三视图/定妆照保持同一人物与现代都市造型，中性灰背景 #E8E8E8，避免暴露/透视。",
+      "线条：清晰赛璐璐上色、面容细腻渲染；头身比区间 7-8（现代都市二次元修长比例，角色设定另有指定时以设定为准）；肤感：冷白/暖白通透、皮肤细腻、纹理超清晰；发丝层次分明；三视图/定妆照保持同一人物与现代都市造型，中性灰背景 #E8E8E8，避免暴露/透视。",
+    characterRulesEn:
+      "clean cel shading with finely rendered faces, 7-8 modern urban head-to-body ratio; per-character spec overrides",
     sceneRules:
       "现代都市空间（公寓/办公室/咖啡厅/街道），景深虚化+镜头光学特征+空气透视；戏剧化低调光影、冷调暖点；避免古风/奇幻/科幻元素。",
     sceneRulesEn:
@@ -262,6 +291,7 @@ export const STYLE_PACKS: readonly StylePack[] = [
     colorSystemEn: "",
     moodPalettes: "",
     characterRules: "",
+    characterRulesEn: "",
     sceneRules: "",
     sceneRulesEn: "",
     negative: "digital art, flat shading, anime",
@@ -276,6 +306,7 @@ export const STYLE_PACKS: readonly StylePack[] = [
     colorSystemEn: "",
     moodPalettes: "",
     characterRules: "",
+    characterRulesEn: "",
     sceneRules: "",
     sceneRulesEn: "",
     negative: "color, 3d, shaded rendering, painted",
@@ -290,6 +321,7 @@ export const STYLE_PACKS: readonly StylePack[] = [
     colorSystemEn: "",
     moodPalettes: "",
     characterRules: "",
+    characterRulesEn: "",
     sceneRules: "",
     sceneRulesEn: "",
     negative: "flat illustration, 2d anime, cel shaded",
@@ -304,6 +336,7 @@ export const STYLE_PACKS: readonly StylePack[] = [
     colorSystemEn: "",
     moodPalettes: "",
     characterRules: "",
+    characterRulesEn: "",
     sceneRules: "",
     sceneRulesEn: "",
     negative: "medieval, fantasy village, rustic",
@@ -318,6 +351,7 @@ export const STYLE_PACKS: readonly StylePack[] = [
     colorSystemEn: "",
     moodPalettes: "",
     characterRules: "",
+    characterRulesEn: "",
     sceneRules: "",
     sceneRulesEn: "",
     negative: "modern technology, cars, skyscrapers",

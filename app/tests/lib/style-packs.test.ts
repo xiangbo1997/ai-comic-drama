@@ -31,7 +31,7 @@ describe("画风包分组", () => {
     }
   });
 
-  it("完整画风包的六层字段非空——新增包漏填即失败", () => {
+  it("完整画风包的各层字段非空——新增包漏填即失败", () => {
     for (const option of FULL_STYLE_PACK_OPTIONS) {
       const pack = getStylePack(option.value);
       expect(pack.anchor.trim(), `${pack.id} anchor`).not.toBe("");
@@ -43,8 +43,28 @@ describe("画风包分组", () => {
       expect(pack.characterRules.trim(), `${pack.id} characterRules`).not.toBe(
         ""
       );
+      expect(
+        pack.characterRulesEn.trim(),
+        `${pack.id} characterRulesEn`
+      ).not.toBe("");
       expect(pack.sceneRules.trim(), `${pack.id} sceneRules`).not.toBe("");
       expect(pack.sceneRulesEn.trim(), `${pack.id} sceneRulesEn`).not.toBe("");
+    }
+  });
+
+  /**
+   * 头身比是**角色级属性**：同一部片里儿童 5 头身、男主 7.5 头身、巨汉 8 头身
+   * 三个数字全部合法。画风包只能给区间默认值，若英文规则写成祈使句
+   * （"6.5-7 head-to-body ratio"），指令遵循型模型会把它当硬约束，
+   * 反过来覆盖角色设定里的具体数字——角色设定表白填。
+   */
+  it("英文角色规则必须声明「角色设定优先」，避免画风包头身比压过角色设定", () => {
+    for (const option of FULL_STYLE_PACK_OPTIONS) {
+      const pack = getStylePack(option.value);
+      expect(
+        pack.characterRulesEn,
+        `${pack.id} characterRulesEn 缺少 per-character spec overrides 声明`
+      ).toContain("per-character spec overrides");
     }
   });
 
@@ -55,6 +75,8 @@ describe("画风包分组", () => {
       expect(getStylePack(option.value).anchor.trim()).not.toBe("");
       // 但色调门禁拿不到基线
       expect(getStylePaletteBaseline(option.value)).toBe("");
+      // 角色规则同样缺失，出图路径按空串跳过注入
+      expect(getStylePack(option.value).characterRulesEn).toBe("");
     }
   });
 

@@ -43,6 +43,8 @@ const BUDGETS: Record<keyof StylePack, number> = {
   colorSystemEn: 160,
   moodPalettes: 500,
   characterRules: 400,
+  // 英文精炼角色规则：与 colorSystemEn / sceneRulesEn 同档预算
+  characterRulesEn: 160,
   sceneRules: 300,
   sceneRulesEn: 160,
   negative: Infinity,
