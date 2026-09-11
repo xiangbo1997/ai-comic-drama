@@ -104,6 +104,9 @@ async function upsertBibleCharacter(
           skinTone: true,
           height: true,
           accessories: true,
+          // 常服列必须取出：mergeAppearanceFields 靠它判断「是否已填」，
+          // 漏 select 会让 undefined 被当成空值，反过来覆盖用户手填的常服。
+          defaultOutfit: true,
           freeText: true,
         },
       },

@@ -3,6 +3,7 @@ import {
   mergeNullableFields,
   mergeAppearanceFields,
   bibleAppearanceToFields,
+  buildNewAppearanceData,
 } from "@/services/agents/character-bible-merge";
 import type { CharacterBibleEntry } from "@/services/agents/types";
 
@@ -106,15 +107,15 @@ describe("mergeAppearanceFields（C1：只补空外貌字段）", () => {
         hairStyle: null,
         hairColor: null,
         eyeColor: null,
-        freeText: null,
+        defaultOutfit: null,
       },
       bible
     );
     expect(patch.hairStyle).toBe("long straight");
     expect(patch.hairColor).toBe("black");
     expect(patch.eyeColor).toBe("brown");
-    // clothing 落 freeText
-    expect(patch.freeText).toBe("white dress");
+    // clothing 落 defaultOutfit（常服专列，不再降级挤进 freeText）
+    expect(patch.defaultOutfit).toBe("white dress");
   });
 
   it("现有外貌字段已填时绝不覆盖", () => {
@@ -123,13 +124,13 @@ describe("mergeAppearanceFields（C1：只补空外貌字段）", () => {
       {
         hairStyle: "用户填的短发",
         hairColor: "金色",
-        freeText: "用户填的自由描述",
+        defaultOutfit: "用户填的常服",
       },
       bible
     );
     expect(patch).not.toHaveProperty("hairStyle");
     expect(patch).not.toHaveProperty("hairColor");
-    expect(patch).not.toHaveProperty("freeText");
+    expect(patch).not.toHaveProperty("defaultOutfit");
   });
 
   it("bible 值为 null（unknown 归一）时不补该字段", () => {
@@ -143,12 +144,51 @@ describe("mergeAppearanceFields（C1：只补空外貌字段）", () => {
   it("混合：现有部分已填部分为空，只补空的", () => {
     const bible = bibleAppearanceToFields(bibleAppearance());
     const patch = mergeAppearanceFields(
-      { hairStyle: "已填", hairColor: null, skinTone: null, freeText: null },
+      {
+        hairStyle: "已填",
+        hairColor: null,
+        skinTone: null,
+        defaultOutfit: null,
+      },
       bible
     );
     expect(patch).not.toHaveProperty("hairStyle");
     expect(patch.hairColor).toBe("black");
     expect(patch.skinTone).toBe("fair");
-    expect(patch.freeText).toBe("white dress");
+    expect(patch.defaultOutfit).toBe("white dress");
+  });
+});
+
+/**
+ * 回归钉子：clothing 曾被降级塞进 freeText，导致用户只要填过 freeText
+ * （如「有一道疤，气质冷淡」），圣经推断出的服装信息就被**永久丢弃**——
+ * 而常服恰恰是每张原画的默认约束，丢了模型每镜自行编服装。
+ */
+describe("clothing 落常服专列（不再与用户 freeText 争槽位）", () => {
+  it("用户已填 freeText 时，clothing 仍能写进 defaultOutfit", () => {
+    const bible = bibleAppearanceToFields(bibleAppearance());
+    const patch = mergeAppearanceFields(
+      { freeText: "有一道疤，气质冷淡", defaultOutfit: null },
+      bible
+    );
+    expect(patch.defaultOutfit).toBe("white dress");
+    // 用户的 freeText 分毫不动
+    expect(patch).not.toHaveProperty("freeText");
+  });
+
+  it("建档时 clothing 写 defaultOutfit 而非 freeText", () => {
+    const data = buildNewAppearanceData(
+      bibleAppearanceToFields(bibleAppearance())
+    );
+    expect(data.defaultOutfit).toBe("white dress");
+    expect(data.freeText).toBeUndefined();
+  });
+
+  it("clothing 为 unknown 时不写常服占位", () => {
+    const bible = bibleAppearanceToFields(
+      bibleAppearance({ clothing: "unknown" })
+    );
+    const patch = mergeAppearanceFields({ defaultOutfit: null }, bible);
+    expect(patch).not.toHaveProperty("defaultOutfit");
   });
 });

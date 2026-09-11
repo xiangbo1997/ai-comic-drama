@@ -63,17 +63,24 @@ export interface AppearanceFields {
   skinTone: string | null;
   height: string | null;
   accessories: string | null;
+  /** 常服：圣经产出的 clothing 落此字段（专列，不再降级挤进 freeText） */
+  defaultOutfit: string | null;
   freeText: string | null;
 }
 
 /**
  * bible.appearance → CharacterAppearance 字段映射（纯函数）。
- * clothing 落 freeText（自由文本，与 characters 路由消费一致，不进 clothingPresets 结构化表）。
+ *
+ * clothing 落 defaultOutfit（常服专列）。此前它被降级塞进 freeText，导致用户只要
+ * 填过 freeText（如「有一道疤，气质冷淡」），圣经推断出的服装信息就被永久丢弃——
+ * 而常服恰恰是每张原画的默认约束，丢失后模型每镜自行编服装。
  * bible 值为 "unknown" / 空时归一为 null（不写无意义占位）。
  */
 export function bibleAppearanceToFields(
   appearance: CharacterBibleEntry["appearance"]
-): Omit<AppearanceFields, "freeText"> & { clothing: string | null } {
+): Omit<AppearanceFields, "freeText" | "defaultOutfit"> & {
+  clothing: string | null;
+} {
   return {
     hairStyle: normalizeBibleValue(appearance.hairStyle),
     hairColor: normalizeBibleValue(appearance.hairColor),
@@ -89,8 +96,8 @@ export function bibleAppearanceToFields(
 
 /**
  * "只补空外貌字段"决策（纯函数）：现有 appearance 各字段为 null 时才用 bible 值补。
- * 返回仅含需写入字段的补丁；无补返回空对象。clothing 走 freeText（现有 freeText
- * 为空时才写，避免覆盖用户手填的自由描述）。
+ * 返回仅含需写入字段的补丁；无补返回空对象。clothing 走 defaultOutfit（常服专列，
+ * 现有 defaultOutfit 为空时才写，不再与用户手填的 freeText 争同一个槽位）。
  */
 export function mergeAppearanceFields(
   current: Partial<AppearanceFields> & { freeText?: string | null },
@@ -114,10 +121,8 @@ export function mergeAppearanceFields(
   fill("skinTone", current.skinTone, bible.skinTone);
   fill("height", current.height, bible.height);
   fill("accessories", current.accessories, bible.accessories);
-  // clothing 落 freeText（现有 freeText 为空才补）
-  if (!current.freeText?.trim() && bible.clothing) {
-    patch.freeText = bible.clothing;
-  }
+  // clothing 落 defaultOutfit（常服专列，现有值为空才补），与其余字段同一套 fill 语义
+  fill("defaultOutfit", current.defaultOutfit, bible.clothing);
   return patch;
 }
 
@@ -134,7 +139,7 @@ export function buildNewAppearanceData(
     skinTone: bible.skinTone,
     height: bible.height,
     accessories: bible.accessories,
-    // clothing 落 freeText（自由文本），不进 clothingPresets 结构化表
-    freeText: bible.clothing,
+    // clothing 落 defaultOutfit（常服专列），不进 freeText、也不进 clothingPresets 结构化表
+    defaultOutfit: bible.clothing,
   };
 }
