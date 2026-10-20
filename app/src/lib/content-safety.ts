@@ -413,7 +413,10 @@ const tencentService = new TencentContentSafetyService();
 /**
  * 检查文本内容是否安全（本地检测）
  */
-export function checkTextSafety(text: string): ContentCheckResult {
+function checkTextSafetyWithKeywords(
+  text: string,
+  keywords: readonly string[]
+): ContentCheckResult {
   if (!text || text.trim().length === 0) {
     return { safe: true };
   }
@@ -421,7 +424,7 @@ export function checkTextSafety(text: string): ContentCheckResult {
   const lowerText = text.toLowerCase();
   const foundBlocked: string[] = [];
 
-  for (const keyword of BLOCKED_KEYWORDS) {
+  for (const keyword of keywords) {
     if (lowerText.includes(keyword.toLowerCase())) {
       foundBlocked.push(keyword);
     }
@@ -436,6 +439,25 @@ export function checkTextSafety(text: string): ContentCheckResult {
   }
 
   return { safe: true };
+}
+
+export function checkTextSafety(text: string): ContentCheckResult {
+  return checkTextSafetyWithKeywords(text, BLOCKED_KEYWORDS);
+}
+
+/** 剧情设定允许提及自伤事件，但仍拒绝索取具体做法。 */
+export function checkDramaScriptWorldviewSafety(
+  text: string
+): ContentCheckResult {
+  return checkTextSafetyWithKeywords(text, [
+    ...BLOCKED_KEYWORDS.filter((keyword) => keyword !== "自杀"),
+    "如何自杀",
+    "怎么自杀",
+    "怎样自杀",
+    "自杀方法",
+    "自杀步骤",
+    "自杀教程",
+  ]);
 }
 
 /**

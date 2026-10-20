@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
-import { checkTextSafety } from "@/lib/content-safety";
+import { checkDramaScriptWorldviewSafety } from "@/lib/content-safety";
 import { getUserLLMConfig } from "@/lib/ai-config";
 import { generateDramaScript } from "@/services/drama-script";
 import {
@@ -67,6 +67,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const parsed = GenerateSchema.safeParse(await request.json());
     if (!parsed.success) {
+      log.warn("Drama script request rejected: invalid params", {
+        projectId: id,
+        fields: Object.keys(parsed.error.flatten().fieldErrors),
+      });
       return NextResponse.json(
         { error: "请求参数无效", details: parsed.error.flatten() },
         { status: 400 }
@@ -86,8 +90,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     };
 
     // 内容安全（对世界观文本审核）
-    const safetyCheck = checkTextSafety(input.worldview);
+    const safetyCheck = checkDramaScriptWorldviewSafety(input.worldview);
     if (!safetyCheck.safe) {
+      log.warn("Drama script request rejected: content safety", {
+        projectId: id,
+        blockedKeywords: safetyCheck.blockedKeywords,
+      });
       return NextResponse.json(
         {
           error: "内容不符合安全规范",
@@ -100,6 +108,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const llmConfig = await getUserLLMConfig(session.user.id);
     if (!llmConfig) {
+      log.warn("Drama script request rejected: LLM not configured", {
+        projectId: id,
+      });
       return NextResponse.json(
         { error: "请先在「设置 > AI 模型配置」中配置大语言模型" },
         { status: 400 }
