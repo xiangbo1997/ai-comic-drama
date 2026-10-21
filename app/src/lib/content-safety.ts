@@ -35,6 +35,16 @@ const BLOCKED_KEYWORDS = [
   "诈骗",
 ];
 
+const NARRATIVE_BLOCKED_KEYWORDS = [
+  ...BLOCKED_KEYWORDS.filter((keyword) => keyword !== "自杀"),
+  "如何自杀",
+  "怎么自杀",
+  "怎样自杀",
+  "自杀方法",
+  "自杀步骤",
+  "自杀教程",
+];
+
 // 敏感词替换映射（用于轻度违规内容的净化）
 const SENSITIVE_REPLACEMENTS: Record<string, string> = {
   死亡: "离开",
@@ -449,15 +459,7 @@ export function checkTextSafety(text: string): ContentCheckResult {
 export function checkDramaScriptWorldviewSafety(
   text: string
 ): ContentCheckResult {
-  return checkTextSafetyWithKeywords(text, [
-    ...BLOCKED_KEYWORDS.filter((keyword) => keyword !== "自杀"),
-    "如何自杀",
-    "怎么自杀",
-    "怎样自杀",
-    "自杀方法",
-    "自杀步骤",
-    "自杀教程",
-  ]);
+  return checkTextSafetyWithKeywords(text, NARRATIVE_BLOCKED_KEYWORDS);
 }
 
 /**
@@ -489,30 +491,15 @@ export function checkImagePromptSafety(prompt: string): ContentCheckResult {
   // 真人肖像/深度伪造风险交由上游 AI 模型自带安全过滤兜底；本地只保留
   // "政治人物 + 未成年"这类硬线（含义明确、误伤概率极低）。
   const imageBlockedKeywords = [
-    ...BLOCKED_KEYWORDS,
+    ...NARRATIVE_BLOCKED_KEYWORDS,
     "政治人物",
     "儿童",
     "未成年",
   ];
-
-  const lowerPrompt = prompt.toLowerCase();
-  const foundBlocked: string[] = [];
-
-  for (const keyword of imageBlockedKeywords) {
-    if (lowerPrompt.includes(keyword.toLowerCase())) {
-      foundBlocked.push(keyword);
-    }
-  }
-
-  if (foundBlocked.length > 0) {
-    return {
-      safe: false,
-      reason: "图片生成提示词包含不允许的内容",
-      blockedKeywords: foundBlocked,
-    };
-  }
-
-  return { safe: true };
+  const result = checkTextSafetyWithKeywords(prompt, imageBlockedKeywords);
+  return result.safe
+    ? result
+    : { ...result, reason: "图片生成提示词包含不允许的内容" };
 }
 
 /**
@@ -524,7 +511,10 @@ export async function contentSafetyMiddleware(
   type: "text" | "image" | "video" = "text"
 ): Promise<ContentCheckResult> {
   // 1. 先进行本地基础检查
-  const localCheck = checkTextSafety(text);
+  const localCheck =
+    type === "image"
+      ? checkDramaScriptWorldviewSafety(text)
+      : checkTextSafety(text);
   if (!localCheck.safe) {
     return localCheck;
   }
