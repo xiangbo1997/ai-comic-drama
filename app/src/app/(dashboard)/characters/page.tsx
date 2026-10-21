@@ -441,24 +441,30 @@ export default function CharactersPage() {
     onMutate: ({ id }) => {
       setThreeViewsGeneratingIds((prev) => new Set(prev).add(id));
     },
-    onSuccess: async (data, { id }) => {
+    onSuccess: (data, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["characters"] });
       toast.success("三视图生成成功");
 
       // 锚点升级确认（批 5 · H2）：服务端判定「当前定妆锚不是本次三视图之一」时
       // 建议换成正面图。刻意问一次而不是静默替换——用户可能有意挑了别的图当锚。
-      if (data.suggestCanonicalUpgrade && data.suggestedCanonicalUrl) {
-        const ok = await toast.confirm(
-          "当前定妆照不是这次生成的三视图。\n" +
-            "正面三视图是单人、单视角的干净参考图，作为定妆照比多格设定图更稳（模型不会搞错该复现哪个视角）。\n" +
-            "要把定妆照换成这次的正面图吗？"
-        );
-        if (ok) {
-          setCanonicalMutation.mutate({
-            id,
-            imageUrl: data.suggestedCanonicalUrl,
+      const suggestedCanonicalUrl = data.suggestedCanonicalUrl;
+      if (data.suggestCanonicalUpgrade && suggestedCanonicalUrl) {
+        // Radix 模态弹窗会阻止外部确认框接收点击；先关闭本次生成弹窗。
+        if (showGenerateModal) closeGenerateModal();
+        void toast
+          .confirm(
+            "当前定妆照不是这次生成的三视图。\n" +
+              "正面三视图是单人、单视角的干净参考图，作为定妆照比多格设定图更稳（模型不会搞错该复现哪个视角）。\n" +
+              "要把定妆照换成这次的正面图吗？"
+          )
+          .then((ok) => {
+            if (ok) {
+              setCanonicalMutation.mutate({
+                id,
+                imageUrl: suggestedCanonicalUrl,
+              });
+            }
           });
-        }
       }
     },
     onError: (error) => {

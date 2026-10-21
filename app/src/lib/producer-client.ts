@@ -72,9 +72,9 @@ export async function runDramaScript(
   }
   const { taskId } = (await startRes.json()) as { taskId: string };
 
-  // 脚本生成约 1 分钟，给足 3 分钟（90 × 2s）
+  // 长文本生成最多 3 轮，每轮最多 5 分钟；轮询需覆盖后台任务上限。
   const POLL_INTERVAL_MS = 2000;
-  const MAX_POLLS = 90;
+  const MAX_POLLS = 480;
   for (let i = 0; i < MAX_POLLS; i++) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     const pollRes = await fetch(`/api/script/parse/${taskId}`);

@@ -6,7 +6,11 @@
  */
 
 import { z } from "zod";
-import { chatCompletion, LONG_FORM_LLM_TIMEOUT_MS } from "@/services/ai";
+import {
+  chatCompletion,
+  isTimeoutAbortError,
+  LONG_FORM_LLM_TIMEOUT_MS,
+} from "@/services/ai";
 import {
   DRAMA_SCRIPT_SYSTEM,
   buildDramaScriptUserPrompt,
@@ -168,6 +172,14 @@ export class DramaScriptAgent implements Agent<
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn(`Attempt ${attempt} failed: ${message}`);
+        if (isTimeoutAbortError(err)) {
+          return {
+            success: false,
+            error: message,
+            attempts: attempt,
+            tokensUsed: totalTokens,
+          };
+        }
         lastRawOutput = message;
         lastNonZodError = message;
         lastZodError = null;

@@ -11,7 +11,8 @@ import { useToast } from "@/components/ui/toast";
 import { toFriendlyError } from "@/lib/error-copy";
 
 const POLL_INTERVAL_MS = 2000;
-const MAX_POLLS = 90; // 90 × 2s = 3 分钟上限
+const MAX_POLLS = 90; // 通用轻任务最多等待 3 分钟
+const DRAMA_SCRIPT_MAX_POLLS = 480; // 最多 3 轮长文本生成，每轮至多 5 分钟
 
 /** 短剧脚本记录（含 DB 元字段 + scriptDoc 主体） */
 export interface ShortDramaScriptRecord {
@@ -51,7 +52,7 @@ async function generateDramaScript(
   }
   const { taskId } = (await startRes.json()) as { taskId: string };
 
-  for (let i = 0; i < MAX_POLLS; i++) {
+  for (let i = 0; i < DRAMA_SCRIPT_MAX_POLLS; i++) {
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
     const pollRes = await fetch(`/api/script/parse/${taskId}`);
     if (!pollRes.ok) {
