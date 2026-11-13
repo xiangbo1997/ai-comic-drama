@@ -82,6 +82,33 @@ describe("computeShotDuration", () => {
     expect(d).toBe(5);
   });
 
+  it.each([
+    { dialogue: "一二三四五六", narration: null },
+    { dialogue: "一二三", narration: "四五六" },
+    { dialogue: null, narration: "一二三四五六" },
+  ])("采信小数镜长后取整也不得截断对白或旁白：%j", (speech) => {
+    const speechFloor =
+      estimateSpeechSeconds(speech.dialogue ?? "") +
+      estimateSpeechSeconds(speech.narration ?? "");
+    const duration = computeShotDuration({
+      ...speech,
+      shotType: "近景",
+      llmDuration: 2.4,
+    });
+    expect(duration).toBeGreaterThanOrEqual(speechFloor);
+    expect(duration).toBe(3);
+  });
+
+  it("合理小数镜长的取整结果已容纳口播时，仍尊重 LLM 时长", () => {
+    expect(
+      computeShotDuration({
+        dialogue: "一二三四五六",
+        shotType: "近景",
+        llmDuration: 4.2,
+      })
+    ).toBe(4);
+  });
+
   it("空镜被 LLM 拉太长时夹回上限", () => {
     // 无对白 LLM 给 30s（凑时长）→ 夹回软上限 8
     const d = computeShotDuration({

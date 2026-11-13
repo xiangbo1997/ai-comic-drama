@@ -127,17 +127,18 @@ ${sceneList}
       "description": "增强后的中文画面描述",
       "imagePrompt": "完整的英文图像生成提示词（顺序：风格 → 镜头语言(景别/机位/构图) → 角色canonical prompt → 动作+夸张表情 → 环境 → 光线/色彩 → 质量标签）",
       "characters": ["角色A"],
-      "dialogue": "对话" | null,
-      "narration": "旁白" | null,
+      "dialogue": "别开门。",
+      "narration": null,
       "emotion": "neutral",
       "duration": 3,
-      "cameraMovement": "static" | "pan_left" | "zoom_in" | "tilt_up" | null,
-      "transition": "cut" | "fade" | "dissolve" | null
+      "cameraMovement": "zoom_in",
+      "transition": "cut"
     }
   ]
 }
 
 imagePrompt 构造规则（顺序即权重，高权重在前，与手动出图路径对齐）：
+0. 每个输入场景必须恰好输出一镜，id与输入一致，不增删/重复或重排；无对白/旁白时填null，镜长须容纳完整台词
 1. 开头放画面风格（如 anime style）
 2. 镜头语言：把上方「镜头语言」标注的机位/光线/构图/色调【必须原样复用】翻译成英文前置（如 low-angle shot, rule of thirds），不得省略或改写
 3. 然后放角色的 canonicalPrompt（从上方角色标准提示词中复制，不要修改）

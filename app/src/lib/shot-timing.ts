@@ -223,7 +223,9 @@ export function computeShotDuration(input: ShotTimingInput): number {
     llm >= floor &&
     llm <= Math.max(softCeiling, floor)
   ) {
-    return clamp(Math.round(llm));
+    // DB 镜长为整数：合理的小数值也不能向下取整到口播下限之下。
+    // 无口播仍按原规则四舍五入，保留开场快切；对白与旁白共同保护。
+    return clamp(Math.max(Math.round(llm), Math.ceil(speechFloor)));
   }
 
   // 5. 否则取下限取整。

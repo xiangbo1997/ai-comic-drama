@@ -6,6 +6,7 @@ import { deleteFile } from "@/services/storage";
 
 import { createLogger } from "@/lib/logger";
 import { normalizeGenerationParams } from "@/lib/generation-params-normalize";
+import { mergeProjectParams } from "@/lib/project-params-merge";
 import { resolveEpisodeEndingHook } from "@/lib/series";
 import { parseStoryBible, isBibleEmpty } from "@/types/series-bible";
 const log = createLogger("api:projects:[id]");
@@ -319,9 +320,21 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       aspectRatio,
       inputText,
       generationParams,
+      generationParamsBase,
       seriesId,
       episodeNumber,
     } = body;
+
+    if (
+      generationParamsBase !== undefined &&
+      (!generationParamsBase ||
+        typeof generationParamsBase !== "object" ||
+        Array.isArray(generationParamsBase) ||
+        !generationParams ||
+        typeof generationParams !== "object" ||
+        Array.isArray(generationParams))
+    )
+      return NextResponse.json({ error: "项目配置基准无效" }, { status: 400 });
 
     // 验证项目归属
     const existing = await prisma.project.findFirst({
@@ -361,29 +374,61 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ? normalizeGenerationParams(generationParams)
         : undefined;
 
-    const project = await prisma.project.update({
-      where: { id },
-      data: {
-        ...(title !== undefined && { title }),
-        ...(description !== undefined && { description }),
-        ...(status !== undefined && { status }),
-        ...(style !== undefined && { style }),
-        ...(aspectRatio !== undefined && { aspectRatio }),
-        ...(inputText !== undefined && { inputText }),
-        ...(normalizedGenParams !== undefined && {
-          generationParams: normalizedGenParams as Prisma.InputJsonValue,
-        }),
-        // 移出系列时连带清空集数，避免"无系列却有第N集"的脏数据
-        ...(seriesId !== undefined && {
-          seriesId,
-          ...(seriesId === null && { episodeNumber: null }),
-        }),
-        ...(normalizedEpisodeNumber !== undefined &&
-          seriesId !== null && { episodeNumber: normalizedEpisodeNumber }),
-      },
+    const updateData = {
+      ...(title !== undefined && { title }),
+      ...(description !== undefined && { description }),
+      ...(status !== undefined && { status }),
+      ...(style !== undefined && { style }),
+      ...(aspectRatio !== undefined && { aspectRatio }),
+      ...(inputText !== undefined && { inputText }),
+      ...(seriesId !== undefined && {
+        seriesId,
+        ...(seriesId === null && { episodeNumber: null }),
+      }),
+      ...(normalizedEpisodeNumber !== undefined &&
+        seriesId !== null && { episodeNumber: normalizedEpisodeNumber }),
+    };
+    const result = await prisma.$transaction(async (tx) => {
+      // 与向导收尾/重建分镜共用锁，必须在锁内读取最新配置后合并。
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`project-scenes:${id}`}, 0))`;
+      const current = await tx.project.findFirst({
+        where: { id, userId: session.user.id },
+        select: { generationParams: true },
+      });
+      if (!current) return { missing: true } as const;
+      let nextParams = normalizedGenParams;
+      if (generationParamsBase !== undefined) {
+        const merged = mergeProjectParams(
+          normalizeGenerationParams(current.generationParams) ?? {},
+          normalizeGenerationParams(generationParamsBase) ?? {},
+          normalizedGenParams ?? {}
+        );
+        if (!merged.value) return { conflicts: merged.conflicts } as const;
+        nextParams = merged.value;
+      }
+      const project = await tx.project.update({
+        where: { id },
+        data: {
+          ...updateData,
+          ...(nextParams !== undefined && {
+            generationParams: nextParams as Prisma.InputJsonValue,
+          }),
+        },
+      });
+      return { project } as const;
     });
+    if ("missing" in result)
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    if ("conflicts" in result)
+      return NextResponse.json(
+        {
+          error: "这些设置已在其他窗口更新，请重新打开设置后再保存",
+          conflicts: result.conflicts,
+        },
+        { status: 409 }
+      );
 
-    return NextResponse.json(project);
+    return NextResponse.json(result.project);
   } catch (error) {
     log.error("Update project error:", error);
     return NextResponse.json(

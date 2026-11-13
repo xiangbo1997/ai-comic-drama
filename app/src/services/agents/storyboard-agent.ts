@@ -3,18 +3,19 @@
  * 将粗粒度场景补全为带 imagePrompt 的完整分镜
  */
 
-import { z } from "zod";
 import { chatCompletion, LONG_FORM_LLM_TIMEOUT_MS } from "@/services/ai";
 import {
   STORYBOARD_SYSTEM,
   buildStoryboardPrompt,
 } from "@/lib/prompts/agent-prompts";
 import { createLogger } from "@/lib/logger";
+import { calibrateSceneDurations } from "@/lib/shot-timing";
 import {
   buildEmotionPhrase,
   inferEmotionIntensity,
 } from "@/lib/prompts/emotion-grammar";
 import { resolveLLMParams } from "./llm-params";
+import { StoryboardArtifactZ } from "./schemas";
 import type {
   Agent,
   AgentResult,
@@ -26,25 +27,7 @@ import type {
 
 const log = createLogger("agent:storyboard");
 
-const SceneArtifactSchema = z.object({
-  id: z.number(),
-  order: z.number(),
-  shotType: z.string(),
-  description: z.string().min(10),
-  imagePrompt: z.string().min(20),
-  characters: z.array(z.string()),
-  dialogue: z.string().nullable(),
-  narration: z.string().nullable(),
-  emotion: z.string(),
-  duration: z.number().min(1).max(30),
-  cameraMovement: z.string().nullable().optional(),
-  actionBeat: z.string().nullable().optional(),
-  transition: z.string().nullable().optional(),
-});
-
-const StoryboardSchema = z.object({
-  scenes: z.array(SceneArtifactSchema).min(1),
-});
+const StoryboardSchema = StoryboardArtifactZ;
 
 const MAX_ATTEMPTS = 2;
 // 每次处理的场景批次大小
@@ -118,8 +101,10 @@ export class StoryboardAgent implements Agent<
       }
     }
 
-    // 确保 order 连续
-    const orderedScenes = allScenes.map((s, idx) => ({ ...s, order: idx + 1 }));
+    // 媒体回写按镜序查DB，不能沿用LLM可能跳号的id；新台词也要重新保护口播下限。
+    const orderedScenes = calibrateSceneDurations(
+      allScenes.map((s, idx) => ({ ...s, id: idx + 1, order: idx + 1 }))
+    );
 
     log.info(`Storyboard completed: ${orderedScenes.length} scenes`);
     return {
@@ -172,15 +157,34 @@ export class StoryboardAgent implements Agent<
         const result = StoryboardSchema.safeParse(parsed);
 
         if (result.success) {
+          const generatedById = new Map(
+            result.data.scenes.map((s) => [s.id, s])
+          );
+          // 补全不是增删镜：缺镜、重复或未知id会使角色/媒体错配，必须重试或降级。
+          if (
+            result.data.scenes.length !== scenes.length ||
+            generatedById.size !== scenes.length ||
+            new Set(scenes.map((s) => s.id)).size !== scenes.length ||
+            !scenes.every((s) => generatedById.has(s.id))
+          ) {
+            log.warn(
+              `Storyboard batch attempt ${attempt} scene identity mismatch`
+            );
+            continue;
+          }
           // 回填解析层导演产出：cameraMovement / actionBeat 是解析器基于「全剧本
           // 记忆」设计的运动节拍（相邻镜不重复、动作跨镜连贯），storyboard LLM
           // 只负责 imagePrompt 精修，不应覆盖这份导演意图。按 scene id 回填，
           // 解析层有值则优先，缺失时保留 storyboard LLM 自身的值。
-          const byId = new Map(scenes.map((s) => [s.id, s]));
-          const merged = result.data.scenes.map((sc) => {
-            const src = byId.get(sc.id);
+          const merged = scenes.map((src) => {
+            const sc = generatedById.get(src.id)!;
             return {
+              ...src,
               ...sc,
+              // 连续性设定由全剧本决定，补全空值或局部改写不能清空地点、换装和轴线。
+              locationKey: src.locationKey ?? sc.locationKey,
+              characterOutfits: src.characterOutfits ?? sc.characterOutfits,
+              screenSide: src.screenSide ?? sc.screenSide,
               cameraMovement: src?.cameraMovement ?? sc.cameraMovement,
               actionBeat: src?.actionBeat ?? sc.actionBeat,
             };
@@ -233,6 +237,7 @@ export class StoryboardAgent implements Agent<
         .join(", ");
 
       return {
+        ...s,
         id: s.id,
         order: idx + 1,
         shotType: s.shotType,

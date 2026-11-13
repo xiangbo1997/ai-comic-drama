@@ -136,7 +136,7 @@ export function TransitionDialog({
                   className="bg-secondary/40 space-y-2 rounded-lg p-3"
                 >
                   <p className="text-xs font-medium">
-                    镜 #{scenes[k].order + 1} → 镜 #{scenes[k + 1].order + 1}
+                    镜 #{k + 1} → 镜 #{k + 2}
                   </p>
 
                   <div className="flex items-center gap-3">

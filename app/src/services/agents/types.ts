@@ -106,6 +106,8 @@ export type ArtifactType =
  * 三处评审（角色圣经 / 分镜连贯 / 视频连贯）统一用此结构，避免各自发散。
  */
 export interface ReviewArtifactData {
+  /** 本次实际送评输入指纹；供后续报告识别素材编辑后的失效结果。 */
+  inputFingerprint?: string;
   /** 评审对象人类可读标签（如"角色圣经"） */
   label: string;
   /** 0-100 综合评分 */

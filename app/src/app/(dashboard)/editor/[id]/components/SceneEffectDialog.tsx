@@ -195,7 +195,7 @@ export function SceneEffectDialog({
               暂无分镜
             </p>
           ) : (
-            scenes.map((sc) => {
+            scenes.map((sc, index) => {
               const eff = draft[sc.id];
               const sfxRows = sfxDraft[sc.id] ?? [];
               return (
@@ -204,7 +204,7 @@ export function SceneEffectDialog({
                   className="bg-secondary/40 space-y-2 rounded-lg p-3"
                 >
                   <p className="text-xs font-medium">
-                    镜 #{sc.order + 1}{" "}
+                    镜 #{index + 1}{" "}
                     <span className="text-muted-foreground font-normal">
                       {sc.description.slice(0, 20)}
                     </span>

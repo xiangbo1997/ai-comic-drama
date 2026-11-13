@@ -22,12 +22,35 @@ import type { ObserverVerdict, WorkflowContext } from "./types";
 
 const log = createLogger("agent:narrative-observer");
 
+interface ReviewScoringRules {
+  weights: Record<string, number>;
+  passThreshold: number;
+  dimensionFloor: number;
+}
+
+const STORYBOARD_SCORING: ReviewScoringRules = {
+  weights: {
+    narrative_flow: 22,
+    character_continuity: 17,
+    visual_diversity: 13,
+    hook_strength: 18,
+    cliffhanger: 15,
+    externalization: 15,
+  },
+  passThreshold: 70,
+  dimensionFloor: 40,
+};
+
+const VIDEO_SCORING: ReviewScoringRules = {
+  weights: { transition_flow: 40, motion_continuity: 35, pacing: 25 },
+  passThreshold: 60,
+  dimensionFloor: 35,
+};
+
 const VerdictSchema = z.object({
-  pass: z.boolean(),
   score: z.object({
-    overall: z.number().min(0).max(100),
-    dimensions: z.record(z.string(), z.number()),
-    pass: z.boolean(),
+    // 总分与通过标记由服务端计算，模型只提供可校验的维度证据。
+    dimensions: z.record(z.string(), z.number().finite().min(0).max(100)),
     feedback: z.string().optional(),
   }),
   retryable: z.boolean(),
@@ -50,7 +73,8 @@ async function runSequenceReview(
   system: string,
   userPrompt: string,
   ctx: WorkflowContext,
-  label: string
+  label: string,
+  scoring: ReviewScoringRules
 ): Promise<ObserverVerdict | null> {
   if (!ctx.config.llm) return null;
   try {
@@ -63,10 +87,35 @@ async function runSequenceReview(
     );
     const parsed = VerdictSchema.safeParse(extractJSON(response));
     if (parsed.success) {
-      log.info(
-        `${label} verdict: pass=${parsed.data.pass}, score=${parsed.data.score.overall}`
+      const entries = Object.entries(scoring.weights);
+      if (!entries.every(([key]) => key in parsed.data.score.dimensions)) {
+        log.warn(`${label} review missing required score dimensions`);
+        return null;
+      }
+      // 仅保留本评审的已知维度，避免模型额外字段影响报告与评分。
+      const dimensions = Object.fromEntries(
+        entries.map(([key]) => [key, parsed.data.score.dimensions[key]])
       );
-      return parsed.data as ObserverVerdict;
+      const overall =
+        entries.reduce(
+          (total, [key, weight]) => total + dimensions[key] * weight,
+          0
+        ) / 100;
+      // 按未取整分数判定门槛，防止 69.99 被显示取整为 70 后误放行。
+      const pass =
+        overall >= scoring.passThreshold &&
+        Object.values(dimensions).every(
+          (value) => value >= scoring.dimensionFloor
+        );
+      const verdict: ObserverVerdict = {
+        ...parsed.data,
+        pass,
+        score: { ...parsed.data.score, dimensions, overall, pass },
+      };
+      log.info(
+        `${label} verdict: pass=${verdict.pass}, score=${verdict.score.overall}`
+      );
+      return verdict;
     }
     log.warn(`${label} review validation failed`);
     return null;
@@ -89,7 +138,8 @@ export async function reviewStoryboard(
     STORYBOARD_REVIEW_SYSTEM,
     buildStoryboardReviewPrompt(scenes),
     ctx,
-    "Narrative"
+    "Narrative",
+    STORYBOARD_SCORING
   );
 }
 
@@ -104,6 +154,7 @@ export async function reviewVideoSequence(
     VIDEO_REVIEW_SYSTEM,
     buildVideoReviewPrompt(scenes),
     ctx,
-    "Video"
+    "Video",
+    VIDEO_SCORING
   );
 }

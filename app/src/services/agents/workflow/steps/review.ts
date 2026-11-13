@@ -16,6 +16,7 @@ import { reviewCharacterBible } from "../../character-bible-observer";
 import { resolvePolicyAsync, runClosedLoop } from "../../closed-loop";
 import { emitEvent } from "../../event-bus";
 import { log, setReviewArtifact } from "../context";
+import { buildNarrativeReviewFingerprint } from "@/lib/review-freshness";
 import type {
   WorkflowContext,
   ScriptArtifact,
@@ -159,6 +160,11 @@ export async function reviewStoryboardCoherence(
             emotion: s.emotion,
             characters: s.characters,
             description: s.description,
+            duration: s.duration,
+            dialogue: s.dialogue,
+            narration: s.narration,
+            actionBeat: s.actionBeat,
+            cameraMovement: s.cameraMovement,
           })),
           ctx
         ),
@@ -172,20 +178,28 @@ export async function reviewStoryboardCoherence(
     ctx
   );
 
-  // 末轮 verdict（无评审记录时为空——评审 LLM 全程不可用）
-  const lastVerdict = result.history.at(-1)?.verdict;
+  // 修订可能退步，闭环会保留原版；诊断也必须来自同一版本，不能混用末轮差评。
+  const selectedVerdict = result.history.find(
+    (round) => round.candidate === result.best
+  )?.verdict;
+  // 容错放行只代表继续制作；评审失败或字段非法时，不能冒充质量检查通过。
+  const reviewPassed = selectedVerdict?.pass ?? false;
+  const reviewScore = selectedVerdict?.score.overall ?? 0;
+  const reviewFeedback = selectedVerdict
+    ? selectedVerdict.score.feedback
+    : "叙事评审未完成，已保留分镜供继续制作；请重试评审或人工审阅，当前不能视为质量通过。";
 
   emitEvent({
     type: "step:completed",
     workflowRunId: ctx.workflowRunId,
     step: "review_storyboard",
     data: {
-      pass: result.passed,
-      score: result.bestScore,
+      pass: reviewPassed,
+      score: reviewScore,
       rounds: result.rounds,
       passThreshold: policy.passThreshold,
-      feedback: lastVerdict?.score.feedback,
-      suggestions: lastVerdict?.suggestions ?? [],
+      feedback: reviewFeedback,
+      suggestions: selectedVerdict?.suggestions ?? [],
     },
     timestamp: new Date(),
   });
@@ -193,18 +207,21 @@ export async function reviewStoryboardCoherence(
   // C6：评审结果持久化到 artifacts（供 WorkflowPanel 与审片报告「叙事质量」节消费）。
   // dimensions 六维一并落库：只给总分无法定位是哪一维拖了后腿。
   setReviewArtifact(ctx, "storyboard", {
+    inputFingerprint: result.best
+      ? buildNarrativeReviewFingerprint(result.best.scenes)
+      : undefined,
     label: "分镜连贯",
-    score: result.bestScore,
-    pass: result.passed,
+    score: reviewScore,
+    pass: reviewPassed,
     passThreshold: policy.passThreshold,
-    suggestions: lastVerdict?.suggestions ?? [],
-    feedback: lastVerdict?.score.feedback,
-    dimensions: lastVerdict?.score.dimensions,
+    suggestions: selectedVerdict?.suggestions ?? [],
+    feedback: reviewFeedback,
+    dimensions: selectedVerdict?.score.dimensions,
     rounds: result.rounds,
   });
 
   log.info(
-    `Storyboard narrative review: score=${result.bestScore}, passed=${result.passed}, rounds=${result.rounds}`
+    `Storyboard narrative review: score=${reviewScore}, passed=${reviewPassed}, rounds=${result.rounds}`
   );
 
   return result.best ?? storyboard;

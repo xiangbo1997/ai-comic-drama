@@ -68,8 +68,11 @@ export async function resolveImageUrlForVision(
     .slice(LOCAL_STORAGE_URL_PREFIX.length)
     .replace(/^\/+/, "");
 
-  const baseDir = path.resolve(process.cwd(), LOCAL_STORAGE_DIR);
-  const target = path.resolve(baseDir, relative);
+  const baseDir = path.resolve(
+    /* turbopackIgnore: true */ process.cwd(),
+    LOCAL_STORAGE_DIR
+  );
+  const target = path.resolve(/* turbopackIgnore: true */ baseDir, relative);
   // 路径穿越防护：解析后必须仍在存储根内
   if (target !== baseDir && !target.startsWith(baseDir + path.sep)) return null;
 

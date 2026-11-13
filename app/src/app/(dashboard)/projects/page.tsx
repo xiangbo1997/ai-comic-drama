@@ -134,6 +134,9 @@ export default function ProjectsPage() {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
       router.push(`/editor/${project.id}`);
     },
+    onError: () => {
+      toast.error("新建项目失败，请重试");
+    },
   });
 
   const createEpisodeMutation = useMutation({

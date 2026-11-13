@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import type { Scene } from "@/types";
 import type { SubtitleStyle } from "@/types/export-style";
 import { buildTitleCards } from "@/lib/title-cards";
+import { summarizeEditorReadiness } from "@/lib/editor-readiness";
 import { TimelineDialogs } from "./components/TimelineDialogs";
 import Link from "next/link";
 import { TimelineEditor } from "@/components/timeline-editor";
@@ -21,6 +22,7 @@ import { useEditorProject, apiUpdateScene } from "./hooks/use-editor-project";
 import { useGenerationActions } from "./hooks/use-generation-actions";
 import { EditorHeader } from "./components/EditorHeader";
 import { PipelineProgress } from "./components/PipelineProgress";
+import { EditorWorkspace, type EditorPane } from "./components/EditorWorkspace";
 import { ScriptPanel } from "./components/ScriptPanel";
 import { DramaScriptPanel } from "./components/DramaScriptPanel";
 import { SceneList } from "./components/SceneList";
@@ -91,6 +93,15 @@ export default function EditorPage() {
 
   // UI 状态
   const [showSettings, setShowSettings] = useState(false);
+  const [mobilePane, setMobilePane] = useState<EditorPane | null>(null);
+  const editorSelectScene = editor.setSelectedSceneId;
+  const selectSceneForEditing = useCallback(
+    (sceneId: string) => {
+      editorSelectScene(sceneId);
+      setMobilePane("edit");
+    },
+    [editorSelectScene]
+  );
   const [showTimeline, setShowTimeline] = useState(true);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
@@ -495,7 +506,7 @@ export default function EditorPage() {
         showTimeline={showTimeline}
         showSettings={showSettings}
         hasScenes={project.scenes.length > 0}
-        canExport={project.scenes.some((s) => s.imageUrl)}
+        canExport={summarizeEditorReadiness(project.scenes).canExport}
         projectId={projectId}
         episodeNumber={project.episodeNumber}
         series={project.series}
@@ -513,12 +524,6 @@ export default function EditorPage() {
         onTransition={() => setShowTransitionDialog(true)}
         onEffect={() => setShowEffectDialog(true)}
       />
-
-      {/* 移动端明确提示：输入/编辑栏在 md 以下隐藏，此前是静默缺失——
-          手机用户看得到分镜却找不到创作入口（ux-onboarding P2-9） */}
-      <div className="border-border bg-primary/10 text-muted-foreground border-b px-4 py-2 text-center text-xs md:hidden">
-        编辑功能需要更大屏幕，请在桌面端打开以获得完整创作体验
-      </div>
 
       {/* 管线进度总览条 */}
       <PipelineProgress project={project} />
@@ -576,127 +581,134 @@ export default function EditorPage() {
       )}
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
-        <ScriptPanel
-          inputText={editor.inputText}
-          onInputChange={editor.setInputText}
-          onParse={handleParse}
-          isParsing={editor.parseMutation.isPending}
-          parseError={editor.parseMutation.error}
-          project={project}
-          showCharacterPanel={showCharacterPanel}
-          onToggleCharacterPanel={() =>
-            setShowCharacterPanel(!showCharacterPanel)
-          }
-          onManageCharacters={() => editor.setShowCharacterManager(true)}
-          onStartWorkflow={async () => {
-            // 定妆锚关口（包 B · B3 路径 1/4）：缺锚时先补定妆照再跑全自动
-            if (!(await ensureAnchors())) return;
-            workflow.start(editor.inputText, { style: project.style });
-          }}
-          isWorkflowRunning={workflow.isRunning}
-          dramaScriptSlot={
-            <DramaScriptPanel
-              projectId={projectId}
-              project={project}
-              onApplyAsInput={editor.setInputText}
-              onApplyToScenes={handleApplyScriptToScenes}
-              isApplyingToScenes={editor.applyScenesMutation.isPending}
-            />
-          }
-        />
-
-        <SceneList
-          project={project}
-          selectedSceneId={editor.selectedSceneId}
-          onSceneSelect={editor.setSelectedSceneId}
-          onManageCharacters={() => editor.setShowCharacterManager(true)}
-          generateImageMutation={generation.generateImageMutation}
-          generateVideoMutation={generation.generateVideoMutation}
-          generateAudioMutation={generation.generateAudioMutation}
-          batchGenerateImagesMutation={generation.batchGenerateImagesMutation}
-          batchGenerateVideosMutation={generation.batchGenerateVideosMutation}
-          batchGenerateAudiosMutation={generation.batchGenerateAudiosMutation}
-          batchProgress={generation.batchProgress}
-          onCancelBatch={generation.cancelBatch}
-          onBeforeBatchImages={ensureAnchors}
-          updateScene={handleUpdateSceneFromList}
-          mediaConfig={mediaConfig}
-          queryClient={editor.queryClient}
-          projectId={projectId}
-          onIterateScene={(sceneId, scene, note, anchorImageUrl) =>
-            // mutateAsync：体检弹窗要拿到本次提交的 Promise 展示成功/失败终态
-            // （rejection 已在弹窗内 catch，全局 onError 照常弹错误 toast）
-            generation.generateImageMutation.mutateAsync({
-              sceneId,
-              scene,
-              imageConfigId: selectedImageConfig,
-              iterate: true,
-              note,
-              iterationAnchorUrl: anchorImageUrl,
-            })
-          }
-        />
-
-        <SceneEditor
-          scene={editor.selectedScene}
-          projectId={project.id}
-          nextScene={nextScene}
-          aspectRatio={project.aspectRatio}
-          sceneSpeed={
-            project.generationParams?.sceneEffects?.find(
-              (e) => e.sceneId === editor.selectedScene?.id
-            )?.speed ?? 1
-          }
-          onSceneSpeedChange={handleSceneSpeedChange}
-          onApplySpeedToAll={handleApplySpeedToAllScenes}
-          selectedImageConfig={selectedImageConfig}
-          onImageConfigChange={setSelectedImageConfig}
-          onOpenMultiImageDialog={() => setShowMultiImageDialog(true)}
-          onUpdateScene={(sceneId, data) =>
-            editor.updateSceneMutation.mutate({ sceneId, data })
-          }
-          // 定妆锚关口（包 B · B3 路径 4/4）：逐镜出图此前完全没有关口，
-          // 用户在右栏一张一张点，每张都拿不到定妆锚，这是最常走的路径。
-          onGenerateImage={(sceneId, scene, count) => {
-            void (async () => {
+      <EditorWorkspace
+        activePane={mobilePane ?? (project.scenes.length ? "scenes" : "script")}
+        onPaneChange={setMobilePane}
+        script={
+          <ScriptPanel
+            inputText={editor.inputText}
+            onInputChange={editor.setInputText}
+            onParse={handleParse}
+            isParsing={editor.parseMutation.isPending}
+            parseError={editor.parseMutation.error}
+            project={project}
+            showCharacterPanel={showCharacterPanel}
+            onToggleCharacterPanel={() =>
+              setShowCharacterPanel(!showCharacterPanel)
+            }
+            onManageCharacters={() => editor.setShowCharacterManager(true)}
+            onStartWorkflow={async () => {
+              // 定妆锚关口（包 B · B3 路径 1/4）：缺锚时先补定妆照再跑全自动
               if (!(await ensureAnchors())) return;
+              workflow.start(editor.inputText, { style: project.style });
+            }}
+            isWorkflowRunning={workflow.isRunning}
+            dramaScriptSlot={
+              <DramaScriptPanel
+                projectId={projectId}
+                project={project}
+                onApplyAsInput={editor.setInputText}
+                onApplyToScenes={handleApplyScriptToScenes}
+                isApplyingToScenes={editor.applyScenesMutation.isPending}
+              />
+            }
+          />
+        }
+        scenes={
+          <SceneList
+            project={project}
+            selectedSceneId={editor.selectedSceneId}
+            onSceneSelect={selectSceneForEditing}
+            onManageCharacters={() => editor.setShowCharacterManager(true)}
+            generateImageMutation={generation.generateImageMutation}
+            generateVideoMutation={generation.generateVideoMutation}
+            generateAudioMutation={generation.generateAudioMutation}
+            batchGenerateImagesMutation={generation.batchGenerateImagesMutation}
+            batchGenerateVideosMutation={generation.batchGenerateVideosMutation}
+            batchGenerateAudiosMutation={generation.batchGenerateAudiosMutation}
+            batchProgress={generation.batchProgress}
+            onCancelBatch={generation.cancelBatch}
+            onBeforeBatchImages={ensureAnchors}
+            updateScene={handleUpdateSceneFromList}
+            mediaConfig={mediaConfig}
+            queryClient={editor.queryClient}
+            projectId={projectId}
+            onIterateScene={(sceneId, scene, note, anchorImageUrl) =>
+              // mutateAsync：体检弹窗要拿到本次提交的 Promise 展示成功/失败终态
+              // （rejection 已在弹窗内 catch，全局 onError 照常弹错误 toast）
+              generation.generateImageMutation.mutateAsync({
+                sceneId,
+                scene,
+                imageConfigId: selectedImageConfig,
+                iterate: true,
+                note,
+                iterationAnchorUrl: anchorImageUrl,
+              })
+            }
+          />
+        }
+        editor={
+          <SceneEditor
+            scene={editor.selectedScene}
+            sceneNumber={selectedSceneIndex + 1}
+            projectId={project.id}
+            nextScene={nextScene}
+            aspectRatio={project.aspectRatio}
+            sceneSpeed={
+              project.generationParams?.sceneEffects?.find(
+                (e) => e.sceneId === editor.selectedScene?.id
+              )?.speed ?? 1
+            }
+            onSceneSpeedChange={handleSceneSpeedChange}
+            onApplySpeedToAll={handleApplySpeedToAllScenes}
+            selectedImageConfig={selectedImageConfig}
+            onImageConfigChange={setSelectedImageConfig}
+            onOpenMultiImageDialog={() => setShowMultiImageDialog(true)}
+            onUpdateScene={(sceneId, data) =>
+              editor.updateSceneMutation.mutate({ sceneId, data })
+            }
+            // 定妆锚关口（包 B · B3 路径 4/4）：逐镜出图此前完全没有关口，
+            // 用户在右栏一张一张点，每张都拿不到定妆锚，这是最常走的路径。
+            onGenerateImage={(sceneId, scene, count) => {
+              void (async () => {
+                if (!(await ensureAnchors())) return;
+                generation.generateImageMutation.mutate({
+                  sceneId,
+                  scene,
+                  imageConfigId: selectedImageConfig,
+                  count,
+                });
+              })();
+            }}
+            // 迭代模式刻意**不走**关口：它把上一版整图当参考基准（见
+            // use-generation-actions 的 iterate 分支，referenceImages 被
+            // [baseImageUrl] 覆盖），角色定妆锚在这条路径上不参与，
+            // 插一道补锚弹窗只会白花积分且打断「改成夜晚」这类微调节奏。
+            onIterateImage={(sceneId, scene, note) =>
               generation.generateImageMutation.mutate({
                 sceneId,
                 scene,
                 imageConfigId: selectedImageConfig,
-                count,
+                iterate: true,
+                note,
+              })
+            }
+            isGeneratingImage={generation.generateImageMutation.isPending}
+            projectCharacters={project.characters}
+            lastGenerationInfo={
+              generation.generateImageMutation.data as
+                | { strategy?: string; attemptCount?: number }
+                | undefined
+            }
+            onCharacterRoleChange={(sceneId, orderedIds) => {
+              editor.updateSceneMutation.mutate({
+                sceneId,
+                data: { selectedCharacterIds: orderedIds },
               });
-            })();
-          }}
-          // 迭代模式刻意**不走**关口：它把上一版整图当参考基准（见
-          // use-generation-actions 的 iterate 分支，referenceImages 被
-          // [baseImageUrl] 覆盖），角色定妆锚在这条路径上不参与，
-          // 插一道补锚弹窗只会白花积分且打断「改成夜晚」这类微调节奏。
-          onIterateImage={(sceneId, scene, note) =>
-            generation.generateImageMutation.mutate({
-              sceneId,
-              scene,
-              imageConfigId: selectedImageConfig,
-              iterate: true,
-              note,
-            })
-          }
-          isGeneratingImage={generation.generateImageMutation.isPending}
-          projectCharacters={project.characters}
-          lastGenerationInfo={
-            generation.generateImageMutation.data as
-              | { strategy?: string; attemptCount?: number }
-              | undefined
-          }
-          onCharacterRoleChange={(sceneId, orderedIds) => {
-            editor.updateSceneMutation.mutate({
-              sceneId,
-              data: { selectedCharacterIds: orderedIds },
-            });
-          }}
-        />
-      </div>
+            }}
+          />
+        }
+      />
 
       {/* Workflow Panel */}
       <WorkflowPanel
@@ -709,17 +721,19 @@ export default function EditorPage() {
 
       {/* Timeline */}
       {showTimeline && project.scenes.length > 0 && (
-        <TimelineEditor
-          scenes={project.scenes}
-          onSceneSelect={editor.setSelectedSceneId}
-          onSceneDurationChange={editor.handleSceneDurationChange}
-          selectedSceneId={editor.selectedSceneId}
-          onSubtitleClick={() => setShowSubtitleStyleDialog(true)}
-          onWatermarkClick={() => setShowWatermarkDialog(true)}
-          onStickerClick={() => setShowStickerDialog(true)}
-          onTransitionClick={() => setShowTransitionDialog(true)}
-          onEffectClick={() => setShowEffectDialog(true)}
-        />
+        <div className="max-h-[25dvh] shrink-0 overflow-y-auto md:max-h-none">
+          <TimelineEditor
+            scenes={project.scenes}
+            onSceneSelect={selectSceneForEditing}
+            onSceneDurationChange={editor.handleSceneDurationChange}
+            selectedSceneId={editor.selectedSceneId}
+            onSubtitleClick={() => setShowSubtitleStyleDialog(true)}
+            onWatermarkClick={() => setShowWatermarkDialog(true)}
+            onStickerClick={() => setShowStickerDialog(true)}
+            onTransitionClick={() => setShowTransitionDialog(true)}
+            onEffectClick={() => setShowEffectDialog(true)}
+          />
+        </div>
       )}
 
       {/* 时间轴触发的六个配置弹窗（字幕/水印/配乐/贴图/转场/滤镜） */}
@@ -791,7 +805,7 @@ export default function EditorPage() {
         onExport={handleExport}
         // 审片报告建议「定位」→ 选中该分镜并关闭导出弹窗（复用 3.1 跳转写法）
         onJumpToScene={(sceneId) => {
-          editor.setSelectedSceneId(sceneId);
+          selectSceneForEditing(sceneId);
           setShowExportDialog(false);
         }}
         // 时间轴入口已配置的字幕/水印作为导出表单初值，保证预览/时间轴/导出三处一致
@@ -879,7 +893,7 @@ export default function EditorPage() {
           // 审阅完成就把新手放出去出图，而那一刻所有角色都还没定妆照
           onEnsureAnchors={ensureAnchors}
           onJumpToScene={(sceneId) => {
-            editor.setSelectedSceneId(sceneId);
+            selectSceneForEditing(sceneId);
             setReviewManuallyOpened(false);
             setReviewDismissed(true);
           }}

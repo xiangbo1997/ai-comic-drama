@@ -17,6 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:postgres": "vitest run --config vitest.postgres.config.ts",
+    "test:components": "playwright test --config playwright.components.config.ts",
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "ci": "pnpm type-check && pnpm lint && pnpm format:check && pnpm test && pnpm build",
@@ -95,16 +97,5 @@
     "tsx": "^4.21.0",
     "typescript": "^5",
     "vitest": "^4.1.5"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/client",
-      "@prisma/engines",
-      "prisma"
-    ],
-    "overrides": {
-      "deepmerge-ts": ">=8.0.0",
-      "mysql2": ">=3.23.1"
-    }
   }
 }

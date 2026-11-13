@@ -199,6 +199,7 @@ export async function GET() {
 
   const cutoff = zombieCutoff();
   const uploadsDir = path.resolve(
+    /* turbopackIgnore: true */
     process.cwd(),
     getStorageEnv().LOCAL_STORAGE_DIR || DEFAULT_LOCAL_STORAGE_DIR
   );

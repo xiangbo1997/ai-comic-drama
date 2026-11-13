@@ -17,9 +17,10 @@ import { prisma } from "@/lib/prisma";
 import { getUserLLMConfig } from "@/lib/ai-config";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { createLogger } from "@/lib/logger";
-import { parseStoryBible } from "@/types/series-bible";
-import { extractSeriesPalette } from "@/lib/series";
-import { getStylePaletteBaseline } from "@/lib/prompts";
+import {
+  buildContinuityReviewFingerprint,
+  resolveContinuityReviewPalette,
+} from "@/lib/review-freshness";
 import {
   compareImagePairWithVision,
   supportsVisionReview,
@@ -137,7 +138,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       data: {
         type: "IMAGE_GENERATE",
         status: "PROCESSING",
-        input: { kind: "continuity_check", projectId: id, userId },
+        input: {
+          kind: "continuity_check",
+          projectId: id,
+          userId,
+          inputFingerprint: buildContinuityReviewFingerprint(
+            continuityScenes,
+            expectedPalette
+          ),
+        },
         cost: 0,
         projectId: id,
         startedAt: new Date(),
@@ -178,12 +187,9 @@ async function resolveExpectedPalette(
         where: { id: seriesId },
         select: { storyBible: true },
       });
-      const palette = series
-        ? extractSeriesPalette(parseStoryBible(series.storyBible))
-        : undefined;
-      if (palette) return palette;
+      return resolveContinuityReviewPalette(style, series?.storyBible);
     }
-    return getStylePaletteBaseline(style) || undefined;
+    return resolveContinuityReviewPalette(style, null);
   } catch (err) {
     log.warn(
       "加载期望色板失败，按无色板评色调:",

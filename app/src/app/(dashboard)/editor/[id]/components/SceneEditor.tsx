@@ -44,6 +44,8 @@ type TextField = "description" | "dialogue" | "narration";
 
 interface SceneEditorProps {
   scene: Scene | undefined;
+  /** 按当前有序列表计算的展示序号；DB order有0/1起差异，不用于展示。 */
+  sceneNumber: number;
   /** 项目 ID（版本历史 hook 切换版本后失效 project 缓存） */
   projectId: string;
   /** 下一分镜（按 order 排序的后继）；null/undefined = 当前已是最后一镜 */
@@ -75,6 +77,7 @@ interface SceneEditorProps {
 
 export function SceneEditor({
   scene,
+  sceneNumber,
   projectId,
   nextScene,
   aspectRatio,
@@ -205,7 +208,7 @@ export function SceneEditor({
 
   if (!scene) {
     return (
-      <div className="border-border hidden w-full flex-col border-l md:flex md:w-[30%] md:min-w-[260px] lg:w-[30%] lg:min-w-[320px]">
+      <div className="border-border flex min-h-0 w-full flex-col border-l md:w-[30%] md:min-w-[260px] lg:min-w-[320px]">
         <div className="border-border border-b p-4">
           <h2 className="font-semibold">预览 / 编辑</h2>
         </div>
@@ -240,17 +243,17 @@ export function SceneEditor({
     : 1;
 
   return (
-    <div className="border-border flex w-[30%] min-w-[320px] flex-col border-l">
+    <div className="border-border flex min-h-0 w-full min-w-0 flex-col border-l md:w-[30%] md:min-w-[260px] lg:min-w-[320px]">
       <div className="border-border flex items-center justify-between border-b p-4">
         <h2 className="font-semibold">预览 / 编辑</h2>
         {typeof scene.order === "number" && (
           <span className="bg-secondary text-muted-foreground rounded px-2 py-0.5 text-xs">
-            分镜 #{scene.order + 1}
+            分镜 #{sceneNumber}
           </span>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {/* 图片 / 视频 切换 tab —— 仅该分镜已生成视频时显示"视频"tab */}
         {scene.videoUrl && (
           <div className="bg-secondary mb-2 flex w-fit rounded-lg p-0.5">

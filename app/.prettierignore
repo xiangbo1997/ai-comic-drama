@@ -4,6 +4,7 @@ node_modules/
 out/
 build/
 dist/
+**/._*
 
 # 环境配置
 .env

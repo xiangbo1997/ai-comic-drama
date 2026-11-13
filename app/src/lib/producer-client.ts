@@ -16,6 +16,63 @@ import { formatApiError } from "@/lib/error-copy";
 import { draftAppearance } from "@/lib/assist-client";
 import type { AppearanceFormData } from "@/components/appearance-editor";
 import type { DramaScriptArtifact } from "@/types";
+import { dramaScriptToScenes, scriptToInputText } from "@/lib/drama-to-scenes";
+import { normalizeProducerReview } from "@/lib/producer-review";
+import type {
+  ProducerAction,
+  ProducerRunSnapshot,
+  ProducerSettings,
+} from "@/lib/producer-run";
+
+async function readProducerResponse(
+  response: Response
+): Promise<ProducerRunSnapshot> {
+  const data = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(formatApiError(data, "保存制作进度失败"));
+  return data as ProducerRunSnapshot;
+}
+export async function listProducerRuns(): Promise<ProducerRunSnapshot[]> {
+  const response = await fetch("/api/producer-runs", { cache: "no-store" });
+  if (!response.ok)
+    throw new Error(
+      formatApiError(
+        await response.json().catch(() => null),
+        "读取制作进度失败"
+      )
+    );
+  return response.json();
+}
+export async function createProducerRun(
+  operationId: string,
+  settings: ProducerSettings
+): Promise<ProducerRunSnapshot> {
+  return readProducerResponse(
+    await fetch("/api/producer-runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ operationId, settings }),
+    })
+  );
+}
+export async function getProducerRun(id: string): Promise<ProducerRunSnapshot> {
+  return readProducerResponse(
+    await fetch(`/api/producer-runs/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+    })
+  );
+}
+export async function advanceProducerRun(
+  id: string,
+  action: ProducerAction
+): Promise<ProducerRunSnapshot> {
+  return readProducerResponse(
+    await fetch(`/api/producer-runs/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(action),
+    })
+  );
+}
 
 /** 创建制片人项目：复用 /api/projects，返回 { id }（+ 回填的风格/画幅） */
 export async function createProducerProject(body: {
@@ -64,13 +121,24 @@ export async function runDramaScript(
   const startRes = await fetch(`/api/projects/${projectId}/drama-script`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, reuseProducerTask: true }),
   });
   if (!startRes.ok) {
     const error = await startRes.json().catch(() => null);
     throw new Error(formatApiError(error, "生成短剧脚本失败"));
   }
   const { taskId } = (await startRes.json()) as { taskId: string };
+
+  return pollDramaScriptTask(taskId);
+}
+
+/** 已知 taskId 可直接续接轮询；调用者不必再次提交生成。鉴权由状态接口执行。 */
+export async function pollDramaScriptTask(
+  taskId: string
+): Promise<DramaScriptResult> {
+  if (!taskId || !/^[A-Za-z0-9_-]{1,128}$/.test(taskId)) {
+    throw new Error("脚本任务编号无效，请进入项目查看已生成的脚本");
+  }
 
   // 长文本生成最多 3 轮，每轮最多 5 分钟；轮询需覆盖后台任务上限。
   const POLL_INTERVAL_MS = 2000;
@@ -98,6 +166,101 @@ export async function runDramaScript(
     }
   }
   throw new Error("脚本生成超时，任务可能仍在后台执行，请稍后重试");
+}
+
+/**
+ * 同一向导实例的收尾器：POST 分镜成功后记住该事实，最终 PATCH 失败只补保存。
+ * 持久脚本任务由服务端幂等恢复；这里的内存状态不冒充跨刷新 checkpoint。
+ */
+export function createProducerDraftFinalizer() {
+  const appliedProjects = new Set<string>();
+  const pending = new Map<string, Promise<void>>();
+
+  return function finalize(
+    projectId: string,
+    artifact: DramaScriptArtifact,
+    characterNames: string[],
+    genre: string | null,
+    checkpoint?: { runId: string; token: string }
+  ): Promise<void> {
+    const active = pending.get(projectId);
+    if (active) return active;
+
+    const run = async () => {
+      if (!appliedProjects.has(projectId)) {
+        const response = await fetch(`/api/projects/${projectId}/scenes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scenes: dramaScriptToScenes(artifact, null, characterNames),
+            ...(checkpoint
+              ? { operationId: `producer-scenes:${checkpoint.runId}` }
+              : {}),
+          }),
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => null);
+          throw new Error(formatApiError(error, "生成分镜列表失败"));
+        }
+        appliedProjects.add(projectId);
+      }
+
+      if (checkpoint) {
+        await advanceProducerRun(checkpoint.runId, {
+          action: "finalize",
+          token: checkpoint.token,
+        });
+        return;
+      }
+
+      // 分镜落库可生成逐镜配置，必须重新读取再合并，避免末步擦掉这些字段。
+      const currentRes = await fetch(`/api/projects/${projectId}`);
+      if (!currentRes.ok)
+        throw new Error("读取项目保存状态失败，请重试收尾；已生成分镜保留");
+      const project = (await currentRes.json()) as {
+        generationParams?: Record<string, unknown> | null;
+      };
+      const generationParams = project.generationParams ?? {};
+      if (
+        typeof generationParams !== "object" ||
+        Array.isArray(generationParams)
+      ) {
+        throw new Error("项目生成配置无效，请进入项目检查；已生成分镜保留");
+      }
+      const producerReview = normalizeProducerReview(
+        generationParams.producerReview
+      ) ?? {
+        createdByProducer: true,
+        confirmed: {
+          worldview: false,
+          script: false,
+          characters: [],
+          scenes: [],
+        },
+      };
+      const response = await fetch(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputText: scriptToInputText(artifact),
+          generationParams: {
+            ...generationParams,
+            producerReview,
+            ...(genre ? { genre } : {}),
+          },
+        }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(
+          formatApiError(error, "保存审阅状态失败，请重试收尾；已生成分镜保留")
+        );
+      }
+    };
+    const operation = run().finally(() => pending.delete(projectId));
+    pending.set(projectId, operation);
+    return operation;
+  };
 }
 
 /** 建档 + 关联 + 外貌预填后的角色摘要（供审阅清单展示） */
@@ -150,21 +313,25 @@ async function findExistingCharacterId(
 
   // 1) 项目已关联角色：命中即已就位（无需再 LINK）
   const linkedRes = await fetch(`/api/projects/${projectId}/characters`);
-  if (linkedRes.ok) {
-    const linked = await linkedRes.json().catch(() => []);
-    const hit = matchCharacterByName(linked, trimmed);
-    if (hit) return { id: hit.id, linked: true };
+  if (!linkedRes.ok) {
+    throw new Error("查询项目角色失败，请重试；为避免重复建档，尚未创建角色");
   }
+  const linked = await linkedRes.json();
+  if (!Array.isArray(linked)) throw new Error("项目角色列表无效，请重试");
+  const linkedHit = matchCharacterByName(linked, trimmed);
+  if (linkedHit) return { id: linkedHit.id, linked: true };
 
   // 2) 用户角色库：命中即复用其 id（可能是上次 LINK 失败遗留的孤儿），仅需补 LINK
   const listRes = await fetch(
     `/api/characters?search=${encodeURIComponent(trimmed)}`
   );
-  if (listRes.ok) {
-    const list = await listRes.json().catch(() => []);
-    const hit = matchCharacterByName(list, trimmed);
-    if (hit) return { id: hit.id, linked: false };
+  if (!listRes.ok) {
+    throw new Error("查询角色库失败，请重试；为避免重复建档，尚未创建角色");
   }
+  const list = await listRes.json();
+  if (!Array.isArray(list)) throw new Error("角色库列表无效，请重试");
+  const hit = matchCharacterByName(list, trimmed);
+  if (hit) return { id: hit.id, linked: false };
 
   return null;
 }
@@ -223,6 +390,7 @@ export async function createAndLinkCharacter(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       name,
+      producerProjectId: projectId,
       ...(gender ? { gender } : {}),
       ...(age ? { age } : {}),
       ...(description ? { description } : {}),

@@ -35,8 +35,7 @@ interface EditorHeaderProps {
   showTimeline: boolean;
   showSettings: boolean;
   hasScenes: boolean;
-  /** 至少一个分镜有图才允许导出——此前分镜存在但全无图时导出仍可点，
-      用户点开才发现导不出东西（ux-editor P1-8） */
+  /** 与导出端一致：至少一个分镜有图片或视频即可导出。 */
   canExport: boolean;
   /** 当前项目 ID（系列内定位当前集，算上/下一集） */
   projectId: string;
@@ -98,8 +97,8 @@ export function EditorHeader({
       : null;
 
   return (
-    <header className="border-border flex shrink-0 items-center justify-between border-b px-4 py-3">
-      <div className="flex items-center gap-4">
+    <header className="border-border flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-2 py-2 sm:px-4 sm:py-3">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 sm:gap-4">
         <Link
           href="/projects"
           className="hover:bg-card rounded-lg p-2"
@@ -115,17 +114,18 @@ export function EditorHeader({
             onBlur={() => onTitleSave(title)}
             onKeyDown={(e) => e.key === "Enter" && onTitleSave(title)}
             autoFocus
-            className="bg-card focus:ring-primary rounded px-2 py-1 text-lg font-medium focus:ring-2 focus:outline-none"
+            className="bg-card focus:ring-primary min-w-0 flex-1 rounded px-2 py-1 text-base font-medium focus:ring-2 focus:outline-none sm:text-lg"
           />
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <button
               onClick={onEditTitle}
-              className="hover:bg-card rounded px-2 py-1 text-lg font-medium"
+              className="hover:bg-card max-w-[55vw] truncate rounded px-2 py-1 text-base font-medium sm:max-w-sm sm:text-lg"
+              title={title}
             >
               {title}
             </button>
-            <span className="bg-secondary text-muted-foreground rounded px-2 py-0.5 text-xs">
+            <span className="bg-secondary text-muted-foreground shrink-0 rounded px-2 py-0.5 text-xs">
               编辑中
             </span>
           </div>
@@ -169,8 +169,10 @@ export function EditorHeader({
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2">
-        <CreditsDisplay />
+      <div className="flex w-full shrink-0 items-center justify-end gap-1 sm:gap-2 md:w-auto">
+        <div className="hidden sm:block">
+          <CreditsDisplay />
+        </div>
         <button
           onClick={onToggleTimeline}
           className={`rounded-lg p-2 transition ${showTimeline ? "bg-primary hover:bg-primary/90" : "hover:bg-card"}`}
@@ -245,7 +247,7 @@ export function EditorHeader({
             !hasScenes
               ? "请先拆解分镜"
               : !canExport
-                ? "至少为一个分镜生成图片后才能导出"
+                ? "至少为一个分镜生成图片或视频后才能导出"
                 : "导出成片"
           }
           className="bg-primary hover:bg-primary/90 disabled:bg-secondary flex items-center gap-2 rounded-lg px-4 py-2 disabled:cursor-not-allowed"

@@ -24,6 +24,7 @@
  */
 
 import { estimateSpeechSeconds } from "@/lib/shot-timing";
+import type { ReviewFreshness } from "@/lib/review-freshness";
 import type { HookType } from "@/types/series-bible";
 // 合规（广电总局令第 16 号）：AI 提示标识缺省契约解析 + 片头信息位编号类型
 import { resolveAiDisclosure, type AiDisclosure } from "@/lib/ai-disclosure";
@@ -122,6 +123,8 @@ export interface ReviewScene {
 
 /** 2.3 连贯性体检摘要（复用最近一次已完成 continuity_check 任务的结果） */
 export interface ContinuitySummaryInput {
+  /** 与当前输入的版本对应状态；旧调用方未传时保留兼容，由API明确校验。 */
+  freshness?: ReviewFreshness;
   /**
    * 综合评级 A/B/C/D；null = 体检未完成（视觉调用全部失败，无一对成功检查）。
    * 未完成时不是「通过」也不是「尚未运行」——是「跑过但没查成」，须单独告警。
@@ -143,6 +146,8 @@ export type ReviewSectionStatus = "ok" | "warn" | "bad";
  * 不是机检指标——本文件不重算、不调 LLM，只消费已有结果并映射成节状态。
  */
 export interface NarrativeReviewInput {
+  /** 历史分数只能在送评输入与当前分镜一致时作为现行结果展示。 */
+  freshness?: ReviewFreshness;
   /** 0-100 综合评分 */
   score: number;
   /** 是否达标（闭环判定结果，直接沿用不重算） */
@@ -480,6 +485,22 @@ function buildContinuitySection(
       title: "连贯性",
       status: "warn",
       lines: ["尚未运行 AI 场记体检。"],
+    };
+  }
+
+  if (summary.freshness === "stale" || summary.freshness === "unknown") {
+    const reason =
+      summary.freshness === "stale"
+        ? "已过期：图片、分镜顺序或视觉评审上下文已修改。"
+        : "无法核验：历史体检没有可比对的输入版本。";
+    suggestions.push({
+      text: "请重新运行 AI 场记体检，确认当前画面的连贯性。",
+    });
+    return {
+      key: "continuity",
+      title: "连贯性",
+      status: "warn",
+      lines: [reason, "历史评级不代表当前版本已通过。"],
     };
   }
 
@@ -941,6 +962,22 @@ function buildNarrativeSection(
         "未评审：本项目没有可用的分镜叙事评审结果（未跑过自动工作流，或评审调用失败）。",
         "叙事质量（开场钩子 / 结尾钩子 / 内心戏外化等）需由 AI 导演评审给出，本报告的其余各节只做机检，覆盖不到这些维度。",
       ],
+    };
+  }
+
+  if (review.freshness === "stale" || review.freshness === "unknown") {
+    const reason =
+      review.freshness === "stale"
+        ? "已过期：分镜文本、镜序、角色或时长已修改。"
+        : "无法核验：历史评审没有可比对的输入版本。";
+    suggestions.push({
+      text: "请对当前分镜重新进行叙事评审或人工审阅；旧分数与建议不作为当前版本的结论。",
+    });
+    return {
+      key: "narrative",
+      title: "叙事质量",
+      status: "warn",
+      lines: [reason, "历史评分不代表当前版本已达标。"],
     };
   }
 

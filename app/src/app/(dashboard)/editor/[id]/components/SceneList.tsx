@@ -23,6 +23,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
+import { getMediaBatchState } from "@/lib/editor-readiness";
 import type { BatchProgress } from "../hooks/use-generation-actions";
 import type { Scene, ProjectDetail } from "@/types";
 import type { UseMutationResult } from "@tanstack/react-query";
@@ -155,6 +156,7 @@ function SceneListImpl({
     batchGenerateVideosMutation?.isPending ||
     batchGenerateAudiosMutation?.isPending
   );
+  const missingImages = getMediaBatchState(project.scenes, "image").targets;
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
   // 视图密度：列表 / 2 列网格 / 3 列网格
   const [viewMode, setViewMode] = useState<"list" | "grid2" | "grid3">("list");
@@ -354,7 +356,7 @@ function SceneListImpl({
   };
 
   return (
-    <div className="border-border flex min-w-0 flex-1 flex-col border-r">
+    <div className="border-border flex min-h-0 min-w-0 flex-1 flex-col border-r">
       <div className="border-border flex items-center justify-between gap-2 border-b p-4">
         <div className="flex min-w-0 items-center gap-2">
           <h2 className="truncate font-semibold whitespace-nowrap">
@@ -373,37 +375,25 @@ function SceneListImpl({
             <button
               onClick={async (e) => {
                 e.stopPropagation();
+                if (missingImages.length === 0) return;
                 // 定妆锚关口（包 B · B3 路径 2/4）：缺锚时先补定妆照再批量出图
                 if (onBeforeBatchImages && !(await onBeforeBatchImages()))
                   return;
-                const scenesWithoutImage = project.scenes.filter(
-                  (s) => !s.imageUrl && s.imageStatus !== "PROCESSING"
-                );
-                if (scenesWithoutImage.length === 0) {
-                  const all =
-                    await toast.confirm("所有分镜已有图片，是否全部重新生成？");
-                  if (all)
-                    batchGenerateImagesMutation.mutate({
-                      imageConfigId: mediaConfig.image.selected,
-                      scenes: project.scenes,
-                    });
-                } else {
-                  batchGenerateImagesMutation.mutate({
-                    imageConfigId: mediaConfig.image.selected,
-                    scenes: scenesWithoutImage,
-                  });
-                }
+                batchGenerateImagesMutation.mutate({
+                  imageConfigId: mediaConfig.image.selected,
+                  scenes: missingImages,
+                });
               }}
-              disabled={anyBatchPending}
+              disabled={anyBatchPending || missingImages.length === 0}
               className="bg-primary hover:bg-primary/90 flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs whitespace-nowrap transition disabled:opacity-50"
-              title="批量生成所有缺失图片的分镜"
+              title="仅补缺失图片，保留已生成内容；已有图片请在对应分镜重新生成"
             >
               {batchGenerateImagesMutation.isPending ? (
                 <Loader2 size={12} className="animate-spin" />
               ) : (
                 <Wand2 size={12} />
               )}
-              批量生成
+              补齐图片 {missingImages.length}
             </button>
           )}
           {/* AI 工具下拉：收纳「AI 建议衔接 / 场景地点 / AI 场记」三个次级入口，
@@ -488,12 +478,14 @@ function SceneListImpl({
               if (failedScenes.length === 0) return null;
               return (
                 <button
-                  onClick={() =>
+                  onClick={async () => {
+                    if (onBeforeBatchImages && !(await onBeforeBatchImages()))
+                      return;
                     batchGenerateImagesMutation.mutate({
                       scenes: failedScenes,
                       imageConfigId: mediaConfig.image.selected,
-                    })
-                  }
+                    });
+                  }}
                   disabled={anyBatchPending}
                   className="bg-destructive/20 text-destructive hover:bg-destructive/30 flex shrink-0 items-center gap-1 rounded px-2 py-1 text-xs whitespace-nowrap transition disabled:opacity-50"
                   title="仅重新生成图片失败的分镜"
@@ -531,7 +523,9 @@ function SceneListImpl({
         </div>
       </div>
       <div
-        className={`flex-1 overflow-y-auto p-4 ${
+        role="region"
+        aria-label="分镜列表内容"
+        className={`min-h-0 flex-1 overflow-y-auto p-4 ${
           viewMode === "list"
             ? "space-y-3"
             : viewMode === "grid2"

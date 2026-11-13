@@ -26,6 +26,13 @@ import {
   type TitleCardsConfig,
 } from "@/lib/title-cards";
 import type { AiDisclosure } from "@/lib/ai-disclosure";
+import {
+  buildNarrativeReviewFingerprint,
+  buildContinuityReviewFingerprint,
+  compareReviewFingerprint,
+  resolveContinuityReviewPalette,
+} from "@/lib/review-freshness";
+import { parseOutfitEntries } from "@/services/generation/scene-looks-match";
 import { NextRequest, NextResponse } from "next/server";
 
 const log = createLogger("api:projects:[id]:review-report");
@@ -46,7 +53,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // 项目归属校验（连带取系列态 + generationParams，供红线总时长门禁计入卡片时长）
     const project = await prisma.project.findFirst({
       where: { id, userId },
-      select: { id: true, seriesId: true, generationParams: true },
+      select: {
+        id: true,
+        seriesId: true,
+        generationParams: true,
+        style: true,
+        series: { select: { storyBible: true } },
+        characters: {
+          select: { character: { select: { id: true, name: true } } },
+        },
+      },
     });
     if (!project) {
       return NextResponse.json({ error: "项目不存在" }, { status: 404 });
@@ -74,6 +90,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         emotion: true,
         // 镜头语言节：建立镜判据按地点分组（新地点首镜应为全景/远景）
         locationKey: true,
+        description: true,
+        selectedCharacterIds: true,
+        selectedCharacter: { select: { name: true } },
+        characterOutfits: true,
+        sceneCharacters: { select: { character: { select: { name: true } } } },
       },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,6 +105,39 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     // 画面压到 duration/speed（video-synthesis 的 declaredDuration），2 倍速的 10s 镜
     // 成片只有 5s。不换算会让「总时长/空镜/对白超时/红线」四类判据全部读到虚高时长。
     const speedBySceneId = buildSceneSpeedMap(genParams.sceneEffects);
+    const characterNamesById = new Map(
+      project.characters.map(({ character }) => [character.id, character.name])
+    );
+    const narrativeFingerprint = buildNarrativeReviewFingerprint(
+      scenes.map((s) => {
+        const selectedNames = s.selectedCharacterIds.flatMap((characterId) => {
+          const name = characterNamesById.get(characterId);
+          return name ? [name] : [];
+        });
+        return {
+          ...s,
+          // 修改成片倍速也会影响叙事节奏；不能沿用原速度的通过结论。
+          duration: s.duration / (speedBySceneId.get(s.id) ?? 1),
+          characters: selectedNames.length
+            ? selectedNames
+            : s.selectedCharacter
+              ? [s.selectedCharacter.name]
+              : s.sceneCharacters.map(({ character }) => character.name),
+        };
+      })
+    );
+    const continuityFingerprint = buildContinuityReviewFingerprint(
+      scenes.map((s) => ({
+        ...s,
+        characterNames: s.sceneCharacters.map(
+          ({ character }) => character.name
+        ),
+        outfitNotes: parseOutfitEntries(s.characterOutfits).map(
+          (e) => `${e.name}：${e.outfit}`
+        ),
+      })),
+      resolveContinuityReviewPalette(project.style, project.series?.storyBible)
+    );
 
     const reviewScenes: ReviewScene[] = scenes.map((s) => {
       const speed = speedBySceneId.get(s.id) ?? 1;
@@ -125,8 +179,8 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 
     const [hookType, continuitySummary, narrativeReview] = await Promise.all([
       loadLatestHookType(id),
-      loadLatestContinuitySummary(id, userId),
-      loadLatestNarrativeReview(id, userId),
+      loadLatestContinuitySummary(id, userId, continuityFingerprint),
+      loadLatestNarrativeReview(id, userId, narrativeFingerprint),
     ]);
 
     const report = assembleReviewReport({
@@ -218,7 +272,8 @@ async function loadLatestHookType(projectId: string): Promise<HookType | null> {
  */
 async function loadLatestNarrativeReview(
   projectId: string,
-  userId: string
+  userId: string,
+  currentFingerprint: string
 ): Promise<NarrativeReviewInput | null> {
   // 取最近几条 run 逐一找 artifact：Prisma 无法在 JSON 顶层用带冒号的 key 做 path 过滤，
   // 故在 JS 侧扫。窗口 10 条足够——同一项目连跑 10 次工作流仍无评审即视为未评审。
@@ -245,12 +300,17 @@ async function loadLatestNarrativeReview(
       dimensions?: unknown;
       feedback?: unknown;
       suggestions?: unknown;
+      inputFingerprint?: unknown;
     };
     // 分数缺失/非法的 artifact 视为无效，继续往前找（不要拿 NaN 去渲染报告）
     const score = Number(d.score);
     if (!Number.isFinite(score)) continue;
 
     return {
+      freshness: compareReviewFingerprint(
+        d.inputFingerprint,
+        currentFingerprint
+      ),
       score,
       pass: Boolean(d.pass),
       passThreshold: Number.isFinite(Number(d.passThreshold))
@@ -292,7 +352,8 @@ function isNumberRecord(v: unknown): v is Record<string, number> {
  */
 async function loadLatestContinuitySummary(
   projectId: string,
-  userId: string
+  userId: string,
+  currentFingerprint: string
 ): Promise<ContinuitySummaryInput | null> {
   const task = await prisma.generationTask.findFirst({
     where: {
@@ -308,7 +369,10 @@ async function loadLatestContinuitySummary(
 
   if (!task) return null;
 
-  const input = (task.input ?? {}) as { userId?: string };
+  const input = (task.input ?? {}) as {
+    userId?: string;
+    inputFingerprint?: unknown;
+  };
   // 归属兜底：任务 input 记了 userId 时须与当前用户一致
   if (input.userId && input.userId !== userId) return null;
 
@@ -326,16 +390,20 @@ async function loadLatestContinuitySummary(
   const summary = typeof report.summary === "string" ? report.summary : "";
   if (!summary) return null;
   const issueCount = Array.isArray(report.issues) ? report.issues.length : 0;
+  const freshness = compareReviewFingerprint(
+    input.inputFingerprint,
+    currentFingerprint
+  );
 
   // 体检未完成：grade 显式为 null，或新契约下 checkedPairs=0（无一对成功检查）。
   const checkedPairs =
     typeof report.checkedPairs === "number" ? report.checkedPairs : undefined;
   if (report.grade === null || checkedPairs === 0) {
-    return { grade: null, summary, issueCount: 0 };
+    return { grade: null, summary, issueCount: 0, freshness };
   }
 
   // 正常评级（含老数据：无 checkedPairs 字段，按字符串 grade 走）
   const grade = typeof report.grade === "string" ? report.grade : "";
   if (!grade) return null;
-  return { grade, summary, issueCount };
+  return { grade, summary, issueCount, freshness };
 }

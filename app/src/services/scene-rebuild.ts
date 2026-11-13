@@ -11,7 +11,7 @@
  */
 
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@prisma/client";
+import { Prisma, type Scene } from "@prisma/client";
 import type { GenerationParams } from "@/types";
 import type {
   SceneEffect,
@@ -58,6 +58,7 @@ function remapGenerationParams(
         if (order === undefined) return null;
         const newId = orderToNewSceneId.get(order);
         if (!newId) return null;
+        if (newId !== item.sceneId) changed = true;
         return { ...item, sceneId: newId };
       })
       .filter((x): x is T => x !== null);
@@ -85,6 +86,7 @@ function remapGenerationParams(
       if (order === undefined) continue;
       const newId = orderToNewSceneId.get(order);
       if (!newId || seen.has(newId)) continue;
+      if (newId !== oldId) changed = true;
       seen.add(newId);
       mappedEmphasis.push(newId);
     }
@@ -245,10 +247,27 @@ function matchCharacterByName(
 export async function rebuildProjectScenes(
   id: string,
   project: { generationParams: unknown },
-  scenes: unknown[]
-) {
+  scenes: unknown[],
+  transaction?: Prisma.TransactionClient
+): Promise<Scene[]> {
+  if (!transaction) {
+    return prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`project-scenes:${id}`}, 0))`;
+        return rebuildProjectScenes(id, project, scenes, tx);
+      },
+      { timeout: 30_000 }
+    );
+  }
+  const tx = transaction;
+  // 鉴权时的项目快照可能已过时；锁内重读配置，避免覆盖刚保存的用户精调。
+  const currentProject = await tx.project.findUnique({
+    where: { id },
+    select: { generationParams: true },
+  });
+  if (!currentProject) throw new Error("项目已不存在");
   // 一次性预加载项目全部角色到内存（消除原逐角色名查 DB 的 N+1）
-  const projectCharacters = await prisma.character.findMany({
+  const projectCharacters = await tx.character.findMany({
     where: { projects: { some: { projectId: id } } },
     select: { id: true, name: true },
   });
@@ -317,7 +336,7 @@ export async function rebuildProjectScenes(
 
   // 重建前抓「旧 sceneId → order」映射，用于事后把 generationParams 中
   // 按 sceneId 键控的配置桥接到新分镜（a1 P0-1）。
-  const oldScenes = await prisma.scene.findMany({
+  const oldScenes = await tx.scene.findMany({
     where: { projectId: id },
     select: { id: true, order: true },
   });
@@ -328,7 +347,7 @@ export async function rebuildProjectScenes(
   // 出现「分镜已重建但 generationParams 仍指向旧 sceneId」的半残状态——
   // 后者会让用户精调的贴图/滤镜/逐镜字幕位置全部失联（原 update 在事务
   // 外，事务提交后崩溃即复现）。
-  const createdScenes = await prisma.$transaction(async (tx) => {
+  const createdScenes = await (async () => {
     await tx.scene.deleteMany({ where: { projectId: id } });
     if (sceneData.length > 0) {
       await tx.scene.createMany({ data: sceneData });
@@ -344,7 +363,7 @@ export async function rebuildProjectScenes(
     // 避免用户精调成果在重解析后静默丢失、孤儿数据滞留。
     const orderToNewSceneId = new Map(scenesAfter.map((s) => [s.order, s.id]));
     const { next: remappedParams, changed } = remapGenerationParams(
-      project.generationParams as GenerationParams | null,
+      currentProject.generationParams as GenerationParams | null,
       oldSceneIdToOrder,
       orderToNewSceneId
     );
@@ -430,7 +449,7 @@ export async function rebuildProjectScenes(
     }
 
     return scenesAfter;
-  });
+  })();
 
   return createdScenes;
 }

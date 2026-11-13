@@ -106,70 +106,139 @@ export async function POST(request: NextRequest) {
       referenceImages,
       tagIds,
       appearance,
+      producerProjectId,
     } = body;
 
-    if (!name) {
+    if (typeof name !== "string" || !name.trim() || name.length > 100) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
+    if (
+      producerProjectId !== undefined &&
+      (typeof producerProjectId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(producerProjectId))
+    )
+      return NextResponse.json(
+        { error: "producerProjectId无效" },
+        { status: 400 }
+      );
 
-    const character = await prisma.character.create({
-      data: {
-        name,
-        gender: gender || null,
-        age: age || null,
-        description: description || null,
-        voiceId: voiceId || null,
-        voiceProvider: voiceProvider || null,
-        referenceImages: referenceImages || [],
-        userId: session.user.id,
-        ...(tagIds &&
-          tagIds.length > 0 && {
-            tags: {
-              create: tagIds.map((tagId: string) => ({
-                tagId,
-              })),
+    const createCharacter = (
+      client: Prisma.TransactionClient | typeof prisma
+    ) =>
+      client.character.create({
+        data: {
+          name: producerProjectId ? name.trim() : name,
+          gender: gender || null,
+          age: age || null,
+          description: description || null,
+          voiceId: voiceId || null,
+          voiceProvider: voiceProvider || null,
+          referenceImages: referenceImages || [],
+          userId: session.user.id,
+          ...(tagIds &&
+            tagIds.length > 0 && {
+              tags: {
+                create: tagIds.map((tagId: string) => ({
+                  tagId,
+                })),
+              },
+            }),
+          ...(appearance && {
+            appearance: {
+              create: {
+                hairStyle: appearance.hairStyle || null,
+                hairColor: appearance.hairColor || null,
+                faceShape: appearance.faceShape || null,
+                eyeColor: appearance.eyeColor || null,
+                bodyType: appearance.bodyType || null,
+                height: appearance.height || null,
+                skinTone: appearance.skinTone || null,
+                accessories: appearance.accessories || null,
+                freeText: appearance.freeText || null,
+                // 美术工业一致性 6 项：漏写会让表单填的值静默丢失（与 clothingPresets 同类根因）
+                defaultOutfit: appearance.defaultOutfit || null,
+                outfitDetails: appearance.outfitDetails || null,
+                headToBodyRatio: appearance.headToBodyRatio || null,
+                hairParting: appearance.hairParting || null,
+                eyeHighlight: appearance.eyeHighlight || null,
+                asymmetry: appearance.asymmetry || null,
+                // 换装预设：前端 appearance-editor 收集、下游出图/换装消费，
+                // 此前漏写导致用户手填/AI 起草的服装预设静默丢失（A1 根因）。
+                // 空数组存 []（非 JsonNull），与消费侧 toAppearanceFormData / character-look
+                // 统一按空数组处理，避免 null/[] 语义分裂。
+                clothingPresets: Array.isArray(appearance.clothingPresets)
+                  ? appearance.clothingPresets
+                  : [],
+              },
             },
           }),
-        ...(appearance && {
-          appearance: {
-            create: {
-              hairStyle: appearance.hairStyle || null,
-              hairColor: appearance.hairColor || null,
-              faceShape: appearance.faceShape || null,
-              eyeColor: appearance.eyeColor || null,
-              bodyType: appearance.bodyType || null,
-              height: appearance.height || null,
-              skinTone: appearance.skinTone || null,
-              accessories: appearance.accessories || null,
-              freeText: appearance.freeText || null,
-              // 美术工业一致性 6 项：漏写会让表单填的值静默丢失（与 clothingPresets 同类根因）
-              defaultOutfit: appearance.defaultOutfit || null,
-              outfitDetails: appearance.outfitDetails || null,
-              headToBodyRatio: appearance.headToBodyRatio || null,
-              hairParting: appearance.hairParting || null,
-              eyeHighlight: appearance.eyeHighlight || null,
-              asymmetry: appearance.asymmetry || null,
-              // 换装预设：前端 appearance-editor 收集、下游出图/换装消费，
-              // 此前漏写导致用户手填/AI 起草的服装预设静默丢失（A1 根因）。
-              // 空数组存 []（非 JsonNull），与消费侧 toAppearanceFormData / character-look
-              // 统一按空数组处理，避免 null/[] 语义分裂。
-              clothingPresets: Array.isArray(appearance.clothingPresets)
-                ? appearance.clothingPresets
-                : [],
+        },
+        include: {
+          tags: {
+            include: {
+              tag: true,
             },
           },
-        }),
-      },
-      include: {
-        tags: {
-          include: {
-            tag: true,
-          },
+          appearance: true,
         },
-        appearance: true,
-      },
-    });
+      });
 
+    if (producerProjectId) {
+      const result = await prisma.$transaction(async (tx) => {
+        const project = await tx.project.findFirst({
+          where: { id: producerProjectId, userId: session.user.id },
+          select: { id: true },
+        });
+        if (!project) return null;
+        // 按用户与姓名锁定，而非前端步骤锁；不同标签页同时建同名也只能建一档。
+        const normalizedName = name.trim().toLocaleLowerCase("en-US");
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`producer-character:${session.user.id}:${normalizedName}`}, 0))`;
+        const include = {
+          tags: { include: { tag: true } },
+          appearance: true,
+        } as const;
+        const where = {
+          userId: session.user.id,
+          name: { equals: name.trim(), mode: "insensitive" as const },
+        };
+        const linked = await tx.character.findFirst({
+          where: {
+            ...where,
+            projects: { some: { projectId: producerProjectId } },
+          },
+          include,
+          orderBy: { createdAt: "asc" },
+        });
+        const existing =
+          linked ??
+          (await tx.character.findFirst({
+            where,
+            include,
+            orderBy: { createdAt: "asc" },
+          }));
+        const character = existing ?? (await createCharacter(tx));
+        await tx.projectCharacter.upsert({
+          where: {
+            projectId_characterId: {
+              projectId: producerProjectId,
+              characterId: character.id,
+            },
+          },
+          create: { projectId: producerProjectId, characterId: character.id },
+          update: {},
+        });
+        return { character, reused: Boolean(existing) };
+      });
+      if (!result)
+        return NextResponse.json(
+          { error: "Project not found" },
+          { status: 404 }
+        );
+      return NextResponse.json(result.character, {
+        status: result.reused ? 200 : 201,
+      });
+    }
+    const character = await createCharacter(prisma);
     return NextResponse.json(character, { status: 201 });
   } catch (error) {
     log.error("Create character error:", error);

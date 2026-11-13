@@ -12,6 +12,7 @@ import {
   EPISODE_PACING_RULES,
   EPISODE_ENDING_RULES,
   EPISODE_CONFLICT_RULES,
+  SHOT_RHYTHM_RULES,
 } from "../episode-structure";
 import {
   EXTERNALIZATION_RULES,
@@ -34,7 +35,7 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
 - characters：本镜画面中实际登场的角色名数组；名字必须与"已有角色"列表完全一致（有列表时），不要写代词或身份描述；纯空镜/环境镜给 []；只列画面里出现的人，不要把全剧角色都塞进去
 - emotion 必须为：neutral、happy、sad、angry、surprised、fear 之一
 - hookType 为本集结尾钩子类型，必须是：悬念、反转、情绪、信息、危机 之一
-- 每镜时长按叙事需要 2-15 秒（长动作可更长，系统会按视频模型能力自动分段衔接），总时长与目标偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
+- 单镜时长遵守下方「单镜节奏」统一规则，总时长与目标偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
 - description 要视觉化、含环境/光线/人物动作，适合 AI 图像/视频生成
 - 尽量给每个场景补齐镜头语言（可选字段，缺失不报错，但补齐能显著提升成片电影感）：
   - cameraAngle：镜头角度，必须是以下英文枚举之一：low-angle（仰拍，压迫感/仰视）、high-angle（俯拍，弱势/全局）、eye-level（平视，中性）、dutch-angle（斜角，失衡/不安）、over-the-shoulder（过肩，对话正反打）、pov（主观视角）、birds-eye（鸟瞰）、worms-eye（极低角度）
@@ -53,11 +54,10 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
   · atSec：该节拍发生的秒数
   · beat：必须是 钩子 / 立局 / 施压 / 爽点 / 爆发 / 余波 / 断口 之一
   · note：一句话说明这个节拍发生了什么（≤30 字）
-- 【硬约束】相邻两个「爽点 / 爆发」节拍的间隔不得超过 20 秒。
+- 每 15-20 秒至少有一次改变局势的新信息、选择或行动后果，禁止信息空窗；不要为凑密度机械堆叠爆发与反转。
 - 【硬约束】全片必须至少包含 1 个「钩子」（atSec ≤ 3）、1 个「爆发」、1 个「断口」（收尾）。
 - scenes 必须严格落在 beatSheet 规划的节奏上——先定节拍，再写分镜。
-- 典型 90 秒单集：0-3s 钩子（冲突最高点）→ 3-10s 立局（谁 vs 谁）→ 10-30s 施压 + 爽点①→ 30-60s 爆发（打脸走完，爽点②大逆转）→ 60-80s 余波（围观者反应，爽感释放）→ 80-90s 断口（新危机）。
-- 反面案例：「前 60 秒都在铺垫，最后 30 秒草草打脸」——每一镜单看都合格，合起来节奏是塌的，观众在 30-45 秒区间流失。
+- atSec 必须按时间递增，全部位于 [0, 目标时长) 内，末段断口也须适配目标时长；中段为兑现本集承诺服务，不能只在结尾草草解决全部矛盾。
 
 ${EPISODE_HOOK_RULES}
 
@@ -66,6 +66,8 @@ ${EPISODE_PACING_RULES}
 ${EPISODE_ENDING_RULES}
 
 ${EPISODE_CONFLICT_RULES}
+
+${SHOT_RHYTHM_RULES}
 
 ${EXTERNALIZATION_RULES}
 
@@ -85,6 +87,79 @@ export function buildDramaScriptUserPrompt(input: DramaScriptInput): string {
   const durationSec = input.durationSec ?? 90;
   const aspectRatio = input.aspectRatio ?? "9:16";
   const style = input.style ?? "anime";
+
+  // 结构示例只示范字段，不携带固定 90 秒的剧情，避免短片复制越界节拍。
+  // 使用序列化保证引号、换行等合法用户参数不会破坏示例 JSON。
+  const example = JSON.stringify(
+    {
+      filmTitle: input.filmTitle || "片名（根据本次故事拟定）",
+      genre: input.genre || "类型（根据本次故事判断）",
+      durationSec,
+      aspectRatio,
+      style,
+      protagonist: "主角身份描述",
+      worldview: "提炼后的世界观",
+      logline: "主角为了目标采取行动，并付出具体代价",
+      hookType: "悬念",
+      beatSheet: [
+        {
+          atSec: 0,
+          beat: "钩子",
+          note: "可理解的危机或疑问（替换为本集事件）",
+        },
+        {
+          atSec: Math.round(durationSec * 0.1),
+          beat: "立局",
+          note: "明确主角目标与阻碍",
+        },
+        {
+          atSec: Math.round(durationSec * 0.25),
+          beat: "施压",
+          note: "新信息迫使主角作出选择",
+        },
+        {
+          atSec: Math.round(durationSec * 0.45),
+          beat: "爽点",
+          note: "兑现一项与题材相符的观众期待",
+        },
+        {
+          atSec: Math.round(durationSec * 0.65),
+          beat: "爆发",
+          note: "主角的行动改变局势",
+        },
+        {
+          atSec: Math.round(durationSec * 0.8),
+          beat: "余波",
+          note: "展示本集行动结果与代价",
+        },
+        {
+          atSec: Math.floor(durationSec * 0.95),
+          beat: "断口",
+          note: "行动后果引出新的未决问题",
+        },
+      ],
+      scenes: [
+        {
+          index: 1,
+          title: "开场危机（根据本集剧情填写）",
+          description: "主角的手停在关键物件上，危险的倒影逼近",
+          dialogue: "别碰它。",
+          narration: null,
+          emotion: "fear",
+          durationSec: 2,
+          characters: ["本镜实际登场的角色名"],
+          cameraAngle: "low-angle",
+          lighting: "冷调侧光",
+          composition: "前景遮挡",
+          colorPalette: "冷蓝调",
+          actionBeat: "主角猛地收手，抬眼看向倒影",
+          cameraMovement: "dolly_in",
+        },
+      ],
+    },
+    null,
+    2
+  );
 
   const charactersLine =
     input.characterNames && input.characterNames.length > 0
@@ -125,53 +200,15 @@ ${input.genre ? `类型：${input.genre}` : "类型：由你判断（如热血�
 
 要求：
 1. 整体基调统一、节奏紧凑，适合短视频平台
-2. 按情绪节拍切分场景，不按固定数量凑：开场钩子段（≤30s，冲突最高点前置）+ 三段递进冲突（每段必须有新信息 / 新爽点）+ 结尾爽点与新钩子段（≈30s）；每分钟约 15-25 镜
-3. 每镜时长按叙事需要 2-15 秒（长动作可更长，系统自动分段），总时长与目标（约 ${durationSec} 秒）偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
+2. 按情绪节拍切分场景，不按固定数量凑：开场 0-3 秒建立可理解的钩子，中段冲突递进，末段先兑现本集承诺再留新钩子；各段按 ${durationSec} 秒目标分配，每分钟约 15-25 镜仅作参考
+3. 每镜默认 2-4 秒，超过 5 秒须有叙事或口播理由，按对白+旁白的实际朗读下限精简或拆镜；总时长与目标（约 ${durationSec} 秒）偏差 ±20% 可接受；禁止拉长镜头凑时长，宁可多切镜头
 4. 每个场景 description 要视觉化（环境 + 光线 + 人物动作/表情），适合 AI 生成
 5. 结尾必须留钩：从悬念/反转/情绪/信息/危机五类中选一，并把类型写入顶层 hookType；若系列上下文给出「近 N 集钩子类型」，本集必须选不同类型
 6. 保留必要对白与旁白，无则置 null${recapRequirement}
+${input.previousEpisodeRecap ? 8 : 7}. 下方 JSON 仅示范字段（scenes 只展示首镜），正式输出必须补齐整集分镜；节拍说明须换成本集具体事件，长片中段按需要增加节拍，不得照搬示例桥段或通用空话
 
 输出格式：
-{
-  "filmTitle": "片名",
-  "genre": "类型",
-  "durationSec": ${durationSec},
-  "aspectRatio": "${aspectRatio}",
-  "style": "${style}",
-  "protagonist": "主角身份描述",
-  "worldview": "提炼后的世界观一段话",
-  "logline": "一句话故事梗概",
-  "hookType": "悬念",
-  "beatSheet": [
-    { "atSec": 0, "beat": "钩子", "note": "她当众被泼了一脸红酒" },
-    { "atSec": 8, "beat": "立局", "note": "泼酒的是她名义上的妹妹" },
-    { "atSec": 22, "beat": "爽点", "note": "她当场报出对方偷改的合同条款" },
-    { "atSec": 45, "beat": "爆发", "note": "亮出董事会授权书，反手夺权" },
-    { "atSec": 72, "beat": "余波", "note": "满座震惊，妹妹瘫坐在地" },
-    { "atSec": 85, "beat": "断口", "note": "手机弹出一条陌生号码：我知道你是谁" }
-  ],
-  "scenes": [
-    {
-      "index": 1,
-      "title": "场景标题",
-      "description": "视觉化画面描述...",
-      "dialogue": "对白" | null,
-      "narration": "旁白" | null,
-      "emotion": "neutral",
-      "durationSec": 8,
-      "characters": ["本镜实际登场的角色名"],
-      "cameraAngle": "low-angle",
-      "lighting": "冷调夜景",
-      "composition": "三分法",
-      "colorPalette": "冷蓝调",
-      "actionBeat": "角色抬手推开门，目光扫过屋内",
-      "cameraMovement": "dolly_in",
-      "beatType": "reveal",
-      "isClimax": true,
-      "emphasis": true
-    }
-  ]
-}`;
+${example}`;
 }
 
 /** 自修复 prompt：将 Zod 验证错误反馈给 LLM */

@@ -26,102 +26,122 @@ export async function saveScenesToProject(
   projectId: string,
   script: ScriptArtifact
 ): Promise<void> {
-  const existing = await prisma.scene.findMany({
-    where: { projectId },
-    select: { id: true, order: true },
-  });
-  const existingByOrder = new Map(existing.map((s) => [s.order, s.id]));
-  const newOrders = new Set<number>();
-
-  // C3：一次性预加载项目角色，按分镜 characters 名单匹配 selectedCharacterId（出图角色锚点）。
-  // 与手动路径 scenes/route.ts 同语义——此前一键 workflow 漏写该字段，导致自动项目所有
-  // 分镜 selectedCharacterId 恒 null，出图丢失角色一致性。角色回写（C1）已在本步之前执行，
-  // 故这里能匹配到刚建档的角色。
-  const projectCharacters = await prisma.character.findMany({
-    where: { projects: { some: { projectId } } },
-    select: { id: true, name: true },
-  });
-
-  for (let idx = 0; idx < script.scenes.length; idx++) {
-    const s = script.scenes[idx];
-    const order = idx + 1;
-    newOrders.add(order);
-    const sceneId = existingByOrder.get(order);
-
-    // 镜头语言字段（LLM 解析产出，落库供出图/视频 prompt）
-    const cinematics = {
-      cameraAngle: s.cameraAngle ?? null,
-      lighting: s.lighting ?? null,
-      composition: s.composition ?? null,
-      colorPalette: s.colorPalette ?? null,
-      cameraMovement: s.cameraMovement ?? null,
-      // 运动节拍：LLM 导演产出，喂视频 prompt 的 Action 段
-      actionBeat: s.actionBeat ?? null,
-      // 地点标签：同一物理地点的分镜共用同一短标签，供场景锚定图分组（环境一致性）
-      locationKey: s.locationKey ?? null,
-      // 尾帧衔接下一镜：LLM 解析产出（linkNext），映射到 videoLinkNext，供视频生成走 FL 首尾帧插值。
-      // 与手动解析路径（scenes/route.ts）对齐——此前一键 workflow 丢弃该字段，导致同款输入两条路径行为不一致。
-      videoLinkNext: Boolean(s.linkNext),
-      // 分镜级换装标注（Json）：LLM 解析产出，供场景定妆照换装（与 scenes 路由同款空值语义）
-      characterOutfits:
-        Array.isArray(s.characterOutfits) && s.characterOutfits.length > 0
-          ? (s.characterOutfits as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
-    };
-
-    // C3：按分镜角色名单取全部命中角色 id（与手动路径一致）——复数驱动 UI 自动
-    // 高亮与多角色参考图合成，首个命中兼容单数锚点
-    const selectedCharacterIds = resolveSelectedCharacterIds(
-      projectCharacters,
-      s.characters
-    );
-    const selectedCharacterId = selectedCharacterIds[0] ?? null;
-
-    if (sceneId) {
-      // 更新文本字段；不触碰 imageUrl/videoUrl/audioUrl 与三个 status
-      await prisma.scene.update({
-        where: { id: sceneId },
-        data: {
-          shotType: s.shotType,
-          description: s.description,
-          dialogue: s.dialogue,
-          narration: s.narration,
-          emotion: s.emotion,
-          duration: s.duration,
-          selectedCharacterId,
-          selectedCharacterIds,
-          ...cinematics,
-        },
+  // 定稿必须整批提交；与手动重建共用项目锁，避免并发镜序快照导致错配。
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`project-scenes:${projectId}`}, 0))`;
+      const existingRows = await tx.scene.findMany({
+        where: { projectId },
+        select: { id: true, order: true },
+        orderBy: { order: "asc" },
       });
-    } else {
-      await prisma.scene.create({
-        data: {
-          projectId,
-          order,
-          shotType: s.shotType,
-          description: s.description,
-          dialogue: s.dialogue,
-          narration: s.narration,
-          emotion: s.emotion,
-          duration: s.duration,
-          selectedCharacterId,
-          selectedCharacterIds,
-          ...cinematics,
-          imageStatus: "PENDING",
-          videoStatus: "PENDING",
-          audioStatus: "PENDING",
-        },
-      });
-    }
-  }
+      // 手动重建从0起序，工作流从1起序；按实际位置对齐，避免首镜丢失和媒体错移。
+      const existing = existingRows.map((scene, index) => ({
+        ...scene,
+        order: index + 1,
+      }));
+      const existingByOrder = new Map(existing.map((s) => [s.order, s.id]));
+      const newOrders = new Set<number>();
 
-  // 删除多余的 order（新 script 长度缩短时）
-  const stale = existing
-    .filter((s) => !newOrders.has(s.order))
-    .map((s) => s.id);
-  if (stale.length > 0) {
-    await prisma.scene.deleteMany({ where: { id: { in: stale } } });
-  }
+      // C3：一次性预加载项目角色，按分镜 characters 名单匹配 selectedCharacterId（出图角色锚点）。
+      // 与手动路径 scenes/route.ts 同语义——此前一键 workflow 漏写该字段，导致自动项目所有
+      // 分镜 selectedCharacterId 恒 null，出图丢失角色一致性。角色回写（C1）已在本步之前执行，
+      // 故这里能匹配到刚建档的角色。
+      const projectCharacters = await tx.character.findMany({
+        where: { projects: { some: { projectId } } },
+        select: { id: true, name: true },
+      });
+
+      for (let idx = 0; idx < script.scenes.length; idx++) {
+        const s = script.scenes[idx];
+        const order = idx + 1;
+        newOrders.add(order);
+        const sceneId = existingByOrder.get(order);
+
+        // 镜头语言字段（LLM 解析产出，落库供出图/视频 prompt）
+        const cinematics = {
+          cameraAngle: s.cameraAngle ?? null,
+          lighting: s.lighting ?? null,
+          composition: s.composition ?? null,
+          colorPalette: s.colorPalette ?? null,
+          cameraMovement: s.cameraMovement ?? null,
+          // 运动节拍：LLM 导演产出，喂视频 prompt 的 Action 段
+          actionBeat: s.actionBeat ?? null,
+          beatType: s.beatType ?? null,
+          isClimax: s.isClimax === true,
+          // 对话轴线必须贯穿自动解析、补全与落库，否则后续出图只剩随机站位。
+          screenSide: s.screenSide
+            ? (s.screenSide as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+          // 地点标签：同一物理地点的分镜共用同一短标签，供场景锚定图分组（环境一致性）
+          locationKey: s.locationKey ?? null,
+          // 尾帧衔接下一镜：LLM 解析产出（linkNext），映射到 videoLinkNext，供视频生成走 FL 首尾帧插值。
+          // 与手动解析路径（scenes/route.ts）对齐——此前一键 workflow 丢弃该字段，导致同款输入两条路径行为不一致。
+          videoLinkNext: Boolean(s.linkNext),
+          // 分镜级换装标注（Json）：LLM 解析产出，供场景定妆照换装（与 scenes 路由同款空值语义）
+          characterOutfits:
+            Array.isArray(s.characterOutfits) && s.characterOutfits.length > 0
+              ? (s.characterOutfits as unknown as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
+        };
+
+        // C3：按分镜角色名单取全部命中角色 id（与手动路径一致）——复数驱动 UI 自动
+        // 高亮与多角色参考图合成，首个命中兼容单数锚点
+        const selectedCharacterIds = resolveSelectedCharacterIds(
+          projectCharacters,
+          s.characters
+        );
+        const selectedCharacterId = selectedCharacterIds[0] ?? null;
+
+        if (sceneId) {
+          // 更新文本字段；不触碰 imageUrl/videoUrl/audioUrl 与三个 status
+          await tx.scene.update({
+            where: { id: sceneId },
+            data: {
+              order,
+              shotType: s.shotType,
+              description: s.description,
+              dialogue: s.dialogue,
+              narration: s.narration,
+              emotion: s.emotion,
+              duration: s.duration,
+              selectedCharacterId,
+              selectedCharacterIds,
+              ...cinematics,
+            },
+          });
+        } else {
+          await tx.scene.create({
+            data: {
+              projectId,
+              order,
+              shotType: s.shotType,
+              description: s.description,
+              dialogue: s.dialogue,
+              narration: s.narration,
+              emotion: s.emotion,
+              duration: s.duration,
+              selectedCharacterId,
+              selectedCharacterIds,
+              ...cinematics,
+              imageStatus: "PENDING",
+              videoStatus: "PENDING",
+              audioStatus: "PENDING",
+            },
+          });
+        }
+      }
+
+      // 删除多余的 order（新 script 长度缩短时）
+      const stale = existing
+        .filter((s) => !newOrders.has(s.order))
+        .map((s) => s.id);
+      if (stale.length > 0) {
+        await tx.scene.deleteMany({ where: { id: { in: stale } } });
+      }
+    },
+    { timeout: 30_000 }
+  );
 }
 
 /**

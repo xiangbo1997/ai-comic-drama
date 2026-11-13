@@ -76,7 +76,10 @@ export function buildColorGradeFilter(colorGrade?: ColorGrade): string | null {
   const preset = resolveLutPreset(colorGrade.lutId);
   if (!preset) return null;
   // .cube 相对 app 运行目录（public/luts/x.cube）→ 拼绝对路径
-  const cubeAbsPath = path.join(process.cwd(), preset.cubeFile);
+  const cubeAbsPath = path.join(
+    /* turbopackIgnore: true */ process.cwd(),
+    preset.cubeFile
+  );
   if (!existsSync(cubeAbsPath)) {
     log.warn(`LUT .cube 文件不存在，跳过调色: ${cubeAbsPath}`);
     return null;

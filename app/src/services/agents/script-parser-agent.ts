@@ -24,7 +24,7 @@ import {
   NOVEL_COMPRESS_THRESHOLD,
 } from "@/services/novel-ingest";
 import { buildEventMapBlock } from "@/lib/prompts";
-import { CameraMovementSchema } from "./schemas";
+import { ScriptArtifactZ } from "./schemas";
 import type {
   Agent,
   AgentResult,
@@ -35,42 +35,8 @@ import type {
 
 const log = createLogger("agent:script-parser");
 
-// Zod schema 验证 LLM 输出
-// Stage 1.8：cameraAngle / lighting / composition / colorPalette 作为可选字段，
-// 老 LLM 输出（不含这些字段）仍能通过校验，新字段在 SceneScript 类型里透传。
-// LLM 导演增强：cameraMovement 收窄为 13 值枚举，非法值 catch 回落 undefined
-// （不因运镜写错整镜校验失败）；actionBeat 可选中文字符串。
-const SceneScriptSchema = z.object({
-  id: z.number(),
-  shotType: z.string(),
-  description: z.string().min(10),
-  characters: z.array(z.string()),
-  dialogue: z.string().nullable(),
-  narration: z.string().nullable(),
-  emotion: z.string(),
-  // 上限放宽到 60（与 prompt「1-60s，系统自动分段」一致）；具体值随后由
-  // calibrateSceneDurations 按对白驱动校准，不再依赖 LLM 拍脑袋的数字。
-  duration: z.number().min(1).max(60),
-  cameraAngle: z.string().optional(),
-  lighting: z.string().optional(),
-  composition: z.string().optional(),
-  colorPalette: z.string().optional(),
-  cameraMovement: CameraMovementSchema.optional().catch(undefined),
-  actionBeat: z.string().optional(),
-});
-
-const ScriptArtifactSchema = z.object({
-  title: z.string().min(1),
-  scenes: z.array(SceneScriptSchema).min(1),
-  characters: z
-    .array(
-      z.object({
-        name: z.string().min(1),
-        description: z.string().min(5),
-      })
-    )
-    .min(1),
-});
+// 生产解析和节点边界共用schema，避免局部旧定义静默丢弃地点、站位与结尾钩子。
+const ScriptArtifactSchema = ScriptArtifactZ;
 
 const MAX_ATTEMPTS = 3;
 

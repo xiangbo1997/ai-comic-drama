@@ -266,7 +266,11 @@ function generateLocalFilePath(options: UploadOptions): {
   }
 
   return {
-    filePath: path.join(process.cwd(), LOCAL_STORAGE_DIR, relativePath),
+    filePath: path.join(
+      /* turbopackIgnore: true */ process.cwd(),
+      LOCAL_STORAGE_DIR,
+      relativePath
+    ),
     urlPath: `${LOCAL_STORAGE_URL_PREFIX}/${relativePath}`,
   };
 }
@@ -299,7 +303,10 @@ export async function uploadPathToLocal(
   const { filePath, urlPath } = generateLocalFilePath(options);
   await ensureDir(path.dirname(filePath));
 
-  await pipeline(createReadStream(sourcePath), createWriteStream(filePath));
+  await pipeline(
+    createReadStream(/* turbopackIgnore: true */ sourcePath),
+    createWriteStream(filePath)
+  );
 
   const { size } = await fs.stat(filePath);
   return { url: urlPath, size };
@@ -327,8 +334,14 @@ export async function uploadFromUrlToLocal(
 export async function deleteFromLocal(fileUrl: string): Promise<void> {
   // 从 URL 提取文件路径
   const relativePath = fileUrl.replace(LOCAL_STORAGE_URL_PREFIX, "");
-  const baseDir = path.resolve(process.cwd(), LOCAL_STORAGE_DIR);
-  const filePath = path.resolve(baseDir, `.${path.sep}${relativePath}`);
+  const baseDir = path.resolve(
+    /* turbopackIgnore: true */ process.cwd(),
+    LOCAL_STORAGE_DIR
+  );
+  const filePath = path.resolve(
+    /* turbopackIgnore: true */ baseDir,
+    `.${path.sep}${relativePath}`
+  );
 
   // 路径穿越防护：解析后的真实路径必须落在存储基目录内，
   // 否则形如 "/uploads/../../../prisma/schema.prisma" 的 URL 会删到目录外。

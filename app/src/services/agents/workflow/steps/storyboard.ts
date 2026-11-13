@@ -7,6 +7,7 @@
 import { StoryboardAgent } from "../../storyboard-agent";
 import { executeAgentStep } from "../context";
 import { reviewStoryboardCoherence } from "./review";
+import { saveScenesToProject } from "../scene-persistence";
 import type {
   WorkflowContext,
   ScriptArtifact,
@@ -47,6 +48,19 @@ export async function runStoryboardStep(
     characterBible,
     ctx
   );
+
+  if (reviewed.scenes.length !== script.scenes.length) {
+    throw new Error("分镜定稿数量与剧本不一致，请重新生成分镜");
+  }
+  // 审阅、出图和导出必须使用同一版正文；复用按order的更新逻辑，保留DB id和已有媒体。
+  // 合并原始元数据，避免补全未提供的地点/尾帧衔接/换装等设置被清空。
+  await saveScenesToProject(ctx.projectId, {
+    ...script,
+    scenes: reviewed.scenes.map((scene, index) => ({
+      ...script.scenes[index],
+      ...scene,
+    })),
+  });
 
   // artifact 写「评审后的定稿版」——后续出图/出视频全部读这份 artifact，
   // 若仍写评审前的版本，闭环修订就只是一份评分记录，等于没落地。

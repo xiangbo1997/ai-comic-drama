@@ -7,7 +7,7 @@
  * - 默认 node 环境；无需 jsdom（当前测试都是纯函数）
  */
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
@@ -18,6 +18,8 @@ export default defineConfig({
     environment: "node",
     globals: false,
     include: ["tests/**/*.test.ts"],
+    // macOS 资源分叉是二进制元数据，不能作为测试源码解析。
+    exclude: [...configDefaults.exclude, "**/._*"],
     setupFiles: ["./tests/setup.ts"],
     coverage: {
       provider: "v8",
@@ -26,6 +28,7 @@ export default defineConfig({
       // v8 provider 尝试解析 markdown 会抛 PARSE_ERROR 刷屏
       include: ["src/lib/**/*.ts", "src/services/**/*.ts"],
       exclude: [
+        "**/._*",
         "src/lib/prisma.ts",
         "src/lib/auth.ts",
         "src/services/storage.ts",

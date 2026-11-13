@@ -346,7 +346,7 @@ function readGitCommitFile(): string | undefined {
   ];
   for (const file of candidates) {
     try {
-      const raw = readFileSync(file, "utf8").trim();
+      const raw = readFileSync(/* turbopackIgnore: true */ file, "utf8").trim();
       if (raw) {
         gitCommitFromFile = raw;
         return gitCommitFromFile;

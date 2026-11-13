@@ -12,6 +12,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
+  // 无数据库的独立组件验收由 playwright.components.config.ts 启动。
+  testIgnore: "**/components/**",
   timeout: 60_000,
   // 注册/登录等用例共享 dev server，串行避免编译抖动下的偶发超时
   fullyParallel: false,

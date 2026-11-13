@@ -44,7 +44,7 @@ interface TimelineEditorProps {
 const TRACK_HEIGHT = 48;
 const PIXELS_PER_SECOND = 60;
 const MIN_DURATION = 1;
-const MAX_DURATION = 30;
+const MAX_DURATION = 60;
 
 // 固定的伪波形高度序列：装饰性音频波形，避免在 render 中调用 Math.random
 // 导致每帧（播放头每 100ms 更新）重渲染时波形抖动。所有音频轨共用同一形状。
@@ -184,10 +184,12 @@ function TimelineEditorImpl({
 
   // 开始拖拽调整时长
   const handleDragStart = (
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     sceneId: string,
     currentDuration: number
   ) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
     e.stopPropagation();
     setDraggingScene(sceneId);
     setDragStartX(e.clientX);
@@ -198,7 +200,7 @@ function TimelineEditorImpl({
   useEffect(() => {
     if (!draggingScene) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handlePointerMove = (e: PointerEvent) => {
       const deltaX = e.clientX - dragStartX;
       const deltaDuration = deltaX / pixelsPerSecond;
       const newDuration = Math.max(
@@ -208,16 +210,19 @@ function TimelineEditorImpl({
       onSceneDurationChange(draggingScene, Math.round(newDuration * 10) / 10);
     };
 
-    const handleMouseUp = () => {
+    const handlePointerEnd = () => {
       setDraggingScene(null);
     };
 
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
+    // Pointer事件覆盖鼠标/笔/触屏；手柄touch-none阻止浏览器把调长误作横向滚动。
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerEnd);
+    document.addEventListener("pointercancel", handlePointerEnd);
 
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerEnd);
+      document.removeEventListener("pointercancel", handlePointerEnd);
     };
   }, [
     draggingScene,
@@ -249,10 +254,10 @@ function TimelineEditorImpl({
   }, [zoom, totalDuration, pixelsPerSecond]);
 
   return (
-    <div className="border-border bg-background border-t">
+    <div className="border-border bg-background min-w-0 border-t">
       {/* 控制栏 */}
-      <div className="border-border flex items-center justify-between border-b px-4 py-2">
-        <div className="flex items-center gap-2">
+      <div className="border-border flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2 md:px-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <button
             onClick={() => setCurrentTime(0)}
             className="hover:bg-secondary rounded p-1.5"
@@ -315,7 +320,7 @@ function TimelineEditorImpl({
           </button>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 md:gap-4">
           <span className="font-mono text-sm">
             {formatTime(currentTime)} / {formatTime(totalDuration)}
           </span>
@@ -402,7 +407,7 @@ function TimelineEditorImpl({
         {/* 时间轴内容 */}
         <div
           ref={timelineRef}
-          className="relative flex-1 overflow-x-auto"
+          className="relative min-w-0 flex-1 overflow-x-auto"
           onClick={handleTimelineClick}
         >
           {/* 时间标尺 */}
@@ -420,7 +425,7 @@ function TimelineEditorImpl({
               className="border-border relative border-b"
               style={{ height: TRACK_HEIGHT }}
             >
-              {scenes.map((scene) => (
+              {scenes.map((scene, index) => (
                 <div
                   key={`video-${scene.id}`}
                   className={`absolute top-1 bottom-1 cursor-pointer rounded transition-all ${
@@ -437,13 +442,36 @@ function TimelineEditorImpl({
                     onSceneSelect(scene.id);
                   }}
                 >
-                  <div className="truncate px-2 py-1 text-xs">
-                    #{scene.order + 1}
-                  </div>
+                  <div className="truncate px-2 py-1 text-xs">#{index + 1}</div>
                   {/* 拖拽调整手柄 */}
                   <div
-                    className="absolute top-0 right-0 bottom-0 w-2 cursor-ew-resize bg-white/20 hover:bg-white/40"
-                    onMouseDown={(e) =>
+                    role="slider"
+                    tabIndex={0}
+                    aria-label={`调整镜头 ${index + 1} 时长`}
+                    aria-valuemin={MIN_DURATION}
+                    aria-valuemax={MAX_DURATION}
+                    aria-valuenow={scene.duration}
+                    aria-valuetext={`${scene.duration}秒`}
+                    onKeyDown={(e) => {
+                      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight")
+                        return;
+                      e.preventDefault();
+                      onSceneDurationChange(
+                        scene.id,
+                        Math.round(
+                          Math.max(
+                            MIN_DURATION,
+                            Math.min(
+                              MAX_DURATION,
+                              scene.duration +
+                                (e.key === "ArrowRight" ? 0.1 : -0.1)
+                            )
+                          ) * 10
+                        ) / 10
+                      );
+                    }}
+                    className="absolute top-0 right-0 bottom-0 w-4 cursor-ew-resize touch-none bg-white/20 hover:bg-white/40 md:w-2"
+                    onPointerDown={(e) =>
                       handleDragStart(e, scene.id, scene.duration)
                     }
                   />
@@ -557,7 +585,8 @@ function TimelineEditorImpl({
       {/* 当前场景信息（收起时一并隐藏） */}
       {!collapsed && currentScene && (
         <div className="border-border text-muted-foreground border-t px-4 py-2 text-sm">
-          当前: 分镜 #{currentScene.order + 1} | 时长: {currentScene.duration}s
+          当前: 分镜 #{scenes.indexOf(currentScene) + 1} | 时长:{" "}
+          {currentScene.duration}s
           {currentScene.dialogue &&
             ` | 对话: "${currentScene.dialogue.slice(0, 30)}..."`}
         </div>

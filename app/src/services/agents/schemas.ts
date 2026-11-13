@@ -100,7 +100,7 @@ export const SceneScriptZ = z.object({
   dialogue: z.string().nullable(),
   narration: z.string().nullable(),
   emotion: EmotionSchema,
-  duration: z.number().min(1).max(30),
+  duration: z.number().min(1).max(60),
   // Stage 1.8：可选的镜头语言字段
   cameraAngle: z.string().optional(),
   lighting: z.string().optional(),
@@ -109,6 +109,11 @@ export const SceneScriptZ = z.object({
   // LLM 导演增强：运镜（13 值枚举，非法回落 undefined）+ 运动节拍（中文可选）
   cameraMovement: CameraMovementSchema.optional().catch(undefined),
   actionBeat: z.string().optional(),
+  beatType: z
+    .enum(["impact", "reveal", "emotional", "calm"])
+    .optional()
+    .catch(undefined),
+  isClimax: z.boolean().optional().catch(undefined),
   // 环境一致性：地点短标签（同地点共用同值，供场景锚定图分组）
   locationKey: LocationKeySchema,
   // 尾帧衔接下一镜（可选）：同地点且动作/时间连续时置 true，映射 Scene.videoLinkNext。
@@ -231,8 +236,9 @@ export const SceneArtifactZ = z.object({
   dialogue: z.string().nullable(),
   narration: z.string().nullable(),
   emotion: EmotionSchema,
-  duration: z.number().min(1).max(30),
+  duration: z.number().min(1).max(60),
   cameraMovement: z.string().nullable().optional(),
+  actionBeat: z.string().nullable().optional(),
   transition: z.string().nullable().optional(),
   // 环境一致性：地点短标签（供场景锚定图分组）
   locationKey: LocationKeySchema,

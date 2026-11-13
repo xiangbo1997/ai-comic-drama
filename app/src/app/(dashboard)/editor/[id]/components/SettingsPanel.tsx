@@ -82,7 +82,7 @@ export function SettingsPanel({
           其余镜走图片运镜（零视频成本）。默认关，开启后行为改变仅作用于一键管线。 */}
       <label
         className="flex cursor-pointer items-center gap-2 text-sm"
-        title="一键全自动时，只对高动态/冲击/高潮镜生成视频，其余镜走图片运镜（省成本，约为纯视频路线的 1/2~1/3）"
+        title="一键全自动时，只对高动态、冲击和高潮镜生成视频，其余镜走图片运镜；实际费用按生成任务计费"
       >
         <input
           type="checkbox"

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { checkDramaScriptWorldviewSafety } from "@/lib/content-safety";
@@ -33,6 +34,7 @@ const GenerateSchema = z.object({
   durationSec: z.number().int().min(10).max(600).optional(),
   aspectRatio: z.string().max(20).optional(),
   style: z.string().max(50).optional(),
+  reuseProducerTask: z.literal(true).optional(),
 });
 
 /**
@@ -83,8 +85,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // 回落在服务端做而非各前端调用点做——否则新增一个调用方就漏一次题材注入
     // （编辑器脚本面板、制片人向导、系列续集三条路径都靠这一处收口）。
     const genre = parsed.data.genre?.trim() || readStoredGenre(project);
+    const { reuseProducerTask, ...scriptParams } = parsed.data;
     const input: DramaScriptInput = {
-      ...parsed.data,
+      ...scriptParams,
       ...(genre ? { genre } : {}),
       ...(previousEpisodeRecap ? { previousEpisodeRecap } : {}),
     };
@@ -117,16 +120,74 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 异步：建 task，立即返回 taskId（90s 生成会超 Cloudflare 100s）
-    const task = await prisma.generationTask.create({
-      data: {
-        type: "SCRIPT_PARSE",
-        status: "PROCESSING",
-        input: { kind: "drama_script", projectId: id, userId: session.user.id },
+    // 制片人重试可能是响应丢失，按完整输入指纹复用进行中/已完成任务。
+    // 事务级项目锁覆盖查询与创建，避免双击或多个标签页同时启动重复 LLM 调用。
+    const producerRequestHash = reuseProducerTask
+      ? createHash("sha256").update(JSON.stringify(input)).digest("hex")
+      : undefined;
+    const taskData = {
+      type: "SCRIPT_PARSE",
+      status: "PROCESSING",
+      input: {
+        kind: "drama_script",
         projectId: id,
-        startedAt: new Date(),
+        userId: session.user.id,
+        ...(producerRequestHash ? { producerRequestHash } : {}),
       },
-    });
+      projectId: id,
+      startedAt: new Date(),
+    } as const;
+    const { task, reused } = producerRequestHash
+      ? await prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`producer-drama:${id}`}, 0))`;
+          const existing = await tx.generationTask.findFirst({
+            where: {
+              projectId: id,
+              type: "SCRIPT_PARSE",
+              status: { in: ["PENDING", "PROCESSING", "COMPLETED"] },
+              AND: [
+                { input: { path: ["kind"], equals: "drama_script" } },
+                { input: { path: ["userId"], equals: session.user.id } },
+                {
+                  input: {
+                    path: ["producerRequestHash"],
+                    equals: producerRequestHash,
+                  },
+                },
+              ],
+            },
+            orderBy: { createdAt: "desc" },
+          });
+          if (existing) {
+            if (existing.status !== "COMPLETED")
+              return { task: existing, reused: true };
+            const output = existing.output as { scriptId?: unknown } | null;
+            // 已完成任务不等于脚本仍存在，不能复用已删除或跨项目资源的旧 output。
+            if (typeof output?.scriptId === "string") {
+              const script = await tx.shortDramaScript.findFirst({
+                where: { id: output.scriptId, projectId: id },
+                select: { id: true },
+              });
+              if (script) return { task: existing, reused: true };
+            }
+          }
+          return {
+            task: await tx.generationTask.create({ data: taskData }),
+            reused: false,
+          };
+        })
+      : {
+          task: await prisma.generationTask.create({ data: taskData }),
+          reused: false,
+        };
+
+    if (reused) {
+      return NextResponse.json({
+        taskId: task.id,
+        status: task.status,
+        reused: true,
+      });
+    }
 
     void runDramaScriptTask(task.id, id, input, llmConfig, {
       userId: session.user.id,

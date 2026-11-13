@@ -135,9 +135,9 @@ export function StickerDialog({
                   }
                   className="bg-card focus:ring-primary min-w-0 flex-1 rounded px-2 py-1.5 text-xs focus:ring-2 focus:outline-none"
                 >
-                  {scenes.map((sc) => (
+                  {scenes.map((sc, index) => (
                     <option key={sc.id} value={sc.id}>
-                      #{sc.order + 1} {sc.description.slice(0, 16)}
+                      #{index + 1} {sc.description.slice(0, 16)}
                     </option>
                   ))}
                 </select>

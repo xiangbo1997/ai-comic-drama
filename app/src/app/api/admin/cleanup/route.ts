@@ -6,6 +6,7 @@
  * 单节点部署无 cron，由外部定时器（系统 crontab / 云函数定时触发）周期性
  * 打此端点执行清理。做三件事：
  *   ① 删除 30 天前已终结（COMPLETED/FAILED）的 GenerationTask + WorkflowRun
+ *      （保留制片人持久checkpoint与分镜应用凭证，随所属项目删除清理）
  *      ——两表每次生成/轮询/workflow 都写、从不删除，日活稍大即月增数十万行，
  *        拖慢 admin/metrics 的 groupBy 全表扫。
  *   ② 过期未支付订单（PENDING 且 createdAt 超 24h）置 EXPIRED
@@ -44,7 +45,7 @@ function secretMatches(provided: string, expected: string): boolean {
   return crypto.timingSafeEqual(providedBuf, expectedBuf);
 }
 
-// 终结任务保留期：30 天前的 COMPLETED/FAILED 可删（审计/展示已无意义）
+// 普通终结任务保留期：制片人checkpoint/幂等凭证不是可过期的生成日志。
 const TASK_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 // 未支付订单过期期：下单 24h 未支付视为放弃
 const ORDER_EXPIRE_MS = 24 * 60 * 60 * 1000;
@@ -83,12 +84,11 @@ export async function POST(request: NextRequest) {
 
     // ① 删终结的老 task / workflow
     const [deletedTasks, deletedWorkflows] = await prisma.$transaction([
-      prisma.generationTask.deleteMany({
-        where: {
-          status: { in: ["COMPLETED", "FAILED"] },
-          updatedAt: { lt: taskCutoff },
-        },
-      }),
+      // JSON path缺省是SQL NULL，不能直接NOT比较而漏清普通旧任务。
+      // 凭证必须与持久流程同寿命，否则响应丢失的晚重试会再次重建分镜。
+      prisma.$executeRaw`DELETE FROM "GenerationTask"
+        WHERE status IN ('COMPLETED', 'FAILED') AND "updatedAt" < ${taskCutoff}
+          AND COALESCE(input->>'kind', '') NOT IN (${"producer_checkpoint"}, ${"producer_scene_apply"})`,
       prisma.workflowRun.deleteMany({
         where: {
           status: { in: ["COMPLETED", "FAILED"] },
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
     });
 
     const summary = {
-      deletedTasks: deletedTasks.count,
+      deletedTasks,
       deletedWorkflows: deletedWorkflows.count,
       expiredOrders: expiredOrders.count,
       recycledZombieTasks: zombieTasks.length,

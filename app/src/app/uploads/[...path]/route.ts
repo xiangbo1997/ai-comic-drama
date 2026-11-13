@@ -47,8 +47,15 @@ interface RouteParams {
 /** 解析并校验目标文件路径；非法或越界返回 null。 */
 function resolveSafePath(segments: string[]): string | null {
   if (!segments.length) return null;
-  const baseDir = path.resolve(process.cwd(), LOCAL_STORAGE_DIR);
-  const target = path.resolve(baseDir, segments.join("/"));
+  // 用户上传来自运行时存储，构建不应将工作区内容当作部署资源收录。
+  const baseDir = path.resolve(
+    /* turbopackIgnore: true */ process.cwd(),
+    LOCAL_STORAGE_DIR
+  );
+  const target = path.resolve(
+    /* turbopackIgnore: true */ baseDir,
+    segments.join("/")
+  );
   // 归一化后必须仍在存储根目录内（防 ../ 穿越）
   if (target !== baseDir && !target.startsWith(baseDir + path.sep)) {
     return null;
@@ -100,7 +107,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   let fileStat;
   try {
-    fileStat = await stat(filePath);
+    fileStat = await stat(/* turbopackIgnore: true */ filePath);
   } catch {
     return new Response("Not Found", { status: 404 });
   }
@@ -117,7 +124,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   const range = parseRange(request.headers.get("range"), fileStat.size);
   if (range) {
-    const stream = createReadStream(filePath, {
+    const stream = createReadStream(/* turbopackIgnore: true */ filePath, {
       start: range.start,
       end: range.end,
     });
@@ -131,7 +138,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     });
   }
 
-  const stream = createReadStream(filePath);
+  const stream = createReadStream(/* turbopackIgnore: true */ filePath);
   return new Response(Readable.toWeb(stream) as ReadableStream, {
     status: 200,
     headers: {

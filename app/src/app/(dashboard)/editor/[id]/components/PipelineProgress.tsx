@@ -2,6 +2,10 @@
 
 import { Check } from "lucide-react";
 import type { ProjectDetail } from "@/types";
+import {
+  getMediaBatchState,
+  summarizeEditorReadiness,
+} from "@/lib/editor-readiness";
 
 /**
  * 7 步管线进度总览条（紧贴编辑器头部下方）。
@@ -14,19 +18,15 @@ export function PipelineProgress({ project }: { project: ProjectDetail }) {
   const total = project.scenes.length;
   if (total === 0) return null;
 
-  const images = project.scenes.filter((s) => s.imageUrl).length;
-  const videos = project.scenes.filter((s) => s.videoUrl).length;
-  // 配音只统计有台词/旁白的分镜（无文本的分镜本就不需要配音）
-  const speakable = project.scenes.filter(
-    (s) => s.dialogue || s.narration
-  ).length;
-  const audios = project.scenes.filter((s) => s.audioUrl).length;
+  const readiness = summarizeEditorReadiness(project.scenes);
+  const videos = getMediaBatchState(project.scenes, "video");
+  const audio = getMediaBatchState(project.scenes, "audio");
 
   const steps: Array<{ label: string; done: number; total: number }> = [
     { label: "分镜", done: total, total },
-    { label: "图片", done: images, total },
-    { label: "视频", done: videos, total },
-    { label: "配音", done: audios, total: speakable },
+    { label: "画面", done: readiness.visualCount, total },
+    { label: "视频（可选）", done: videos.done, total },
+    { label: "配音", done: audio.done, total: audio.total },
   ];
 
   return (
@@ -54,8 +54,15 @@ export function PipelineProgress({ project }: { project: ProjectDetail }) {
         );
       })}
       <span className="text-border mx-1">›</span>
-      <span className={images > 0 ? "text-primary" : ""}>
-        {images > 0 ? "可导出" : "生成图片后可导出"}
+      <span
+        className={readiness.allVisualsReady ? "text-primary" : ""}
+        title="图片可直接运镜成片；无画面的分镜会在导出时跳过。配音请按剧情需要补齐。"
+      >
+        {readiness.allVisualsReady
+          ? "画面齐全，可导出"
+          : readiness.canExport
+            ? `可导出预览 · 将跳过 ${readiness.missingVisualCount} 镜`
+            : "先为分镜生成图片或视频"}
       </span>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Scene, Character, ProjectDetail, ParsedScript } from "@/types";
+import { useToast } from "@/components/ui/toast";
 
 // ============ API 函数 ============
 
@@ -12,13 +13,25 @@ async function fetchProject(id: string): Promise<ProjectDetail> {
   return res.json();
 }
 
-async function apiUpdateProject(id: string, data: Partial<ProjectDetail>) {
+async function apiUpdateProject(
+  id: string,
+  data: Partial<ProjectDetail>,
+  baseParams?: ProjectDetail["generationParams"]
+) {
   const res = await fetch(`/api/projects/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      ...(data.generationParams !== undefined && baseParams !== undefined
+        ? { generationParamsBase: baseParams ?? {} }
+        : {}),
+    }),
   });
-  if (!res.ok) throw new Error("Failed to update project");
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? "项目保存失败，请稍后重试");
+  }
   return res.json();
 }
 
@@ -165,6 +178,7 @@ async function updateProjectCharacters(
 
 export function useEditorProject(projectId: string) {
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const [inputText, setInputText] = useState("");
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
@@ -352,12 +366,20 @@ export function useEditorProject(projectId: string) {
 
   const updateProject = useCallback(
     (data: Partial<ProjectDetail>) =>
-      apiUpdateProject(projectId, data).then((res) => {
-        // 修复：此前 fire-and-forget 不刷新缓存，导致 style/aspectRatio 改后 UI 不更新
-        invalidateProject();
-        return res;
-      }),
-    [projectId, invalidateProject]
+      apiUpdateProject(projectId, data, project?.generationParams)
+        .then((res) => {
+          // 修复：此前 fire-and-forget 不刷新缓存，导致 style/aspectRatio 改后 UI 不更新
+          invalidateProject();
+          return res;
+        })
+        .catch((error: unknown) => {
+          invalidateProject();
+          toast.error(
+            error instanceof Error ? error.message : "项目保存失败，请重试"
+          );
+          throw error;
+        }),
+    [projectId, invalidateProject, project?.generationParams, toast]
   );
 
   const selectedScene = project?.scenes.find((s) => s.id === selectedSceneId);

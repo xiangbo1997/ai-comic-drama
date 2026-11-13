@@ -16,6 +16,8 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // vitest --coverage 的 HTML 报告产物（已 gitignore），不是源码
     "coverage/**",
+    // macOS 资源分叉不是 JS/TS 源码。
+    "**/._*",
   ]),
   // 下划线前缀约定：argsIgnorePattern + varsIgnorePattern + caughtErrorsIgnorePattern
   // 让 _xxx 形式的变量/参数/错误被视为"故意忽略"
