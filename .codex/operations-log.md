@@ -44,3 +44,6 @@
 - Git提交因缺少author姓名/邮箱退出128，尚无本轮commit或push；已询问用户提供身份，只计划设置仓库本地配置，不采用推断身份或全局配置。远端main仍为89731a2858c03220683fa88551c9bf12cad53016。
 - 已停止本轮隔离容器ai-comic-optimization-verify；未操作现有comic-postgres。两个原有未跟踪文件继续保留且不暂存。
 - 用户提供zhangxb及3301379698@qq.com后，仅设置仓库本地user.name/user.email；author/committer实际回读一致，继续正常提交与推送，不改全局Git配置。
+- 代码提交617d82ca32deac2b17abe7c97e131045e534c00d成功，115文件；原pre-commit格式与ESLint均通过，hook前后树e91f96d5a0ede7a40125d20758611f13f61e3c75一致。
+- HTTPS推送未能取得凭据；检查到环境已有GitHub SSH身份配置后，仅对本次命令映射同一GitHub仓库URL并正常推送origin/main，未改remote/全局配置或使用force。GitHub远端refs与本地HEAD完整SHA一致。
+- 回写plan与verification，第三轮第6项完成；只为这些交付记录追加纯文档提交并正常推送，最后再次核对HEAD与远端，原有两个未跟踪文件继续保留。
