@@ -8,6 +8,16 @@
 
 import type { Prisma } from "@prisma/client";
 
+// 1080p 多镜头实测可超过 12 分钟；前端等待窗口必须覆盖分层合成和上传。
+export const EXPORT_POLL_TIMEOUT_MS = 30 * 60 * 1000;
+
+export function hasExportPollTimedOut(
+  startedAt: number,
+  now = Date.now()
+): boolean {
+  return now - startedAt >= EXPORT_POLL_TIMEOUT_MS;
+}
+
 /**
  * 把 progress 合并进已有的 task.output，保留其余所有键（尤其 videoUrl/size）。
  *

@@ -67,6 +67,7 @@ export interface ExportDialogProps {
   onExport: (options: ExportDialogOptions) => void;
   onClose: () => void;
   onRetry: () => void;
+  onRecover: () => void;
   /** 审片报告建议条目「定位」→ 选中该分镜并关闭弹窗 */
   onJumpToScene: (sceneId: string) => void;
   /** 时间轴入口已配置的字幕样式，作为导出表单初值（保持三处一致） */

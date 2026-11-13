@@ -119,8 +119,13 @@ export default function EditorPage() {
   const [reviewDismissed, setReviewDismissed] = useState(false);
 
   // 导出状态机 + 进度轮询（下沉到 use-export.ts）
-  const { exportStatus, handleExport, resetExport, stopExportPoll } =
-    useExport(projectId);
+  const {
+    exportStatus,
+    handleExport,
+    resetExport,
+    stopExportPoll,
+    recoverExport,
+  } = useExport(projectId);
 
   // 智能字幕：从各分镜配音识别字幕，回填 dialogue（识别文本即字幕来源）
   const handleTranscribe = async (): Promise<string> => {
@@ -816,6 +821,7 @@ export default function EditorPage() {
           setShowExportDialog(false);
         }}
         onRetry={resetExport}
+        onRecover={recoverExport}
       />
 
       {/* Multi-Generate Dialogs */}

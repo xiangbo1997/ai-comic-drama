@@ -5,6 +5,7 @@ import type { SubtitleStyle, Watermark } from "@/types/export-style";
 import type { ColorGrade } from "@/lib/color-grade";
 import type { AiDisclosure } from "@/lib/ai-disclosure";
 import { classifyPollFailure } from "@/lib/generation-task-client";
+import { hasExportPollTimedOut } from "@/lib/export-progress";
 
 interface ExportStatus {
   isExporting: boolean;
@@ -45,7 +46,7 @@ const INITIAL_STATUS: ExportStatus = {
 /**
  * 导出视频的状态机 + 进度轮询。行为与原页面完全一致：
  * - handleExport：POST 触发导出；completed 直接回填 videoUrl，否则进入轮询
- * - pollExportProgress：2s/次 × 150 = 5 分钟上限；completed/failed/超时三路出口
+ * - pollExportProgress：每 2s 查询，最多等待 30 分钟；等待超限仍保留原任务以便续查
  * - stopExportPoll：清理定时器，卸载时自动调用避免僵尸轮询
  */
 export function useExport(projectId: string) {
@@ -115,33 +116,28 @@ export function useExport(projectId: string) {
   };
 
   const pollExportProgress = async (taskId: string) => {
-    // 轮询上限：2s/次 × 150 = 5 分钟。超时则停轮并提示，
-    // 避免后端任务卡死（如进程重启丢任务）导致前端无限转圈。
-    const MAX_POLL_ATTEMPTS = 150;
-    let attempts = 0;
+    const startedAt = Date.now();
     // 连续请求失败计数：与生成任务轮询共用 classifyPollFailure 策略。
     // 此前任一次 fetch 抛错就停轮并报「获取进度失败」，而后端仍在导出，
     // 用户以为失败会再点一次导出 → 二次扣费。
     let consecutiveFailures = 0;
-    // 轮询失败但可继续时的排期（与正常间隔一致，2s）。失败的这一轮同样计入
-    // attempts，否则抖动期间总时长会超出 5 分钟上限。
+    // 网络失败也按真实经过时间计入等待窗口，避免浏览器节流造成计次偏差。
     const scheduleNext = () => {
-      if (attempts >= MAX_POLL_ATTEMPTS) {
-        abortWith("导出超时，请重试（任务可能已中断）");
+      if (hasExportPollTimedOut(startedAt)) {
+        abortWith("等待导出结果时间较长，任务可能仍在后台执行，请查看任务状态");
         return;
       }
-      attempts++;
       exportPollRef.current = setTimeout(poll, 2000);
     };
     const abortWith = (message: string) => {
       stopExportPoll();
-      setExportStatus({
+      setExportStatus((prev) => ({
+        ...prev,
         isExporting: false,
-        taskId: null,
-        progress: 0,
+        taskId,
         error: message,
         videoUrl: null,
-      });
+      }));
     };
     const poll = async () => {
       try {
@@ -184,23 +180,12 @@ export function useExport(projectId: string) {
             error: data.error || "导出失败",
             videoUrl: null,
           });
-        } else if (attempts >= MAX_POLL_ATTEMPTS) {
-          // 超时：停止轮询并提示，避免无限转圈
-          stopExportPoll();
-          setExportStatus({
-            isExporting: false,
-            taskId: null,
-            progress: 0,
-            error: "导出超时，请重试（任务可能已中断）",
-            videoUrl: null,
-          });
         } else {
-          attempts++;
           setExportStatus((prev) => ({
             ...prev,
             progress: data.progress || 0,
           }));
-          exportPollRef.current = setTimeout(poll, 2000);
+          scheduleNext();
         }
       } catch {
         // 网络异常（fetch 抛错）：容忍连续若干次，后端导出仍在跑
@@ -217,6 +202,12 @@ export function useExport(projectId: string) {
 
   const resetExport = () => {
     stopExportPoll();
+    // 等待/网络问题不能证明后台失败；保留 taskId 后只续查，避免重复提交导出。
+    if (exportStatus.taskId) {
+      setExportStatus((prev) => ({ ...prev, isExporting: true, error: null }));
+      void pollExportProgress(exportStatus.taskId);
+      return;
+    }
     setExportStatus({
       isExporting: false,
       taskId: null,
@@ -226,5 +217,43 @@ export function useExport(projectId: string) {
     });
   };
 
-  return { exportStatus, handleExport, resetExport, stopExportPoll };
+  const recoverExport = async () => {
+    stopExportPoll();
+    setExportStatus((prev) => ({ ...prev, isExporting: true, error: null }));
+    try {
+      const res = await fetch(`/api/projects/${projectId}/export?latest=1`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "获取导出结果失败");
+      if (data.status === "completed") {
+        setExportStatus({
+          ...INITIAL_STATUS,
+          progress: 100,
+          videoUrl: data.videoUrl || null,
+        });
+      } else if (data.status === "failed") {
+        setExportStatus({ ...INITIAL_STATUS, error: data.error || "导出失败" });
+      } else {
+        setExportStatus({
+          ...INITIAL_STATUS,
+          isExporting: true,
+          taskId: data.taskId,
+          progress: data.progress || 0,
+        });
+        void pollExportProgress(data.taskId);
+      }
+    } catch (err) {
+      setExportStatus({
+        ...INITIAL_STATUS,
+        error: err instanceof Error ? err.message : "获取导出结果失败",
+      });
+    }
+  };
+
+  return {
+    exportStatus,
+    handleExport,
+    resetExport,
+    stopExportPoll,
+    recoverExport,
+  };
 }

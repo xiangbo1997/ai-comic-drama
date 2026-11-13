@@ -93,6 +93,7 @@ import {
 } from "@/services/video-synthesis/ffmpeg-run";
 // 独立媒体操作（探测时长等）：video-synthesis/media-ops.ts
 import { getMediaDuration } from "@/services/video-synthesis/media-ops";
+import { mergeClipsWithTransitions } from "@/services/video-synthesis/merge-clips";
 
 export type {
   SubtitleStyle,
@@ -1111,61 +1112,14 @@ export async function synthesizeVideoToPath<T>(
       process.env.ENABLE_VIDEO_XFADE !== "0" && videoClips.length >= 2;
 
     if (xfadeEnabled) {
-      const filterParts: string[] = [];
-
-      // ── 2a. 每段先 tpad 补垫（补「该段右侧转场时长 + 0.2s 余量」）──
-      // 末段无右侧转场，不补垫。
-      for (let i = 0; i < videoClips.length; i += 1) {
-        const padOut =
-          i < videoClips.length - 1 ? resolveTransition(i).duration + 0.2 : 0;
-        if (padOut > 0) {
-          filterParts.push(
-            `[${i}:v]tpad=stop_mode=clone:stop_duration=${padOut.toFixed(3)}[vp${i}]`
-          );
-        } else {
-          // 末段直接透传（保持标签统一为 vp{i}）
-          filterParts.push(`[${i}:v]null[vp${i}]`);
-        }
-      }
-
-      // ── 2b. xfade 链：offset = 累计有效时长 - 当前转场时长 ──
-      let prevTag = "[vp0]";
-      let cumulative = effDurations[0];
-      for (let i = 1; i < videoClips.length; i += 1) {
-        const { type, duration } = resolveTransition(i - 1);
-        const offset = Math.max(cumulative - duration, 0).toFixed(3);
-        const out = i === videoClips.length - 1 ? "[outv]" : `[vx${i}]`;
-        filterParts.push(
-          `${prevTag}[vp${i}]xfade=transition=${type}:duration=${duration.toFixed(3)}:offset=${offset}${out}`
-        );
-        prevTag = out;
-        cumulative += effDurations[i] - duration;
-      }
-      const filterComplex = filterParts.join(";");
-
-      const args: string[] = [];
-      for (const clip of videoClips) {
-        args.push("-i", clip);
-      }
-      args.push(
-        "-filter_complex",
-        filterComplex,
-        "-map",
-        "[outv]",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        // merged 是最后一趟中间产物，给得比片段更足（此前无 -crf 无 -b:v，
-        // 走默认 CRF 23，xfade 转场处的画质损失全落在这里）
-        "-crf",
+      await mergeClipsWithTransitions(
+        videoClips,
+        effDurations,
+        resolveTransition,
+        tmpDir,
         MERGED_CRF,
-        "-pix_fmt",
-        "yuv420p",
-        "-y",
-        mergedPath
+        async (fraction) => onProgress?.(50 + Math.round(fraction * 10))
       );
-      await runFFmpeg(args);
     } else {
       // 旧行为：concat demuxer + -c copy
       const listPath = path.join(tmpDir, "videos.txt");

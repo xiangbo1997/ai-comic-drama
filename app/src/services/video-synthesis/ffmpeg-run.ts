@@ -69,11 +69,14 @@ export function runFFmpeg(args: string[]): Promise<void> {
       stderr += data.toString();
     });
 
-    ffmpeg.on("close", (code) => {
+    ffmpeg.on("close", (code, signal) => {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`FFmpeg exited with code ${code}: ${stderr}`));
+        const reason = signal
+          ? `terminated by signal ${signal}`
+          : `exited with code ${code}`;
+        reject(new Error(`FFmpeg ${reason}: ${stderr}`));
       }
     });
 

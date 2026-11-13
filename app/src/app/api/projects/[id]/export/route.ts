@@ -610,8 +610,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get("taskId");
+    const latest = searchParams.get("latest") === "1";
 
-    if (!taskId) {
+    if (!taskId && !latest) {
       return NextResponse.json({ error: "Task ID required" }, { status: 400 });
     }
 
@@ -624,12 +625,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    const task = await prisma.generationTask.findFirst({
-      where: { id: taskId, projectId: id },
-    });
+    // 恢复入口仍先验项目归属，且仅检索该项目的 EXPORT，不能读到其他生成结果。
+    const task = taskId
+      ? await prisma.generationTask.findFirst({
+          where: { id: taskId, projectId: id },
+        })
+      : await prisma.generationTask.findFirst({
+          where: { projectId: id, type: "EXPORT" },
+          orderBy: { createdAt: "desc" },
+        });
 
     if (!task) {
-      return NextResponse.json({ error: "Task not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: latest ? "暂无导出记录" : "Task not found" },
+        { status: 404 }
+      );
     }
 
     // 僵尸任务惰性回收：PROCESSING 但超过 10 分钟「无任何进展」（多半是进程

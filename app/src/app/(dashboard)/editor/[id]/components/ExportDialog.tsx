@@ -26,6 +26,7 @@ export function ExportDialog({
   onExport,
   onClose,
   onRetry,
+  onRecover,
   onJumpToScene,
   initialSubtitleStyle,
   initialWatermark,
@@ -94,7 +95,13 @@ export function ExportDialog({
                 onClick={onRetry}
                 className="bg-secondary hover:bg-secondary/80 rounded-lg px-4 py-2"
               >
-                重试
+                {exportStatus.taskId ? "查看任务状态" : "重试"}
+              </button>
+              <button
+                onClick={onRecover}
+                className="text-muted-foreground hover:text-foreground mx-auto mt-3 block text-sm"
+              >
+                查看最近导出结果
               </button>
             </div>
           ) : exportStatus.videoUrl ? (
@@ -117,6 +124,12 @@ export function ExportDialog({
             </div>
           ) : (
             <div className="space-y-4">
+              <button
+                onClick={onRecover}
+                className="text-muted-foreground hover:text-foreground text-sm"
+              >
+                查看最近导出结果
+              </button>
               {/* 审片报告（导出动作之上）：先体检再导出 */}
               <ReviewReportSection
                 projectId={projectId}
