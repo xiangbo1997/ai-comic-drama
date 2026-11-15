@@ -103,3 +103,14 @@ sequential-thinking仍不可用，沿用人工顺序推理与现有安全/验收
 - sequential-thinking不可调用，沿用人工顺序分析：误用聊天测试与缺少Grok语音适配为根因；分别匹配两套用户提供契约，不更换模型。两家网关只读/models均200且登记所选语音模型。
 - 先写Grok10项RED、编辑测试误标记1项RED、octet-stream有效MP3两项RED，逐项修复；浏览器失败来自测试定位名称不符，按实际按钮修正。没有触发真实付费合成。
 - 最终全量2387单测、44浏览器、类型/lint、核心行覆盖100%及857份精确源码隔离build通过；12种匿名接口401。部署保留数据库/构建备份，仅改指定Grok配置protocol，其他字段不动。构建启动失败恢复旧.next与标记，配置有单行非密钥备份，不删除数据。
+
+## 2026-11-15 AI 创作助手工具与 Markdown
+- 已读取 init/taskflow/governance（/software/codex-bootstrap/codex/skills）及 ECC tdd-workflow/security-review；项目初始工作区干净。
+- MCP 审计：codex mcp list 无配置，当前工具未暴露 sequential-thinking，采用人工推理。遵循项目局部配置优先，不改主机全局权限或安装无关 MCP。
+- 人工推理：纯文本 p 渲染导致 Markdown 失效；旧 system prompt 禁止聊天操作，纯文字 provider 不支持工具循环。需增加有边界的多协议工具执行、项目技能发现、真实网络检索，同时复用既有归属校验与付费制作计划。
+- 风险与回滚：Markdown 禁用原始 HTML、危险 URL；工具绑定已鉴权作品，不接受 userId/projectId 覆盖；搜索资料和技能不能覆盖系统权限。无数据库迁移。按文件撤销本次变更及新增依赖即可回滚。
+
+## 2026-11-15 AI 助手部署与 Git 交付
+- 用户明确授权部署、更新、提交并推送。当前主机为生产主机，systemd ai-comic-drama.service 工作目录为本仓库 app；不能执行指向自己的 rsync --delete 部署脚本。
+- sequential-thinking 未暴露，人工推理：先核对源码与已验证隔离构建，备份旧构建/版本文件和环境摘要，生成可回退的新构建，再短时停止/切换/重启；核验内外health、登录保护、新版静态资源和技能文件。
+- 无schema变更、无迁移、无付费生成；不改生产密钥和用户上传文件。故障回退旧.next和版本标识后重启。Git核对远端后正常提交与push，不强推。

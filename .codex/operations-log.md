@@ -172,3 +172,38 @@
 - 仅将指定Grok语音配置protocol改grok，密钥/模型/默认及OpenAI TTS保留；customBaseUrl为空但继承提供商默认地址，首次保护检查拦截未写入，确认有效地址后完成并保存单行备份和回执。
 - 使用说明、context、plan、verification同步；未调用真实付费合成，模型测试为列表/鉴权检查，不误称音频端到端验收。没有Git提交推送，原用户文件和所有前序改动保留。
 - 用新共享测试逻辑只读复核两套真实配置，chatgpt-tts/openai与grok-voice-latest/grok均成功，结果保存发布目录real-connectivity.json；没有合成音频或写入测试状态。最终文档/补丁格式检查通过。
+
+## 2026-11-15 AI 创作助手工具与 Markdown
+- 已读取 init/taskflow/governance（/software/codex-bootstrap/codex/skills）及 ECC tdd-workflow/security-review；项目初始工作区干净。
+- MCP 审计：codex mcp list 无配置，当前工具未暴露 sequential-thinking，采用人工推理。遵循项目局部配置优先，不改主机全局权限或安装无关 MCP。
+- 人工推理：纯文本 p 渲染导致 Markdown 失效；旧 system prompt 禁止聊天操作，纯文字 provider 不支持工具循环。需增加有边界的多协议工具执行、项目技能发现、真实网络检索，同时复用既有归属校验与付费制作计划。
+- 风险与回滚：Markdown 禁用原始 HTML、危险 URL；工具绑定已鉴权作品，不接受 userId/projectId 覆盖；搜索资料和技能不能覆盖系统权限。无数据库迁移。按文件撤销本次变更及新增依赖即可回滚。
+
+### AI 助手实现与中间验证
+- 新增多协议 AI SDK 工具循环（6轮/75秒，禁重试）、8项绑定当前作品工具、项目 skill 目录发现、Bing RSS 真正联网检索。Markdown/GFM 用成熟解析器渲染，禁原始 HTML、危险协议和自动外部图片。
+- 写入串行、调用总量12次、参数白名单、归属条件原子校验；记录真实写入回执，总结失败仍返回回执；现有付费制作确认保留。
+- TDD 初次运行因目标模块尚未实现而失败（预期红灯）；实现后21项定向测试通过。首次浏览器运行未设置现有 Chromium 路径失败，指定 /tmp/ai-comic-playwright 后11项通过。全量单元初验200文件/2421项通过，type-check和变更文件lint通过。
+- Bing RSS 真实无凭据联通验证返回5条结果。无付费模型调用，无生产数据写入或部署。
+
+### 最终范围与构建
+- 补查现有 lib/mcp/tools.ts：面向跨项目建剧、长时脚本生成与覆盖分镜的工作台，不直接转交其跨项目参数/破坏性操作；聊天采用固定当前作品的窄字段工具，自动制作复用既有服务。
+- 最终全量200文件/2426项单元通过；聊天与自动制作25项浏览器验收通过；相关5个服务模块行覆盖95.85%、分支86.06%。
+- 隔离构建根 /tmp/ai-comic-assistant-tools-build-lsfrqb0_，只用测试环境变量、未复制生产环境及上传；首次启动早于依赖复制完成报 next not found，依赖准备完成后第二次 pnpm build 退出0。构建日志 /tmp/ai-comic-assistant-tools-build.log。
+- 已核对 messages 路由 trace 收录29个 SKILL.md，包含项目叙事和ECC技能。lockfile保留原有平台libc元数据，避免无关变更。无全局MCP/权限变更，无数据库迁移、生产素材更改或部署。
+
+- 隔离生产启动首次因缺少测试 ENCRYPTION_KEY 被既有启动校验阻止；仅补隔离目录测试值。首次成功构建发现技能目录动态路径引起两条全仓库追踪警告，改为固定目录并用 turbopackIgnore 配合显式技能收录，进行最终构建复验，避免部署时携带无关文件。
+
+- 最终构建无警告，66静态页；messages路由29个唯一skill（清单58条含重复）。隔离启动成功，登录页200、助手GET/POST均401，临时3199服务已终止。verification.md与计划/上下文已更新，源码完成未部署。
+
+## 2026-11-15 AI 助手部署与 Git 交付
+- 用户明确授权部署、更新、提交并推送。当前主机为生产主机，systemd ai-comic-drama.service 工作目录为本仓库 app；不能执行指向自己的 rsync --delete 部署脚本。
+- sequential-thinking 未暴露，人工推理：先核对源码与已验证隔离构建，备份旧构建/版本文件和环境摘要，生成可回退的新构建，再短时停止/切换/重启；核验内外health、登录保护、新版静态资源和技能文件。
+- 无schema变更、无迁移、无付费生成；不改生产密钥和用户上传文件。故障回退旧.next和版本标识后重启。Git核对远端后正常提交与push，不强推。
+
+- 部署前源文件比对发现旧隔离副本遗漏已有 app/src/app/uploads/[...path]/route.ts（先前复制过滤 uploads 过宽）；已补齐并与678个生产/技能文件比对一致，使用生产环境副本重新构建。原服务保持在线。磁盘剩余约588MB，采用目录移动保留旧构建，不额外全量复制。
+
+## AI 助手上线结果（2026-11-15 19:27 UTC+8）
+- c3ba27d已切换至生产，内网health正常，公网7项验收全部通过，旧.next与版本标识保留于/tmp/ai-comic-deploy-assistant-tools-20261115T111913Z/。
+- 首次冒烟对响应头大小写处理错误，保守回滚后修正，二次切换成功；没有应用故障或数据库迁移。部署文档、验收记录及计划已同步。
+
+- 推送认证处理：HTTPS无凭据；服务器现有GitHub SSH身份已验证为xiangbo1997，仓库push URL改用既有SSH认证（fetch URL保留HTTPS），不创建新密钥或改全局配置。

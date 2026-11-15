@@ -281,3 +281,43 @@
 - Prisma客户端生成/生产构建均退出0；部署版本508e22b-multipart-c7d937cb6f06，服务2026-11-14 10:20:55 UTC启动，active/running，NRestarts=0；内外网health版本相同且ok=true，8项部署冒烟全部通过。
 - 原构建与版本、源码补丁、部署manifest、构建/Prisma日志、smoke.json保存在/tmp/ai-comic-deploy-multipart-20261114T102019Z/，失败自动回退分支未触发。构建前后应用源码指纹与环境文件摘要一致。
 - 限制：真实本地HTTP验证表单完整到达，不是上游付费生成验收；没有再次修改网关或触发付费图像生成。上下文与人工推理见context-multipart-2026-11-14.md；ECC作为补充，既有未提交改动保留。
+
+## 2026-11-15 AI 创作助手：Markdown、联网搜索、项目工具与技能
+
+- 初始化/流程：已读项目 init/taskflow/governance 与 ECC tdd-workflow/security-review；MCP 审计无配置，当前无 sequential-thinking，人工推理与回滚已记 reasoning.md。未更改全局权限或安装不相关 MCP，ECC仅补充项目流程。
+- 原因：助手消息原以纯文本 p 渲染，系统提示禁止工具调用，旧文本模型门面未接工具循环。
+- 实现：react-markdown + remark-gfm，安全链接/禁HTML/外部图片；多协议AI SDK循环（6轮、75秒、禁重试），8项实际工具，绑定当前作品的严格参数与归属校验，串行执行最多12次；写入回执与缓存刷新；技能固定目录并显式打包；Bing RSS真实检索。无schema变更。
+
+| 验证 | 结果 |
+| --- | --- |
+| pnpm test | 200文件、2426项通过；/tmp/ai-comic-assistant-tools-tests.log |
+| pnpm type-check | 退出0；/tmp/ai-comic-assistant-tools-types.log |
+| 相关服务定向覆盖 | 26项通过；5模块行95.85%、分支86.06%、语句92.91% |
+| 技能固定路径调整后定向回归 | assistant-tools 12项通过，eslint退出0 |
+| 浏览器 | PLAYWRIGHT_BROWSERS_PATH=/tmp/ai-comic-playwright pnpm exec playwright test --config playwright.components.config.ts project-assistant.spec.ts assistant-execution.spec.ts：25项通过 |
+| 静态检查 | 变更TS/TSX eslint与prettier --check通过；bash -n deploy/deploy.sh、git diff --check通过 |
+| 网络实测 | Bing公开检索返回5条真实来源，无需搜索密钥 |
+| 生产构建 | 隔离目录 /tmp/ai-comic-assistant-tools-build-lsfrqb0_/app 内 pnpm build退出0，66静态页；/tmp/ai-comic-assistant-tools-build-final.log，无构建警告 |
+| 技能打包 | messages路由追踪含29个唯一SKILL.md（manifest重复条目58个），包括comic-drama-story与ECC；未全仓库追踪 |
+| 隔离启动 | 测试ENCRYPTION_KEY与假DB连接，127.0.0.1:3199启动成功；/login=200，助手GET/POST=401；临时服务已结束 |
+
+异常记录：TDD首跑因实现尚未存在而失败；浏览器首跑缺既有浏览器路径，设置后成功；隔离构建首次依赖尚未复制完成，完成后成功；首次启动缺测试加密Key，补齐后成功；技能动态追踪警告修正后最终构建无警告。manifest原始条目有重复，按解析后的唯一文件核对收录。
+
+边界：模型工具调用用可控响应验证（OpenAI真实SDK工具循环及Claude/Gemini协议），未调用用户付费模型；未在生产数据库修改作品。源码修复完成，尚未部署；线上仍是此前版本。付费素材生成保留既有计划确认。操作记录为实际成功写入，进程崩溃或数据库提交失败仍可能导致聊天与已修改素材不同步，不能宣称所有外部操作恰好一次。回滚为按文件撤销本次代码、依赖与部署过滤规则，不删除用户聊天/作品数据。
+
+补充：隔离启动第一次401带Auth.js UntrustedHost日志；指定仅该测试进程 AUTH_TRUST_HOST=true 后复验，/login=200、助手GET/POST=401且无Auth.js主机错误。临时进程停止。
+
+## 2026-11-15 19:27（UTC+8）AI 助手部署验收
+
+- 用户明确授权部署、更新、提交、推送；遵循项目taskflow/governance，ECC verification-loop仅补充；无可调用sequential-thinking，人工推理与回滚已记录。
+- 应用提交：c3ba27d（feat: enable project assistant tools, web search and Markdown），提交钩子Prettier/ESLint均通过。
+- 在生产主机使用独立构建，678个生产/技能文件SHA比对一致；修正先前隔离拷贝漏掉的既有上传路由，并使用受保护的生产环境文件副本重建，未输出密钥。
+- 构建成功，133个路由均保留（含/uploads/[...path]），29个唯一技能文件；无schema变更和迁移，切换前生成任务/助手回复均为0。
+- 2026-11-15 11:27:04 UTC切换完成，ai-comic-drama.service active，PID1461638，NRestarts=0。目录切换保留旧.next，不复制整份构建，环境文件SHA前后不变。
+- 验收：内网health200/ok=true/version=c3ba27d；公网7项通过：health200且同版本、login200、projects307转login、助手GET/POST未登录401、制作接口未登录401、新版助手JS200且223209字节SHA256与构建一致。
+- 真实联网搜索与工具/Markdown原验证仍有效：2426项单元、25项组件浏览器、相关服务行95.85%；此次不重复触发付费模型或写入生产作品。仅凭部署检查不声称真实付费模型端到端已验收。
+- 首次切换健康正常，冒烟脚本把响应头转为普通字典后按大写Location读取，误判小写location并触发回滚；核实实际307转login正常，修正脚本大小写处理后重新切换，所有检查通过。回滚路径已真实验证。
+- 证据与备份：/tmp/ai-comic-deploy-assistant-tools-20261115T111913Z/，含旧.next、旧.git-commit、build.log、source-check.json、environment-sha256.json、deployment.json、smoke.json。未清理旧构建和用户产物。
+- Git正常提交与push，不force push；部署记录随第二个docs提交交付，最终远端SHA核对写入同目录git-delivery.json。
+
+- 推送认证处理：HTTPS无凭据；服务器现有GitHub SSH身份已验证为xiangbo1997，仓库push URL改用既有SSH认证（fetch URL保留HTTPS），不创建新密钥或改全局配置。
