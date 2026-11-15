@@ -44,6 +44,7 @@ model User {
   creditTransactions   CreditTransaction[] // 积分流水
   auditLogs            AdminAuditLog[]           @relation("AuditActor") // 作为操作者产生的审计日志
   mcpApiKeys           McpApiKey[] // MCP 接入密钥（剧本工作台）
+  assistantThreads     AssistantThread[]
 
   @@index([role])
   @@index([status])
@@ -222,7 +223,8 @@ model Series {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  projects Project[]
+  projects        Project[]
+  assistantThread AssistantThread?
 
   @@index([userId])
 }
@@ -258,9 +260,59 @@ model Project {
   workflowRuns      WorkflowRun[]
   shortDramaScripts ShortDramaScript[]
   locations         ProjectLocation[]
+  assistantThread   AssistantThread?
 
   @@index([userId]) // 项目列表页按 userId 查询，无此索引则全表扫描
   @@index([seriesId, episodeNumber]) // 系列分组/上下集导航按此查询
+}
+
+// 助手的确认记忆与聊天独立于故事圣经；系列内各集共享，独立作品各自隔离。
+model AssistantThread {
+  id             String             @id @default(cuid())
+  scopeKey       String             @unique
+  userId         String
+  seriesId       String?            @unique
+  projectId      String?            @unique
+  memoryContent  String             @default("") @db.Text
+  memoryVersion  Int                @default(0)
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  series         Series?            @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  project        Project?           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  requests       AssistantRequest[]
+  messages       AssistantMessage[]
+
+  @@index([userId])
+}
+
+model AssistantRequest {
+  id          String             @id @default(cuid())
+  threadId    String
+  requestId   String
+  fingerprint String
+  status      String             @default("PROCESSING")
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  thread      AssistantThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  messages    AssistantMessage[]
+
+  @@unique([threadId, requestId])
+}
+
+model AssistantMessage {
+  id        String           @id @default(cuid())
+  threadId  String
+  requestId String
+  role      String
+  content   String           @db.Text
+  createdAt DateTime         @default(now())
+  thread    AssistantThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  request   AssistantRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt, id])
 }
 
 // 场景锚图（地点空景板，计划 §5 · 2.2）：以 locationKey 为业务键，为同一物理地点

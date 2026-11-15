@@ -62,6 +62,11 @@ interface ErrorPattern {
 
 const PATTERNS: ErrorPattern[] = [
   {
+    re: /上传.{0,20}(额度|上限)|upload_protection_limit_exceeded/i,
+    message: "参考图上传额度已达上限，请稍后重试或切换图像配置",
+    keepCjk: true,
+  },
+  {
     re: /insufficient credits|积分不足/i,
     message: "积分不足，请充值后重试",
     cta: RECHARGE_CTA,

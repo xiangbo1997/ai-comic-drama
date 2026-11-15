@@ -65,4 +65,9 @@ export async function registerNode(): Promise<void> {
   log.info(
     `启动配置校验通过（env=${runtime.nodeEnv}，并发上限=${maxConcurrency}，commit=${runtime.commit ?? "unknown"}）`
   );
+  if (process.env.NEXT_PHASE !== "phase-production-build") {
+    const { startAssistantExecutionWorker } =
+      await import("./services/assistant-execution/worker");
+    startAssistantExecutionWorker();
+  }
 }

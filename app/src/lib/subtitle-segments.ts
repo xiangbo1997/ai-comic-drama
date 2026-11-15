@@ -33,7 +33,9 @@
 export function buildSubtitleSourceText(scene: {
   narration?: string | null;
   dialogue?: string | null;
+  subtitleText?: string;
 }): string {
+  if (typeof scene.subtitleText === "string") return scene.subtitleText.trim();
   return [scene.narration, scene.dialogue]
     .map((s) => s?.trim() ?? "")
     .filter(Boolean)

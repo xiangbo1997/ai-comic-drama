@@ -5,6 +5,7 @@ import type { Scene } from "@prisma/client";
 import {
   synthesizeVideoToPath,
   type ExportOptions,
+  type SceneMedia,
 } from "@/services/video-synthesis";
 import { uploadFileFromPath } from "@/services/storage";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
@@ -27,6 +28,7 @@ import {
 import type { AiDisclosure } from "@/lib/ai-disclosure";
 import { resolveEpisodeEndingHook } from "@/lib/series";
 import { parseStoryBible } from "@/types/series-bible";
+import { applySubtitleOverrides } from "@/lib/subtitle-overrides";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:export");
@@ -245,7 +247,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     // 准备场景数据（正片分镜）
-    const baseSceneMediaList = scenesWithContent.map((scene: Scene) => ({
+    const baseSceneMediaList: SceneMedia[] = applySubtitleOverrides(
+      scenesWithContent,
+      genParams.subtitleOverrides
+    ).map((scene) => ({
       id: scene.id,
       order: scene.order,
       duration: scene.duration,
@@ -254,6 +259,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       audioUrl: scene.audioUrl,
       dialogue: scene.dialogue,
       narration: scene.narration,
+      subtitleText: scene.subtitleText,
       // 导演运镜：供图片分镜默认 Ken Burns 运镜按 resolveDefaultMotion 派生（尊重导演意图）
       cameraMovement: scene.cameraMovement,
       // 情绪/高潮：驱动 BGM 按情绪分段切换（planBgmSegments）

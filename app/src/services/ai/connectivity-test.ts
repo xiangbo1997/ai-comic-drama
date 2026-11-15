@@ -51,6 +51,7 @@ import {
   testGptSovits,
 } from "./connectivity-test-connection-probes";
 import { resolveVolcengineCredentials } from "./providers/tts/volcengine-config";
+import { testTTSModelListing } from "./connectivity-test-tts";
 
 const log = createLogger("services:ai:connectivity-test");
 
@@ -77,6 +78,31 @@ export async function testProviderConnectivity(
 ): Promise<TestResult> {
   const { modelId } = config;
   try {
+    if (config.category === "TTS") {
+      const protocol =
+        config.apiProtocol ||
+        { "openai-tts": "openai", openai: "openai", grok: "grok" }[
+          config.slug
+        ] ||
+        config.slug;
+      if (protocol === "openai" || protocol === "grok") {
+        return await testTTSModelListing(
+          config.apiKey,
+          config.baseUrl ||
+            (protocol === "grok"
+              ? "https://api.x.ai/v1"
+              : "https://api.openai.com/v1"),
+          modelId
+        );
+      }
+      // 其余语音服务沿用自身鉴权探测，绝不发送聊天模型请求。
+      return await testProviderConnection({
+        ...config,
+        slug: protocol,
+        apiProtocol: undefined,
+        enableCustomProviderFallback: false,
+      });
+    }
     if (modelId) {
       return await testModelAvailability(config, modelId);
     }

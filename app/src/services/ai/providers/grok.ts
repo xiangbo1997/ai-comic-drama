@@ -189,7 +189,8 @@ export const grokImage: ImageProvider = {
           editModel,
           prompt,
           refs,
-          requestOptions?.signal
+          requestOptions?.signal,
+          options.disableRetries
         );
       }
       // 无法映射到编辑模型：不静默丢弃参考图，显式告警后退回文生图。
@@ -219,7 +220,7 @@ export const grokImage: ImageProvider = {
         signal: requestOptions?.signal,
       },
       "Grok 图像生成失败",
-      "submit" // 非幂等图像生成提交：只重试 429/连接前失败，防重复出图浪费上游配额
+      options.disableRetries ? "none" : "submit"
     );
 
     const data = await response.json();
@@ -240,7 +241,8 @@ async function generateImageWithEdits(
   editModel: string,
   prompt: string,
   referenceUrls: ReadonlyArray<string>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  disableRetries?: boolean
 ): Promise<string> {
   if (editModel !== requestedModel) {
     log.info("带参考图：已自动切到 Grok 编辑模型", {
@@ -288,7 +290,7 @@ async function generateImageWithEdits(
       signal,
     },
     "Grok 图片编辑失败",
-    "submit" // 同文生图：非幂等提交，只重试 429/连接前失败
+    disableRetries ? "none" : "submit"
   );
 
   const data = await response.json();

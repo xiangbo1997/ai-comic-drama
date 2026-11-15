@@ -92,7 +92,7 @@ export async function orchestrateImageGeneration(
   // 把命中角色的参考图换成对应换装定妆照（服装正确性优先于身份三视图默认服装）。
   // iterate 路径跳过（迭代基底已含服装）。lookOverrides 空时全链零回归。
   const sceneLooks =
-    !request.iterate && request.sceneId
+    !request.disableAuxiliaryGeneration && !request.iterate && request.sceneId
       ? await resolveSceneCharacterLooks({
           sceneId: request.sceneId,
           characters: request.characters,
@@ -387,6 +387,7 @@ export async function orchestrateImageGeneration(
       style: request.style,
       seed,
       config: request.imageConfig,
+      disableRetries: request.disableRetries,
     });
 
     lastValidation = await validateFaceConsistency(

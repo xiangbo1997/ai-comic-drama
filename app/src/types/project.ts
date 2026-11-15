@@ -39,6 +39,8 @@ export interface GenerationParams {
   subtitleStyle?: SubtitleStyle;
   /** 字幕逐分镜位置覆盖（按 sceneId，归一化坐标）；缺省回退 subtitleStyle.position */
   subtitlePositions?: SubtitlePosition[];
+  /** 独立字幕文本；空文本隐藏本镜字幕，不改变对白/配音原文。 */
+  subtitleOverrides?: import("@/lib/subtitle-overrides").SubtitleOverride[];
   /** 全片商标水印配置 */
   watermark?: Watermark;
   /** 贴图列表（按分镜叠加） */

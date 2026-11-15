@@ -39,6 +39,11 @@ interface TimelineEditorProps {
   onTransitionClick?: () => void;
   /** 点击滤镜入口时触发，用于打开分镜滤镜/变速面板 */
   onEffectClick?: () => void;
+  onClipSelect?: (
+    sceneId: string,
+    kind: "image" | "video" | "audio" | "subtitle"
+  ) => void;
+  onAiDisclosureClick?: () => void;
 }
 
 const TRACK_HEIGHT = 48;
@@ -63,6 +68,8 @@ function TimelineEditorImpl({
   onStickerClick,
   onTransitionClick,
   onEffectClick,
+  onClipSelect,
+  onAiDisclosureClick,
 }: TimelineEditorProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -109,7 +116,7 @@ function TimelineEditorImpl({
       if (s.videoUrl) video++;
       if (s.imageUrl) image++;
       if (s.audioUrl) audio++;
-      if (s.dialogue || s.narration) speakable++;
+      if (buildSubtitleSourceText(s)) speakable++;
     }
     return { video, image, audio, speakable };
   }, [scenes]);
@@ -287,6 +294,14 @@ function TimelineEditorImpl({
             {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
           <div className="bg-border mx-1 h-5 w-px" />
+          {onAiDisclosureClick && (
+            <button
+              onClick={onAiDisclosureClick}
+              className="text-muted-foreground hover:bg-secondary hover:text-foreground rounded px-2 py-1 text-xs"
+            >
+              AI 标识
+            </button>
+          )}
           <button
             onClick={onWatermarkClick}
             className="text-muted-foreground hover:bg-secondary hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-xs transition"
@@ -428,6 +443,19 @@ function TimelineEditorImpl({
               {scenes.map((scene, index) => (
                 <div
                   key={`video-${scene.id}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`编辑第${index + 1}镜视频`}
+                  onKeyDown={(e) => {
+                    if (
+                      e.target === e.currentTarget &&
+                      (e.key === "Enter" || e.key === " ")
+                    ) {
+                      e.preventDefault();
+                      onSceneSelect(scene.id);
+                      onClipSelect?.(scene.id, "video");
+                    }
+                  }}
                   className={`absolute top-1 bottom-1 cursor-pointer rounded transition-all ${
                     selectedSceneId === scene.id
                       ? "ring-primary ring-2"
@@ -440,6 +468,7 @@ function TimelineEditorImpl({
                   onClick={(e) => {
                     e.stopPropagation();
                     onSceneSelect(scene.id);
+                    onClipSelect?.(scene.id, "video");
                   }}
                 >
                   <div className="truncate px-2 py-1 text-xs">#{index + 1}</div>
@@ -484,9 +513,17 @@ function TimelineEditorImpl({
               className="border-border relative border-b"
               style={{ height: TRACK_HEIGHT }}
             >
-              {scenes.map((scene) => (
-                <div
+              {scenes.map((scene, index) => (
+                <button
+                  type="button"
                   key={`image-${scene.id}`}
+                  aria-label={`编辑第${index + 1}镜图片`}
+                  title="点击预览、编辑或移除图片"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSceneSelect(scene.id);
+                    onClipSelect?.(scene.id, "image");
+                  }}
                   className={`absolute top-1 bottom-1 rounded ${
                     scene.imageUrl ? "bg-primary/50" : "bg-secondary/30"
                   }`}
@@ -502,7 +539,7 @@ function TimelineEditorImpl({
                       className="h-full w-auto rounded object-cover opacity-60"
                     />
                   )}
-                </div>
+                </button>
               ))}
             </div>
 
@@ -511,9 +548,17 @@ function TimelineEditorImpl({
               className="border-border relative border-b"
               style={{ height: TRACK_HEIGHT }}
             >
-              {scenes.map((scene) => (
-                <div
+              {scenes.map((scene, index) => (
+                <button
+                  type="button"
                   key={`audio-${scene.id}`}
+                  aria-label={`编辑第${index + 1}镜配音`}
+                  title="点击试听、编辑或移除配音"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSceneSelect(scene.id);
+                    onClipSelect?.(scene.id, "audio");
+                  }}
                   className={`absolute top-1 bottom-1 rounded ${
                     scene.audioUrl ? "bg-primary/40" : "bg-secondary/30"
                   }`}
@@ -538,20 +583,28 @@ function TimelineEditorImpl({
                       </div>
                     </div>
                   )}
-                </div>
+                </button>
               ))}
             </div>
 
             {/* 字幕轨道 */}
             <div className="relative" style={{ height: TRACK_HEIGHT }}>
-              {scenes.map((scene) => {
+              {scenes.map((scene, index) => {
                 // 字幕轨道展示的文字必须与导出/预览一致（旁白+对白都显示），
                 // 走 buildSubtitleSourceText 单一真源。
                 const text = buildSubtitleSourceText(scene);
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={`subtitle-${scene.id}`}
-                    onClick={text ? onSubtitleClick : undefined}
+                    aria-label={`编辑第${index + 1}镜字幕`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onClipSelect) {
+                        onSceneSelect(scene.id);
+                        onClipSelect(scene.id, "subtitle");
+                      } else onSubtitleClick?.();
+                    }}
                     className={`absolute top-1 bottom-1 rounded ${
                       text
                         ? "bg-primary/40 hover:ring-primary cursor-pointer hover:ring-1"
@@ -561,12 +614,16 @@ function TimelineEditorImpl({
                       left: sceneStartTimes[scene.id] * pixelsPerSecond,
                       width: scene.duration * pixelsPerSecond - 2,
                     }}
-                    title={text ? "点击调整字幕样式" : undefined}
+                    title={
+                      onClipSelect
+                        ? "点击编辑、移除或恢复本镜字幕"
+                        : "点击调整字幕样式"
+                    }
                   >
                     {text && (
                       <div className="truncate px-2 py-1 text-xs">{text}</div>
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>

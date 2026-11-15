@@ -2,13 +2,19 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import type { Scene } from "@/types";
+import type { Scene, ProjectDetail } from "@/types";
 import type { SubtitleStyle } from "@/types/export-style";
 import { buildTitleCards } from "@/lib/title-cards";
 import { summarizeEditorReadiness } from "@/lib/editor-readiness";
 import { TimelineDialogs } from "./components/TimelineDialogs";
 import Link from "next/link";
 import { TimelineEditor } from "@/components/timeline-editor";
+import {
+  TimelineClipDialog,
+  type TimelineClipKind,
+} from "./components/TimelineClipDialog";
+import { AiDisclosureDialog } from "./components/AiDisclosureDialog";
+import { applySubtitleOverrides } from "@/lib/subtitle-overrides";
 import dynamic from "next/dynamic";
 import {
   Dialog,
@@ -107,6 +113,11 @@ export default function EditorPage() {
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [showSubtitleStyleDialog, setShowSubtitleStyleDialog] = useState(false);
   const [showWatermarkDialog, setShowWatermarkDialog] = useState(false);
+  const [showAiDisclosureDialog, setShowAiDisclosureDialog] = useState(false);
+  const [timelineClip, setTimelineClip] = useState<{
+    sceneId: string;
+    kind: TimelineClipKind;
+  } | null>(null);
   const [showBgmDialog, setShowBgmDialog] = useState(false);
   const [showStickerDialog, setShowStickerDialog] = useState(false);
   const [showTransitionDialog, setShowTransitionDialog] = useState(false);
@@ -443,6 +454,13 @@ export default function EditorPage() {
   }
 
   const { project } = editor;
+  const renderedScenes = applySubtitleOverrides(
+    project.scenes,
+    project.generationParams?.subtitleOverrides
+  );
+  const clipScene = project.scenes.find(
+    (scene) => scene.id === timelineClip?.sceneId
+  );
 
   // 选中分镜的后继分镜（API 已按 order 升序返回）：SceneEditor 的
   // "尾帧衔接下一镜"开关据此判断是否为最后一镜/下一镜是否已出图
@@ -520,6 +538,7 @@ export default function EditorPage() {
         onExport={() => setShowExportDialog(true)}
         onSubtitle={() => setShowSubtitleStyleDialog(true)}
         onWatermark={() => setShowWatermarkDialog(true)}
+        onAiDisclosure={() => setShowAiDisclosureDialog(true)}
         onSticker={() => setShowStickerDialog(true)}
         onTransition={() => setShowTransitionDialog(true)}
         onEffect={() => setShowEffectDialog(true)}
@@ -723,7 +742,7 @@ export default function EditorPage() {
       {showTimeline && project.scenes.length > 0 && (
         <div className="max-h-[25dvh] shrink-0 overflow-y-auto md:max-h-none">
           <TimelineEditor
-            scenes={project.scenes}
+            scenes={renderedScenes}
             onSceneSelect={selectSceneForEditing}
             onSceneDurationChange={editor.handleSceneDurationChange}
             selectedSceneId={editor.selectedSceneId}
@@ -732,8 +751,90 @@ export default function EditorPage() {
             onStickerClick={() => setShowStickerDialog(true)}
             onTransitionClick={() => setShowTransitionDialog(true)}
             onEffectClick={() => setShowEffectDialog(true)}
+            onAiDisclosureClick={() => setShowAiDisclosureDialog(true)}
+            onClipSelect={(sceneId, kind) => setTimelineClip({ sceneId, kind })}
           />
         </div>
+      )}
+
+      {timelineClip && clipScene && (
+        <TimelineClipDialog
+          key={`${clipScene.id}:${timelineClip.kind}`}
+          scene={clipScene}
+          sceneNumber={
+            project.scenes.findIndex((scene) => scene.id === clipScene.id) + 1
+          }
+          kind={timelineClip.kind}
+          subtitleOverride={
+            project.generationParams?.subtitleOverrides?.find(
+              (item) => item.sceneId === clipScene.id
+            )?.text
+          }
+          onClose={() => setTimelineClip(null)}
+          onOpenScene={() => {
+            selectSceneForEditing(clipScene.id);
+            setTimelineClip(null);
+          }}
+          onSaveAudioText={(data) =>
+            editor.updateSceneMutation.mutateAsync({
+              sceneId: clipScene.id,
+              data,
+            })
+          }
+          onSaveSubtitle={async (text) => {
+            const previous = project.generationParams?.subtitleOverrides ?? [];
+            const next = previous.filter(
+              (item) => item.sceneId !== clipScene.id
+            );
+            if (text !== null) next.push({ sceneId: clipScene.id, text });
+            await editor.updateProject({
+              generationParams: {
+                ...project.generationParams,
+                subtitleOverrides: next,
+              },
+            });
+          }}
+          onMediaEdit={async (kind, expectedUrl, url) => {
+            const response = await fetch(
+              `/api/projects/${projectId}/scenes/${clipScene.id}`,
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ mediaEdit: { kind, expectedUrl, url } }),
+              }
+            );
+            const body = await response.json();
+            if (!response.ok) {
+              editor.invalidateProject();
+              throw new Error(body.error ?? "素材保存失败，请重试");
+            }
+            editor.queryClient.setQueryData<ProjectDetail>(
+              ["project", projectId],
+              (current) =>
+                current
+                  ? {
+                      ...current,
+                      scenes: current.scenes.map((scene) =>
+                        scene.id === clipScene.id
+                          ? { ...scene, ...body }
+                          : scene
+                      ),
+                    }
+                  : current
+            );
+          }}
+        />
+      )}
+      {showAiDisclosureDialog && (
+        <AiDisclosureDialog
+          initialValue={project.generationParams?.aiDisclosure}
+          onSave={(aiDisclosure) =>
+            editor.updateProject({
+              generationParams: { ...project.generationParams, aiDisclosure },
+            })
+          }
+          onClose={() => setShowAiDisclosureDialog(false)}
+        />
       )}
 
       {/* 时间轴触发的六个配置弹窗（字幕/水印/配乐/贴图/转场/滤镜） */}
@@ -766,13 +867,23 @@ export default function EditorPage() {
         <DialogContent className="bg-background flex h-[88vh] max-w-4xl flex-col p-0 sm:max-w-4xl">
           <DialogHeader className="border-border shrink-0 border-b px-6 py-4 text-left">
             <DialogTitle className="text-xl">预览播放</DialogTitle>
+            <button
+              type="button"
+              className="text-primary w-fit text-sm underline"
+              onClick={() => {
+                setShowPreviewDialog(false);
+                setShowAiDisclosureDialog(true);
+              }}
+            >
+              调整 AI 标识
+            </button>
             <DialogDescription className="sr-only">
               按分镜顺序播放已生成的图像、视频与配音
             </DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 p-4">
             <PreviewPlayer
-              scenes={project.scenes}
+              scenes={renderedScenes}
               aspectRatio={project.aspectRatio}
               onSceneChange={editor.setSelectedSceneId}
               currentSceneId={editor.selectedSceneId ?? undefined}

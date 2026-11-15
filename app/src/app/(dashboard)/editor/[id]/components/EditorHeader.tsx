@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { CreditsDisplay } from "@/components/credits-display";
+import { ProjectAssistantButton } from "@/components/project-assistant/ProjectAssistantButton";
 import type { ProjectSeriesInfo } from "@/types";
 import {
   DropdownMenu,
@@ -55,6 +56,7 @@ interface EditorHeaderProps {
   // 下拉，与时间轴解耦，让能力可发现、可召回，a5 审计 P0-1）
   onSubtitle: () => void;
   onWatermark: () => void;
+  onAiDisclosure?: () => void;
   onSticker: () => void;
   onTransition: () => void;
   onEffect: () => void;
@@ -79,6 +81,7 @@ export function EditorHeader({
   onExport,
   onSubtitle,
   onWatermark,
+  onAiDisclosure,
   onSticker,
   onTransition,
   onEffect,
@@ -170,6 +173,7 @@ export function EditorHeader({
         )}
       </div>
       <div className="flex w-full shrink-0 items-center justify-end gap-1 sm:gap-2 md:w-auto">
+        <ProjectAssistantButton projectId={projectId} title={title} />
         <div className="hidden sm:block">
           <CreditsDisplay />
         </div>
@@ -197,6 +201,12 @@ export function EditorHeader({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuLabel>成片装饰</DropdownMenuLabel>
+            {onAiDisclosure && (
+              <DropdownMenuItem onClick={onAiDisclosure}>
+                <Sparkles size={15} />
+                AI 标识
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={onSubtitle}>
               <Type size={15} />
               字幕样式

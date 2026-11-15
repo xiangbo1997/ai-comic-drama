@@ -1,5 +1,116 @@
 # 验证记录（2026-11-13）
 
+## 2026-11-15 已上线代码：Git 交付预检
+
+- 用户明确要求提交并推送。当前 main 与 origin/main 都为 `508e22b8cb06dca5ef9f6cd0ce1cfa0961cc3415`，上游无新增提交，仓库已有提交身份可用，不改全局身份或远端配置。
+- 待提交 144 份应用/测试/迁移/使用说明/项目记录；既有 `.env.example` 和 `.codex/export-oom-reasoning.md` 保留在提交之外。无现存暂存改动，已按新增行/新文件进行凭据模式检查；未纳入环境文件、上传素材、依赖、构建或其他生成产物。
+- 860 文件应用摘要与已上线 `508e22b-timeline-41f5e1b79aad` 完全一致：`41f5e1b79aad2413d0c3610f4aa74e5904f9b97daf405a84f98161d7dd841d7d`。沿用此前 2403 项测试、42 项浏览器交互、类型/lint/格式、生产构建与上线验证；此次不修改业务逻辑、不重启服务或运行付费生成。
+- 提交前检查清单 `/tmp/ai-comic-git-delivery.json`；后续正常提交、推送和远端完整 SHA 核对完成后追加回执，不使用 force。
+
+## 2026-11-15 时间轴编辑：生产部署完成
+
+- 用户明确授权上线。版本 `508e22b-timeline-41f5e1b79aad`，来自 HEAD 与 860 份应用文件内容指纹 `41f5e1b79aad2413d0c3610f4aa74e5904f9b97daf405a84f98161d7dd841d7d`，不冒充新 Git 提交。632 份 src 及关键配置/schema 与已通过测试的隔离构建一致；发布前后源码和生产环境文件摘要未变。
+- 备份 `/tmp/ai-comic-deploy-timeline-20261115T065156Z/` 包含旧 `.next`/版本标记、源码补丁/新增源码、自定义格式数据库 `comic-before-timeline.dump`、恢复清单和发布日志。`pg_restore --list` 成功；部署具备构建/启动/公网失败自动回退，当前未触发回退，不宣称故障演练。
+- 停服前二次核对生成任务/助手回复为 0；六份历史迁移完成，未执行生产 schema 迁移。`pnpm db:generate`、生产 `pnpm build` 均成功，既有服务于 2026-11-15 06:53:06 UTC（北京时间 14:53:06）启动，active/running，NRestarts=0，当前 invocation 的 error 级日志 0。
+- `smoke.json` 的 29 项检查全部通过：本机与公网 health 200 且精确版本一致，登录/JS/CSS 正常，四个受保护页面跳转登录，助手/TTS/素材编辑/字幕设置/成片与草稿导出匿名请求均 401。新时间轴界面 chunk `static/chunks/2_8trnxqoymot.js` 公网 311407 字节与本机 SHA256 一致，含独立字幕、配音原文及 AI 标识新控件；既有助手资源亦一致。
+- `deployment.json` 状态 `deployed_public_smoke_verified`；证据另有 `service-verification.json`、`build.log`、`prisma-generate.log`、`public-smoke.log`。前序 2403 单元/API 测试、42 浏览器交互及类型/lint/格式验收继续适用，部署未改业务源码。
+- 未触发真实付费生成、未做生产作品测试写入、未改密钥/网关/全局权限，未 Git 提交或推送。保留所有原有未提交修改；文档及上下文状态已更新。
+
+## 2026-11-15 时间轴编辑与 AI 标识：实现验收
+
+- 已实现四轨片段编辑入口、媒体引用移除/窗口内撤销、独立字幕编辑/隐藏/恢复、音频原文/语速保存；字幕覆盖贯穿预览/成片/剪映，分镜重建清除旧覆盖。媒体写入保留归属鉴权，URL 安全校验及原子版本/生成状态保护；不删除存储文件。
+- AI 标识复用同一预览/导出配置，新增时间轴/装饰/预览入口和字号/透明度。AI 工具直达已有自动制作，仅打开不启动任务。
+- 最终全量 `pnpm test`：197 文件 2403 项通过，21.88 秒，日志 `/tmp/ai-comic-timeline-final-tests.log`。含成片/剪映导出链路 3 项；聚焦覆盖 15 项通过。subtitle-overrides 模块行/函数覆盖 100%，语句 92.3%、分支 91.66%，不是全项目覆盖率。最终全量 `pnpm type-check` 与 `pnpm lint` 均退出 0；29 份本轮 TS/TSX/HTML 文件 Prettier 检查及 `git diff --check` 通过。
+- Chromium 组件回归最终 42/42 通过（时间轴 7、移动交互 7、工作区 4、助手对话 10、自动制作 14），使用真实组件和模拟接口。已查看手机 AI 设置及桌面图片操作截图。首次宽度失败为夹具 JSON 输出，首次助手入口失败为缺字段模拟响应，均修正测试夹具后复跑；不能据此宣称付费生成端到端验收。
+- 原命令 `pnpm build`（Next.js 16.3.4 / Turbopack）在 `/tmp/ai-comic-timeline-build-eec2fp7l/app` 成功退出 0，66 个静态页面生成；复制完整源码保留 uploads 路由，632 份 `app/src` 文件在构建前后与工作区 SHA256 清单完全一致。证据为该临时目录的 `build.log`、`source-manifest.json`；脚本 `/tmp/verify-timeline-build-20261115.py`。生产配置不复制，仅使用无效本机 DB 与占位密钥；未改线上 .next、生产数据库或服务，未在依赖复用目录执行 Prisma 生成。
+- 项目三协议与人工分析/回退记录完整；MCP 无 sequential-thinking，未安装全局工具。ECC 仅作补充，原有未提交修改保留。本轮尚未部署、未真实付费调用、未 Git 提交/推送。
+
+## 2026-11-15 编辑器截图功能核查
+
+- 已查看指定截图并核对 SceneList、自动制作 planner、timeline-editor、SceneEditor、AiDisclosurePanel、ExportForm 持久化及 DisclosureOverlay。
+- 结论：AI 工具可手动使用或通过助手确认自动制作；底部没有媒体片段删除入口，视频轨选镜/调时长，字幕轨打开样式；对话/旁白在右侧编辑。AI 标识在导出→合规标识可改开关/文案/位置/时长；字号/透明度仅有底层字段，无界面控件，不支持直接拖动。
+- 项目三协议已读取；MCP 审计无配置，手工分析/失败降级/回退见 context-editor-controls-2026-11-15.md。本次只读核查应用，无测试/生产数据写入、付费调用或部署；未额外加载 ECC 技能。
+
+## 2026-11-15 语音修复生产部署完成
+
+- 线上版本`508e22b-tts-c1da6dba6a78`；备份`/tmp/ai-comic-deploy-tts-20261115T041123Z/`包含旧.next/版本、审查源码、数据库自定义dump、构建日志和manifest，pg_restore清单可读取。未运行数据库schema迁移，构建前后应用及环境指纹一致。
+- Prisma客户端生成、生产构建成功；原`ai-comic-drama.service`于2026-11-15 04:12:18 UTC启动，active/running、NRestarts=0。启动后journal系统和应用error数均0，脱敏回执service-verification.json。
+- 24项本机/公网冒烟全过：精确版本健康、登录与JS/CSS、四个受保护页面跳转、助手8种匿名方法/TTS生成/保存与未保存测试/模型列表/角色接口均401。新语音设置chunk `static/chunks/2garpi3m1_68m.js`公网47487字节与本机SHA256一致；既有自动制作chunk69230字节亦一致。smoke.json与deployment.json状态deployed_public_smoke_verified。
+- 按用户要求仅将已定位的Grok TTS配置apiProtocol从openai改grok，重置其旧失败测试标记；密钥、grok-voice-latest模型、默认选择和其他配置保留。首轮保护检查误以为地址必须在customBaseUrl，实际值继承provider.baseUrl；只读确认生效地址后修正检查并执行，首轮未写入数据库。单行非密钥备份及apply/verify回执在发布目录。
+- 两套网关GET/models此前均200且各自模型已登记；没有生成真实付费音频，测试成功仅说明鉴权/登记，用户仍需在实际配音时验证上游实时额度与合成。未修改网关、生产作品、密钥、全局权限，未Git提交/推送；原用户文件保留。
+- 上线后直接运行新共享`testProviderConnectivity`，读取两个真实配置及对应Key但不输出凭据，仅GET模型列表：`chatgpt-tts/openai`和`grok-voice-latest/grok`均success=true，明确“未执行真实语音合成”。回执`real-connectivity.json`，未写数据库；最终文档及语音补丁Prettier检查全部通过。
+
+## 2026-11-15 Grok/OpenAI语音兼容：发布前验收
+
+- 根因：TTS modelId误入聊天端点，Grok语音未接runtime/设置选项；已有Key编辑测试未传当前协议。真实两网关GET/models均200且登记grok-voice-latest/chatgpt-tts，未做付费合成或泄露Key。
+- TDD：初始10项Grok/模型测试RED→GREEN，编辑误写状态1项RED→GREEN，octet-stream有效MP3两项RED→GREEN；浏览器首次误用按钮名“测试连接”，按真实“测试”修正。
+- 最终pnpm test：194文件2387项全过（22.36秒）；type-check、全量lint及diff通过。核心两provider/列表/音频校验行、语句、函数100%，分支97.18%，不是全项目覆盖率。日志/tmp/ai-comic-tts-{tests,types,lint,coverage,diff}.log。
+- 完整浏览器44/44（1.8分钟），新增3项留空Key切Grok/预览/请求一致、chatgpt-tts保留OpenAI及手机不横溢；真实ConfigDialog/CSS配模拟接口。桌面/手机截图/tmp/ai-comic-grok-tts-{desktop,mobile}.png已查看。
+- 隔离快照/tmp/ai-comic-assistant-build-mbu4eps4最终重建成功，857份应用文件逐字节一致，新增12种助手/TTS匿名方法401，登录200；没有触碰线上.next或连接生产DB。最终指纹c1da6dba6a784e21ba9c863fa258ca8707424d1e342a290ff5fa0c3269ff09ed。
+- 项目init/taskflow/governance及ECC TDD/security仅补充；sequential-thinking不可调用，人工分析已记录；不新增迁移、不改网关/密钥/全局权限，不提交推送，生产发布完成后追加事实。
+
+## 2026-11-14 助手自主执行：生产部署完成
+
+- 用户确认实现并沿用既有部署授权；中断后明确要求继续。最终854份应用文件与补齐后的隔离快照逐字节一致，源码指纹为`557014bd529f5fc1cafb0f240f7c1b27b7a919cea61a21140335866d09e8709c`。部署版本`508e22b-execution-557014bd529f`，不冒充新的Git提交。
+- 最终验收：2344项单测/190文件、41项浏览器组件、18项真实隔离PG，以及全量lint/type和85文件格式检查均通过。补齐隔离复制规则漏收的原有uploads路由后，完整生产构建、登录200及助手8种匿名请求401再次通过；未更改生产源码。
+- 部署前只读检查活跃生成/回复数均0、六份迁移均完成。备份目录`/tmp/ai-comic-deploy-execution-20261114T144345Z/`保存旧.next、版本标记、审查源码、数据库自定义格式dump及清单/日志；`pg_restore --list`成功。此次未执行生产迁移，未改模型/环境配置。
+- `pnpm db:generate`与生产`pnpm build`退出0；源码及环境指纹前后一致。仅更新既有`ai-comic-drama.service`，于2026-11-14 14:45:22 UTC启动，active/running、NRestarts=0；启动后journal无error级条目。
+- 18项部署检查全部通过：内外网健康200且精确版本一致、登录200、三个受保护页面307至login、助手8种HTTP方法及角色接口未登录401、JS/CSS正常。自动制作chunk `static/chunks/2nj5quwhb5gpn.js`公网69230字节，与本机发布构建SHA256一致。
+- 证据：备份目录内`deployment.json`状态`deployed_public_smoke_verified`，另有`smoke.json`、`service-verification.json`、`build.log`和`prisma-generate.log`。失败自动回退分支已保留，本次未触发，不声称故障切换演练完成；本机/tmp材料不是异地长期备份。
+- 验证边界：未触发真实付费模型或生产项目测试写入；不能据此宣称上游付费生图/视频已端到端验收。站内积分预算不限制外部供应商账单。未提交/推送本轮源码，既有用户文件保留。
+
+## 2026-11-14 助手自主执行：最终集成验证
+
+- 已实现当前集真实计划、最坏费用/修复上限、一次确认、后台持久步骤/租约、停止及同任务续跑；地点/缺图/视觉检查/严重问题有限修复/复查/衔接/缺失视频均接真实生成服务。聊天只接收有归属且字段白名单的执行摘要，不把建议当实际操作。
+- 关键回归先RED后GREEN：事务余额条件扣减、检查中换图/下一镜衔接冲突、准备地点停止、通用任务轮询误回收等。保留现有素材和版本，未知结果不自动重提。检查素材指纹在后续视频步骤前复核，JSONB键序规范化避免确认指纹误冲突。
+- 最终全量`pnpm test`：190文件、2344项全通过（35.82秒）；全量`pnpm lint`通过；`pnpm type-check`通过。唯一格式告警为credits.ts长行，已仅格式化并定向复核通过。
+- 完整浏览器组件`PLAYWRIGHT_BROWSERS_PATH=/tmp/ai-comic-playwright pnpm test:components`：41/41通过（含自动执行14项，及原角色、聊天、手机编辑/时间轴、向导恢复），未连生产项目。桌面/手机截图位于`/tmp/ai-comic-assistant-execution-{desktop,mobile}.png`，根代理已查看手机截图。
+- backend agent真实隔离PostgreSQL：18/18通过，覆盖预算、动态地点、有限修复、幂等/未知状态、租约/停止收尾、并发扣费；临时容器已删除。其定向单元/API17项、shared-job agent27文件361项亦通过，已由根全量回归覆盖。未用生产库运行测试。
+- 隔离生产构建在`/tmp/ai-comic-assistant-build-pugrh8jl`通过，新增执行路由存在；登录200、助手8种HTTP请求未登录均401。唯一格式变化同步到隔离快照后追加精确版本构建复核。未触发付费模型调用，不宣称真实付费生成端到端验收。
+- 三个项目协议已在`/software/codex-bootstrap/codex/skills/`找到并阅读，更正此前缺失结论；工具目录无sequential-thinking，沿用人工顺序分析及回退记录。没有修改全局权限/安装MCP，ECC仅补充TDD/安全/前后端及验证方法。
+- 部署脚本沿用已验证备份/回退流程，固定最终源码清单和摘要；此次复用既有表，不执行生产迁移。生产部署及公网验证已完成，结果见上节。
+
+## 2026-11-14 AI 助手生产部署完成
+
+- 用户明确要求部署；人工阶段记录及回退策略见reasoning/plan。源码和环境指纹在构建前后相同，部署包含前序角色与图像修复以及9份新增助手生产文件，未提交或推送源码。
+- 部署清单与回退备份：`/tmp/ai-comic-deploy-assistant-20261114T115415Z/`。保留旧`.next`、版本文件、源码补丁、新增文件及自定义格式`comic-before-assistant.dump`；`pg_restore --list`验证备份可读取，文件摘要已存清单。环境配置未更改。
+- `prisma migrate deploy`确认6份迁移中仅新增`20261114000000_add_project_assistant`被应用；三个助手表及成功迁移记录已只读复核。既有作品表数据未修改，未进行生产测试写入。
+- `pnpm db:generate`、生产`pnpm build`成功；服务于2026-11-14 11:55:41 UTC启动，active/running、NRestarts=0。
+- 内外网健康均200且版本`508e22b-assistant-d3ddbf544ff6`；公网登录页200，项目/编辑器/角色页未登录307至login，助手四个HTTP方法及角色接口未登录401；JS/CSS均200；新助手chunk为`static/chunks/3ond0iuefgzc3.js`，公网53645字节与本地SHA256相同。14项冒烟全通过，清单状态`deployed_public_smoke_verified`。
+- 未触发付费模型调用；线上验证为迁移/构建/启动/鉴权/资源验证，先前2282回归、11真实隔离PG、27浏览器测试仍为本次实现依据。未冒充登录后的真实付费模型端到端测试。
+
+## 2026-11-14 项目 AI 助手（完成代码集成）
+
+- init/taskflow/governance：遵循根AGENTS提供的规范，以人工阶段记录替代已确认缺失的sequential-thinking和三个项目协议技能；ECC frontend/backend/API、安全、TDD及verification技能仅作补充。
+- 全应用 `pnpm test`：179个测试文件、2282条测试通过（最终模型选型和请求体限制修正后）。`pnpm type-check`、`pnpm lint`、助手相关文件Prettier及`git diff --check`通过。
+- 真实PostgreSQL：11项通过。仅在新建tmpfs容器`ai-comic-assistant-verify-20261114`及`ai_comic_verify_assistant`隔离库初始化基线；删除该库新增三表后执行真实增量SQL，再验证作用域/归属、并发首次初始化、请求幂等、失败恢复、过期租约旧token阻断、记忆版本竞争、清空级联及最近40条窗口（44条持久）。测试后仅该临时容器已删除，既有数据库未变更。
+- 完整Chromium组件测试：27项通过（原17项+助手10项）。覆盖显式记忆保存/清空确认、4000字限制、失败重试复用ID、模型显示与首发一致、空model省略、无配置指引、409草稿保留、切剧及迟到响应隔离、长历史滚动、手机布局。手机/桌面截图已实际查看：`/tmp/ai-comic-assistant-mobile.png`、`/tmp/ai-comic-assistant-desktop.png`。
+- 生产构建：在`/tmp/ai-comic-assistant-build-pw2oi9hk`独立源码/依赖快照及测试凭据运行`pnpm build`，Turbopack、类型与65个静态页面全部完成，含三个助手路由。随后真实`next start`临时3199端口验证登录页200和助手GET/POST/PATCH/DELETE均返回401；临时服务已结束。不替换线上`.next`，不连接线上数据库。
+- 新assistant-reply模块行覆盖90.8%、分支86.15%；未宣称全项目覆盖率或付费模型端到端验证。所有模型响应均测试替身，未发起付费调用。
+- 检查过程修正：初始Zod refine扩展改safeExtend；完整12000字确认记忆独立预算；首发配置显式绑定避免显示B调用A；空model省略；流式请求体100KB硬上限。初次全套浏览器执行漏设既有Chromium路径导致启动失败，设置PLAYWRIGHT_BROWSERS_PATH后27项全过。临时生产启动首次缺NEXTAUTH_SECRET被启动校验阻止，补测试变量后复验通过。最终两处格式告警已修。
+- 安全/差异审查：服务端用户+项目+系列归属双验，资料使用显式字段清单，无凭证、远程工具或HTML执行；token条件提交/释放、错误不透传上游密钥。新增SQL仅增加三表/索引/约束；前序角色与图像修复及用户文件保持。源码未提交/推送；生产迁移与上线未执行。
+- 使用和迁移说明：`docs/project-ai-assistant.md`。回退旧应用构建可保留新表；不自动删已产生记忆。
+
+## 重新构建与生产部署
+
+用户明确授权重新构建与部署，已在现有生产服务器完成。部署应用源码为已推送的`508e22b8cb06dca5ef9f6cd0ce1cfa0961cc3415`，本次未改应用源码。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 构建前备份 | 原.next及版本标记状态保存在`/tmp/ai-comic-deploy-508e22b-20261113T141850Z`，权限仅当前用户；部署前health正常、commit为null |
+| Prisma客户端 | `pnpm db:generate`退出0，仅生成客户端，未运行db push/migrate |
+| 重新生产构建 | `pnpm build`退出0；编译11.6s，TypeScript15.8s，62/62页生成 |
+| systemd | 仅重启现有ai-comic-drama.service；2026-11-13 14:19:36 UTC启动，PID2445441，active/running，NRestarts=0 |
+| 本地health | HTTP200、ok=true、commit=508e22b，端点执行真实数据库SELECT 1 |
+| 公网health | comic.cloudsentryai.com/api/health：HTTP200、ok=true、commit=508e22b |
+| 页面与资源 | 公网/login返回200，引用的一个JS及一个CSS均200且MIME类型正确 |
+| 访问保护 | 公网/projects返回307并转/login；新增/api/producer-runs匿名GET返回401 |
+| 配置与源码保留 | 所有既有环境文件部署前后SHA256摘要一致；`git diff --exit-code HEAD -- app`通过，未改数据库结构、用户上传或其他服务 |
+
+公网与本地共7项冒烟检查全部通过，原始结果`/tmp/ai-comic-deploy-508e22b-20261113T141850Z/smoke.json`；构建、客户端生成日志及原始部署manifest位于同一目录。备份为本机临时回退材料，并非长期异地备份。构建/启动失败恢复分支已准备，本次未触发恢复，不能声称已演练故障切换。
+
+本次沿用上轮源码测试结论，重新执行客户端生成、含TypeScript的生产构建和部署冒烟；未重复全套测试、未创建账号或执行登录后付费生成。部署记录仅更新本地.codex工作流文档，线上版本对应既有已推送提交。
+
 ## 第三轮最终代码验收
 
 三轮范围已实现，以下是最终源码结果，覆盖后文阶段历史记录。git提交/推送按用户授权执行，最终回执由本轮操作输出确认。
@@ -101,3 +212,44 @@
 - 未生成付费图像/视频/语音，没有线上样片、平台分发或真实留存结果；不能据此声称爆款率提高。
 - 无 sequential-thinking / 搜索 / 浏览器 MCP，三个项目协议技能缺失，已记录人工分析、阶段上下文、计划和回退；ECC为项目规范的补充。
 - 没有数据库迁移、服务部署或全局配置修改，新增改动可逐文件回退。
+# 2026-11-14 角色生成入口验收
+
+- 完成：参考图/三视图/表情集分别打开单一确认弹窗；参考图标明张数与总价，专项仅显示适用配置与实际锚图。按用户补充保留同角色跨类型并行，只有同类任务去重。
+- TDD：原实现 5 项浏览器行为测试失败（确认文案、独立入口、并行、缺图提示、费用）；实现后新增重试与逆向并行，6 项全部通过。
+- `PLAYWRIGHT_BROWSERS_PATH=/tmp/ai-comic-playwright pnpm exec playwright test --config playwright.components.config.ts`：17/17 通过，43.9 秒；其中角色页面新增6项，含三任务并行、双向并行、错误后锁释放。
+- `pnpm test tests/lib/canonical-anchor.test.ts tests/lib/character-finalized.test.ts tests/lib/expression-sheet.test.ts tests/lib/prompts/character-reference.test.ts`：4文件68项全部通过。
+- `pnpm type-check`：退出0；3份生产 TSX 与2份测试 TSX/TS 的定向 ESLint：退出0；6份代码/宿主文件 Prettier check：通过；`git diff --check`：通过。
+- 浏览器宿主挂载真实 CharactersPage、CharacterCard、GenerateReferenceModal 与样式；接口及角色数据模拟，不等同于生产登录后付费生成验收。未运行生产构建、部署或调用真实模型。
+- 文档：docs/character-generation-entrypoints.md。init/taskflow/governance 按已提供规则执行人工阶段记录；三个协议技能缺失、sequential-thinking不可用已披露，ECC仅补充；未覆盖既有工作区修改，未修改全局权限。
+
+## 2026-11-14 重新部署验收
+
+- 用户授权部署本次角色生成入口修改；人工分析与回退方案见reasoning，未重复运行已通过的17项组件浏览器/68项相关单测。
+- 生产构建与Prisma客户端生成均退出0：62页、编译15.6秒、TypeScript17秒，无构建错误；源码指纹与环境文件摘要前后一致。
+- 线上版本：508e22b-character-b34658effe16（HEAD508e22b + 本次未提交应用源码指纹），对应3份已审查生产TSX修改。
+- 服务：ai-comic-drama.service，2026-11-14 08:07:55 UTC启动，active/running，PID970222，NRestarts=0。
+- 8项部署冒烟全部通过：内外网health200/ok=true且版本一致；login200；characters未登录307转login；characters API未登录401；登录JS/CSS200；新版角色JS公网200、56613字节且SHA256与本地构建一致。
+- 证据与回退备份：/tmp/ai-comic-deploy-character-20261114T080702Z/，包含deployment.json、smoke.json、build.log、prisma-generate.log、reviewed-application.patch、旧.next与旧版本文件。
+- 首次默认Python User-Agent拨测403，curl公网200；沿用既有部署拨测User-Agent后8项通过。没有修改防火墙或代理配置。
+- 验证边界：部署冒烟与静态资源一致性，不宣称真实登录后付费生图验收；无schema迁移或全局权限修改，原有未提交文件保留。
+# 2026-11-14 图像上传限额502修复验收
+
+- 根因证据：应用08:10:36、08:11:34、08:13:34等失败时间与网关同秒502对应；网关原始调用记录是文件上传初始化429、reason=upload_protection_limit_exceeded，提示7小时内重试；同时间存在成功图生图。应用发送image与image[]各一份，网关合并处理，导致同图重复上传。
+- 应用新增5项行为回归原实现全部失败，修复后全过；`pnpm test tests/services/ai tests/lib/error-copy.test.ts`共11文件144项通过；类型、3文件ESLint/Prettier、diff检查通过。
+- 网关9项无网络隔离单测通过：从临时副本抽取实际函数/类执行，替换账号/网络/存储依赖；覆盖严格初始化429识别、上传冷却、到期恢复、文生图独立、账号耗尽429、已有输出不重提、其他错误不轮换、排除集合。不是完整网关端到端或真实付费生成验收。
+- 网关原运行容器和宿主源码SHA256一致后备份并应用两文件补丁；账号SQLite只做一致性只读备份，不删账号或清零额度。修复制作成仅覆盖两份源码的本地派生镜像chatgpt2api:upload-limit-20261114-3dc698b9，并更新原Compose镜像后重建，同步核验容器内源码指纹与公网models未认证401。
+- 应用Prisma客户端生成/生产构建退出0，内外网health均ok=true、版本508e22b-imagefix-6e26af467d5b；8项部署冒烟全部通过，角色UI资源仍与本地构建字节一致；服务active/running、NRestarts=0。构建前后源码与环境文件摘要一致。
+- 应用备份/manifest/build.log/smoke.json：/tmp/ai-comic-deploy-imagefix-20261114T091330Z/；网关原代码、accounts.db备份、Compose备份、派生镜像日志/manifest：/tmp/chatgpt-upload-limit-backup-20261114T091120Z/。隔离测试：/tmp/chatgpt-upload-fix/test_upload_limits.py。
+- 没有真实付费生图验证；上游额度本身没有被重置。限额触发后仅在上传尚未生成时安全尝试其他账号，无可用账号仍需等待额度恢复或切换配置。
+- sequential-thinking及三个项目协议技能仍缺失，人工推理/阶段记录/回退见context-image-upload-limit-2026-11-14.md；ECC tdd/security仅为补充。原有工作区修改保留；没有schema迁移、密钥输出或全局权限修改。
+
+## 2026-11-14 三视图400兼容回归验收
+
+- 本次日志证据：10:14:11/13/16/30四次任务400 prompt is required，网关同秒/images/edits400，未进入实际生成；与此前上游上传限额不同。
+- 根因：上一轮编辑请求改走safeFetch后，Node原生FormData不被独立Undici识别，发成text/plain的[object FormData]。已明确向用户承认，这是上轮修改引入的回归。
+- 修复：安全出口按字段转换为当前Undici.FormData，保留原有SSRF/IP钉住、禁止重定向、其他请求体和文件/重复字段语义。
+- TDD：真实本地HTTP收包原生单图/多图两项RED、Undici自身表单/JSON两项原已通过；修复后新增真实Provider→safeFetch→本地HTTP接收端的中文prompt、seed、图片字节贯穿验证，5项全部通过，未mock安全出口或HTTP客户端。
+- 最终`pnpm test tests/lib/url-guard-multipart.test.ts tests/lib/url-guard.test.ts tests/lib/url-guard-allowlist.test.ts tests/lib/url-guard-redirect.test.ts tests/services/ai tests/lib/error-copy.test.ts`：15文件190项全部通过；类型、2文件ESLint/Prettier、diff通过。
+- Prisma客户端生成/生产构建均退出0；部署版本508e22b-multipart-c7d937cb6f06，服务2026-11-14 10:20:55 UTC启动，active/running，NRestarts=0；内外网health版本相同且ok=true，8项部署冒烟全部通过。
+- 原构建与版本、源码补丁、部署manifest、构建/Prisma日志、smoke.json保存在/tmp/ai-comic-deploy-multipart-20261114T102019Z/，失败自动回退分支未触发。构建前后应用源码指纹与环境文件摘要一致。
+- 限制：真实本地HTTP验证表单完整到达，不是上游付费生成验收；没有再次修改网关或触发付费图像生成。上下文与人工推理见context-multipart-2026-11-14.md；ECC作为补充，既有未提交改动保留。

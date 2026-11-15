@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import {
   useQuery,
   useInfiniteQuery,
@@ -35,7 +35,10 @@ import { SearchAndFilter } from "./components/SearchAndFilter";
 import { CharacterCard } from "./components/CharacterCard";
 import { CreateCharacterModal } from "./components/CreateCharacterModal";
 import { TagManagerModal } from "./components/TagManagerModal";
-import { GenerateReferenceModal } from "./components/GenerateReferenceModal";
+import {
+  GenerateReferenceModal,
+  type CharacterGenerationKind,
+} from "./components/GenerateReferenceModal";
 import { ReferenceCandidateGallery } from "./components/ReferenceCandidateGallery";
 import { useToast } from "@/components/ui/toast";
 
@@ -55,6 +58,10 @@ export default function CharactersPage() {
   const [showTagManager, setShowTagManager] = useState(false);
 
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [generationKind, setGenerationKind] =
+    useState<CharacterGenerationKind>("reference");
+  // 同角色不同类型允许并行；同步锁仅防止同类任务在状态更新前重复提交。
+  const generationLocks = useRef(new Set<string>());
   const [generateModalCharacterId, setGenerateModalCharacterId] = useState<
     string | null
   >(null);
@@ -165,6 +172,7 @@ export default function CharactersPage() {
       defaultSource: "none" | "upload" | "existing" = "none"
     ) => {
       setGenerateModalCharacterId(characterId);
+      setGenerationKind("reference");
       setGenerateOptions({
         source: defaultSource,
         customPrompt: "",
@@ -175,6 +183,17 @@ export default function CharactersPage() {
       setShowGenerateModal(true);
     },
     []
+  );
+
+  const openGenerateSheet = useCallback(
+    (
+      characterId: string,
+      kind: Exclude<CharacterGenerationKind, "reference">
+    ) => {
+      openGenerateModal(characterId);
+      setGenerationKind(kind);
+    },
+    [openGenerateModal]
   );
 
   const closeGenerateModal = () => {
@@ -191,6 +210,22 @@ export default function CharactersPage() {
 
   const handleGenerate = () => {
     if (!generateModalCharacterId) return;
+    const lockKey = `${generationKind}:${generateModalCharacterId}`;
+    if (generationLocks.current.has(lockKey)) return;
+    generationLocks.current.add(lockKey);
+    if (generationKind !== "reference") {
+      const mutation =
+        generationKind === "threeViews"
+          ? generateThreeViewsMutation
+          : generateExpressionsMutation;
+      mutation.mutate({
+        id: generateModalCharacterId,
+        imageConfigId: generateOptions.imageConfigId,
+        customPrompt: generateOptions.customPrompt.trim() || undefined,
+      });
+      closeGenerateModal();
+      return;
+    }
     const options: {
       baseImage?: string;
       customPrompt?: string;
@@ -418,6 +453,7 @@ export default function CharactersPage() {
       toast.error(fe.message, fe.cta);
     },
     onSettled: (_data, _error, { id }) => {
+      generationLocks.current.delete(`reference:${id}`);
       setGeneratingIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -472,6 +508,7 @@ export default function CharactersPage() {
       toast.error(fe.message, fe.cta);
     },
     onSettled: (_data, _error, { id }) => {
+      generationLocks.current.delete(`threeViews:${id}`);
       setThreeViewsGeneratingIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -503,6 +540,7 @@ export default function CharactersPage() {
       toast.error(fe.message, fe.cta);
     },
     onSettled: (_data, _error, { id }) => {
+      generationLocks.current.delete(`expressions:${id}`);
       setExpressionsGeneratingIds((prev) => {
         const next = new Set(prev);
         next.delete(id);
@@ -680,6 +718,9 @@ export default function CharactersPage() {
               onOpenGenerateModal={openGenerateModal}
               uploadingBaseImageId={uploadingBaseImageId}
               isGenerating={generatingIds.has(character.id)}
+              onOpenGenerateSheet={openGenerateSheet}
+              threeViewsPending={threeViewsGeneratingIds.has(character.id)}
+              expressionsPending={expressionsGeneratingIds.has(character.id)}
               onSetCanonical={handleSetCanonical}
               settingCanonicalUrl={settingCanonicalUrls[character.id] ?? null}
               updateMutationPending={updateMutation.isPending}
@@ -740,6 +781,7 @@ export default function CharactersPage() {
 
       {showGenerateModal && generateModalCharacterId && characters && (
         <GenerateReferenceModal
+          kind={generationKind}
           characterId={generateModalCharacterId}
           characters={characters}
           generateOptions={generateOptions}
@@ -747,29 +789,12 @@ export default function CharactersPage() {
           currentImageIndex={currentImageIndices[generateModalCharacterId] || 0}
           onClose={closeGenerateModal}
           onGenerate={handleGenerate}
-          generatePending={generatingIds.has(generateModalCharacterId)}
-          onGenerateThreeViews={() =>
-            generateThreeViewsMutation.mutate({
-              id: generateModalCharacterId,
-              imageConfigId: generateOptions.imageConfigId,
-              // 同屏自定义提示词一并透传给三视图（此前被忽略，A3）
-              customPrompt: generateOptions.customPrompt.trim() || undefined,
-            })
-          }
-          threeViewsPending={threeViewsGeneratingIds.has(
-            generateModalCharacterId
-          )}
-          onGenerateExpressions={() =>
-            generateExpressionsMutation.mutate({
-              id: generateModalCharacterId,
-              imageConfigId: generateOptions.imageConfigId,
-              // 同屏自定义提示词一并透传（与三视图路径同规）
-              customPrompt: generateOptions.customPrompt.trim() || undefined,
-            })
-          }
-          expressionsPending={expressionsGeneratingIds.has(
-            generateModalCharacterId
-          )}
+          generatePending={(generationKind === "reference"
+            ? generatingIds
+            : generationKind === "threeViews"
+              ? threeViewsGeneratingIds
+              : expressionsGeneratingIds
+          ).has(generateModalCharacterId)}
         />
       )}
 

@@ -40,6 +40,7 @@ const FULL_FIXTURE: Required<GenerationParams> = {
     animation: "fade",
   },
   subtitlePositions: [{ sceneId: "scene-1", x: 0.5, y: 0.88 }],
+  subtitleOverrides: [{ sceneId: "scene-1", text: "独立字幕" }],
   watermark: {
     enabled: true,
     imageUrl: "https://example.com/logo.png",

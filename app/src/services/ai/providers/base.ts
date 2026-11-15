@@ -96,7 +96,7 @@ class RetryableHttpError extends Error {
  *   请求肯定没到后端）重试；对 500/502/503/504 网关错误与中途 TCP 断流**一律不重试**——
  *   因为后端可能已开始生成，重试会触发整段重新生成 → 双倍上游配额消耗。
  */
-export type RetryMode = "standard" | "submit";
+export type RetryMode = "standard" | "submit" | "none";
 
 /**
  * 带错误处理 + 网络层重试的 fetch 封装。
@@ -146,6 +146,8 @@ export async function fetchWithError(
         throw new Error(message);
       },
       {
+        // 自动执行须由持久receipt决定恢复；即使安全可重试错误也不在传输层另发单。
+        maxRetries: retryMode === "none" ? 0 : undefined,
         shouldRetry: (err) => {
           // 主动中止（门面超时/上层取消）绝不重试：上游本来就卡死，重试必然
           // 再次超时，只会把失败反馈拖长一个退避周期。放在最前面短路，

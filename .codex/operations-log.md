@@ -1,5 +1,45 @@
 # 操作记录
 
+## 2026-11-15 Git 交付启动
+
+用户明确要求提交并推送。核对 main/origin 基线 508e22b，仓库已有身份与 app/.husky 钩子可用；应用源码和已上线版本指纹一致。144 份应用/测试/迁移/文档及本轮记录通过范围与凭据模式检查，仅排除原有 .env.example、旧 OOM 排查笔记。保留正常 pre-commit 检查，不改永久身份、远端或全局配置，不 force。沙箱 .aws 错误阻断若干只读命令，针对具体命令提权重试，未修改目录权限。
+
+## 2026-11-15 时间轴编辑部署授权与预检
+
+完成：版本 `508e22b-timeline-41f5e1b79aad` 已上线。备份和恢复清单完整，客户端生成/生产构建均成功，源码及环境摘要前后一致，无数据库迁移。原服务 06:53:06 UTC 启动，active/running、NRestarts=0；29 项内外网健康/鉴权/资源检查全部通过，当前启动 error 日志 0。新时间轴公网资源 311407 字节与本机一致。发布目录保存 deployment/smoke/service-verification 和构建日志；没有付费调用、生产作品测试写入、Git 提交/推送。临时服务验收脚本换行转义导致补丁失败一次，修正后执行通过；无业务源码影响。
+
+部署已启动：备份 `/tmp/ai-comic-deploy-timeline-20261115T065156Z/`，目标版本 `508e22b-timeline-41f5e1b79aad`。旧构建与版本、审查源码及自定义格式数据库备份完成，pg_restore --list 成功；停服前再次确认无活跃生成/助手回复。现执行生成客户端/生产重建，无数据库迁移。部署脚本因沙箱 .aws 挂载错误未能启动一次，针对原命令提权后成功开始；未修改全局权限或 .aws。
+
+用户明确要求部署。复用项目协议及现有已验证发布/回退脚本；工具目录仍无 sequential-thinking，人工分析见 reasoning。目标 ai-comic-drama.service 在 127.0.0.1:3100，active/running 且 NRestarts=0；内外网均为 508e22b-tts-c1da6dba6a78。应用库与现有 comic-postgres 匹配，六份历史迁移完成，无活跃生成/助手回复，不执行新迁移。632 份 src 及关键构建/schema 配置与隔离构建一致；860 文件摘要 41f5e1b79aad2413d0c3610f4aa74e5904f9b97daf405a84f98161d7dd841d7d。磁盘余量约 3.3GiB，当前构建 1.1GiB、隔离新构建 253MiB；备份后重建会替换旧构建，保留旧版供回退。部署脚本临时 JS 载入转义错误在运行前修正，无服务或数据库影响。
+
+## 2026-11-15 时间轴编辑与 AI 标识实现
+
+- 遵循 init/taskflow/governance，ECC TDD/frontend/verification/security 作为补充；先记录人工分析和回退，核心字幕/媒体接口回归先 RED 后 GREEN。
+- 完成四轨片段操作窗口、媒体移除/窗口内撤销、独立字幕编辑/隐藏/恢复、配音原文/语速保存，以及预览/导出/剪映共享覆盖。AI 标识增加三个编辑器入口及字号/透明度，AI 菜单直达已有自动制作，不在打开时启动任务。
+- 修复集成类型问题（SceneMedia 标注及 GenerationParams 全量夹具补新字段），浏览器首次失败来自助手模拟接口缺少 messages 等字段，修正夹具后 42/42 通过；未为模拟错误更改生产助手逻辑。
+- 沙箱多次在命令运行前报 .aws 挂载权限错误，对具体失败命令请求提权重试，未修改 .aws 或全局权限。隔离复制仅排除 public/uploads 根目录，保留 API uploads 源码；/tmp 构建不读取 .env，不覆盖线上 .next，不生成 Prisma 客户端。
+- 新增使用说明 docs/timeline-editing-and-ai-disclosure.md；测试/构建结果写入 verification。尚未部署，未迁移生产数据库，未调用真实付费生成，未提交/推送。
+
+## 2026-11-15 编辑器截图问答
+
+读取指定截图和项目三协议，只读追踪 AI 工具、自动制作、时间轴、右侧编辑和 AI 标识设置。记录现有功能及入口缺口；保留所有原有未提交修改，仅追加核查文档。未安装全局 MCP、修改权限、调用付费生成或部署。
+
+## 2026-11-14 自主执行开发启动
+
+用户明确要求实现助手自主执行。已审查现有WorkflowEngine和producer checkpoint；旧workflow会重建现有剧情，不直接复用。继续此前明确授权的三个agent，先分别分析后台状态、真实生成工具适配和交互，再统一契约授权实施。既有助手线上版本和未提交图像修复保留；验证不发起付费调用。
+
+## 2026-11-14 助手部署授权与预检
+
+用户明确追加“部署”。目标ai-comic-drama.service当前active/running且NRestarts=0，127.0.0.1:3100，旧版本508e22b-multipart-c7d937cb6f06。应用数据库comic与comic-postgres容器匹配；只读查询确认历史5份迁移成功，无失败或助手表。备份与新版本部署使用/tmp私有目录，保留环境不变和前序图像修复。当前仍未执行迁移，接下来按计划操作。
+
+部署完成：备份路径`/tmp/ai-comic-deploy-assistant-20261114T115415Z/`，数据库dump及旧构建已保留；仅新增助手迁移成功。生成客户端/构建/服务启动成功，线上版本`508e22b-assistant-d3ddbf544ff6`；14项内外网冒烟通过，助手UI资源内容摘要与本地一致，服务active/running、NRestarts=0。无付费调用或生产业务数据测试写入。
+
+## 2026-11-14 项目 AI 助手启动
+
+用户要求多 agent 分析并集成按剧独立记忆的项目助手。三 agent 已完成产品/后端/上下文初步分析，主 agent 统一范围与API契约后授权并行实施。人工阶段记录见 context-project-assistant-2026-11-14.md；前序图像修复和原有未跟踪文件保留。
+
+完成情况：三 agent 分工实现并交叉审查，root修正集成边界、审查源码与SQL、验证真实浏览器截图、执行最终全量2282测试/类型/lint/格式、27条组件测试及隔离生产构建和匿名接口启动检查。后端在全新临时PG执行迁移及11项并发隔离测试，容器已清理。显式记忆与对话分离，系列共享、独立作品隔离；接口完整归属与幂等租约；复用现有文字模型，用户确认后保存记忆，不自动改剧情。新增使用/上线/回退文档；生产DB和线上服务未更新，未发起付费调用、提交或推送。
+
 ## 2026-11-13
 
 - 阅读根 AGENTS.md、.codex/AGENTS.md、架构、依赖与相关代码。
@@ -47,3 +87,70 @@
 - 代码提交617d82ca32deac2b17abe7c97e131045e534c00d成功，115文件；原pre-commit格式与ESLint均通过，hook前后树e91f96d5a0ede7a40125d20758611f13f61e3c75一致。
 - HTTPS推送未能取得凭据；检查到环境已有GitHub SSH身份配置后，仅对本次命令映射同一GitHub仓库URL并正常推送origin/main，未改remote/全局配置或使用force。GitHub远端refs与本地HEAD完整SHA一致。
 - 回写plan与verification，第三轮第6项完成；只为这些交付记录追加纯文档提交并正常推送，最后再次核对HEAD与远端，原有两个未跟踪文件继续保留。
+
+## 重新构建与部署
+
+- 用户明确授权部署。核实本机ai-comic-drama.service工作目录为app、监听3100，进程active/running；本地登录页200，内外网health均ok且旧版本标记为null。
+- 已推送HEAD为508e22b，应用源码无未提交改动；现有.next约1.1G，磁盘可用13G、内存可用2.1Gi，沿用现有依赖与生产环境文件。
+- 既有deploy.sh用于开发机rsync；本机已经是生产目标，采用同等本地构建/重启步骤并增加构建备份及失败恢复，不重复rsync自身，不进行schema迁移或付费调用。
+- 原.next与版本状态备份至/tmp/ai-comic-deploy-508e22b-20261113T141850Z，仅当前用户可访问；部署脚本先确认备份再停止唯一目标服务，已准备失败恢复分支，本次未触发。
+- pnpm db:generate、pnpm build均退出0；编译11.6s、TypeScript15.8s、62页生成，随后启动原systemd服务。环境文件摘要前后一致，应用源码git diff无变化。
+- 2026-11-13 14:19:36 UTC服务启动，PID2445441、active/running、NRestarts=0。内外网health均200/ok=true/commit=508e22b，数据库SELECT 1成功。
+- 7项部署冒烟全过：内外网health、公网login、未登录projects转login、新增producer-runs返回401、登录页JS/CSS均200且类型正确。smoke.json、deployment.json及build/prisma-generate日志保存在上述备份目录。
+- verification与plan已同步，原始未跟踪文件保留；本次不重复全套测试，不创建账号、不调用付费模型、不修改schema或其他服务，部署记录为本地工作流文档。
+# 2026-11-14 角色生成入口调整
+
+- 读取用户截图并核对角色卡、生成弹窗、任务状态、专项 API 锚点来源。
+- 根规范要求的三个协议技能未找到，sequential-thinking 不可用；人工分析与回退记录于 context-character-generation-2026-11-14.md；ECC frontend-patterns/tdd-workflow 仅作补充。
+- 用户明确允许三视图与角色参考图并行；按角色+任务类型同步防重，不增加跨类型互斥。
+- 先运行真实角色页面的浏览器回归，原实现 5 项失败；实现独立入口、单一确认、专项预览与价格，补充三任务并行和失败后重试测试。
+- 已通过类型检查、定向 ESLint、6 文件格式检查、68 项相关单测及全部17项组件浏览器测试（其中6项新增角色交互）；最终状态见 verification。
+- 命令启动多次遭遇 bwrap .aws 权限错误，已依工具规定请求升级执行；未改全局权限、未部署或触发付费生成，原有工作区修改保留。
+
+## 2026-11-14 重新部署完成
+
+- 用户明确要求重新部署，复用既有 ai-comic-drama.service 与生产环境配置，部署刚验收的3份角色界面 TSX 修改。
+- 部署前内外网health版本均508e22b；备份至 /tmp/ai-comic-deploy-character-20261114T080702Z，包含旧 .next、版本文件、应用补丁、部署manifest和日志，保留回退能力。
+- 版本508e22b-character-b34658effe16明确包含未提交修改的源码指纹；构建前后源码指纹与环境文件摘要一致。
+- pnpm db:generate、pnpm build退出0；构建62页，编译15.6秒、TypeScript17秒。服务于08:07:55 UTC恢复active/running，PID970222，NRestarts=0。
+- 冒烟8项全部通过：本地/公网health、新角色界面JS与本地构建SHA256相同、login200、登录页JS/CSS200、characters未登录307、characters API未登录401。
+- 首次Python拨测因默认User-Agent收到403，curl确认公网200；沿用上次部署拨测User-Agent后8项全部通过。沙箱bwrap失败按规定升级执行，没有修改安全配置。
+- 本轮没有数据库迁移、付费生成、git提交或其他服务变更；verification与plan已更新。
+# 2026-11-14 图像上传限额导致502
+
+- 从应用与网关日志关联确认文件上传429（upload_protection_limit_exceeded，7小时提示），而非配置地址一直错误；记录仅输出脱敏元数据。
+- 去掉同图image/image[]双份上传、编辑请求复用安全HTTP出口、429提取中文限额原因、5xx不再输出HTML；应用5项先失败后修复，AI相关144项、类型/lint/格式通过。
+- 临时副本实现并验证网关上传前严格429识别和账号上传冷却轮换，9项隔离行为测试通过，生成后与其他错误不重提。备份两份源码和SQLite，应用后健康；随后制作派生镜像并更新原Compose，重建验证指纹与401鉴权，保留恢复资料。
+- 应用备份构建后重新部署至508e22b-imagefix-6e26af467d5b；内外网8项冒烟通过，服务active/running，网关公网401。两处回退路径与验证限制见verification及docs/image-upload-limit-fix.md。
+- 未触发付费验收或修改上游配额；账号上传限额本身需等待恢复，补丁会在明确上传前受限时尝试其他账号。原工作区修改保留。
+
+## 2026-11-14 三视图400兼容回归
+
+- 用户要求查看日志。10:14:11、13、16、30四次三视图均400 prompt is required；网关同秒/images/edits400，未进入生图。无网络复现显示Node原生FormData经独立Undici变成text/plain的[object FormData]。
+- 已向用户明确承认上轮safeFetch改动引入的回归并致歉；新增真实本地HTTP收包测试两项RED，再规范化FormData到当前Undici实现。补充真实图像Provider贯穿安全出口、提示词/seed/单图内容、重复多图字段、JSON与元数据验证。
+- 最终15文件190项相关测试、类型、定向ESLint/Prettier及diff通过；生产构建成功后恢复既有服务，版本508e22b-multipart-c7d937cb6f06；08项内外网冒烟全过，active/running、NRestarts=0。
+- 备份与日志：/tmp/ai-comic-deploy-multipart-20261114T102019Z/；没有再次修改网关，没有触发付费生图，未宣称上游真实生成成功。人工分析、上下文、计划与verification已同步。
+# 2026-11-14 助手自主执行集成验收
+
+- 三个既有agent完成backend/UI/shared-job分工并冻结；根补齐真实地点/视觉工具、聊天执行摘要、原子扣费与任务轮询保护。保留已有用户改动，不提交或推送本轮源码。
+- 2344单测、41浏览器、18真实PG通过；完整lint/type通过。独立快照生产构建和8种匿名助手接口均通过，追加精确格式版构建后按既有部署授权上线。
+- 初始指纹/暂停UI/通用回收问题均以回归修复。格式检查仅credits.ts告警已修正；未触发付费模型，未对生产项目做测试写入。部署前检查活跃任务、备份数据库与.next，失败还原构建并保留数据。
+
+## 2026-11-14 助手自主执行上线完成
+
+- 最终快照比较发现忽略uploads目录的复制规则漏收既有路由，仅补齐隔离快照并完整重建；854份应用文件一致，助手8种匿名请求全部401。未修改待部署应用源码；中断后先核对构建已成功，再响应用户继续。
+- 无活跃生成/回复且迁移基线正常后，备份旧.next和数据库至`/tmp/ai-comic-deploy-execution-20261114T144345Z/`，检查dump可读取；生成客户端、生产构建并启动原服务成功，无新增迁移、环境变化或其他服务修改。
+- 线上版本`508e22b-execution-557014bd529f`；2026-11-14 14:45:22 UTC启动，active/running、NRestarts=0。18项内外网/鉴权/资源检查全通过，新自动制作资源与本机字节一致；保存deployment/smoke/service-verification及日志。
+- 使用文档、context、plan、verification同步；未进行付费生成或生产项目测试写入，未git提交/推送，保留原有用户文件和回退资料。
+
+## 2026-11-15 语音修复验收与发布准备
+
+- 两套网关模型登记均正常，语音模型测试误走chat导致400；新增Grok /tts，OpenAI /audio/speech保留，显式mp3、合法默认音色、通用二进制MP3校验、错误不回显/不重提。已有Key编辑态测试透传当前协议，未保存参数不覆盖旧配置状态。
+- 2387单测/44浏览器/全量类型lint通过，核心行100%/分支97.18%，最终隔离build及12接口401通过。两处文档补丁定位失败后改为受控读改写，无应用源码变更；本次保留所有前序改动。
+
+## 2026-11-15 语音修复发布完成
+
+- 备份至/tmp/ai-comic-deploy-tts-20261115T041123Z/后生产构建上线508e22b-tts-c1da6dba6a78，无schema迁移，源码/环境摘要未变。24项内外网健康/鉴权/新旧UI资源检查全过；服务active/running，04:12:18 UTC启动，NRestarts=0，无启动后error。
+- 仅将指定Grok语音配置protocol改grok，密钥/模型/默认及OpenAI TTS保留；customBaseUrl为空但继承提供商默认地址，首次保护检查拦截未写入，确认有效地址后完成并保存单行备份和回执。
+- 使用说明、context、plan、verification同步；未调用真实付费合成，模型测试为列表/鉴权检查，不误称音频端到端验收。没有Git提交推送，原用户文件和所有前序改动保留。
+- 用新共享测试逻辑只读复核两套真实配置，chatgpt-tts/openai与grok-voice-latest/grok均成功，结果保存发布目录real-connectivity.json；没有合成音频或写入测试状态。最终文档/补丁格式检查通过。

@@ -4,11 +4,18 @@ import { NextRequest } from "next/server";
 type Row = {
   id: string;
   kind?: string | null;
+  executionRunId?: string | null;
   status: string;
   updatedAt: Date;
 };
 const m = vi.hoisted(() => ({
   rows: [] as Row[],
+  zombies: [] as Array<{
+    id: string;
+    type: string;
+    sceneId: string | null;
+    input?: unknown;
+  }>,
   raw: vi.fn(),
   remove: vi.fn(),
   admin: vi.fn(),
@@ -32,7 +39,10 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     $executeRaw: m.raw,
     $transaction: m.transaction,
-    generationTask: { deleteMany: m.remove, findMany: vi.fn(async () => []) },
+    generationTask: {
+      deleteMany: m.remove,
+      findMany: vi.fn(async () => m.zombies),
+    },
     workflowRun: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
       updateMany: vi.fn(async () => ({ count: 0 })),
@@ -49,6 +59,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.admin.mockResolvedValue({ id: "admin" });
   m.rows = [];
+  m.zombies = [];
   m.transaction.mockImplementation(async (queries: Promise<unknown>[]) =>
     Promise.all(queries)
   );
@@ -67,13 +78,17 @@ beforeEach(() => {
     async (query: TemplateStringsArray, cutoff: Date, ...kinds: string[]) => {
       // SQL快照只验证查询形状；真实PostgreSQL三值语义由独立集成验收覆盖。
       expect(query.join("?")).toContain("COALESCE(input->>'kind', '') NOT IN");
+      expect(query.join("?")).toContain(
+        "NULLIF(input->>'executionRunId', '') IS NULL"
+      );
       const before = m.rows.length;
       m.rows = m.rows.filter(
         (row) =>
           !(
             ["COMPLETED", "FAILED"].includes(row.status) &&
             row.updatedAt < cutoff &&
-            !kinds.includes(row.kind ?? "")
+            !kinds.includes(row.kind ?? "") &&
+            !row.executionRunId
           )
       );
       return before - m.rows.length;
@@ -120,8 +135,58 @@ describe("历史清理保留持久制作证据", () => {
       expect.anything(),
       expect.any(Date),
       "producer_checkpoint",
-      "producer_scene_apply"
+      "producer_scene_apply",
+      "assistant_execution_run"
     );
+  });
+  it("助手预算checkpoint与未知生成receipt不能随普通历史清理", async () => {
+    m.rows = [
+      {
+        id: "execution",
+        kind: "assistant_execution_run",
+        status: "COMPLETED",
+        updatedAt: old,
+      },
+      {
+        id: "unknown-job",
+        executionRunId: "execution",
+        status: "FAILED",
+        updatedAt: old,
+      },
+      {
+        id: "completed-job",
+        executionRunId: "execution",
+        status: "COMPLETED",
+        updatedAt: old,
+      },
+      {
+        id: "normal-job",
+        executionRunId: null,
+        status: "COMPLETED",
+        updatedAt: old,
+      },
+    ];
+    const response = await run();
+    expect(response.status).toBe(200);
+    expect(m.rows.map((row) => row.id)).toEqual([
+      "execution",
+      "unknown-job",
+      "completed-job",
+    ]);
+    expect((await response.json()).deletedTasks).toBe(1);
+  });
+  it("内部执行中job不得被普通僵尸回收降级成确定失败", async () => {
+    m.zombies = [
+      {
+        id: "owned-job",
+        type: "IMAGE_GENERATE",
+        sceneId: null,
+        input: { executionRunId: "execution" },
+      },
+    ];
+    const response = await run();
+    expect(response.status).toBe(200);
+    expect((await response.json()).recycledZombieTasks).toBe(0);
   });
   it("近期或尚未终结的普通任务不因kind缺省而提前删除", async () => {
     m.rows = [

@@ -30,6 +30,23 @@ beforeEach(() => {
   safeFetchMock.mockReset();
 });
 
+describe("fetchWithError — none 自动执行模式", () => {
+  it.each(["ECONNREFUSED", "ECONNRESET"])("%s 不重试", async (code) => {
+    safeFetchMock.mockRejectedValue(netError(code));
+    await expect(
+      fetchWithError("https://x", INIT, "test", "none")
+    ).rejects.toThrow("network fail");
+    expect(safeFetchMock).toHaveBeenCalledOnce();
+  });
+  it("429 不重试", async () => {
+    safeFetchMock.mockResolvedValue(makeResponse(429, "limited", "0"));
+    await expect(
+      fetchWithError("https://x", INIT, "test", "none")
+    ).rejects.toThrow("429");
+    expect(safeFetchMock).toHaveBeenCalledOnce();
+  });
+});
+
 describe("fetchWithError — standard 模式（默认）", () => {
   it("2xx 直接返回，不重试", async () => {
     safeFetchMock.mockResolvedValueOnce(makeResponse(200, "ok"));

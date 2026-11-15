@@ -1,5 +1,39 @@
 import { expect, test, type Page } from "@playwright/test";
 
+test("AI工具可直接进入自动制作，仅打开不会启动任务", async ({ page }) => {
+  const writes: string[] = [];
+  page.on("request", (request) => {
+    if (
+      request.url().includes("/api/assistant/executions") &&
+      request.method() !== "GET"
+    )
+      writes.push(request.url());
+  });
+  await page.route("**/api/assistant/executions?**", (route) =>
+    route.fulfill({ json: { execution: null } })
+  );
+  await page.route("**/api/assistant?**", (route) =>
+    route.fulfill({
+      json: {
+        scope: {
+          key: "project:fixture-project",
+          type: "project",
+          id: "fixture-project",
+          title: "测试剧集",
+        },
+        messages: [],
+        memory: { content: "", version: 0 },
+      },
+    })
+  );
+  await page.getByRole("button", { name: "AI 工具", exact: true }).click();
+  await page.getByRole("menuitem", { name: /自动制作 \/ 一致性检查/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "当前集自动制作" })
+  ).toBeVisible();
+  expect(writes).toEqual([]);
+});
+
 async function touchDrag(
   page: Page,
   from: { x: number; y: number },

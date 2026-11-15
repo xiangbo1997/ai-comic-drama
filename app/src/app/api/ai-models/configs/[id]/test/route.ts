@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decrypt, decryptExtraConfig } from "@/lib/encryption";
+import { AI_PROVIDER_PROTOCOLS } from "@/types/ai";
 import { assertSafeUrl } from "@/lib/url-guard";
 import {
   testProviderConnectivity,
@@ -15,6 +16,7 @@ const log = createLogger("api:ai-models:configs:[id]:test");
 // 测试请求体校验：modelId/customBaseUrl 均可选；约束长度与格式，防注入/超长输入
 const TestConfigSchema = z.object({
   modelId: z.string().trim().max(255).optional(),
+  apiProtocol: z.enum(AI_PROVIDER_PROTOCOLS).optional(),
   // customBaseUrl 允许空字符串（用户清空时回退默认配置），非空时必须是合法
   // http(s) URL（拒绝 file:// / gopher:// 等非 HTTP 协议，运行时再做 SSRF 校验）
   customBaseUrl: z
@@ -54,6 +56,7 @@ export async function POST(
     // 解析并校验请求体，获取可选的 modelId 和 customBaseUrl
     let bodyModelId: string | undefined;
     let bodyCustomBaseUrl: string | undefined;
+    let bodyApiProtocol: string | undefined;
     try {
       const raw = await request.json();
       const parsed = TestConfigSchema.safeParse(raw);
@@ -65,6 +68,7 @@ export async function POST(
       }
       bodyModelId = parsed.data.modelId;
       bodyCustomBaseUrl = parsed.data.customBaseUrl;
+      bodyApiProtocol = parsed.data.apiProtocol;
     } catch {
       // 请求体为空或非 JSON，使用保存的配置（合法场景，不报错）
     }
@@ -114,7 +118,8 @@ export async function POST(
     }
 
     // 获取 API 协议（优先使用配置级别的，否则使用提供商默认的）
-    const apiProtocol = config.apiProtocol || config.provider.apiProtocol;
+    const apiProtocol =
+      bodyApiProtocol || config.apiProtocol || config.provider.apiProtocol;
 
     const startTime = Date.now();
     const testResult = await testProviderConnectivity({
@@ -131,14 +136,20 @@ export async function POST(
     });
     const latency = Date.now() - startTime;
 
-    // 更新测试状态
-    await prisma.userAIConfig.update({
-      where: { id },
-      data: {
-        testStatus: testResult.success ? "SUCCESS" : "FAILED",
-        lastTestedAt: new Date(),
-      },
-    });
+    // 未保存的表单可以测试，但不能把旧协议/旧模型配置标记为测试通过。
+    const testsSavedConfig =
+      apiProtocol === (config.apiProtocol || config.provider.apiProtocol) &&
+      effectiveModelId === config.selectedModel &&
+      effectiveBaseUrl === (config.customBaseUrl || config.provider.baseUrl);
+    if (testsSavedConfig) {
+      await prisma.userAIConfig.update({
+        where: { id },
+        data: {
+          testStatus: testResult.success ? "SUCCESS" : "FAILED",
+          lastTestedAt: new Date(),
+        },
+      });
+    }
 
     return NextResponse.json({
       success: testResult.success,

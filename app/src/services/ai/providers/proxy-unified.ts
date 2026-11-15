@@ -109,7 +109,7 @@ export const proxyUnifiedImage: ImageProvider = {
         signal: requestOptions?.signal,
       },
       "中转站图像生成失败",
-      "submit" // 非幂等图像生成提交：只重试 429/连接前失败，防重复出图浪费上游配额
+      options.disableRetries ? "none" : "submit"
     );
 
     const data = await response.json();

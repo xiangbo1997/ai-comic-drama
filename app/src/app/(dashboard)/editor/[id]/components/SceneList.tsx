@@ -46,6 +46,7 @@ import { SuggestLinksDialog } from "./SuggestLinksDialog";
 import { LocationsDialog } from "./LocationsDialog";
 import { ContinuityCheckDialog } from "./ContinuityCheckDialog";
 import { BatchActionsBar } from "./BatchActionsBar";
+import { ProjectAssistantButton } from "@/components/project-assistant/ProjectAssistantButton";
 
 /** 单个媒体类型（图/视/音）的配置控制三元组 */
 export interface MediaConfigControl {
@@ -172,6 +173,7 @@ function SceneListImpl({
   const [showLocations, setShowLocations] = useState(false);
   // AI 场记连贯性体检弹窗开合（计划 §5 · 2.3）
   const [showContinuityCheck, setShowContinuityCheck] = useState(false);
+  const [showAutomaticTools, setShowAutomaticTools] = useState(false);
 
   // 每个分镜的衔接链条状态：开了 videoLinkNext 时，下一镜是否已出图。
   // 已衔接=下一镜有图（生成时 FL 尾帧生效）；衔接待出图=下一镜缺图（会回落普通生成）。
@@ -419,6 +421,15 @@ function SceneListImpl({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem
+                    className="flex-col items-start gap-0.5"
+                    onSelect={() => setShowAutomaticTools(true)}
+                  >
+                    <span className="font-medium">自动制作 / 一致性检查</span>
+                    <span className="text-muted-foreground text-xs">
+                      先看计划，确认后自动准备地点、检查及衔接
+                    </span>
+                  </DropdownMenuItem>
                   {/* AI 建议衔接（计划 §5 · 2.1）：LLM 判断相邻镜是否同场景+动作连续 */}
                   {canSuggestLinks && (
                     <DropdownMenuItem
@@ -633,6 +644,13 @@ function SceneListImpl({
         onApplied={refreshProject}
       />
 
+      <ProjectAssistantButton
+        projectId={projectId}
+        title={project.title}
+        initialTab="execution"
+        open={showAutomaticTools}
+        onOpenChange={setShowAutomaticTools}
+      />
       {/* 场景地点弹窗（空景板锚图管理） */}
       <LocationsDialog
         open={showLocations}

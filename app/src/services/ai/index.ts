@@ -319,7 +319,7 @@ async function _generateImageInner(
     try {
       return await provider.generateImage(options, config, { signal });
     } catch (error) {
-      if (!shouldFallbackToEnvReplicate(config)) {
+      if (options.disableRetries || !shouldFallbackToEnvReplicate(config)) {
         throw error;
       }
 

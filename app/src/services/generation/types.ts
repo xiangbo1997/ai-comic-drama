@@ -75,6 +75,10 @@ export interface OrchestratorRequest {
   llmConfig?: AIServiceConfig;
   userId: string;
   maxRetries?: number;
+  /** 禁止provider传输重试与供应商兜底；不明结果由执行任务核对。 */
+  disableRetries?: boolean;
+  /** 自动执行器在单次报价内只生成目标图，不隐式生成换装辅助资产。 */
+  disableAuxiliaryGeneration?: boolean;
   /**
    * Stage 1.4 引入：客户端/上游显式传入的 negative prompt。
    * Orchestrator 会透传给 provider；不支持原生 negative 的 provider 由适配层降级。

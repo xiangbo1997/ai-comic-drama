@@ -68,6 +68,11 @@ function remapGenerationParams(
 
   const sp = remapByScene(next.subtitlePositions);
   if (sp !== next.subtitlePositions) next.subtitlePositions = sp;
+  // 重建的是新脚本：独立字幕不按镜序搬运，避免旧对白覆盖新剧情。
+  if (next.subtitleOverrides?.length) {
+    next.subtitleOverrides = [];
+    changed = true;
+  }
   const st = remapByScene(next.stickers);
   if (st !== next.stickers) next.stickers = st;
   const se = remapByScene(next.sceneEffects);

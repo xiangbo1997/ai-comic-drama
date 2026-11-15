@@ -7,7 +7,7 @@
  *
  * 重点覆盖资金安全不变量：
  *  - 余额不足必须一条流水都不写（不能先扣后校验）
- *  - 每条流水的 balanceAfter 取自 update 的返回值，而非本地推算
+ *  - 每条流水的 balanceAfter 取自事务内扣减后的真实余额，而非本地推算
  *  - 退款幂等靠 DB 唯一约束（P2002）兜底，其他错误必须继续上抛
  */
 
@@ -19,12 +19,13 @@ type MockTx = {
   user: {
     findUnique: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+    updateMany: ReturnType<typeof vi.fn>;
   };
   creditTransaction: { create: ReturnType<typeof vi.fn> };
 };
 
 const tx: MockTx = {
-  user: { findUnique: vi.fn(), update: vi.fn() },
+  user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   creditTransaction: { create: vi.fn() },
 };
 
@@ -54,13 +55,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   tx.user.findUnique.mockReset();
   tx.user.update.mockReset();
+  tx.user.updateMany.mockReset().mockResolvedValue({ count: 1 });
   tx.creditTransaction.create.mockReset();
 });
 
 describe("chargeCredits — 扣费", () => {
-  it("余额充足：扣减 + 写流水，balanceAfter 取 update 返回值", async () => {
-    tx.user.findUnique.mockResolvedValue({ credits: 100 });
-    tx.user.update.mockResolvedValue({ credits: 70 });
+  it("余额充足：条件扣减 + 写流水，balanceAfter 取事务内真实余额", async () => {
+    tx.user.findUnique
+      .mockResolvedValueOnce({ credits: 100 })
+      .mockResolvedValue({ credits: 70 });
 
     await chargeCredits(asTx(tx), {
       userId: "u1",
@@ -71,10 +74,9 @@ describe("chargeCredits — 扣费", () => {
       note: "出图",
     });
 
-    expect(tx.user.update).toHaveBeenCalledWith({
-      where: { id: "u1" },
+    expect(tx.user.updateMany).toHaveBeenCalledWith({
+      where: { id: "u1", credits: { gte: 30 } },
       data: { credits: { decrement: 30 } },
-      select: { credits: true },
     });
     expect(tx.creditTransaction.create).toHaveBeenCalledWith({
       data: {
@@ -90,8 +92,9 @@ describe("chargeCredits — 扣费", () => {
   });
 
   it("缺省 sourceId / note 落库为 null（不写 undefined）", async () => {
-    tx.user.findUnique.mockResolvedValue({ credits: 10 });
-    tx.user.update.mockResolvedValue({ credits: 5 });
+    tx.user.findUnique
+      .mockResolvedValueOnce({ credits: 10 })
+      .mockResolvedValue({ credits: 5 });
 
     await chargeCredits(asTx(tx), {
       userId: "u1",
@@ -106,8 +109,9 @@ describe("chargeCredits — 扣费", () => {
   });
 
   it("余额恰好等于扣减额时允许扣到 0", async () => {
-    tx.user.findUnique.mockResolvedValue({ credits: 30 });
-    tx.user.update.mockResolvedValue({ credits: 0 });
+    tx.user.findUnique
+      .mockResolvedValueOnce({ credits: 30 })
+      .mockResolvedValue({ credits: 0 });
 
     await expect(
       chargeCredits(asTx(tx), {
@@ -141,6 +145,23 @@ describe("chargeCredits — 扣费", () => {
     });
     expect(tx.user.update).not.toHaveBeenCalled();
     expect(tx.creditTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it("预检后被其他请求花掉余额时原子拒绝，不扣成负数或写流水", async () => {
+    tx.user.findUnique
+      .mockResolvedValueOnce({ credits: 30 })
+      .mockResolvedValue({ credits: 0 });
+    tx.user.updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      chargeCredits(asTx(tx), {
+        userId: "u1",
+        amount: 30,
+        type: "GENERATE_VIDEO",
+        source: "assistant",
+      })
+    ).rejects.toMatchObject({ available: 0, required: 30 });
+    expect(tx.creditTransaction.create).not.toHaveBeenCalled();
+    expect(tx.user.update).not.toHaveBeenCalled();
   });
 
   it("用户不存在：抛错且不写任何数据", async () => {

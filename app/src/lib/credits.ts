@@ -111,12 +111,18 @@ export async function chargeCredits(
     throw new InsufficientCreditsError(user.credits, p.amount);
   }
 
-  // 扣减并取回变动后余额作为快照
-  const updated = await tx.user.update({
-    where: { id: p.userId },
+  // 余额条件与扣减在同一条UPDATE内：预检后其他请求可能已花掉余额，不能透支。
+  const changed = await tx.user.updateMany({
+    where: { id: p.userId, credits: { gte: p.amount } },
     data: { credits: { decrement: p.amount } },
+  });
+  const updated = await tx.user.findUnique({
+    where: { id: p.userId },
     select: { credits: true },
   });
+  if (!updated) throw new Error(`用户不存在：${p.userId}`);
+  if (!changed.count)
+    throw new InsufficientCreditsError(updated.credits, p.amount);
 
   await tx.creditTransaction.create({
     data: {

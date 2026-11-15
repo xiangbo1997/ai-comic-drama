@@ -128,6 +128,7 @@ export {
 } from "@/services/video-synthesis/media-ops";
 
 export interface SceneMedia {
+  subtitleText?: string;
   id: string;
   order: number;
   duration: number;

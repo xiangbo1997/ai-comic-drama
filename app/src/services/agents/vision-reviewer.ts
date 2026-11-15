@@ -235,6 +235,8 @@ export function supportsVisionReview(config: AIServiceConfig): boolean {
 
 /** 相邻镜对比的紧凑上下文（前镜/后镜的锚定信息，供 VLM 判断哪些维度算问题） */
 export interface ComparePairArgs {
+  /** 自动制作可传入单对检查超时，防止后台任务无限等待。 */
+  signal?: AbortSignal;
   prevImageUrl: string;
   nextImageUrl: string;
   prevOrder: number;
@@ -377,6 +379,7 @@ export async function compareImagePairWithVision(
         Authorization: `Bearer ${llmConfig.apiKey}`,
       },
       body: JSON.stringify(body),
+      ...(args.signal ? { signal: args.signal } : {}),
     });
     if (!res.ok) return null;
 

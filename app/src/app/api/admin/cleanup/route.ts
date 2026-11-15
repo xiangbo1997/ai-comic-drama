@@ -88,7 +88,8 @@ export async function POST(request: NextRequest) {
       // 凭证必须与持久流程同寿命，否则响应丢失的晚重试会再次重建分镜。
       prisma.$executeRaw`DELETE FROM "GenerationTask"
         WHERE status IN ('COMPLETED', 'FAILED') AND "updatedAt" < ${taskCutoff}
-          AND COALESCE(input->>'kind', '') NOT IN (${"producer_checkpoint"}, ${"producer_scene_apply"})`,
+          AND COALESCE(input->>'kind', '') NOT IN (${"producer_checkpoint"}, ${"producer_scene_apply"}, ${"assistant_execution_run"})
+          AND NULLIF(input->>'executionRunId', '') IS NULL`,
       prisma.workflowRun.deleteMany({
         where: {
           status: { in: ["COMPLETED", "FAILED"] },
@@ -104,10 +105,15 @@ export async function POST(request: NextRequest) {
     });
 
     // ③ 主动回收僵尸：GenerationTask + 关联 Scene 三态 + WorkflowRun
-    const zombieTasks = await prisma.generationTask.findMany({
+    const zombieCandidates = await prisma.generationTask.findMany({
       where: { status: "PROCESSING", updatedAt: { lt: zombieCutoff } },
-      select: { id: true, type: true, sceneId: true },
+      select: { id: true, type: true, sceneId: true, input: true },
     });
+    // 自主执行job的未知结果只能由所属run核对，不能降为可重复派单的普通失败。
+    const zombieTasks = zombieCandidates.filter(
+      (task) =>
+        !(task.input as { executionRunId?: unknown } | null)?.executionRunId
+    );
     const sceneField: Record<
       string,
       "imageStatus" | "videoStatus" | "audioStatus"

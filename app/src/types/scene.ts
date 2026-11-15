@@ -31,6 +31,8 @@ export interface Scene {
   description: string;
   dialogue: string | null;
   narration: string | null;
+  /** 仅用于渲染的字幕覆盖，由 generationParams 注入；不写入 Scene 表。 */
+  subtitleText?: string;
   emotion: string | null;
   duration: number;
   /** 配音语速（0.5–2.0，默认 1.0），生成 TTS 时透传 provider */
@@ -129,6 +131,7 @@ export type ScenePreview = Pick<
   | "audioUrl"
   | "dialogue"
   | "narration"
+  | "subtitleText"
   // 图片分镜默认 Ken Burns 运镜按导演运镜派生（预览端与导出端同构，走 lib/render-mode）
   | "cameraMovement"
   // 环境底噪按 locationKey 把连续同地点分镜合并成持续铺底窗（预览与导出同源）

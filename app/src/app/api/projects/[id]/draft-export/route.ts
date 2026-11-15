@@ -20,6 +20,7 @@ import { assembleJianyingDraft } from "@/services/jianying-draft";
 import { runWithGenerationSlot } from "@/lib/generation-concurrency";
 import { NextRequest, NextResponse } from "next/server";
 import { createLogger } from "@/lib/logger";
+import { normalizeSubtitleOverrides } from "@/lib/subtitle-overrides";
 
 const log = createLogger("api:projects:[id]:draft-export");
 
@@ -105,6 +106,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         projectTitle: project.title,
         aspectRatio: project.aspectRatio,
         scenes: project.scenes,
+        subtitleOverrides: normalizeSubtitleOverrides(
+          genParams.subtitleOverrides
+        ),
         bgm,
       })
     );

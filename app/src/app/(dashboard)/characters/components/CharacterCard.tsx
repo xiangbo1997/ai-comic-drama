@@ -15,6 +15,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Star,
+  Grid2x2,
+  Smile,
 } from "lucide-react";
 import type { CharacterListItem, Tag } from "@/types";
 import { isCharacterFinalized } from "@/lib/character-finalized";
@@ -27,6 +29,7 @@ import { AppearanceEditor } from "@/components/appearance-editor";
 import type { AppearanceFormData } from "@/components/appearance-editor";
 import { VOICE_PRESETS, type CharacterFormData } from "./constants";
 import type { UseMutationResult } from "@tanstack/react-query";
+import type { CharacterGenerationKind } from "./GenerateReferenceModal";
 
 interface CharacterCardProps {
   character: CharacterListItem;
@@ -51,6 +54,12 @@ interface CharacterCardProps {
   uploadingBaseImageId: string | null;
   /** 仅本角色的参考图生成中（并发生成互不阻塞，不再是全局 pending） */
   isGenerating: boolean;
+  onOpenGenerateSheet: (
+    characterId: string,
+    kind: Exclude<CharacterGenerationKind, "reference">
+  ) => void;
+  threeViewsPending: boolean;
+  expressionsPending: boolean;
   /**
    * 把某张已在库的参考图设为定妆照（批 5 · H1）。
    * 此前用户完全无法选锚，只能靠生成顺序碰运气。
@@ -85,6 +94,9 @@ function CharacterCardImpl({
   onOpenGenerateModal,
   uploadingBaseImageId,
   isGenerating,
+  onOpenGenerateSheet,
+  threeViewsPending,
+  expressionsPending,
   onSetCanonical,
   settingCanonicalUrl,
   updateMutationPending,
@@ -187,6 +199,50 @@ function CharacterCardImpl({
         </div>
       </div>
 
+      <div className="border-border space-y-2 border-b p-3">
+        <p className="text-muted-foreground text-xs">
+          角色扩展素材 · 可与参考图同时生成
+        </p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            aria-label="生成三视图"
+            onClick={() => onOpenGenerateSheet(character.id, "threeViews")}
+            disabled={threeViewsPending}
+            className="border-border hover:bg-secondary flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {threeViewsPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Grid2x2 size={14} />
+            )}
+            {threeViewsPending ? "三视图生成中…" : "三视图"}
+          </button>
+          <button
+            type="button"
+            aria-label="生成表情集"
+            onClick={() => onOpenGenerateSheet(character.id, "expressions")}
+            disabled={
+              expressionsPending ||
+              !(character.canonicalImageUrl || character.referenceImages[0])
+            }
+            title={
+              !(character.canonicalImageUrl || character.referenceImages[0])
+                ? "请先生成角色参考图，再生成表情集"
+                : undefined
+            }
+            className="border-border hover:bg-secondary flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-2 text-xs transition disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {expressionsPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Smile size={14} />
+            )}
+            {expressionsPending ? "表情集生成中…" : "表情集"}
+          </button>
+        </div>
+      </div>
+
       {/* 三视图三联展示（防生成崩坏的转面图，与普通参考图区分） */}
       <ThreeViewStrip
         character={character}
@@ -264,6 +320,9 @@ function arePropsEqual(
     prev.isEditing !== next.isEditing ||
     prev.uploadingBaseImageId !== next.uploadingBaseImageId ||
     prev.isGenerating !== next.isGenerating ||
+    prev.onOpenGenerateSheet !== next.onOpenGenerateSheet ||
+    prev.threeViewsPending !== next.threeViewsPending ||
+    prev.expressionsPending !== next.expressionsPending ||
     prev.onNextImage !== next.onNextImage ||
     prev.onPrevImage !== next.onPrevImage ||
     prev.onDeleteImage !== next.onDeleteImage ||

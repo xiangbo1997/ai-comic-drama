@@ -11,6 +11,7 @@ import { Plus, Loader2, Clapperboard, Trash2 } from "lucide-react";
 import type { ProjectListItem, SeriesSummary } from "@/types";
 import { nextEpisodeNumber } from "@/lib/series";
 import { ProjectCard } from "./ProjectCard";
+import { ProjectAssistantButton } from "@/components/project-assistant/ProjectAssistantButton";
 
 export interface SeriesSectionProps {
   series: SeriesSummary;
@@ -42,8 +43,8 @@ export function SeriesSection({
 
   return (
     <section className="mb-10">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Clapperboard size={18} className="text-primary" />
           <h2 className="text-foreground text-lg font-semibold">
             {series.title}
@@ -51,6 +52,11 @@ export function SeriesSection({
           <span className="text-muted-foreground text-sm">
             {series.genre ? `${series.genre} · ` : ""}共 {episodes.length} 集
           </span>
+          <ProjectAssistantButton
+            seriesId={series.id}
+            title={series.title}
+            label="剧集助手"
+          />
         </div>
         <button
           onClick={() => onDissolve(series)}

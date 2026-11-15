@@ -4,9 +4,17 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { clampSceneDuration } from "@/services/generation/video-segmenter";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
+import { z } from "zod";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:projects:[id]:scenes:[sceneId]");
+const mediaEditSchema = z
+  .object({
+    kind: z.enum(["image", "video", "audio"]),
+    expectedUrl: z.string().max(8192).nullable(),
+    url: z.string().min(1).max(8192).nullable(),
+  })
+  .strict();
 
 interface RouteParams {
   params: Promise<{ id: string; sceneId: string }>;
@@ -61,6 +69,45 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 
     const body = await request.json();
+    if (body.mediaEdit !== undefined) {
+      const parsed = mediaEditSchema.safeParse(body.mediaEdit);
+      if (!parsed.success || Object.keys(body).length !== 1) {
+        return NextResponse.json(
+          { error: "素材编辑参数不合法" },
+          { status: 400 }
+        );
+      }
+      const { kind, expectedUrl, url } = parsed.data;
+      try {
+        assertSafeAssetUrl(`${kind}Url`, url);
+      } catch {
+        return NextResponse.json({ error: "素材地址不合法" }, { status: 400 });
+      }
+      // URL与生成状态同一条UPDATE比对，撤销不得覆盖新素材；不删除文件或历史版本。
+      const scene = await prisma.$transaction(async (tx) => {
+        const changed = await tx.scene.updateMany({
+          where: {
+            id: sceneId,
+            projectId: id,
+            [`${kind}Url`]: expectedUrl,
+            [`${kind}Status`]: { not: "PROCESSING" },
+          },
+          data: {
+            [`${kind}Url`]: url,
+            [`${kind}Status`]: url ? "COMPLETED" : "PENDING",
+          },
+        });
+        return changed.count
+          ? tx.scene.findUnique({ where: { id: sceneId } })
+          : null;
+      });
+      return scene
+        ? NextResponse.json(scene)
+        : NextResponse.json(
+            { error: "素材已变化或正在生成，请刷新后重试" },
+            { status: 409 }
+          );
+    }
     const {
       order,
       shotType,

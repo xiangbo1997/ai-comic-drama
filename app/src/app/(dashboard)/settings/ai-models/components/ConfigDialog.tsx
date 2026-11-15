@@ -149,6 +149,7 @@ export function ConfigDialog({
               body: JSON.stringify({
                 modelId: selectedModel || undefined,
                 customBaseUrl: customBaseUrl.trim() || undefined,
+                apiProtocol: selectedProtocol || undefined,
               }),
             }
           );
@@ -553,18 +554,26 @@ export function ConfigDialog({
                 <p className="text-muted-foreground text-xs">
                   {currentProtocol.description}
                 </p>
-                <p className="text-muted-foreground text-xs">
-                  常用选择：
-                  <span className="text-muted-foreground">
-                    {" "}
-                    OpenAI 兼容
-                  </span>{" "}
-                  适合绝大多数中转和第三方服务；
-                  <span className="text-muted-foreground"> Claude</span> 仅用于
-                  Anthropic；
-                  <span className="text-muted-foreground"> Gemini</span> 仅用于
-                  Google Gemini API。
-                </p>
+                {provider.category === "TTS" ? (
+                  <p className="text-muted-foreground text-xs">
+                    Grok 网关 /tts 请选择 Grok；chatgpt-tts 的 /audio/speech
+                    请选择 OpenAI
+                    兼容。测试仅检查鉴权和模型登记，不生成付费音频。
+                  </p>
+                ) : (
+                  <p className="text-muted-foreground text-xs">
+                    常用选择：
+                    <span className="text-muted-foreground">
+                      {" "}
+                      OpenAI 兼容
+                    </span>{" "}
+                    适合绝大多数中转和第三方服务；
+                    <span className="text-muted-foreground"> Claude</span>{" "}
+                    仅用于 Anthropic；
+                    <span className="text-muted-foreground"> Gemini</span>{" "}
+                    仅用于 Google Gemini API。
+                  </p>
+                )}
                 {selectedProtocolIsAdvanced && (
                   <p className="text-xs text-yellow-400/80">
                     当前使用的是高级协议，通常只在服务商文档明确要求时才需要切换。

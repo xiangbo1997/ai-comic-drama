@@ -5,6 +5,7 @@
 import type { TTSProvider } from "../../types";
 import { trimUrl } from "../base";
 import { safeFetch } from "@/lib/url-guard";
+import { readMP3AudioResponse } from "./audio-response";
 
 export const openaiCompatibleTTS: TTSProvider = {
   async synthesizeSpeech(options, config, requestOptions) {
@@ -15,7 +16,9 @@ export const openaiCompatibleTTS: TTSProvider = {
     } = options;
     const baseUrl = trimUrl(config.baseUrl);
     const voice =
-      voiceId !== "zh_female_shuangkuaisisi_moon_bigtts" ? voiceId : "alloy";
+      voiceId && voiceId !== "default" && !voiceId.startsWith("zh_")
+        ? voiceId
+        : "alloy";
     const model = config.model || "tts-1";
 
     // SSRF：baseUrl 用户可控，走 safeFetch（钉 IP + 禁跟随重定向）
@@ -29,17 +32,12 @@ export const openaiCompatibleTTS: TTSProvider = {
         model,
         input: text,
         voice,
+        response_format: "mp3",
         speed,
       }),
       signal: requestOptions?.signal,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI TTS 错误: ${response.status} ${errorText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    return readMP3AudioResponse(response, "OpenAI 兼容服务");
   },
 };

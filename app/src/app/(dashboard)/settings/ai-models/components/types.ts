@@ -126,14 +126,15 @@ export const API_PROTOCOLS: APIProtocol[] = [
   {
     id: "grok",
     name: "Grok (xAI)",
-    description: "xAI Grok API，支持对话和图像生成",
+    description:
+      "xAI/Grok 网关：对话、图像及语音；语音使用 /tts 和 text、voice_id 字段",
     authHeader: "Bearer",
     defaultBaseUrl: "https://api.x.ai/v1",
     endpoints: {
       LLM: { main: "/chat/completions", list: "/models" },
       IMAGE: { main: "/images/generations" },
       VIDEO: { main: "" },
-      TTS: { main: "" },
+      TTS: { main: "/tts", list: "/models" },
     },
   },
   {
@@ -177,7 +178,7 @@ const PRIMARY_PROTOCOL_IDS: Record<AICategory, string[]> = {
   LLM: ["openai", "claude", "gemini"],
   IMAGE: ["openai", "grok"],
   VIDEO: ["openai"],
-  TTS: ["openai"],
+  TTS: ["openai", "grok"],
 };
 
 export function getPrimaryProtocolsForCategory(
@@ -315,6 +316,7 @@ export function normalizeBaseUrl(url: string): {
     { pattern: "/images/generations", name: "图像生成接口" },
     { pattern: "/videos/generations", name: "视频生成接口" },
     { pattern: "/audio/speech", name: "语音合成接口" },
+    { pattern: "/tts", name: "语音合成接口" },
     { pattern: "/completions", name: "补全接口" },
     { pattern: "/models", name: "模型列表接口" },
     { pattern: "/messages", name: "消息接口" },

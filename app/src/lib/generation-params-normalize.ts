@@ -28,6 +28,7 @@ import {
   DISCLOSURE_HEAD_SEC_MAX,
 } from "@/lib/ai-disclosure";
 import type { GenerationParams } from "@/types/project";
+import { normalizeSubtitleOverrides } from "@/lib/subtitle-overrides";
 
 const log = createLogger("lib:generation-params-normalize");
 
@@ -57,6 +58,7 @@ export const GENERATION_PARAM_KEY_MAP: Record<keyof GenerationParams, true> = {
   customNegative: true,
   subtitleStyle: true,
   subtitlePositions: true,
+  subtitleOverrides: true,
   watermark: true,
   stickers: true,
   transitions: true,
@@ -85,6 +87,9 @@ export function normalizeGenerationParams(
   if (!input || typeof input !== "object") return undefined;
   const src = input as Record<string, unknown>;
   const out: Record<string, unknown> = {};
+  if (Array.isArray(src.subtitleOverrides)) {
+    out.subtitleOverrides = normalizeSubtitleOverrides(src.subtitleOverrides);
+  }
 
   if (typeof src.temperature === "number") {
     out.temperature = clampNumber(src.temperature, 0, 1.5);

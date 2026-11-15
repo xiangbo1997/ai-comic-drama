@@ -5,6 +5,8 @@ import {
   DISCLOSURE_TEXT_MAX_LEN,
   DISCLOSURE_HEAD_SEC_MIN,
   DISCLOSURE_HEAD_SEC_MAX,
+  DISCLOSURE_FONT_SCALE_MIN,
+  DISCLOSURE_FONT_SCALE_MAX,
   type DisclosurePosition,
   type DisclosureMode,
   type ResolvedAiDisclosure,
@@ -43,6 +45,7 @@ export function AiDisclosurePanel({
   credentials,
   onDisclosureChange,
   onCredentialsChange,
+  showCredentials = true,
 }: {
   /** 已解析的标识配置（含缺省填充，直接用于表单显示） */
   disclosure: ResolvedAiDisclosure;
@@ -50,6 +53,7 @@ export function AiDisclosurePanel({
   credentials: TitleCardCredentials;
   onDisclosureChange: (next: ResolvedAiDisclosure) => void;
   onCredentialsChange: (next: TitleCardCredentials) => void;
+  showCredentials?: boolean;
 }) {
   const patch = (part: Partial<ResolvedAiDisclosure>) =>
     onDisclosureChange({ ...disclosure, ...part });
@@ -92,6 +96,7 @@ export function AiDisclosurePanel({
                 </label>
                 <select
                   value={disclosure.position}
+                  aria-label="标识位置"
                   onChange={(e) =>
                     patch({ position: e.target.value as DisclosurePosition })
                   }
@@ -134,6 +139,35 @@ export function AiDisclosurePanel({
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-muted-foreground text-sm">
+                字号：{Math.round(disclosure.fontScale * 100)}%
+                <input
+                  aria-label="标识字号"
+                  type="range"
+                  min={DISCLOSURE_FONT_SCALE_MIN}
+                  max={DISCLOSURE_FONT_SCALE_MAX}
+                  step={0.01}
+                  value={disclosure.fontScale}
+                  onChange={(e) => patch({ fontScale: Number(e.target.value) })}
+                  className="mt-2 w-full"
+                />
+              </label>
+              <label className="text-muted-foreground text-sm">
+                不透明度：{Math.round(disclosure.opacity * 100)}%
+                <input
+                  aria-label="标识不透明度"
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={disclosure.opacity}
+                  onChange={(e) => patch({ opacity: Number(e.target.value) })}
+                  className="mt-2 w-full"
+                />
+              </label>
+            </div>
+
             {disclosure.mode === "head" && (
               <div>
                 <label className="text-muted-foreground mb-1 block text-sm">
@@ -155,36 +189,38 @@ export function AiDisclosurePanel({
       </div>
 
       {/* ── 片头信息位编号（第二十七条）── */}
-      <div className="border-border space-y-2 border-t pt-3">
-        <p className="text-sm font-medium">片头信息位（选填）</p>
-        <p className="text-muted-foreground text-[11px] leading-relaxed">
-          第二十七条要求片头标注剧名、许可证号、批准文件编号、节目编号。剧名取自项目名自动标注；
-          以下编号由持证方向主管部门取得，填写后会显示在片头标题卡（需开启片头卡），留空则不显示。
-        </p>
-        <div className="space-y-2 pl-1">
-          <CredentialInput
-            label="许可证号"
-            value={credentials.licenseNo ?? ""}
-            onChange={(licenseNo) =>
-              onCredentialsChange({ ...credentials, licenseNo })
-            }
-          />
-          <CredentialInput
-            label="批准文件编号"
-            value={credentials.approvalNo ?? ""}
-            onChange={(approvalNo) =>
-              onCredentialsChange({ ...credentials, approvalNo })
-            }
-          />
-          <CredentialInput
-            label="节目编号"
-            value={credentials.programNo ?? ""}
-            onChange={(programNo) =>
-              onCredentialsChange({ ...credentials, programNo })
-            }
-          />
+      {showCredentials && (
+        <div className="border-border space-y-2 border-t pt-3">
+          <p className="text-sm font-medium">片头信息位（选填）</p>
+          <p className="text-muted-foreground text-[11px] leading-relaxed">
+            第二十七条要求片头标注剧名、许可证号、批准文件编号、节目编号。剧名取自项目名自动标注；
+            以下编号由持证方向主管部门取得，填写后会显示在片头标题卡（需开启片头卡），留空则不显示。
+          </p>
+          <div className="space-y-2 pl-1">
+            <CredentialInput
+              label="许可证号"
+              value={credentials.licenseNo ?? ""}
+              onChange={(licenseNo) =>
+                onCredentialsChange({ ...credentials, licenseNo })
+              }
+            />
+            <CredentialInput
+              label="批准文件编号"
+              value={credentials.approvalNo ?? ""}
+              onChange={(approvalNo) =>
+                onCredentialsChange({ ...credentials, approvalNo })
+              }
+            />
+            <CredentialInput
+              label="节目编号"
+              value={credentials.programNo ?? ""}
+              onChange={(programNo) =>
+                onCredentialsChange({ ...credentials, programNo })
+              }
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

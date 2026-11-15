@@ -34,7 +34,12 @@ import { getMediaDuration } from "@/services/video-synthesis";
 import {
   splitSubtitleSegments,
   allocateSubtitleWindows,
+  buildSubtitleSourceText,
 } from "@/lib/subtitle-segments";
+import {
+  applySubtitleOverrides,
+  type SubtitleOverride,
+} from "@/lib/subtitle-overrides";
 import {
   buildJianyingDraft,
   buildDraftMetaInfo,
@@ -58,6 +63,7 @@ const ASPECT_DIMENSIONS: Record<string, { width: number; height: number }> = {
 
 /** 组装服务入参 */
 export interface AssembleJianyingDraftInput {
+  subtitleOverrides?: SubtitleOverride[];
   /** 项目 id（临时目录 + 日志 + 存储路径） */
   projectId: string;
   /** 用户 id（存储路径归属） */
@@ -253,7 +259,10 @@ export async function assembleJianyingDraft(
     ASPECT_DIMENSIONS[input.aspectRatio] ?? ASPECT_DIMENSIONS["9:16"];
 
   // 有视频或图片的镜才计入（无画面的镜跳过）；按 order 升序
-  const usableScenes = [...input.scenes]
+  const usableScenes = applySubtitleOverrides(
+    input.scenes,
+    input.subtitleOverrides
+  )
     .sort((a, b) => a.order - b.order)
     .filter((s) => s.videoUrl || s.imageUrl);
 
@@ -375,7 +384,7 @@ export async function assembleJianyingDraft(
 
       // 字幕：dialogue 优先，无则 narration；复用同一真源切句 + 分配窗。
       // 分配窗用 shotDurationSec（时间轴实际时长）而非 scene.duration，与视频/配音同轴。
-      const subtitleText = scene.dialogue?.trim() || scene.narration?.trim();
+      const subtitleText = buildSubtitleSourceText(scene);
       if (subtitleText) {
         const pieces = splitSubtitleSegments(subtitleText);
         const windows = allocateSubtitleWindows(

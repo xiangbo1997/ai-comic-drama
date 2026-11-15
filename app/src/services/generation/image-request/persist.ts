@@ -43,6 +43,8 @@ export interface PersistedCandidate {
 }
 
 export interface PersistImageResultParams {
+  /** 仅内部自动执行器使用：写回时确认用户没有替换图片。undefined保留手动生成语义。 */
+  expectedSceneImageUrl?: string | null;
   taskId: string;
   userId: string;
   projectId: string | undefined;
@@ -99,33 +101,67 @@ export async function persistImageResult(
     model,
     iterationNote,
     warnings,
+    expectedSceneImageUrl,
   } = params;
 
   return prisma.$transaction(async (tx) => {
     const candidates: PersistedCandidate[] = [];
+    let conflict = false;
 
     // 如果有场景ID，更新场景为选中张 + 为每张候选落一条 GenerationAttempt。
     // 无 sceneId（罕见的无分镜生成）时不落 attempt（无版本历史意义），
     // 但仍返回候选（此时 attemptId 为空字符串占位，前端点选走 sceneId 分支）。
     if (projectId && sceneId) {
-      await tx.scene.updateMany({
-        where: { id: sceneId },
+      const updated = await tx.scene.updateMany({
+        where: {
+          id: sceneId,
+          projectId,
+          ...(expectedSceneImageUrl !== undefined
+            ? { imageUrl: expectedSceneImageUrl }
+            : {}),
+        },
         data: { imageUrl, imageStatus: "COMPLETED" },
       });
+      conflict = updated.count === 0;
+
+      // 上传图/老workflow图可能没有版本记录；修复前补一条可回滚的历史。
+      if (expectedSceneImageUrl) {
+        const prior = await tx.generationAttempt.findFirst({
+          where: { sceneId, outputUrl: expectedSceneImageUrl },
+          select: { id: true },
+        });
+        if (!prior)
+          await tx.generationAttempt.create({
+            data: {
+              taskId,
+              sceneId,
+              attemptNumber:
+                (await tx.generationAttempt.count({ where: { sceneId } })) + 1,
+              provider: "existing_asset",
+              model: "",
+              strategy: "preserved_original",
+              referenceAssetIds: [],
+              outputUrl: expectedSceneImageUrl,
+              isCurrent: false,
+              note: "自动修复前保留原图",
+            },
+          });
+      }
 
       // 多候选：同分镜旧版本先取消 isCurrent；本次 N 张按顺序 attemptNumber 递增，
       // 仅「推荐张」置为当前版本（写 Scene.imageUrl 的那张）。
       const priorCount = await tx.generationAttempt.count({
         where: { sceneId },
       });
-      await tx.generationAttempt.updateMany({
-        where: { sceneId, isCurrent: true },
-        data: { isCurrent: false },
-      });
+      if (!conflict)
+        await tx.generationAttempt.updateMany({
+          where: { sceneId, isCurrent: true },
+          data: { isCurrent: false },
+        });
 
       for (let i = 0; i < successes.length; i++) {
         const c = successes[i];
-        const isRecommended = i === recommendedIdx;
+        const isRecommended = !conflict && i === recommendedIdx;
         // VLM 分数合并进 similarityScores（保留人脸校验等既有键，不整字段覆盖）
         const mergedScores = mergeSimilarityScores(
           {
@@ -185,6 +221,9 @@ export async function persistImageResult(
           cost: actualCost,
           strategy: chosenResult.strategy,
           attemptCount: chosenResult.attemptCount,
+          ...(expectedSceneImageUrl !== undefined
+            ? { conflict, applied: !conflict }
+            : {}),
           // candidates 是具名接口数组，需显式转成 Prisma 的 Json 输入类型
           // （拆分前该对象为内联字面量，由 Prisma 自行推断）
           candidates: candidates as unknown as Prisma.InputJsonValue,

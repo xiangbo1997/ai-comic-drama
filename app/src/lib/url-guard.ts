@@ -350,7 +350,26 @@ export async function safeFetch(
   )[0];
 
   // 动态引入 undici：仅服务端可用，避免打进客户端 bundle
-  const { Agent, fetch: undiciFetch } = await import("undici");
+  const {
+    Agent,
+    fetch: undiciFetch,
+    FormData: UndiciFormData,
+  } = await import("undici");
+  let body = init?.body as UndiciRequestInit["body"];
+  // Node原生FormData与独立Undici不共享构造器，直接透传会变成
+  // text/plain的[object FormData]。复制字段到当前传输层的表单，保留文件元数据。
+  if (
+    init?.body &&
+    Object.prototype.toString.call(init.body) === "[object FormData]" &&
+    !(init.body instanceof UndiciFormData)
+  ) {
+    const form = new UndiciFormData();
+    for (const [name, value] of init.body as FormData) {
+      if (typeof value === "string") form.append(name, value);
+      else form.append(name, value, value.name);
+    }
+    body = form;
+  }
   const dispatcher = new Agent({
     connect: {
       // 钉住已校验 IP：undici 用此 lookup 结果建连，检查与连接同一地址
@@ -369,6 +388,7 @@ export async function safeFetch(
     // redirect:"error" 堵住 302→内网绕过（上游若重定向直接抛错）
     const res = await undiciFetch(input, {
       ...(init as UndiciRequestInit | undefined),
+      body,
       redirect: "error",
       dispatcher,
     });

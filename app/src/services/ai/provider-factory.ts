@@ -35,6 +35,7 @@ import { flow2apiVideo } from "./providers/flow2api-video";
 import { volcengineTTS } from "./providers/tts/volcengine";
 import { elevenlabsTTS } from "./providers/tts/elevenlabs";
 import { openaiCompatibleTTS } from "./providers/tts/openai-compatible";
+import { grokTTS } from "./providers/tts/grok";
 import { gptSovitsTTS } from "./providers/tts/gpt-sovits";
 
 /** 图像 Provider 能力表 */
@@ -343,6 +344,8 @@ export function getTTSProvider(
       return elevenlabsTTS;
     case "openai":
       return openaiCompatibleTTS;
+    case "grok":
+      return grokTTS;
     case "gpt-sovits":
       return gptSovitsTTS;
     // Fish Audio 已在 seed 预置但 provider 未接入：此前落到默认兜底

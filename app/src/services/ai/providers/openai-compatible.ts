@@ -165,7 +165,7 @@ export const openaiCompatibleLLM: LLMProvider = {
 
 /**
  * 把 url（http(s):// 或 data:base64）拉取为 { blob, filename }
- * 用于 /v1/images/edits 的 multipart image[] 字段
+ * 用于 /v1/images/edits 的 multipart 图片字段
  */
 async function fetchImageBlob(
   url: string
@@ -208,6 +208,35 @@ async function fetchImageBlob(
   };
 }
 
+function throwImageQuotaOrGatewayError(
+  response: Response,
+  errorText: string
+): void {
+  if (response.status === 429) {
+    let message = "图像服务请求或额度受限，请稍后重试或切换图像配置";
+    try {
+      const payload = JSON.parse(errorText);
+      const detail = payload?.error?.message;
+      // 仅展示结构化的中文原因，不把账号、原始HTML或整个错误对象送到界面。
+      if (
+        typeof detail === "string" &&
+        /[一-鿿]/.test(detail) &&
+        !/<[^>]+>/.test(detail)
+      ) {
+        message = detail.slice(0, 300);
+      }
+    } catch {
+      // 网关可能把限额响应改成HTML，仍按429提示限额，保留不重提语义。
+    }
+    throw new Error(message);
+  }
+  if (response.status >= 500) {
+    throw new Error(
+      `图像服务暂时异常（HTTP ${response.status}），请稍后重试；本次未自动重复提交。`
+    );
+  }
+}
+
 /**
  * 复用错误识别：HTML / 401 / 404 / non-JSON 的友好错误消息
  * 抛错；如果 response.ok 则不会调用
@@ -220,6 +249,7 @@ async function throwOpenAIImageError(
 ): Promise<never> {
   const errorText = await response.text();
   const contentType = response.headers.get("content-type") || "";
+  throwImageQuotaOrGatewayError(response, errorText);
 
   if (
     contentType.includes("text/html") ||
@@ -282,7 +312,7 @@ function parseImageSuccess(data: unknown): string {
 
 /**
  * 走 OpenAI 兼容的 /v1/images/edits（multipart/form-data）
- * 支持多参考图：用相同字段名 image 重复上传；同时附带 image[] 兼容写法
+ * 支持多参考图：单图用 image，多图用 image[]，每张仅上传一次
  * 与 chatgpt2api 文档 §4.2 / OpenAI dall-e-2 edits 兼容
  */
 /**
@@ -303,7 +333,8 @@ async function generateImageWithEdits(
   size: string,
   references: string[],
   seed?: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  disableRetries?: boolean
 ): Promise<string> {
   const url = `${trimUrl(baseUrl)}/images/edits`;
   // 步骤 C：拼锚定语（仅在参考图存在时）
@@ -324,12 +355,15 @@ async function generateImageWithEdits(
     let idx = 0;
     for (const ref of references) {
       const { blob, filename } = await fetchImageBlob(ref);
-      form.append("image", blob, `${idx}_${filename}`);
-      form.append("image[]", blob, `${idx}_${filename}`);
+      form.append(
+        references.length > 1 ? "image[]" : "image",
+        blob,
+        `${idx}_${filename}`
+      );
       idx += 1;
     }
 
-    return fetch(url, {
+    return safeFetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -345,7 +379,7 @@ async function generateImageWithEdits(
   // 与 base.ts fetchWithError 的 submit 模式一致。HTTP 状态码错误在下方
   // throwOpenAIImageError 单独处理，不在此重试。收口到 lib/retry：指数退避 + 抖动。
   const response = await withRetry(buildRequest, {
-    maxRetries: 2,
+    maxRetries: disableRetries ? 0 : 2,
     baseDelayMs: 1000,
     // 中止（门面超时/上层取消）不重试：上游已卡死，重试必然再次超时
     shouldRetry: (err) => !isAbortError(err) && isConnectionPhaseError(err),
@@ -426,12 +460,14 @@ export const openaiCompatibleImage: ImageProvider = {
           size,
           refs.slice(0, 4), // 与 chatgpt2api §4.2 一致：n/image 上限 4
           seed,
-          signal
+          signal,
+          options.disableRetries
         );
       } catch (err) {
         // 若 edits 端点不可用（部分中转不实现），退回普通文生图避免硬失败
         const msg = err instanceof Error ? err.message : String(err);
         if (
+          !options.disableRetries &&
           msg.includes("/images/edits") &&
           (msg.includes("HTTP 404") || msg.includes("404"))
         ) {
@@ -465,6 +501,7 @@ export const openaiCompatibleImage: ImageProvider = {
     if (!response.ok) {
       const errorText = await response.text();
       const contentType = response.headers.get("content-type") || "";
+      throwImageQuotaOrGatewayError(response, errorText);
 
       if (
         contentType.includes("text/html") ||

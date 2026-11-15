@@ -94,6 +94,23 @@ const script = {
 } as ScriptArtifact;
 
 describe("整批分镜事务", () => {
+  it("重建新脚本清理旧独立字幕，避免按镜序套用旧台词", async () => {
+    db.params = {
+      subtitleOverrides: [{ sceneId: "s1", text: "上一版字幕" }],
+      temperature: 0.8,
+    };
+    await rebuildProjectScenes("p1", { generationParams: {} }, script.scenes);
+    expect(db.projectUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          generationParams: expect.objectContaining({
+            subtitleOverrides: [],
+            temperature: 0.8,
+          }),
+        },
+      })
+    );
+  });
   it("定稿中间一镜失败，前面已更新的正文也必须回滚", async () => {
     db.failOn = "s2";
     await expect(saveScenesToProject("p1", script)).rejects.toThrow(

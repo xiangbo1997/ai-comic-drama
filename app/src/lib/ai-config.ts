@@ -136,7 +136,9 @@ async function assembleServiceConfig(
  * @returns LLM 配置或 null
  */
 export async function getUserLLMConfig(
-  userId: string
+  userId: string,
+  configId?: string,
+  model?: string
 ): Promise<AIServiceConfig | null> {
   // 单次查询拿到"默认优先、否则最早创建"的 LLM 配置：orderBy isDefault desc
   // 让 isDefault=true 排最前，无默认时退到最早 enabled 配置。合并了原先
@@ -145,6 +147,7 @@ export async function getUserLLMConfig(
   const effectiveConfig = await prisma.userAIConfig.findFirst({
     where: {
       userId,
+      ...(configId ? { id: configId } : {}),
       isEnabled: true,
       provider: {
         category: "LLM",
@@ -157,10 +160,17 @@ export async function getUserLLMConfig(
     orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }],
   });
 
+  // 显式选中的通道不可降级到其他用户/平台配置，避免错用凭据与计费。
+  if (configId && !effectiveConfig) {
+    throw new Error("所选大语言模型配置不可用");
+  }
+
   // 用户自己没配 LLM → 回落到平台兜底账号（若已配置）
   const finalConfig =
     effectiveConfig ||
-    (PLATFORM_FALLBACK_USER_ID && userId !== PLATFORM_FALLBACK_USER_ID
+    (!configId &&
+    PLATFORM_FALLBACK_USER_ID &&
+    userId !== PLATFORM_FALLBACK_USER_ID
       ? await prisma.userAIConfig.findFirst({
           where: {
             userId: PLATFORM_FALLBACK_USER_ID,
@@ -176,8 +186,28 @@ export async function getUserLLMConfig(
     return null;
   }
 
+  let selectedConfig = finalConfig;
+  if (model) {
+    // 只允许服务端已登记的模型；不能把任意请求字符串直接转发给上游。
+    const listedModels = [finalConfig.customModels, finalConfig.provider.models]
+      .flatMap((value) => (Array.isArray(value) ? value : []))
+      .filter(
+        (value): value is { id: string; protocol?: string } =>
+          typeof value === "object" &&
+          value !== null &&
+          "id" in value &&
+          typeof value.id === "string"
+      );
+    const selected = listedModels.find((item) => item.id === model);
+    if (!selected) throw new Error("所选模型不在当前配置的可用模型列表中");
+    selectedConfig = {
+      ...finalConfig,
+      selectedModel: model,
+      apiProtocol: selected.protocol || finalConfig.apiProtocol,
+    };
+  }
   return await assembleServiceConfig(
-    finalConfig,
+    selectedConfig,
     getDefaultModelForProvider(finalConfig.provider.slug),
     "openai"
   );

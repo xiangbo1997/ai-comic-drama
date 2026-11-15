@@ -147,7 +147,10 @@ export async function apiUpdateScene(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error("Failed to update scene");
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.error ?? "分镜保存失败，请重试");
+  }
   return res.json();
 }
 

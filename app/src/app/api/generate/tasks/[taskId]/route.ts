@@ -80,7 +80,10 @@ export async function GET(
     // 鉴权：input.userId 必须存在且匹配当前 session。
     // 缺失即拒绝（此前 userId 为空时直接放行——任何登录用户凭 taskId 就能读到
     // 他人任务的 output）。本路由覆盖的三类任务写入时均带 input.userId。
-    const input = (task.input ?? {}) as { userId?: string };
+    const input = (task.input ?? {}) as {
+      userId?: string;
+      executionRunId?: string;
+    };
     if (!input.userId || input.userId !== session.user.id) {
       log.warn(
         `User ${session.user.id} tried to read task ${taskId} owned by ${input.userId ?? "<unknown>"}`
@@ -88,8 +91,9 @@ export async function GET(
       return NextResponse.json({ error: "无权访问此任务" }, { status: 403 });
     }
 
-    // 僵尸回收：进程重启后 PROCESSING 永远无人改写
+    // 自动制作由持久执行器核对原任务；普通超时回收不能把不明上游结果伪装成确定失败。
     if (
+      !input.executionRunId &&
       task.status === "PROCESSING" &&
       Date.now() - task.updatedAt.getTime() > ZOMBIE_THRESHOLD_MS
     ) {

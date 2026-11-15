@@ -3,16 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Coins,
-  Loader2,
-  Wand2,
-  Upload,
-  X,
-  Grid2x2,
-  Smile,
-  Sparkles,
-} from "lucide-react";
+import { Coins, Loader2, Wand2, Upload, X, Sparkles } from "lucide-react";
 import { ModelSelector } from "@/components/ai-models";
 import type { CharacterListItem } from "@/types";
 import type { GenerateOptions } from "./constants";
@@ -33,6 +24,11 @@ const THREE_VIEWS_COST = 9;
 /** 表情集单价与三视图每视角同价（服务端复用 COST_THREE_VIEWS_PER_VIEW）× 6 种表情 */
 const EXPRESSIONS_COST = 18;
 
+export type CharacterGenerationKind =
+  | "reference"
+  | "threeViews"
+  | "expressions";
+
 async function fetchCredits(): Promise<{ credits: number }> {
   const res = await fetch("/api/user/credits");
   if (!res.ok) throw new Error("获取积分失败");
@@ -40,6 +36,7 @@ async function fetchCredits(): Promise<{ credits: number }> {
 }
 
 interface GenerateReferenceModalProps {
+  kind?: CharacterGenerationKind;
   characterId: string;
   characters: CharacterListItem[];
   generateOptions: GenerateOptions;
@@ -48,15 +45,10 @@ interface GenerateReferenceModalProps {
   onClose: () => void;
   onGenerate: () => void;
   generatePending: boolean;
-  /** 一键三视图（正/侧/背，防崩坏），由父组件注入 mutation */
-  onGenerateThreeViews?: () => void;
-  threeViewsPending?: boolean;
-  /** 一键表情集（6 种表情，锁表情画法），由父组件注入 mutation */
-  onGenerateExpressions?: () => void;
-  expressionsPending?: boolean;
 }
 
 export function GenerateReferenceModal({
+  kind = "reference",
   characterId,
   characters,
   generateOptions,
@@ -65,14 +57,19 @@ export function GenerateReferenceModal({
   onClose,
   onGenerate,
   generatePending,
-  onGenerateThreeViews,
-  threeViewsPending,
-  onGenerateExpressions,
-  expressionsPending,
 }: GenerateReferenceModalProps) {
   const toast = useToast();
   const character = characters.find((c) => c.id === characterId);
   const hasImages = (character?.referenceImages?.length ?? 0) > 0;
+  const isReference = kind === "reference";
+  const title = isReference
+    ? "生成参考图"
+    : kind === "threeViews"
+      ? "生成三视图"
+      : "生成表情集";
+  // 与专项生成 API 保持一致：优先使用定妆照，否则使用首张参考图。
+  const anchorImage =
+    character?.canonicalImageUrl ?? character?.referenceImages?.[0];
   const [readingImage, setReadingImage] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
@@ -123,17 +120,12 @@ export function GenerateReferenceModal({
   // 多候选档位（1 / 2 / 4，缺省 1）：成本 = 单张 × N
   const candidateCount = generateOptions.count ?? 1;
   const perImageCost = generateOptions.source === "none" ? 3 : 5;
-  const cost = perImageCost * candidateCount;
+  const cost = isReference
+    ? perImageCost * candidateCount
+    : kind === "threeViews"
+      ? THREE_VIEWS_COST
+      : EXPRESSIONS_COST;
   const insufficient = typeof balance === "number" && balance < cost;
-  const threeViewsInsufficient =
-    typeof balance === "number" && balance < THREE_VIEWS_COST;
-  const expressionsInsufficient =
-    typeof balance === "number" && balance < EXPRESSIONS_COST;
-  // 表情图必须 i2i 锚定定妆照（否则画出来是「另一个人的愤怒脸」，表情集失去意义），
-  // 服务端无锚时直接 400。这里同步禁用并说明原因，避免用户点了才收到报错。
-  const hasAnchorForExpressions = Boolean(
-    character?.canonicalImageUrl || character?.referenceImages?.[0]
-  );
 
   const handleImageUpload = (file: File) => {
     setUploadError(null);
@@ -166,9 +158,11 @@ export function GenerateReferenceModal({
     >
       <DialogContent className="flex max-h-[90vh] max-w-md flex-col p-0">
         <DialogHeader className="border-border shrink-0 border-b p-4 text-left">
-          <DialogTitle>生成参考图</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="sr-only">
-            选择图片供应商与参考来源，为角色生成参考图
+            {isReference
+              ? "生成角色参考图，选定形象后可单独生成三视图或表情集"
+              : "基于角色定妆照或首张参考图生成，确认配置与积分后提交"}
           </DialogDescription>
         </DialogHeader>
 
@@ -203,38 +197,43 @@ export function GenerateReferenceModal({
           )}
 
           {/* 多候选抽卡档位（批次 2 · 1.4B）：一次生成 N 张，AI 择优后点选定稿 */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-muted-foreground text-sm">生成张数</label>
-              <span className="text-muted-foreground text-xs">
-                本次消耗 {cost} 积分
-              </span>
+          {isReference && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-muted-foreground text-sm">
+                  生成张数
+                </label>
+                <span className="text-muted-foreground text-xs">
+                  本次消耗 {cost} 积分
+                </span>
+              </div>
+              <div className="bg-secondary flex rounded-lg p-0.5">
+                {([1, 2, 4] as const).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() =>
+                      onOptionsChange({ ...generateOptions, count: n })
+                    }
+                    disabled={generatePending}
+                    className={`flex-1 rounded-md py-1.5 text-sm transition-colors disabled:opacity-50 ${
+                      candidateCount === n
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {n} 张
+                  </button>
+                ))}
+              </div>
+              {candidateCount > 1 && (
+                <p className="text-muted-foreground text-[11px]">
+                  一次生成 {candidateCount} 张角色参考图，AI
+                  自动择优，生成后挑一张定稿
+                </p>
+              )}
             </div>
-            <div className="bg-secondary flex rounded-lg p-0.5">
-              {([1, 2, 4] as const).map((n) => (
-                <button
-                  key={n}
-                  type="button"
-                  onClick={() =>
-                    onOptionsChange({ ...generateOptions, count: n })
-                  }
-                  disabled={generatePending}
-                  className={`flex-1 rounded-md py-1.5 text-sm transition-colors disabled:opacity-50 ${
-                    candidateCount === n
-                      ? "bg-primary text-primary-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {n} 张
-                </button>
-              ))}
-            </div>
-            {candidateCount > 1 && (
-              <p className="text-muted-foreground text-[11px]">
-                一次抽 {candidateCount} 张，AI 自动择优，生成后你挑一张定稿
-              </p>
-            )}
-          </div>
+          )}
 
           <div className="space-y-2">
             <label className="text-muted-foreground text-sm">图片供应商</label>
@@ -257,161 +256,204 @@ export function GenerateReferenceModal({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-muted-foreground text-sm">图片来源</label>
-            <div className="space-y-2">
-              <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
-                <input
-                  type="radio"
-                  name="source"
-                  checked={generateOptions.source === "none"}
-                  onChange={() =>
-                    onOptionsChange({
-                      ...generateOptions,
-                      source: "none",
-                      uploadedImage: null,
-                    })
-                  }
-                  className="text-primary h-4 w-4"
-                />
-                <div className="flex-1">
-                  <div className="text-sm font-medium">
-                    无参考图（纯 AI 生成）
-                  </div>
-                  <div className="text-muted-foreground text-xs">
-                    消耗 3 积分
-                  </div>
-                </div>
-              </label>
-
-              <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
-                <input
-                  type="radio"
-                  name="source"
-                  checked={generateOptions.source === "upload"}
-                  onChange={() =>
-                    onOptionsChange({ ...generateOptions, source: "upload" })
-                  }
-                  className="text-primary h-4 w-4"
-                />
-                <div className="flex-1">
-                  <div className="text-sm font-medium">上传新图片作为参考</div>
-                  <div className="text-muted-foreground text-xs">
-                    消耗 5 积分
-                  </div>
-                </div>
-              </label>
-
-              {hasImages && (
-                <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
-                  <input
-                    type="radio"
-                    name="source"
-                    checked={generateOptions.source === "existing"}
-                    onChange={() =>
-                      onOptionsChange({
-                        ...generateOptions,
-                        source: "existing",
-                        uploadedImage: null,
-                      })
-                    }
-                    className="text-primary h-4 w-4"
-                  />
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">
-                      使用当前图片作为参考
-                    </div>
-                    <div className="text-muted-foreground text-xs">
-                      消耗 5 积分 · 基于当前显示的图片优化
-                    </div>
-                  </div>
+          {isReference && (
+            <>
+              <div className="space-y-2">
+                <label className="text-muted-foreground text-sm">
+                  图片来源
                 </label>
-              )}
-            </div>
-          </div>
+                <div className="space-y-2">
+                  <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
+                    <input
+                      type="radio"
+                      name="source"
+                      checked={generateOptions.source === "none"}
+                      onChange={() =>
+                        onOptionsChange({
+                          ...generateOptions,
+                          source: "none",
+                          uploadedImage: null,
+                        })
+                      }
+                      className="text-primary h-4 w-4"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">
+                        无参考图（纯 AI 生成）
+                      </div>
+                      <div className="text-muted-foreground text-xs">
+                        每张 3 积分
+                      </div>
+                    </div>
+                  </label>
 
-          {generateOptions.source === "upload" && (
-            <div className="space-y-2">
-              <label className="text-muted-foreground text-sm">
-                上传参考图
-              </label>
-              {generateOptions.uploadedImage ? (
-                <div className="relative">
-                  <img
-                    src={generateOptions.uploadedImage}
-                    alt="参考图预览"
-                    className="h-40 w-full rounded-lg object-cover"
-                  />
-                  <button
-                    onClick={() =>
-                      onOptionsChange({
-                        ...generateOptions,
-                        uploadedImage: null,
-                      })
-                    }
-                    className="absolute top-2 right-2 rounded bg-black/50 p-1 hover:bg-red-600"
-                    aria-label="移除已上传的参考图"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-              ) : (
-                <label className="border-border hover:border-border flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed">
-                  {readingImage ? (
-                    <>
-                      <Loader2
-                        size={24}
-                        className="text-muted-foreground mb-2 animate-spin"
+                  <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
+                    <input
+                      type="radio"
+                      name="source"
+                      checked={generateOptions.source === "upload"}
+                      onChange={() =>
+                        onOptionsChange({
+                          ...generateOptions,
+                          source: "upload",
+                        })
+                      }
+                      className="text-primary h-4 w-4"
+                    />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium">
+                        上传新图片作为参考
+                      </div>
+                      <div className="text-muted-foreground text-xs">
+                        每张 5 积分
+                      </div>
+                    </div>
+                  </label>
+
+                  {hasImages && (
+                    <label className="bg-secondary/50 hover:bg-secondary flex cursor-pointer items-center gap-3 rounded-lg p-3">
+                      <input
+                        type="radio"
+                        name="source"
+                        checked={generateOptions.source === "existing"}
+                        onChange={() =>
+                          onOptionsChange({
+                            ...generateOptions,
+                            source: "existing",
+                            uploadedImage: null,
+                          })
+                        }
+                        className="text-primary h-4 w-4"
                       />
-                      <span className="text-muted-foreground text-sm">
-                        读取图片中...
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <Upload
-                        size={24}
-                        className="text-muted-foreground mb-2"
-                      />
-                      <span className="text-muted-foreground text-sm">
-                        点击上传图片（不超过 {MAX_UPLOAD_MB}MB）
-                      </span>
-                    </>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">
+                          使用当前图片作为参考
+                        </div>
+                        <div className="text-muted-foreground text-xs">
+                          每张 5 积分 · 基于当前显示的图片优化
+                        </div>
+                      </div>
+                    </label>
                   )}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    disabled={readingImage}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImageUpload(file);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
-              )}
-              {uploadError && (
-                <p className="text-destructive text-xs">{uploadError}</p>
-              )}
-            </div>
-          )}
-
-          {generateOptions.source === "existing" && character && (
-            <div className="space-y-2">
-              <label className="text-muted-foreground text-sm">
-                当前选中的图片
-              </label>
-              <div className="relative">
-                <img
-                  src={character.referenceImages[currentImageIndex]}
-                  alt="当前图片"
-                  className="h-40 w-full rounded-lg object-cover"
-                />
-                <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
-                  第 {currentImageIndex + 1} 张
                 </div>
               </div>
+
+              {generateOptions.source === "upload" && (
+                <div className="space-y-2">
+                  <label className="text-muted-foreground text-sm">
+                    上传参考图
+                  </label>
+                  {generateOptions.uploadedImage ? (
+                    <div className="relative">
+                      <img
+                        src={generateOptions.uploadedImage}
+                        alt="参考图预览"
+                        className="h-40 w-full rounded-lg object-cover"
+                      />
+                      <button
+                        onClick={() =>
+                          onOptionsChange({
+                            ...generateOptions,
+                            uploadedImage: null,
+                          })
+                        }
+                        className="absolute top-2 right-2 rounded bg-black/50 p-1 hover:bg-red-600"
+                        aria-label="移除已上传的参考图"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <label className="border-border hover:border-border flex h-32 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed">
+                      {readingImage ? (
+                        <>
+                          <Loader2
+                            size={24}
+                            className="text-muted-foreground mb-2 animate-spin"
+                          />
+                          <span className="text-muted-foreground text-sm">
+                            读取图片中...
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Upload
+                            size={24}
+                            className="text-muted-foreground mb-2"
+                          />
+                          <span className="text-muted-foreground text-sm">
+                            点击上传图片（不超过 {MAX_UPLOAD_MB}MB）
+                          </span>
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        disabled={readingImage}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageUpload(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  )}
+                  {uploadError && (
+                    <p className="text-destructive text-xs">{uploadError}</p>
+                  )}
+                </div>
+              )}
+
+              {generateOptions.source === "existing" && character && (
+                <div className="space-y-2">
+                  <label className="text-muted-foreground text-sm">
+                    当前选中的图片
+                  </label>
+                  <div className="relative">
+                    <img
+                      src={character.referenceImages[currentImageIndex]}
+                      alt="当前图片"
+                      className="h-40 w-full rounded-lg object-cover"
+                    />
+                    <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs">
+                      第 {currentImageIndex + 1} 张
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {!isReference && (
+            <div className="space-y-2">
+              <p className="text-muted-foreground text-sm">
+                {kind === "threeViews"
+                  ? "生成正面、侧面、背面共 3 张角色视图。"
+                  : "生成平静、喜悦、愤怒、悲伤、惊讶、羞怯共 6 张表情图。"}
+              </p>
+              {anchorImage ? (
+                <>
+                  <img
+                    src={anchorImage}
+                    alt="生成使用的角色参考图"
+                    className="h-40 w-full rounded-lg object-contain"
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    基于
+                    {character?.canonicalImageUrl
+                      ? "已选定的定妆照"
+                      : "首张参考图"}
+                    生成，保持角色形象一致。
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-xs">
+                  {kind === "expressions"
+                    ? "请先生成角色参考图，再生成表情集。"
+                    : "暂无参考图，将根据角色基础信息生成三视图。"}
+                </p>
+              )}
             </div>
           )}
 
@@ -474,7 +516,8 @@ export function GenerateReferenceModal({
 
             {/* 智能引导：已有定妆照 + 填了提示词 + 却选纯 AI 生成时，
                 提示改用「当前图片作为参考」，让提示词基于原图改而非重画 */}
-            {hasImages &&
+            {isReference &&
+              hasImages &&
               generateOptions.source === "none" &&
               generateOptions.customPrompt.trim() && (
                 <div className="border-agent/40 bg-agent/10 space-y-1.5 rounded-lg border p-2.5">
@@ -499,67 +542,6 @@ export function GenerateReferenceModal({
                 </div>
               )}
           </div>
-
-          {/* 一键三视图：正/侧/背，防生成崩坏 */}
-          {onGenerateThreeViews && (
-            <button
-              onClick={onGenerateThreeViews}
-              disabled={
-                threeViewsPending || generatePending || threeViewsInsufficient
-              }
-              title={
-                threeViewsInsufficient
-                  ? `积分不足（需 ${THREE_VIEWS_COST}，当前 ${balance}），请先充值`
-                  : undefined
-              }
-              className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {threeViewsPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  生成三视图中（约1分钟）...
-                </>
-              ) : (
-                <>
-                  <Grid2x2 size={16} />
-                  一键生成三视图（正/侧/背，9 积分）
-                </>
-              )}
-            </button>
-          )}
-
-          {/* 一键表情集：6 种表情，锁跨镜头的五官画法（漫剧 80% 是表情特写） */}
-          {onGenerateExpressions && (
-            <button
-              onClick={onGenerateExpressions}
-              disabled={
-                expressionsPending ||
-                generatePending ||
-                expressionsInsufficient ||
-                !hasAnchorForExpressions
-              }
-              title={
-                !hasAnchorForExpressions
-                  ? "请先生成或上传定妆照——表情图需以定妆照为身份锚点"
-                  : expressionsInsufficient
-                    ? `积分不足（需 ${EXPRESSIONS_COST}，当前 ${balance}），请先充值`
-                    : undefined
-              }
-              className="border-agent/40 bg-agent/10 text-agent hover:bg-agent/20 flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {expressionsPending ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  生成表情集中（约2分钟）...
-                </>
-              ) : (
-                <>
-                  <Smile size={16} />
-                  一键生成表情集（6 种表情，{EXPRESSIONS_COST} 积分）
-                </>
-              )}
-            </button>
-          )}
         </div>
 
         <DialogFooter className="border-border shrink-0 flex-row gap-3 border-t p-4">
@@ -574,8 +556,11 @@ export function GenerateReferenceModal({
             disabled={
               generatePending ||
               insufficient ||
-              (generateOptions.source === "upload" &&
-                !generateOptions.uploadedImage)
+              (isReference &&
+                (readingImage ||
+                  (generateOptions.source === "upload" &&
+                    !generateOptions.uploadedImage))) ||
+              (kind === "expressions" && !anchorImage)
             }
             title={
               insufficient
@@ -587,13 +572,13 @@ export function GenerateReferenceModal({
             {generatePending ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                生成中...
+                {title}中...
               </>
             ) : (
               <>
                 <Wand2 size={16} />
-                生成{candidateCount > 1 ? ` ${candidateCount} 张` : ""}（{cost}{" "}
-                积分）
+                {title}
+                {isReference ? ` · ${candidateCount} 张` : ""}（{cost} 积分）
               </>
             )}
           </button>
