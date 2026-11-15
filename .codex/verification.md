@@ -1,5 +1,14 @@
 # 验证记录（2026-11-13）
 
+## 2026-11-15 无用产物清理完成
+
+- 用户明确要求清理。白名单盘点与删除前均检查 cwd/命令行/打开文件，六份项目临时隔离构建无进程使用：四份 ai-comic-assistant-build、ai-comic-timeline-build-eec2fp7l、comic-export-build-check。先保存可用的 build/smoke 日志、源码清单和 BUILD_ID，再移除可从 Git 重建的副本。
+- 私有归档 `/tmp/ai-comic-cleanup-20261115T072931Z/` 保存 `inventory.json`、受控文件基线与 `result.json`；`build-evidence/` 保存验收证据，`test-results/` 保存本轮截图，`apple-double.tar.gz` 保存 92 份有正确魔数的 macOS 侧文件。旧 `.env.example`、`.codex/export-oom-reasoning.md` 原字节移入 `original-untracked/`，前后 SHA256 一致，可按原路径恢复；应用内正式环境模板仍保留。
+- 删除的其他可生成内容仅为 `app/coverage`、`app/tsconfig.tsbuildinfo`；未删除源码/测试/生产环境配置、运行中 `.next`、依赖或用户上传素材，八份 ai-comic-deploy 回退备份全部保留。所有受控业务文件与清理前逐字节一致，生产环境文件、版本标记、BUILD_ID 和关键依赖摘要一致；没有执行测试/模型、迁移或重启。
+- 净释放 `1708855296` 字节，约 1.7GB（1.59GiB）；可用空间从约 2.2GiB 增至 3.8GiB，df 使用率从 98% 降至 96%。单目录 du 会重复统计硬链接，因此不把目录体积简单相加冒充实际释放量。
+- 本机/公网 health 均 ok 且版本仍为 `508e22b-timeline-41f5e1b79aad`；原服务 PID 765765、active/running、NRestarts=0。未跟踪文件已归档，清理后仅有本次受控操作/验证记录更新；不含业务代码变化，清理记录单独提交同步。
+- 沙箱 .aws 挂载错误使三个盘点/执行命令在启动前退出，经具体命令提权后成功；未修改 .aws 或全局权限。一次引用根 README 的 rg 扫描发现该文件不存在，已按实际 app/README 与现有文件核查；没有因此改动源码。
+
 ## 2026-11-15 Git 交付完成
 
 - 业务提交 `50cfb31d3561aa0ffb093bb50550b75fa7ecff20`：`feat: ship AI production assistant and timeline editing`，144 文件，14955 行新增/2075 行删除；包含已上线时间轴、助手、生成任务与配音兼容依赖及对应测试/迁移/文档，不遗漏未跟踪的必要模块。
