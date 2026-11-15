@@ -7,6 +7,7 @@ import {
   type AssistantExecutionPlan,
 } from "@/lib/assistant-execution";
 import { describeAssistantCapabilities } from "./tools";
+import { legacyTitleLocationIds } from "@/lib/drama-locations";
 
 // JSONB重排对象键；确认从持久状态重读options时仍必须产生相同快照指纹。
 function canonical(value: unknown): unknown {
@@ -34,6 +35,11 @@ async function loadProject(
         include: { sceneCharacters: { orderBy: { characterId: "asc" } } },
       },
       locations: { orderBy: { locationKey: "asc" } },
+      shortDramaScripts: {
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+        select: { scriptDoc: true },
+      },
       characters: {
         orderBy: { characterId: "asc" },
         include: { character: true },
@@ -63,6 +69,18 @@ export async function readAssistantAssetFingerprint(
   db: Pick<Prisma.TransactionClient, "project" | "series"> = prisma
 ) {
   return assetHash(await loadProject(userId, projectId, db), options);
+}
+export async function hasLegacyAssistantLocations(
+  userId: string,
+  projectId: string
+) {
+  const project = await loadProject(userId, projectId);
+  return (
+    legacyTitleLocationIds(
+      project.scenes,
+      project.shortDramaScripts?.[0]?.scriptDoc
+    ).size > 0
+  );
 }
 export async function buildAssistantExecutionPlan(
   userId: string,
@@ -99,15 +117,20 @@ export async function buildAssistantExecutionPlan(
       maxCredits: 0,
     },
   ];
+  const legacyIds = legacyTitleLocationIds(
+    project.scenes,
+    project.shortDramaScripts?.[0]?.scriptDoc
+  );
   const keys = [
     ...new Set(
       project.scenes
+        .filter((scene) => !legacyIds.has(scene.id))
         .map((scene) => scene.locationKey?.trim())
         .filter((key): key is string => !!key)
     ),
   ];
   const unlabeledLocationSlots = project.scenes.filter(
-    (scene) => !scene.locationKey?.trim()
+    (scene) => !scene.locationKey?.trim() || legacyIds.has(scene.id)
   ).length;
   if (
     !caps.imageReady &&
@@ -201,12 +224,20 @@ export async function buildAssistantExecutionPlan(
     blockers,
     estimatedCredits,
     models: caps.models,
-    warnings: caps.warnings,
+    warnings: [
+      ...caps.warnings,
+      ...(legacyIds.size
+        ? [
+            `${legacyIds.size}个分镜的地点来自旧版剧情标题，将先校准物理地点，再按实际地点生成参考图；已有素材保留`,
+          ]
+        : []),
+    ],
     sceneIds: project.scenes.map((scene) => scene.id),
     imageMaxCost: caps.imageMaxCost,
     baseCredits,
     locationCost: caps.locationCost,
     unlabeledLocationSlots,
     locationKeys: keys,
+    locationLabelsVersion: 2,
   };
 }

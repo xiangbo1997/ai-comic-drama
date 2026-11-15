@@ -15,11 +15,12 @@ const mocks = vi.hoisted(() => ({
   cost: vi.fn(),
   task: vi.fn(),
   run: vi.fn(),
+  updateScene: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     project: { findFirst: mocks.project },
-    scene: { findMany: mocks.scenes, updateMany: vi.fn() },
+    scene: { findMany: mocks.scenes, updateMany: mocks.updateScene },
     projectLocation: {
       findMany: mocks.locations,
       findFirst: mocks.location,
@@ -33,7 +34,7 @@ vi.mock("@/lib/prisma", () => ({
       fn({
         projectLocation: { updateMany: mocks.updateLocation },
         generationTask: { update: mocks.task },
-        scene: { updateMany: vi.fn() },
+        scene: { updateMany: mocks.updateScene },
       })
     ),
   },
@@ -92,8 +93,87 @@ beforeEach(() => {
   mocks.run.mockResolvedValue({ output: { status: "running" } });
   mocks.image.mockResolvedValue("https://assets.example.test/plate.png");
   mocks.updateLocation.mockResolvedValue({ count: 1 });
+  mocks.updateScene.mockResolvedValue({ count: 1 });
 });
 describe("自主执行场景工具", () => {
+  const legacyScenes = () => [
+    { id: "s1", order: 0, locationKey: "剑悬颈", description: "刑台：剑悬颈" },
+    { id: "s2", order: 1, locationKey: "下令", description: "刑台：下令" },
+  ];
+  function legacyProject() {
+    mocks.project.mockResolvedValue({
+      id: "p",
+      shortDramaScripts: [
+        {
+          scriptDoc: {
+            scenes: legacyScenes().map((scene) => ({
+              title: scene.locationKey,
+              description: scene.description,
+            })),
+          },
+        },
+      ],
+    });
+    mocks.scenes.mockResolvedValue(legacyScenes());
+  }
+  it("旧标题地点重新按画面聚合成一个物理地点，不删除旧素材", async () => {
+    legacyProject();
+    mocks.llm
+      .mockResolvedValueOnce(
+        '[{"index":0,"locationKey":"宗门刑台"},{"index":1,"locationKey":"宗门刑台"}]'
+      )
+      .mockResolvedValueOnce(
+        '[{"key":"宗门刑台","description":"高阶石台，青火铜炉"}]'
+      );
+    mocks.upsert.mockResolvedValue({ id: "canonical" });
+    const result = await executeLocationTool(
+      { ...input, kind: "prepare" },
+      "task"
+    );
+    expect(result).toMatchObject({
+      actualCost: 0,
+      artifact: { locations: ["宗门刑台"], labeled: 2 },
+    });
+    expect(mocks.updateScene).toHaveBeenCalledTimes(2);
+    expect(mocks.updateScene.mock.calls[0][0].where).toMatchObject({
+      id: "s1",
+      locationKey: "剑悬颈",
+      order: 0,
+    });
+    expect(mocks.image).not.toHaveBeenCalled();
+    expect(mocks.charge).not.toHaveBeenCalled();
+  });
+  it.each([
+    '[{"index":0,"locationKey":"宗门刑台"}]',
+    '[{"index":0,"locationKey":"剑悬颈"},{"index":1,"locationKey":"下令"}]',
+  ])("地点标注不完整或仍是标题时暂停，不继续描述或生图", async (raw) => {
+    legacyProject();
+    mocks.llm.mockResolvedValueOnce(raw);
+    expect(
+      await executeLocationTool({ ...input, kind: "prepare" }, "task")
+    ).toMatchObject({ requiresReview: true, artifact: { locations: [] } });
+    expect(mocks.updateScene).not.toHaveBeenCalled();
+    expect(mocks.llm).toHaveBeenCalledTimes(1);
+    expect(mocks.image).not.toHaveBeenCalled();
+  });
+  it("标注期间手动改地点，不用旧结果覆盖或继续生成", async () => {
+    legacyProject();
+    mocks.llm.mockResolvedValueOnce(
+      '[{"index":0,"locationKey":"刑台"},{"index":1,"locationKey":"刑台"}]'
+    );
+    mocks.updateScene.mockResolvedValueOnce({ count: 0 });
+    expect(
+      await executeLocationTool({ ...input, kind: "prepare" }, "task")
+    ).toMatchObject({ requiresReview: true, artifact: { locations: [] } });
+    expect(mocks.llm).toHaveBeenCalledTimes(1);
+  });
+  it("孤立的旧地点行不再生成无对应分镜的参考图", async () => {
+    mocks.scenes.mockResolvedValue([]);
+    await expect(executeLocationTool(input, "task")).rejects.toThrow(
+      /地点|计划/
+    );
+    expect(mocks.image).not.toHaveBeenCalled();
+  });
   it("项目归属失败时不调用任何模型", async () => {
     mocks.project.mockResolvedValue(null);
     await expect(executeLocationTool(input, "task")).rejects.toThrow(

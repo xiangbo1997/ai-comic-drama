@@ -140,14 +140,13 @@ export function resolveTransitionFromWord(
 }
 
 /**
- * 从短剧场景标题规整地点标签：短剧脚本 scene.title 本就是地点/场景名
- * （如 "天幕之下"、"删除程序启动"）。裁掉常见修饰后缀、限长 12 字，作为 locationKey。
- * 空标题回落 null（场景锚定分组自然退化为无约束）。
+ * 仅使用独立的物理地点字段；旧脚本未标注时留空，交给场记根据画面统一标注。
+ * 剧情标题通常是动作/冲突节点，不能用作地点，否则每镜都会错误生成独立参考板。
  */
-function deriveLocationKey(title: string | null | undefined): string | null {
-  const trimmed = title?.trim();
+function deriveLocationKey(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
   if (!trimmed) return null;
-  return trimmed.length > 12 ? trimmed.slice(0, 12) : trimmed;
+  return trimmed.length > 20 ? null : trimmed;
 }
 
 /** 场景文本中出现的项目角色名（确定性子串匹配，供后端挂 selectedCharacterId） */
@@ -235,8 +234,7 @@ export function dramaScriptToScenes(
         beatType: scene.beatType ?? null,
       }),
       characters: [...new Set([...declaredCharacters, ...matchedCharacters])],
-      // 地点标签：短剧场景标题即地点/场景名，规整为 locationKey 供场景锚定分组
-      locationKey: deriveLocationKey(scene.title),
+      locationKey: deriveLocationKey(scene.locationKey),
       // 镜头语言透传：脚本携带则落库供出图/视频 prompt（scenes 路由按同名字段消费）。
       // 缺省字段不下传（`|| null` 兜底在 route 侧），保持产出对象干净且向后兼容。
       ...(scene.cameraAngle ? { cameraAngle: scene.cameraAngle } : {}),

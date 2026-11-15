@@ -14,7 +14,10 @@ import {
   executeAssistantAction,
   reconcileAssistantAction,
 } from "./tools";
-import { readAssistantAssetFingerprint } from "./planner";
+import {
+  readAssistantAssetFingerprint,
+  hasLegacyAssistantLocations,
+} from "./planner";
 import { readAssistantReviewFingerprint } from "./review-fingerprint";
 
 export async function runAssistantExecution(
@@ -110,10 +113,26 @@ export async function runAssistantExecution(
           configFingerprint: state.plan.configFingerprint,
           assetFingerprint: state.plan.assetFingerprint,
           reviewFingerprint: state.reviewFingerprint,
+          locationLabelsVersion: state.plan.locationLabelsVersion,
         };
       });
       if (!selected.result) return;
       const { step, options, configFingerprint } = selected.result;
+      if (
+        step.status !== "running" &&
+        selected.result.locationLabelsVersion !== 2 &&
+        (await hasLegacyAssistantLocations(userId, projectId))
+      ) {
+        await mutateExecution(id, userId, (state) => {
+          requireExecutionLease(state, token);
+          state.status = "paused";
+          state.requiresAttention = true;
+          state.resumeBlocked = true;
+          state.error =
+            "旧计划将剧情标题当作地点，请重新生成计划以校准物理地点；已有素材和费用记录已保留";
+        });
+        return;
+      }
       const actionInput = {
         userId,
         projectId,

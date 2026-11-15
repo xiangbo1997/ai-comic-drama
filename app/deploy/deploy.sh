@@ -34,6 +34,7 @@ EXCLUDES=(
   --exclude "node_modules"
   --exclude ".next"
   --exclude "public/uploads"
+  --exclude "/app/public/bgm/**/*.mp3"
   --exclude ".env"
   --exclude ".env.*"
   --exclude "tsconfig.tsbuildinfo"
@@ -105,6 +106,9 @@ fi
 
 echo "--- prisma generate"
 pnpm db:generate
+
+echo "--- provision and validate built-in BGM"
+node scripts/fetch-bgm.mjs
 
 echo "--- next build"
 pnpm build

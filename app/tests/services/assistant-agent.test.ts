@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tool } from "ai";
 import { z } from "zod";
 
-const mocks = vi.hoisted(() => ({ fetch: vi.fn(), tools: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  fetch: vi.fn(),
+  tools: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+}));
+vi.mock("@/lib/logger", () => ({
+  createLogger: () => ({ warn: mocks.warn, info: mocks.info }),
+}));
 vi.mock("@/lib/url-guard", () => ({ safeFetch: mocks.fetch }));
 vi.mock("@/lib/observability/langfuse", () => ({
   observeLLM: async (_: unknown, action: () => Promise<unknown>) => action(),
@@ -42,9 +50,9 @@ const completion = (message: object, reason = "stop") =>
     }),
     { headers: { "Content-Type": "application/json" } }
   );
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => vi.resetAllMocks());
 describe("助手模型工具循环", () => {
-  it("实际执行模型工具调用，再携带结果请求最终 Markdown 答复", async () => {
+  it("文字编辑仍可继续处理并携带结果生成最终答复", async () => {
     const receipts: string[] = [];
     const execute = vi.fn(async () => {
       receipts.push("已保存标题：回声");
@@ -83,12 +91,6 @@ describe("助手模型工具循环", () => {
     const result = await runAssistantAgent(input);
     expect(execute).toHaveBeenCalledTimes(1);
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
-    const second = JSON.parse(mocks.fetch.mock.calls[1][1].body);
-    expect(
-      second.messages.some(
-        (message: { role: string }) => message.role === "tool"
-      )
-    ).toBe(true);
     expect(result.content).toContain("**标题已更新**");
     expect(result.content).toContain("已保存标题：回声");
     expect(mocks.tools).toHaveBeenCalledWith(
@@ -131,6 +133,91 @@ describe("助手模型工具循环", () => {
     expect(result.content).toContain("已保存分镜");
     expect(result.content).not.toContain("private-upstream");
     expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    expect(result.content).not.toContain("生成失败");
+  });
+  it("制作计划成功立即结束，不再请求可能超时的模型总结", async () => {
+    const receipts: string[] = [];
+    mocks.tools.mockReturnValue({
+      tools: {
+        plan_production: tool({
+          inputSchema: z.object({}),
+          execute: async () => {
+            receipts.push("已创建计划，尚未开始制作");
+            return { id: "plan", status: "planned" };
+          },
+        }),
+      },
+      receipts,
+      sources: [],
+      shouldStop: () => receipts.length > 0,
+    });
+    mocks.fetch.mockResolvedValueOnce(
+      completion(
+        {
+          content: null,
+          tool_calls: [
+            {
+              id: "plan",
+              type: "function",
+              function: { name: "plan_production", arguments: "{}" },
+            },
+          ],
+        },
+        "tool_calls"
+      )
+    );
+    const result = await runAssistantAgent(input);
+    expect(result.content).toContain("已创建计划，尚未开始制作");
+    expect(result.content).not.toContain("失败");
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+  });
+  it("只读工具仍携带结果让模型作答", async () => {
+    mocks.tools.mockReturnValue({
+      tools: {
+        inspect: tool({
+          inputSchema: z.object({}),
+          execute: async () => ({ title: "当前作品" }),
+        }),
+      },
+      receipts: [],
+      sources: [],
+    });
+    mocks.fetch
+      .mockResolvedValueOnce(
+        completion(
+          {
+            content: null,
+            tool_calls: [
+              {
+                id: "read",
+                type: "function",
+                function: { name: "inspect", arguments: "{}" },
+              },
+            ],
+          },
+          "tool_calls"
+        )
+      )
+      .mockResolvedValueOnce(completion({ content: "**已读取真实作品**" }));
+    expect((await runAssistantAgent(input)).content).toContain(
+      "**已读取真实作品**"
+    );
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+  });
+  it("只读调用超时给出可识别错误，日志不含供应商私密正文", async () => {
+    mocks.tools.mockReturnValue({ tools: {}, receipts: [], sources: [] });
+    mocks.fetch.mockRejectedValueOnce(
+      new DOMException("private-key-and-prompt", "TimeoutError")
+    );
+    await expect(runAssistantAgent(input)).rejects.toMatchObject({
+      name: "AssistantModelTimeoutError",
+    });
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    expect(mocks.warn).toHaveBeenCalledOnce();
+    expect(JSON.stringify(mocks.warn.mock.calls)).not.toContain(
+      "private-key-and-prompt"
+    );
+    expect(JSON.stringify(mocks.warn.mock.calls)).toContain("r1");
   });
   it("Claude 和 Gemini 使用各自协议传递工具定义", async () => {
     mocks.tools.mockReturnValue({

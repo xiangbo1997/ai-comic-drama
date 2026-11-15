@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { rateLimiters, rateLimitHeaders } from "@/lib/rate-limit";
 import { AssistantStoreError } from "@/services/assistant-store";
 import { AssistantReplyError } from "@/services/assistant-reply";
+import { AssistantModelTimeoutError } from "@/lib/assistant-errors";
 
 export const assistantScopeSchema = z
   .object({
@@ -80,6 +81,8 @@ export async function assistantBody(request: NextRequest): Promise<unknown> {
 }
 
 export function assistantErrorResponse(error: unknown) {
+  if (error instanceof AssistantModelTimeoutError)
+    return NextResponse.json({ error: error.message }, { status: 504 });
   if (
     error instanceof AssistantStoreError ||
     error instanceof AssistantReplyError

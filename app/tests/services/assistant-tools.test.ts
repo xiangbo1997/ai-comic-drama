@@ -8,6 +8,11 @@ const mocks = vi.hoisted(() => ({
   search: vi.fn(),
   plan: vi.fn(),
   latest: vi.fn(),
+  bgm: vi.fn(),
+}));
+vi.mock("@/services/assistant-bgm", async (original) => ({
+  ...(await original<typeof import("@/services/assistant-bgm")>()),
+  configureAssistantBgm: mocks.bgm,
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -23,6 +28,7 @@ vi.mock("@/services/assistant-execution/store", () => ({
   latestAssistantExecution: mocks.latest,
 }));
 import { createAssistantTools } from "@/services/assistant-tools";
+import { resolveAssistantIntent } from "@/lib/assistant-intent";
 
 const context = {
   userId: "u1",
@@ -46,6 +52,34 @@ beforeEach(() => {
   mocks.scenes.mockResolvedValue([{ id: "scene-1", description: "开门" }]);
 });
 describe("项目助手工具", () => {
+  it.each([true, false])(
+    "混合配乐与视觉请求不能在首个回执后提前停止（配乐先执行：%s）",
+    async (bgmFirst) => {
+      mocks.plan.mockResolvedValue({ id: "run-1", status: "planned" });
+      mocks.bgm.mockResolvedValue({
+        summary: "配乐已保存",
+        note: "需重新导出",
+      });
+      const { tools, shouldStop } = createAssistantTools({
+        ...context,
+        intent: resolveAssistantIntent("补齐图片并添加BGM"),
+      });
+      const bgm = () =>
+        tools.configure_bgm.execute!(
+          { mode: "auto" },
+          { toolCallId: "bgm", messages: [] }
+        );
+      const plan = () =>
+        tools.plan_production.execute!(
+          { maxCredits: 100, generateVideos: false, maxRepairRounds: 1 },
+          { toolCallId: "plan", messages: [] }
+        );
+      await (bgmFirst ? bgm() : plan());
+      expect(shouldStop()).toBe(false);
+      await (bgmFirst ? plan() : bgm());
+      expect(shouldStop()).toBe(true);
+    }
+  );
   it("分镜修改严格绑定当前用户与作品，并返回真实回执", async () => {
     const result = await invoke("update_scene", {
       sceneId: "scene-1",
@@ -120,6 +154,23 @@ describe("项目助手工具", () => {
       "p1",
       expect.objectContaining({ maxCredits: 100 })
     );
+  });
+  it("配乐请求即使模型误调视觉计划也不得创建图片制作任务", async () => {
+    const { tools } = createAssistantTools({
+      ...context,
+      intent: resolveAssistantIntent("帮我加背景音乐"),
+    });
+    await expect(
+      tools.plan_production.execute!(
+        {
+          maxCredits: 1000,
+          generateVideos: false,
+          maxRepairRounds: 1,
+        },
+        { toolCallId: "wrong-plan", messages: [] }
+      )
+    ).rejects.toThrow(/配乐|音乐|BGM/);
+    expect(mocks.plan).not.toHaveBeenCalled();
   });
   it("保存当前作品并阻止归属变化后的写入", async () => {
     expect(

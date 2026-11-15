@@ -38,6 +38,8 @@ export interface DramaSceneScript {
   index: number;
   /** 场景标题 */
   title: string;
+  /** 物理地点短标签；同地点跨镜复用，不能用剧情标题代替。旧脚本缺失时再标注。 */
+  locationKey?: string | null;
   /** 画面描述 */
   description: string;
   /** 对白（可为空） */

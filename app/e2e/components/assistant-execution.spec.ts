@@ -98,6 +98,12 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("tab", { name: "自动制作", exact: true }).click();
 });
 
+test("视觉制作入口明确说明音频边界，配乐使用对话入口", async ({ page }) => {
+  await expect(page.getByText(/此流程用于场景参考.*不含配乐/)).toBeVisible();
+  await expect(page.getByText(/只需背景音乐时.*免费曲库配乐/)).toBeVisible();
+  expect(writeRequests.get(page)).toHaveLength(0);
+});
+
 test("打开执行页只读取已有任务，不自动计划或执行", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "当前集自动制作" })

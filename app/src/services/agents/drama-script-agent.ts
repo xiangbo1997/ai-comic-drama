@@ -29,6 +29,7 @@ const log = createLogger("agent:drama-script");
 const DramaSceneSchema = z.object({
   index: z.number(),
   title: z.string().min(1),
+  locationKey: z.string().trim().min(1).max(20).nullish().catch(undefined),
   description: z.string().min(10),
   dialogue: z.string().nullable(),
   narration: z.string().nullable(),

@@ -8,12 +8,20 @@ import {
 } from "./assistant-execution/store";
 import { listAssistantSkills, readAssistantSkill } from "./assistant-skills";
 import { searchAssistantWeb } from "./assistant-web-search";
+import { AssistantToolError } from "@/lib/assistant-errors";
+import type { AssistantIntent } from "@/lib/assistant-intent";
+import {
+  AssistantBgmOptionsZ,
+  configureAssistantBgm,
+  readAssistantBgm,
+} from "./assistant-bgm";
 
 interface ToolContext {
   userId: string;
   projectId?: string;
   seriesId?: string | null;
   requestId: string;
+  intent?: AssistantIntent;
 }
 const sceneChanges = z
   .object({
@@ -39,6 +47,8 @@ const projectChanges = z
 
 export function createAssistantTools(context: ToolContext) {
   const receipts: string[] = [];
+  let bgmSaved = false;
+  let planSaved = false;
   const sources: string[] = [];
   let calls = 0;
   let queue = Promise.resolve();
@@ -234,11 +244,39 @@ export function createAssistantTools(context: ToolContext) {
         return { success: true, summary, changes };
       },
     }),
+    read_bgm: tool({
+      description:
+        "读取当前集真实配乐配置和免费内置曲库。只读，无需制作预算，不生成图片或视频。",
+      inputSchema: z.object({}).strict(),
+      execute: async () => readAssistantBgm(context),
+    }),
+    configure_bgm: tool({
+      description:
+        "按用户明确要求直接保存本集背景音乐。auto按剧情情绪选免费内置曲，track指定曲库trackId，adjust仅调音量/对白闪避/淡入淡出，on恢复原配乐，off关闭。已有配乐需用户明确要求换曲才替换。不需要积分预算、不生成图像/视频，不会改写已导出成片。",
+      inputSchema: AssistantBgmOptionsZ,
+      execute: async (input, options) => {
+        if (!context.intent)
+          throw new AssistantToolError("请明确本轮配乐操作要求");
+        const result = await configureAssistantBgm(
+          context,
+          input,
+          context.intent,
+          options.abortSignal
+        );
+        receipts.push(`${result.summary}。${result.note}`);
+        bgmSaved = true;
+        return result;
+      },
+    }),
     plan_production: tool({
       description:
-        "使用当前项目制作工具创建真实自动制作计划；用户需给出积分上限，不能自行编造预算。不会扣费或启动制作，计划可在自动制作页确认执行。",
+        "仅用于图片/场景参考/视觉检查/视频的自动制作计划，不含配乐或音频。仅加BGM时必须用configure_bgm，不能创建本计划。用户需给出积分上限，不能编造预算。计划可在自动制作页确认执行。",
       inputSchema: AssistantExecutionOptionsZ,
       execute: async (input) => {
+        if (context.intent?.bgmOnly)
+          throw new AssistantToolError(
+            "本轮仅处理背景音乐，请使用read_bgm/configure_bgm；视觉制作计划不包含配乐，未创建计划"
+          );
         const options = AssistantExecutionOptionsZ.parse(input);
         const projectId = await assertProject();
         const result = await createAssistantExecution(
@@ -248,8 +286,9 @@ export function createAssistantTools(context: ToolContext) {
           options
         );
         receipts.push(
-          `已创建自动制作计划 ${result.id}，请在「自动制作」查看并确认执行。`
+          `已创建自动制作计划 ${result.id}，尚未开始制作。${result.plan?.blockers.length ? `当前不可执行：${result.plan.blockers.slice(0, 3).join("；")}。` : ""}请在「自动制作」查看并确认执行。`
         );
+        planSaved = true;
         return result;
       },
     }),
@@ -276,7 +315,8 @@ export function createAssistantTools(context: ToolContext) {
         try {
           args[1].abortSignal?.throwIfAborted();
           return await execute(...args);
-        } catch {
+        } catch (error) {
+          if (error instanceof AssistantToolError) throw error;
           throw new Error(
             `工具 ${name} 未完成，请核对当前作品、输入参数或服务可用性`
           );
@@ -286,5 +326,12 @@ export function createAssistantTools(context: ToolContext) {
       },
     });
   }
-  return { tools, receipts, sources };
+  return {
+    tools,
+    receipts,
+    sources,
+    shouldStop: () =>
+      (bgmSaved && context.intent?.bgmOnly === true) ||
+      (planSaved && (!context.intent?.allowBgmWrite || bgmSaved)),
+  };
 }

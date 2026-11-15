@@ -633,4 +633,32 @@ describe("自主执行真实PG状态、租约与预算", () => {
     ).toBe(0);
     expect(await prisma.creditTransaction.count({ where: { userId } })).toBe(1);
   });
+  it("旧计划带剧情标题地点时暂停，不继续付费生成，保留已完成费用", async () => {
+    await prisma.scene.update({
+      where: { id: sceneId },
+      data: { locationKey: "剑悬颈", description: "刑台上剑悬颈" },
+    });
+    await prisma.shortDramaScript.create({
+      data: {
+        projectId,
+        scriptDoc: {
+          scenes: [{ title: "剑悬颈", description: "刑台上剑悬颈" }],
+        },
+      },
+    });
+    const created = await plan();
+    await confirm(created.id);
+    await mutateExecution(created.id, userId, (state) => {
+      delete state.plan.locationLabelsVersion;
+      state.steps[0].status = "completed";
+      state.budget.spent = 7;
+    });
+    await runAssistantExecution(created.id);
+    const state = await readAssistantExecution(userId, created.id);
+    expect(state.status).toBe("paused");
+    expect(state.resumeBlocked).toBe(true);
+    expect(state.error).toContain("剧情标题");
+    expect(state.budget.spent).toBe(7);
+    expect(executeAssistantAction).not.toHaveBeenCalled();
+  });
 });

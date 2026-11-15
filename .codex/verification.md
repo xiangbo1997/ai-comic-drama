@@ -321,3 +321,38 @@
 - Git正常提交与push，不force push；部署记录随第二个docs提交交付，最终远端SHA核对写入同目录git-delivery.json。
 
 - 推送认证处理：HTTPS无凭据；服务器现有GitHub SSH身份已验证为xiangbo1997，仓库push URL改用既有SSH认证（fetch URL保留HTTPS），不创建新密钥或改全局配置。
+
+## 2026-11-15 AI 创作助手运行排查（只读）
+- 验证命令：systemctl show ai-comic-drama.service；journalctl自11:27启动；本机GET /api/health；PG只读查询 AssistantRequest/Message 与 GenerationTask.output；核对 assistant-agent.ts/assistant-tools.ts/assistant-execution/planner.ts。
+- 服务：active/running、NRestarts=0；health ok=true/commit=c3ba27d。
+- 聊天：最新请求11:39:25.530→11:40:40.629（75.099秒），计划11:40:17.002保存。模型总结失败已保存兜底回执；代码75秒deadline支持超时判断，但没有原始异常记录，不能确认具体异常类型。
+- 执行：11:51:36 UTC快照 running，11/32步完成，10积分已花/1预留/上限1000，未记录错误；“COMPLETED”外层不能当制作成功。
+- 功能边界：此次计划仅prepare+30 location+inspect，无BGM/音频步骤；generateVideos=false。30镜已有30图，30个locationKey与动作标题吻合而非稳定物理地点。
+- 结果：已定位聊天总结期限、BGM意图与通用视觉计划不匹配、动作标题造成地点参考扩增；没有修复或部署。无需代码测试/构建，避免影响正在运行的生产任务。只更新工作流记录，未泄露凭据。
+
+- 助手修复阶段记录：首批7文件RED复现旧地点/额外模型请求等缺陷；修复后9文件86项定向回归通过，新增独立PG与旧计划续跑用例。首轮类型检查发现normalize返回unknown的局部类型问题已补强；Prisma 7 CLI不支持--skip-generate，未发生schema写入，改用显式隔离--url成功初始化临时库（127.0.0.1:32771/ai_comic_verify_bgm），未修改生产库。
+
+## 2026-11-15 AI 创作助手运行缺陷与配乐能力最终验收
+
+- 项目 init/taskflow/governance 为主，ECC tdd/coding/security/verification 仅作补充。sequential-thinking 未暴露，人工推理/阶段记录/回退已写入 reasoning、plan、operations-log；无全局权限或 MCP 配置变更。
+- 修复：独立配乐工具与真实用户意图约束；单曲选取、音量/对白闪避/淡入淡出、关闭/恢复与手动配乐保留；真实保存回执后结束相应任务，混合视觉+配乐须两种回执；模型总结失败不抹去已完成操作，超时504与脱敏日志。
+- 地点：新脚本独立物理地点字段；仅按原脚本证据识别旧剧情标题，准备阶段重新统一标注，失败或并发变化暂停；旧在途计划新步骤前阻断，已提交动作先核对收尾；不删除既有图片、地点行或费用记录。
+- 追加根因：内置21首MP3全部缺失，旧服务器URL404；已真实下载约110MB（仍被Git忽略），增加大小/MPEG帧校验、可用曲库筛选、90秒/64MB限制、原子落盘、幂等下载、仅检查模式和部署保留/构建前补齐。助手只提供可验证的单曲配置，不暴露导出端不会生效的自动分段参数。
+
+| 验证 | 最终结果与证据 |
+| --- | --- |
+| 全量单元 `pnpm exec vitest run --maxWorkers=2` | 207文件、2478项通过；最终47.27秒；`/tmp/ai-comic-assistant-bugfix-all-tests.log` |
+| 隔离真实PG集成 | 3文件、35项通过；真实SDK工具解析→配乐保存、无扣积分/无视觉任务、配置并发锁/归属隔离、旧计划防护、记忆回归；`/tmp/ai-comic-assistant-bugfix-pg-tests.log` |
+| 浏览器组件 | 助手与自动制作26项通过；`/tmp/ai-comic-assistant-bugfix-browser.log` |
+| 相关8模块定向覆盖 | 9文件66项通过；行95.89%、分支92.34%、语句95.27%；不是全仓库覆盖率；`/tmp/ai-comic-assistant-bugfix-coverage.log` 与同名报告目录 |
+| 类型/静态 | `pnpm type-check`、35份变更TS/TSX/MJS的ESLint与Prettier、`git diff --check`、`bash -n app/deploy/deploy.sh`通过；对应types/eslint/format-check日志在`/tmp/ai-comic-assistant-bugfix-*` |
+| 真实音频 | 下载21/21；`--check`全通过；ffprobe全部为有效MP3，时长/音轨有效；`/tmp/ai-comic-assistant-bgm-media.json` |
+| 部署过滤 | 独立本地rsync带`--delete`实测保留服务器MP3，同时更新README；未执行真实部署脚本 |
+| 最终隔离生产构建 | `pnpm build`退出0、无警告；133路由、29个唯一SKILL.md；568份src源文件SHA与最终工作区完全一致；保留原uploads路由；`/tmp/ai-comic-assistant-bugfix-build.log` |
+| 隔离启动HTTP冒烟 | 27项通过：health200且测试版本、登录200、受保护页307转登录、助手读/写/执行匿名401、21首MP3各HEAD200与Range206且内容吻合；`/tmp/ai-comic-assistant-bugfix-smoke.json` |
+
+- 独立构建目录：`/tmp/ai-comic-assistant-bugfix-build-20261115-kmtri0qp/app`。依赖和固定public素材以硬链接节省空间，src独立拷贝；无生产环境文件、用户上传或生产数据库副本。构建与冒烟只使用测试配置/隔离PG。测试启动进程已结束。
+- 异常记录：预期RED回归先失败；normalize返回unknown的类型问题已修正；隔离Prisma首条CLI不支持`--skip-generate`，未发生写入，改用显式隔离URL成功；首次HTTP脚本误向仅支持POST/DELETE的messages接口发GET预期401，实际405符合路由定义，改为真实历史GET `/api/assistant`后27项全过。最后移除无效分段参数后，全量/PG/定向覆盖/类型/构建/HTTP均复验。
+- 交付边界：源码完成，尚未提交/推送或部署本轮补丁；生产仍c3ba27d、PID1461638、active/running且NRestarts=0。未修改生产作品数据、停止原制作、调用付费生成或迁移schema。公共MP3已补齐，但旧进程未重启，不能宣称线上新功能或旧导出成片已更新。回退按本轮文件差异撤销，保留既有排查记录和运行数据。
+
+- 收尾核对：仅本轮隔离PG容器 ai-comic-assistant-bugfix-verify-20261115 已停止并移除，隔离3199服务已结束；生产PID1461638、NRestarts=0、health ok=true/version=c3ba27d。最终568份src与成功构建SHA仍一致。

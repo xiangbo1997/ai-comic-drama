@@ -17,6 +17,7 @@
 ```bash
 cd app
 node scripts/fetch-bgm.mjs   # 下载 21 首到 public/bgm/<分类>/
+node scripts/fetch-bgm.mjs --check # 仅检查完整性，缺失或损坏时退出非零
 pnpm build                   # 必须！见下方说明
 # 重启服务
 ```
@@ -24,6 +25,10 @@ pnpm build                   # 必须！见下方说明
 **⚠️ 下载后必须重新 build**：Next.js 生产模式（`next start`）只服务 build
 时刻的 `public/` 快照。build 之后才放进空目录的文件不会被识别（404）。
 所以填充曲库的正确顺序是 **下载 mp3 → build → restart**，缺一不可。
+
+脚本跳过有效文件，最多并发 3 首，每首限时 90 秒、限 64MB；下载到临时文件，校验大小和 MPEG 音频帧后才原子替换。下载失败不覆盖已有文件。
+`deploy/deploy.sh` 会保留服务器 MP3，在构建前补齐并校验全部曲目；失败则停止发布。
+助手只列出实际可用曲目；文件缺失时拒绝配置，避免返回成功后试听或导出 404。
 
 ## 添加新曲目
 

@@ -16,6 +16,7 @@ import {
   buildPlateNegative,
 } from "@/services/generation/location-plate";
 import type { AssistantActionInput, AssistantActionResult } from "./tool-types";
+import { legacyTitleLocationIds } from "@/lib/drama-locations";
 
 export async function quoteLocationTool(
   input: AssistantActionInput
@@ -130,6 +131,8 @@ export async function executeLocationTool(
     select: { description: true },
     take: 20,
   });
+  if (!samples.length)
+    throw new Error("地点已不属于当前分镜，请重新生成计划；未提交背景生成");
   const prompt = buildPlatePrompt({
     locationKey: location.locationKey,
     description: location.description,
@@ -208,7 +211,24 @@ async function prepareLocations(
   });
   if (scenes.length > 100)
     throw new Error("当前集超过100个分镜，请拆分后再自动制作");
-  const unlabeled = scenes.filter((scene) => !scene.locationKey?.trim());
+  const script = await prisma.project.findFirst({
+    where: { id: input.projectId, userId: input.userId },
+    select: {
+      shortDramaScripts: {
+        orderBy: { updatedAt: "desc" },
+        take: 1,
+        select: { scriptDoc: true },
+      },
+    },
+  });
+  if (!script) throw new Error("项目不存在或无权访问");
+  const legacyIds = legacyTitleLocationIds(
+    scenes,
+    script.shortDramaScripts?.[0]?.scriptDoc
+  );
+  const unlabeled = scenes.filter(
+    (scene) => !scene.locationKey?.trim() || legacyIds.has(scene.id)
+  );
   const rows = await prisma.projectLocation.findMany({
     where: { projectId: input.projectId },
     select: { locationKey: true, description: true },
@@ -238,6 +258,38 @@ async function prepareLocations(
     );
     if (await isStopped(input)) return stoppedResult(taskId);
     const labels = parseLabelOutput(raw, unlabeled);
+    // 部分标注不能触发其余旧标签的批量生图，先暂停等待检查。
+    if (labels.length !== unlabeled.length)
+      return {
+        taskId,
+        actualCost: 0,
+        requiresReview: true,
+        artifact: {
+          title: "地点标注未完整完成，请检查后重新计划",
+          locations: [],
+          labeled: 0,
+          described: 0,
+        },
+      };
+    if (
+      labels.some(
+        (label) =>
+          legacyIds.has(label.sceneId) &&
+          unlabeled.find((scene) => scene.id === label.sceneId)?.locationKey ===
+            label.locationKey
+      )
+    )
+      return {
+        taskId,
+        actualCost: 0,
+        requiresReview: true,
+        artifact: {
+          title: "地点仍沿用剧情标题，请检查物理地点后重新计划",
+          locations: [],
+          labeled: 0,
+          described: 0,
+        },
+      };
     const initial = new Map(unlabeled.map((scene) => [scene.id, scene]));
     await prisma.$transaction(async (tx) => {
       for (const label of labels) {
@@ -249,6 +301,7 @@ async function prepareLocations(
             projectId: input.projectId,
             description: source.description,
             locationKey: source.locationKey,
+            order: source.order,
           },
           data: { locationKey: label.locationKey },
         });
@@ -258,7 +311,18 @@ async function prepareLocations(
         } else needsReview = true;
       }
     });
-    if (labels.length !== unlabeled.length) needsReview = true;
+    if (needsReview)
+      return {
+        taskId,
+        actualCost: 0,
+        requiresReview: true,
+        artifact: {
+          title: "地点标注期间分镜已变化，请检查后重新计划",
+          locations: [],
+          labeled,
+          described: 0,
+        },
+      };
   }
   const samples = new Map<string, string[]>();
   for (const scene of scenes) {

@@ -10,13 +10,19 @@
  * 注意：下载后需重新 `pnpm build`——Next 生产模式只服务 build 时刻的
  *       public 快照，build 后新增到空目录的文件需重 build 才能被服务。
  */
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, rename, rm } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { isUsableBgmFile } from "../src/lib/bgm-files.mjs";
 
 const BASE = "https://ia801509.us.archive.org/18/items/freepd/";
 
 // [category, archive 源文件名, 落地文件名]——落地名须与 bgm-library.ts 的 url 对齐
-const TRACKS = [
+export const TRACKS = [
   ["calm", "Page2/Ambient E Singing Bells.mp3", "singing-bells.mp3"],
   ["calm", "Page2/Ambient L Delicate.mp3", "delicate.mp3"],
   ["calm", "Page2/Calm Sketch for Piano.mp3", "calm-piano.mp3"],
@@ -48,24 +54,75 @@ const TRACKS = [
   ],
 ];
 
-let ok = 0;
-for (const [cat, src, fn] of TRACKS) {
-  const out = `public/bgm/${cat}/${fn}`;
+export async function fetchBgmTrack(
+  track,
+  root,
+  { checkOnly = false, fetchImpl = fetch, timeoutMs = 90_000 } = {}
+) {
+  const [cat, src, fn] = track;
+  const out = join(root, cat, fn);
+  if (await isUsableBgmFile(out)) return "EXISTS";
+  if (checkOnly) throw new Error("missing or invalid MP3");
   const url = BASE + encodeURIComponent(src).replace(/%2F/g, "/");
+  const temporary = `${out}.${randomUUID()}.tmp`;
   try {
-    const res = await fetch(url, {
+    const signal = AbortSignal.timeout(timeoutMs);
+    const res = await fetchImpl(url, {
       headers: { "User-Agent": "Mozilla/5.0" },
+      signal,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 50000) throw new Error(`too small (${buf.length}b)`);
+    if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+    let size = 0;
+    const limit = new Transform({
+      transform(chunk, encoding, callback) {
+        size += chunk.length;
+        callback(
+          size > 64 * 1024 * 1024 ? new Error("MP3 exceeds 64 MB") : null,
+          chunk
+        );
+      },
+    });
     await mkdir(dirname(out), { recursive: true });
-    await writeFile(out, buf);
-    ok += 1;
-    console.log(`OK   ${out}  ${buf.length}b`);
-  } catch (err) {
-    console.log(`FAIL ${out}  ${err.message}`);
+    await pipeline(
+      Readable.fromWeb(res.body),
+      limit,
+      createWriteStream(temporary, { flags: "wx" }),
+      { signal }
+    );
+    if (!(await isUsableBgmFile(temporary)))
+      throw new Error("invalid MP3 payload");
+    await rename(temporary, out);
+    return "OK";
+  } finally {
+    await rm(temporary, { force: true });
   }
 }
-console.log(`DONE ${ok}/${TRACKS.length}`);
-if (ok < TRACKS.length) process.exitCode = 1;
+
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  const root = fileURLToPath(new URL("../public/bgm/", import.meta.url));
+  let ok = 0;
+  const pending = [...TRACKS];
+  // 限制并发与单曲超时，部署缺素材时失败退出，不进入构建或重启。
+  await Promise.all(
+    Array.from({ length: 3 }, async () => {
+      for (;;) {
+        const track = pending.shift();
+        if (!track) return;
+        try {
+          const result = await fetchBgmTrack(track, root, {
+            checkOnly: process.argv.includes("--check"),
+          });
+          ok++;
+          console.log(`${result} ${track[0]}/${track[2]}`);
+        } catch (error) {
+          console.error(`FAIL ${track[0]}/${track[2]} ${error.message}`);
+        }
+      }
+    })
+  );
+  console.log(`DONE ${ok}/${TRACKS.length}`);
+  if (ok < TRACKS.length) process.exitCode = 1;
+}

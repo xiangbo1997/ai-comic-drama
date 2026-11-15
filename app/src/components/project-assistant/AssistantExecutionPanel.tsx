@@ -167,6 +167,9 @@ function ProjectExecution({
         <p className="text-muted-foreground text-sm">
           先查看可执行计划，再一次确认。确认后由后台制作，关闭页面也会继续；重新打开可查看进度和结果。
         </p>
+        <p className="text-muted-foreground text-xs">
+          此流程用于场景参考、图片、连续性检查和可选视频，不含配乐、配音或成片导出。只需背景音乐时，请在「对话」中要求添加免费曲库配乐。
+        </p>
       </div>
       {state.loading && (
         <p className="text-muted-foreground flex items-center gap-2 text-sm">

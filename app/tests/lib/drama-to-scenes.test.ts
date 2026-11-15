@@ -64,6 +64,18 @@ const storyboard: StoryboardTableArtifact = {
 };
 
 describe("dramaScriptToScenes", () => {
+  it("剧情标题不能直接充当地点，缺独立地点时交给地点标注", () => {
+    const scenes = dramaScriptToScenes(makeDoc(), null);
+    expect(scenes.map((scene) => scene.locationKey)).toEqual([null, null]);
+  });
+  it("同一物理地点跨不同剧情标题使用显式locationKey", () => {
+    const doc = makeDoc();
+    Object.assign(doc.scenes[0], { locationKey: "刑台" });
+    Object.assign(doc.scenes[1], { locationKey: "刑台" });
+    expect(
+      dramaScriptToScenes(doc, null).map((scene) => scene.locationKey)
+    ).toEqual(["刑台", "刑台"]);
+  });
   it("无九宫格：逐场景映射基础字段", () => {
     const scenes = dramaScriptToScenes(makeDoc(), null);
     expect(scenes).toHaveLength(2);

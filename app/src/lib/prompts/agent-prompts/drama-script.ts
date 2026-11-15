@@ -31,7 +31,8 @@ export const DRAMA_SCRIPT_SYSTEM = `你是一位专业的 AI 短剧编剧，擅�
 输出要求（严格遵守）：
 - 输出纯 JSON，不要 markdown 代码块，不要额外文字
 - 顶层字段：filmTitle、genre、durationSec、aspectRatio、style、protagonist、worldview、logline、hookType、beatSheet、scenes
-- scenes 是场景数组，每个场景含：index(从1起)、title、description、dialogue、narration、emotion、durationSec、characters，以及可选镜头语言字段
+- scenes 是场景数组，每个场景含：index(从1起)、title、locationKey、description、dialogue、narration、emotion、durationSec、characters，以及可选镜头语言字段
+- title 是剧情标题，locationKey 是独立的物理地点短标签（如“宗门刑台”）；同地点跨镜必须用完全相同的locationKey，换地点才换标签，禁止用“剑悬颈”“下令”等动作/情节标题作为地点。
 - characters：本镜画面中实际登场的角色名数组；名字必须与"已有角色"列表完全一致（有列表时），不要写代词或身份描述；纯空镜/环境镜给 []；只列画面里出现的人，不要把全剧角色都塞进去
 - emotion 必须为：neutral、happy、sad、angry、surprised、fear 之一
 - hookType 为本集结尾钩子类型，必须是：悬念、反转、情绪、信息、危机 之一
@@ -142,6 +143,7 @@ export function buildDramaScriptUserPrompt(input: DramaScriptInput): string {
         {
           index: 1,
           title: "开场危机（根据本集剧情填写）",
+          locationKey: "实际物理地点（同地点跨镜复用）",
           description: "主角的手停在关键物件上，危险的倒影逼近",
           dialogue: "别碰它。",
           narration: null,

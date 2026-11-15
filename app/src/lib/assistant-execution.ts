@@ -83,6 +83,7 @@ export interface AssistantExecutionPlan {
   locationCost?: number;
   unlabeledLocationSlots?: number;
   locationKeys?: string[];
+  locationLabelsVersion?: 2;
 }
 export interface AssistantExecutionSnapshot {
   id: string;

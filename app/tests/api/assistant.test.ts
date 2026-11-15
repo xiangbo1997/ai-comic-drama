@@ -11,6 +11,7 @@ import { GET } from "@/app/api/assistant/route";
 import { POST, DELETE } from "@/app/api/assistant/messages/route";
 import { PATCH } from "@/app/api/assistant/memory/route";
 import { assistantBody } from "@/lib/assistant-api";
+import { AssistantModelTimeoutError } from "@/lib/assistant-errors";
 
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/rate-limit", () => ({
@@ -57,6 +58,20 @@ beforeEach(() => {
   });
 });
 describe("助手路由校验", () => {
+  it("模型超时返回明确504，不让用户误判已保存的操作失败", async () => {
+    vi.mocked(sendAssistantMessage).mockRejectedValueOnce(
+      new AssistantModelTimeoutError()
+    );
+    const response = await POST(
+      request("/api/assistant/messages", "POST", {
+        projectId: "p1",
+        content: "当前进度",
+        requestId: "cd6e6199-37f8-48a9-90e8-68c680d50e56",
+      })
+    );
+    expect(response.status).toBe(504);
+    expect((await response.json()).error).toMatch(/超时.*查看/);
+  });
   it("所有入口拒绝未登录请求", async () => {
     vi.mocked(auth).mockResolvedValue(null as never);
     expect((await GET(request("/api/assistant?projectId=p1"))).status).toBe(
