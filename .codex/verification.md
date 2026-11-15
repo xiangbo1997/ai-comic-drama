@@ -356,3 +356,14 @@
 - 交付边界：源码完成，尚未提交/推送或部署本轮补丁；生产仍c3ba27d、PID1461638、active/running且NRestarts=0。未修改生产作品数据、停止原制作、调用付费生成或迁移schema。公共MP3已补齐，但旧进程未重启，不能宣称线上新功能或旧导出成片已更新。回退按本轮文件差异撤销，保留既有排查记录和运行数据。
 
 - 收尾核对：仅本轮隔离PG容器 ai-comic-assistant-bugfix-verify-20261115 已停止并移除，隔离3199服务已结束；生产PID1461638、NRestarts=0、health ok=true/version=c3ba27d。最终568份src与成功构建SHA仍一致。
+
+## 2026-11-15 助手修复生产部署与Git提交验收
+
+- 授权：用户明确要求部署并提交Git；项目init/taskflow/governance为主，ECC verification-loop补充；sequential-thinking不可调用，人工推理与回退已记录。没有schema迁移、生产作品测试写入或付费模型调用。
+- 应用提交：`edf1d2b`（`fix: honor assistant music requests and normalize scene locations`），42份修复/测试/文档文件；提交钩子35份代码Prettier/ESLint通过。未将MP3、环境文件、密钥或部署产物入库。
+- 真实生产环境下独立重建成功；728份生产/技能文件SHA与应用提交一致，133路由和29个唯一SKILL.md均保留，21首MP3校验通过。原测试配置未用于发布，生产环境文件只做受限临时拷贝且摘要前后不变。
+- 切换前两次只读确认活跃生成/助手执行/回复均0；2026-11-15 13:03:19 UTC同一systemd服务启动新版，PID1716649、active/running、NRestarts=0。原.next和版本标记已保留，自动回退分支未触发。
+- 51项部署冒烟全部通过：内外网health200且ok=true/commit=edf1d2b；公网login200、projects307转login、助手读/写/执行匿名401；新版助手JS公网200且SHA256与本次构建完全一致；21首音乐各本机Range206且内容一致、各公网HEAD200且类型/体积正确；原故障曲目公网Range206且内容正确。
+- 新服务当前invocation日志8条、错误0；13:04:16 UTC再次只读确认活跃生成/执行/回复均0。沿用上轮2478单元、35隔离PG、26组件浏览器及相关模块行95.89%的验证；本次没有生产付费模型端到端测试，不将匿名冒烟当成已验证真实模型生成。
+- 备份与证据：`/tmp/ai-comic-deploy-assistant-bugfix-20261115T130018Z-6ymbqjri/`，含旧.next、旧.git-commit、reviewed-files/patch、application-commit、environment-sha256、source-check、build.log、deployment.json、smoke.json、journal-check.json。失败时可恢复旧构建/版本标记并启动同一服务，不回滚用户数据。
+- 本轮Git只做本地正常提交，不执行push；部署记录另作docs提交，最终Git状态及提交回执保存在同目录git-delivery.json。
