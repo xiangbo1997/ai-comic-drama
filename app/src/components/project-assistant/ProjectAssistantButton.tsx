@@ -13,6 +13,7 @@ import {
   Play,
 } from "lucide-react";
 import { AssistantExecutionPanel } from "./AssistantExecutionPanel";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -163,7 +164,7 @@ function AssistantPanel({
           </p>
         )}
         <p className="text-muted-foreground text-xs">
-          结合本剧内容讨论创作，也可在「自动制作」查看计划并授权后台执行。
+          可联网查资料、使用项目技能，并按你的要求修改本集内容；制作计划在「自动制作」确认执行。
         </p>
         {assistant.snapshot?.context && (
           <p className="text-muted-foreground text-xs">
@@ -293,9 +294,13 @@ function AssistantPanel({
                 <p className="text-muted-foreground mb-1 text-xs">
                   {message.role === "user" ? "你" : "AI 助手"}
                 </p>
-                <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
-                  {message.content}
-                </p>
+                {message.role === "assistant" ? (
+                  <AssistantMarkdown content={message.content} />
+                ) : (
+                  <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                    {message.content}
+                  </p>
+                )}
                 {message.role === "assistant" && (
                   <Button
                     variant="ghost"
@@ -426,7 +431,7 @@ function AssistantPanel({
                 maxLength={4000}
                 value={draft}
                 disabled={chatDisabled}
-                placeholder="问 GPT、讨论剧情，或请助手比较方案…"
+                placeholder="查资料、讨论剧情，或直接告诉我如何修改当前作品…"
                 onChange={(event) => {
                   setDraft(event.target.value);
                   setFailedSend(false);

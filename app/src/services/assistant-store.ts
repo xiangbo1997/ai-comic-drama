@@ -189,6 +189,7 @@ export async function sendAssistantMessage(
       content: input.content,
       configId: input.configId,
       model: input.model,
+      requestId: input.requestId,
     });
     await prisma.$transaction(async (tx) => {
       const committed = await tx.assistantThread.updateMany({

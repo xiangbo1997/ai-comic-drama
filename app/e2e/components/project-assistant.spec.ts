@@ -47,6 +47,45 @@ test.beforeEach(async ({ page }) => {
   await page.getByRole("button", { name: "AI 助手", exact: true }).click();
 });
 
+test("Markdown 标题、列表、表格、代码与来源链接正确解析且不执行 HTML", async ({
+  page,
+}) => {
+  const content =
+    '## 创作建议\n\n**增强冲突**，保留 `钩子`。\n\n- 第一项\n- 第二项\n\n| 镜头 | 建议 |\n| --- | --- |\n| 1 | 开门 |\n\n```json\n{"shot":1}\n```\n\n[资料来源](https://example.com/film)\n\n[危险链接](javascript:alert(1))\n\n<script>window.markdownExecuted=true</script>\n<img src="x" onerror="window.markdownExecuted=true">';
+  await page.route("**/api/assistant?**", (route) =>
+    route.fulfill({
+      json: {
+        ...snapshot(),
+        messages: [{ ...snapshot().messages[0], content }],
+      },
+    })
+  );
+  await page.getByRole("button", { name: "刷新聊天" }).click();
+  const log = page.getByRole("log", { name: "本剧对话" });
+  await expect(log.getByRole("heading", { name: "创作建议" })).toBeVisible();
+  await expect(log.locator("strong")).toHaveText("增强冲突");
+  await expect(log.getByRole("listitem")).toHaveCount(2);
+  await expect(log.getByRole("cell", { name: "开门" })).toBeVisible();
+  await expect(log.locator("pre code")).toContainText('{"shot":1}');
+  await expect(log.getByRole("link", { name: "资料来源" })).toHaveAttribute(
+    "href",
+    "https://example.com/film"
+  );
+  await expect(log.locator('a[href^="javascript:"]')).toHaveCount(0);
+  await expect(log.locator("script, img")).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { markdownExecuted?: boolean }).markdownExecuted
+    )
+  ).toBeUndefined();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth
+    )
+  ).toBe(true);
+});
+
 test("显示当前剧上下文，建议加入记忆须显式保存，清空聊天须确认", async ({
   page,
 }) => {

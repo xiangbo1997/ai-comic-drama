@@ -42,7 +42,12 @@ EXCLUDES=(
   --exclude "coverage"
   --exclude ".codegraph"
   --exclude ".ace-tool"
-  --exclude ".claude"
+  # 助手运行时只需要项目技能文档，其余开发机配置继续排除。
+  --include "/.claude/"
+  --include "/.claude/skills/"
+  --include "/.claude/skills/*/"
+  --include "/.claude/skills/*/SKILL.md"
+  --exclude "/.claude/***"
   --exclude "._*"
   --exclude ".DS_Store"
 )

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 export type AssistantTarget =
   | { projectId: string; seriesId?: never }
@@ -51,6 +52,7 @@ async function readResponse<T>(response: Response): Promise<T> {
 }
 
 export function useProjectAssistant(target: AssistantTarget) {
+  const client = useQueryClient();
   const scopeId = target.projectId ?? target.seriesId;
   const scopeType = target.projectId ? "projectId" : "seriesId";
   const query = `${scopeType}=${encodeURIComponent(scopeId)}`;
@@ -146,6 +148,16 @@ export function useProjectAssistant(target: AssistantTarget) {
       );
       if (signal.aborted) return false;
       setSnapshot(result);
+      // 工具可能已保存标题或分镜，使编辑器和作品列表立即读取真实结果。
+      if (target.projectId) {
+        void client.invalidateQueries({
+          queryKey: ["project", target.projectId],
+        });
+        void client.invalidateQueries({
+          queryKey: ["assistant-execution", target.projectId],
+        });
+      }
+      void client.invalidateQueries({ queryKey: ["projects"] });
       retry.current = null;
       return true;
     } catch (err) {
