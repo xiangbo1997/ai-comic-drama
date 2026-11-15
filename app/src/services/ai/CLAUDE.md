@@ -66,6 +66,7 @@ estimateCost({ tokens?, images?, imagesWithRef?, video5s?, video10s?, ttsChars? 
 | protocol                   | Provider            |
 | -------------------------- | ------------------- |
 | `runway`                   | `runwayVideo`       |
+| `kling`                    | `klingVideo`        |
 | `fal`                      | `falVideo`          |
 | `proxy-unified` / `openai` | `proxyUnifiedVideo` |
 | 兜底                       | `runwayVideo`       |

@@ -8,6 +8,8 @@
  */
 
 import type { TestResult } from "./connectivity-test-types";
+import { createKlingAuthorization, klingUrl } from "./providers/kling";
+import { safeFetch } from "@/lib/url-guard";
 
 // OpenAI 兼容接口测试（DeepSeek、OpenAI、硅基流动等）
 export async function testOpenAICompatible(
@@ -144,15 +146,75 @@ export async function testLuma(apiKey: string): Promise<TestResult> {
   };
 }
 
-// 可灵测试（需要签名，这里简单验证格式）
+// 仅查询任务列表验证鉴权，不提交视频任务；不把凭据签发成功误当成上游认证通过。
 export async function testKling(
-  accessKey: string,
-  secretKey: string
+  apiKey: string,
+  secretKey: string,
+  baseUrl = ""
 ): Promise<TestResult> {
-  if (!accessKey || !secretKey) {
-    return { success: false, message: "需要 Access Key 和 Secret Key" };
+  if (!apiKey.trim()) {
+    return {
+      success: false,
+      message: "需要 API Key 或 Access Key",
+      errorType: "config",
+    };
   }
-  return { success: true, message: "配置格式正确（需实际调用验证）" };
+  try {
+    const response = await safeFetch(
+      klingUrl(baseUrl, "/videos/image2video?pageNum=1&pageSize=1"),
+      {
+        method: "GET",
+        headers: {
+          Authorization: createKlingAuthorization({
+            apiKey,
+            extraConfig: { secretKey },
+          }),
+          "Content-Type": "application/json",
+        },
+        signal: AbortSignal.timeout(15_000),
+      }
+    );
+    if (!response.ok) {
+      return {
+        success: false,
+        message: `Kling 连接失败（HTTP ${response.status}）`,
+        errorType: [401, 403].includes(response.status) ? "auth" : "network",
+      };
+    }
+    const body: unknown = await response.json().catch(() => null);
+    if (!body || typeof body !== "object" || !("code" in body)) {
+      return {
+        success: false,
+        message: "Kling 响应不是有效的任务列表",
+        errorType: "config",
+      };
+    }
+    const data = body as { code: unknown; data?: unknown };
+    if (data.code !== 0) {
+      return {
+        success: false,
+        message: "Kling 鉴权或请求失败，请检查密钥、权限及服务地址",
+        errorType: "auth",
+      };
+    }
+    if (!Array.isArray(data.data)) {
+      return {
+        success: false,
+        message: "Kling 响应缺少任务列表",
+        errorType: "config",
+      };
+    }
+    return {
+      success: true,
+      message: "Kling 连接成功（仅查询任务列表，未验证模型生成权限与余额）",
+    };
+  } catch {
+    return {
+      success: false,
+      message: "Kling 连接失败，请检查网络或服务地址",
+      errorType: "network",
+    };
+  }
 }
 
 // MiniMax 测试

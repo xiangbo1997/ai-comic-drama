@@ -89,7 +89,11 @@ async function assembleServiceConfig(
     selectedModel: string | null;
     authType: string | null;
     extraConfig?: unknown;
-    provider: { baseUrl: string | null; apiProtocol: string | null };
+    provider: {
+      baseUrl: string | null;
+      apiProtocol: string | null;
+      slug?: string;
+    };
   },
   fallbackModel = "",
   defaultProtocol = ""
@@ -112,7 +116,10 @@ async function assembleServiceConfig(
   // default 静默当 openai 处理，表现为「配了 X 协议却按 OpenAI 发请求」的
   // 难排查故障。空串是合法的历史配置形态（下游按 baseUrl 推断），放行。
   const rawProtocol =
-    config.apiProtocol || config.provider.apiProtocol || defaultProtocol;
+    config.apiProtocol ||
+    config.provider.apiProtocol ||
+    // 早期 Kling seed 行没有 apiProtocol；按 slug 兼容这些已保存配置。
+    (config.provider.slug === "kling" ? "kling" : defaultProtocol);
   if (rawProtocol !== "" && !isAIProviderProtocol(rawProtocol)) {
     throw new Error(
       `未知的 AI 协议「${rawProtocol}」，请在 AI 模型设置中检查该配置的协议类型`

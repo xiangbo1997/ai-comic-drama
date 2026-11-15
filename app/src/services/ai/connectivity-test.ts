@@ -51,6 +51,7 @@ import {
   testGptSovits,
 } from "./connectivity-test-connection-probes";
 import { resolveVolcengineCredentials } from "./providers/tts/volcengine-config";
+import { resolveKlingCredentials } from "./providers/kling";
 import { testTTSModelListing } from "./connectivity-test-tts";
 
 const log = createLogger("services:ai:connectivity-test");
@@ -78,6 +79,17 @@ export async function testProviderConnectivity(
 ): Promise<TestResult> {
   const { modelId } = config;
   try {
+    // 在模型聊天探测和自定义提供商兜底之前分发，兼容缺少 apiProtocol 的旧预设。
+    if (
+      config.category === "VIDEO" &&
+      (config.apiProtocol || config.slug) === "kling"
+    ) {
+      const { accessKey, secretKey } = resolveKlingCredentials({
+        apiKey: config.apiKey,
+        extraConfig: config.extraConfig ?? undefined,
+      });
+      return await testKling(accessKey, secretKey, config.baseUrl || "");
+    }
     if (config.category === "TTS") {
       const protocol =
         config.apiProtocol ||
@@ -318,11 +330,6 @@ async function testProviderConnection(
       return testRunway(apiKey);
     case "luma":
       return testLuma(apiKey);
-    case "kling":
-      return testKling(
-        extraConfig?.accessKey || apiKey,
-        extraConfig?.secretKey || ""
-      );
     case "minimax":
       return testMinimax(apiKey, extraConfig?.groupId || "");
 

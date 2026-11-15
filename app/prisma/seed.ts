@@ -24,7 +24,7 @@ interface SeedProvider {
   models: Array<{
     id: string;
     name: string;
-    costPerUnit: number;
+    costPerUnit?: number;
     description?: string;
   }>;
   configSchema: {
@@ -36,11 +36,7 @@ interface SeedProvider {
     }>;
   };
   sortOrder: number;
-  /**
-   * 是否可用；缺省视为 true。可灵 / MiniMax / Luma / Fish Audio 的 provider
-   * 实现尚未接入（getVideoProvider/getTTSProvider 会显式抛「暂未接入」错误），
-   * 这里置 false 让前端从选择列表隐藏，避免用户配好却生成时才报错。
-   */
+  /** 是否可用；缺省视为 true。未接入的 provider 可显式置 false 隐藏。 */
   isActive?: boolean;
 }
 
@@ -284,30 +280,37 @@ const providers: SeedProvider[] = [
     slug: "kling",
     name: "可灵 Kling",
     category: AICategory.VIDEO,
-    description: "快手可灵，国内顶级视频生成（暂未接入）",
-    baseUrl: "https://api.klingai.com",
+    description: "快手可灵，图生视频模型",
+    baseUrl: "https://api-beijing.klingai.com",
+    apiProtocol: "kling",
     models: [
-      { id: "kling-v1", name: "可灵 1.0", costPerUnit: 5 },
-      { id: "kling-v1.5", name: "可灵 1.5", costPerUnit: 8 },
+      // 模型 ID 来自官方图生视频文档；价格随套餐变化，不录入未经核实的单价。
+      { id: "kling-v2-6", name: "可灵 2.6" },
+      { id: "kling-v2-5-turbo", name: "可灵 2.5 Turbo" },
     ],
     configSchema: {
       fields: [
         {
-          key: "accessKey",
-          label: "Access Key",
+          key: "apiKey",
+          label: "API Key / Access Key",
           type: "password",
           required: true,
         },
         {
           key: "secretKey",
-          label: "Secret Key",
+          label: "Secret Key（仅 AK/SK 鉴权需要，API Key 留空）",
           type: "password",
-          required: true,
+          required: false,
+        },
+        {
+          key: "mode",
+          label: "生成模式（std / pro，默认 std）",
+          type: "text",
+          required: false,
         },
       ],
     },
     sortOrder: 3,
-    isActive: false,
   },
   {
     slug: "minimax",
@@ -483,7 +486,12 @@ const defaultTags = [
 async function main() {
   console.log("Seeding AI providers...");
 
-  for (const provider of providers) {
+  // 已有数据库仅同步可灵元数据，避免为了开启单个模型重置所有预设及标签。
+  const klingOnly = process.argv.includes("--kling-only");
+  const selectedProviders = klingOnly
+    ? providers.filter((provider) => provider.slug === "kling")
+    : providers;
+  for (const provider of selectedProviders) {
     await prisma.aIProvider.upsert({
       where: { slug: provider.slug },
       update: {
@@ -514,6 +522,12 @@ async function main() {
     console.log(`  ✓ ${provider.name}`);
   }
 
+  if (klingOnly) {
+    console.log(
+      "Kling preset synced; user configurations and other presets preserved."
+    );
+    return;
+  }
   console.log("\nSeeding character tags...");
 
   for (const tag of defaultTags) {

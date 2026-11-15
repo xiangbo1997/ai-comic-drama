@@ -14,6 +14,7 @@ import { replicateImage } from "@/services/ai/providers/replicate";
 import { siliconflowImage } from "@/services/ai/providers/siliconflow";
 import { openaiCompatibleImage } from "@/services/ai/providers/openai-compatible";
 import { falVideo } from "@/services/ai/providers/fal";
+import { klingVideo } from "@/services/ai/providers/kling";
 import { volcengineTTS } from "@/services/ai/providers/tts/volcengine";
 import { elevenlabsTTS } from "@/services/ai/providers/tts/elevenlabs";
 
@@ -56,13 +57,16 @@ describe("getVideoProvider", () => {
     expect(getVideoProvider("fal")).toBe(falVideo);
   });
 
+  it("kling 路由到 klingVideo", () => {
+    expect(getVideoProvider("kling")).toBe(klingVideo);
+  });
+
   // 未知协议不再静默兜底 runway（曾导致配好可灵实际打到 Runway 401），改为显式报错
   it("未知协议抛出显式配置错误，不再静默兜底", () => {
     expect(() => getVideoProvider("unknown")).toThrow("未知的视频生成协议");
   });
 
-  it("未接入的服务商（kling/minimax/luma）抛出明确未接入错误", () => {
-    expect(() => getVideoProvider("kling")).toThrow("暂未接入");
+  it("未接入的服务商（minimax/luma）抛出明确未接入错误", () => {
     expect(() => getVideoProvider("minimax")).toThrow("暂未接入");
     expect(() => getVideoProvider("luma")).toThrow("暂未接入");
   });

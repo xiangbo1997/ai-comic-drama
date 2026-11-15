@@ -146,6 +146,7 @@ export const AI_PROVIDER_PROTOCOLS = [
   "proxy-unified",
   "flow2api",
   "runway",
+  "kling",
   "volcengine",
   "elevenlabs",
   "gpt-sovits",

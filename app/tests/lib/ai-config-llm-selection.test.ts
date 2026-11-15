@@ -12,7 +12,7 @@ vi.mock("@/lib/encryption", () => ({
   decryptExtraConfig: (value: unknown) => value,
 }));
 vi.mock("@/lib/url-guard", () => ({ assertSafeUrl: mocks.safe }));
-import { getUserLLMConfig } from "@/lib/ai-config";
+import { getUserLLMConfig, getUserVideoConfig } from "@/lib/ai-config";
 const config = () => ({
   id: "c1",
   userId: "u1",
@@ -87,5 +87,37 @@ describe("LLM configuration selection", () => {
       protocol: "claude",
     });
     expect(mocks.safe).toHaveBeenCalledWith("https://proxy.example.com");
+  });
+});
+
+describe("Kling legacy video configuration", () => {
+  it("resolves missing protocol by provider slug and retains extra credentials", async () => {
+    const saved = config();
+    mocks.find.mockResolvedValue({
+      ...saved,
+      apiProtocol: null,
+      selectedModel: "kling-v1.5",
+      extraConfig: {
+        secretKey: "decrypted-secret",
+        accessKey: "legacy-access",
+      },
+      provider: { ...saved.provider, slug: "kling", apiProtocol: null },
+    });
+    expect(await getUserVideoConfig("u1")).toMatchObject({
+      protocol: "kling",
+      model: "kling-v1.5",
+      extraConfig: { secretKey: "decrypted-secret" },
+    });
+  });
+  it("honors an explicit proxy protocol on the Kling preset", async () => {
+    const saved = config();
+    mocks.find.mockResolvedValue({
+      ...saved,
+      apiProtocol: "proxy-unified",
+      provider: { ...saved.provider, slug: "kling", apiProtocol: "kling" },
+    });
+    expect(await getUserVideoConfig("u1")).toMatchObject({
+      protocol: "proxy-unified",
+    });
   });
 });

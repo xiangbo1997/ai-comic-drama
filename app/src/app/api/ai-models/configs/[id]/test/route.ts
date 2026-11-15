@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { decrypt, decryptExtraConfig } from "@/lib/encryption";
 import { AI_PROVIDER_PROTOCOLS } from "@/types/ai";
+import { preserveMaskedExtraConfig } from "../../extra-config-mask";
 import { assertSafeUrl } from "@/lib/url-guard";
 import {
   testProviderConnectivity,
@@ -15,6 +16,8 @@ const log = createLogger("api:ai-models:configs:[id]:test");
 
 // 测试请求体校验：modelId/customBaseUrl 均可选；约束长度与格式，防注入/超长输入
 const TestConfigSchema = z.object({
+  apiKey: z.string().trim().min(1).max(8192).optional(),
+  extraConfig: z.record(z.string().max(100), z.string().max(16384)).optional(),
   modelId: z.string().trim().max(255).optional(),
   apiProtocol: z.enum(AI_PROVIDER_PROTOCOLS).optional(),
   // customBaseUrl 允许空字符串（用户清空时回退默认配置），非空时必须是合法
@@ -57,6 +60,8 @@ export async function POST(
     let bodyModelId: string | undefined;
     let bodyCustomBaseUrl: string | undefined;
     let bodyApiProtocol: string | undefined;
+    let bodyApiKey: string | undefined;
+    let bodyExtraConfig: Record<string, string> | undefined;
     try {
       const raw = await request.json();
       const parsed = TestConfigSchema.safeParse(raw);
@@ -69,6 +74,8 @@ export async function POST(
       bodyModelId = parsed.data.modelId;
       bodyCustomBaseUrl = parsed.data.customBaseUrl;
       bodyApiProtocol = parsed.data.apiProtocol;
+      bodyApiKey = parsed.data.apiKey;
+      bodyExtraConfig = parsed.data.extraConfig;
     } catch {
       // 请求体为空或非 JSON，使用保存的配置（合法场景，不报错）
     }
@@ -89,13 +96,23 @@ export async function POST(
     }
 
     // 解密 API Key
-    const apiKey = decrypt(config.apiKey, config.apiKeyIv);
+    const savedApiKey = decrypt(config.apiKey, config.apiKeyIv);
+    const apiKey = bodyApiKey || savedApiKey;
     // extraConfig 里的 accessToken / secretKey 等在库中是 enc:v1: 密文，
     // 必须解密后再交给连通性测试，否则火山 / 百度 / Kling 一律测出鉴权失败。
-    const extraConfig = decryptExtraConfig(config.extraConfig) as Record<
+    const savedExtraConfig = decryptExtraConfig(config.extraConfig) as Record<
       string,
       string
     > | null;
+    const extraConfig = bodyExtraConfig
+      ? {
+          ...savedExtraConfig,
+          ...(preserveMaskedExtraConfig(
+            bodyExtraConfig,
+            savedExtraConfig
+          ) as Record<string, string>),
+        }
+      : savedExtraConfig;
 
     // 优先使用请求体中的参数，否则使用保存的配置
     const effectiveModelId = bodyModelId || config.selectedModel;
@@ -138,6 +155,9 @@ export async function POST(
 
     // 未保存的表单可以测试，但不能把旧协议/旧模型配置标记为测试通过。
     const testsSavedConfig =
+      apiKey === savedApiKey &&
+      JSON.stringify(Object.entries(extraConfig || {}).sort()) ===
+        JSON.stringify(Object.entries(savedExtraConfig || {}).sort()) &&
       apiProtocol === (config.apiProtocol || config.provider.apiProtocol) &&
       effectiveModelId === config.selectedModel &&
       effectiveBaseUrl === (config.customBaseUrl || config.provider.baseUrl);

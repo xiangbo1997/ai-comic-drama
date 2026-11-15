@@ -152,6 +152,19 @@ export const API_PROTOCOLS: APIProtocol[] = [
     },
   },
   {
+    id: "kling",
+    name: "Kling 可灵",
+    description: "可灵原生图生视频接口（API Key，兼容旧版 AK/SK）",
+    authHeader: "Bearer",
+    defaultBaseUrl: "https://api-beijing.klingai.com",
+    endpoints: {
+      LLM: { main: "" },
+      IMAGE: { main: "" },
+      VIDEO: { main: "/v1/videos/image2video" },
+      TTS: { main: "" },
+    },
+  },
+  {
     id: "gpt-sovits",
     name: "GPT-SoVITS (语音克隆)",
     description:
@@ -232,6 +245,40 @@ export interface AIProvider {
   } | null;
   isCustom?: boolean;
   userId?: string | null;
+}
+
+/** 旧预设曾将 accessKey 当作扩展字段；统一主密钥字段，亦支持自定义 Kling 协议。 */
+export function getProviderConfigFields(
+  provider: Pick<AIProvider, "configSchema">,
+  protocol: string
+): NonNullable<AIProvider["configSchema"]>["fields"] {
+  if (protocol === "kling") {
+    return [
+      {
+        key: "apiKey",
+        label: "API Key / Access Key",
+        type: "password",
+        required: true,
+      },
+      {
+        key: "secretKey",
+        label: "Secret Key（仅 AK/SK 鉴权需要，API Key 留空）",
+        type: "password",
+        required: false,
+      },
+      {
+        key: "mode",
+        label: "生成模式（std / pro，默认 std）",
+        type: "text",
+        required: false,
+      },
+    ];
+  }
+  return (
+    provider.configSchema?.fields || [
+      { key: "apiKey", label: "API Key", type: "password", required: true },
+    ]
+  );
 }
 
 export type AuthType = "API_KEY" | "CHATGPT_TOKEN" | "OAUTH";
@@ -361,6 +408,7 @@ export function getDefaultProtocolForProvider(slug: string): string {
     mistral: "openai",
     cohere: "cohere",
     "gpt-sovits": "gpt-sovits",
+    kling: "kling",
   };
   return protocolMap[slug] || "openai";
 }

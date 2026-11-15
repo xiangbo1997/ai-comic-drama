@@ -13,6 +13,7 @@
     "format:check": "prettier --check .",
     "type-check": "tsc --noEmit",
     "db:seed": "npx tsx prisma/seed.ts",
+    "db:seed:kling": "tsx prisma/seed.ts --kling-only",
     "db:generate": "prisma generate",
     "test": "vitest run",
     "test:watch": "vitest",

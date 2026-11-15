@@ -73,6 +73,13 @@ const VIDEO_PROVIDER_CAPABILITIES: Record<string, VideoModelCapability> = {
     supportsFirstLastFrame: false,
     maxChainSegments: 6,
   },
+  kling: {
+    nativeClipSeconds: 10,
+    requestableDurations: [5, 10],
+    acceptsDurationParam: true,
+    supportsFirstLastFrame: false,
+    maxChainSegments: 6,
+  },
   fal: {
     nativeClipSeconds: 10,
     requestableDurations: [5, 10],
@@ -106,7 +113,7 @@ const VIDEO_PROVIDER_CAPABILITIES: Record<string, VideoModelCapability> = {
  * 段数与 duration 参数，导致「按 15s 计费、实出 8s」的失配。
  *
  * **收录标准（严格）**：只写本仓库代码已能证实的能力，来源逐条标在注释里。
- * 无法从仓库内证实的模型（kling / luma / sora / pika / wan / hunyuan 等）
+ * 无法从仓库内证实的模型（luma / sora / pika / wan / hunyuan 等）
  * 一律不收录 —— 让它们回落到 protocol 表，好过编一个错误的时长把计费带偏。
  *
  * 匹配规则：模型 ID 转小写后按 `includes` 命中；条目按声明顺序检查，

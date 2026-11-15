@@ -29,6 +29,7 @@ import {
   generateUrlPreview,
   getDefaultProtocolForProvider,
   providerAuthMethods,
+  getProviderConfigFields,
 } from "./types";
 import { ModelSelector } from "./ModelSelector";
 import { useToast } from "@/components/ui/toast";
@@ -104,7 +105,9 @@ export function ConfigDialog({
   const [showAdvancedProtocols, setShowAdvancedProtocols] = useState(false);
 
   const [selectedProtocol, setSelectedProtocol] = useState<string>(
-    existingConfig?.apiProtocol || getDefaultProtocolForProvider(provider.slug)
+    existingConfig?.apiProtocol ||
+      provider.apiProtocol ||
+      getDefaultProtocolForProvider(provider.slug)
   );
 
   const urlValidation = customBaseUrl ? normalizeBaseUrl(customBaseUrl) : null;
@@ -129,14 +132,12 @@ export function ConfigDialog({
       ? [...primaryProtocols, ...advancedProtocols]
       : primaryProtocols;
 
-  const configFields = provider.configSchema?.fields || [
-    { key: "apiKey", label: "API Key", type: "password", required: true },
-  ];
+  const configFields = getProviderConfigFields(provider, selectedProtocol);
 
   const handleTest = async () => {
     const currentApiKey =
       apiKey || (existingConfig?.hasApiKey ? "__EXISTING__" : "");
-    if (!currentApiKey || currentApiKey === "__EXISTING__") {
+    if (existingConfig || !currentApiKey) {
       if (existingConfig) {
         setTesting(true);
         setTestResult(null);
@@ -150,6 +151,8 @@ export function ConfigDialog({
                 modelId: selectedModel || undefined,
                 customBaseUrl: customBaseUrl.trim() || undefined,
                 apiProtocol: selectedProtocol || undefined,
+                apiKey: apiKey.trim() || undefined,
+                extraConfig,
               }),
             }
           );

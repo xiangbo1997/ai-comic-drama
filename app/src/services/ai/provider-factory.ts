@@ -27,6 +27,7 @@ import { flow2apiImage } from "./providers/flow2api-image";
 
 // Video providers
 import { runwayVideo } from "./providers/runway";
+import { klingVideo } from "./providers/kling";
 import { falVideo } from "./providers/fal";
 import { proxyUnifiedVideo } from "./providers/proxy-unified";
 import { flow2apiVideo } from "./providers/flow2api-video";
@@ -283,11 +284,9 @@ export function getImageProvider(
 
 /**
  * 未接入的视频服务商 protocol → 中文提示。
- * 这些协议此前落到 default 分支静默返回 runwayVideo，用户配好可灵 AK/SK
- * 却被打到 Runway 报 401，误以为是密钥问题。改为显式抛错定位到「未接入」。
+ * 未接入协议不能静默回落到 Runway，否则用户会误以为是密钥问题。
  */
 const UNIMPLEMENTED_VIDEO_PROTOCOLS: Record<string, string> = {
-  kling: "可灵",
   minimax: "MiniMax",
   luma: "Luma",
 };
@@ -300,6 +299,8 @@ export function getVideoProvider(
   switch (protocol) {
     case "runway":
       return runwayVideo;
+    case "kling":
+      return klingVideo;
     case "fal":
       return falVideo;
     case "flow2api":

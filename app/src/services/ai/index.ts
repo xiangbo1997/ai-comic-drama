@@ -371,15 +371,36 @@ export async function generateVideo(
             return provider.generateVideo(options, config, { signal });
           }
 
-          const apiKey = process.env.RUNWAY_API_KEY;
-          if (!apiKey) {
+          const klingApiKey = process.env.KLING_API_KEY?.trim();
+          const klingAccessKey = process.env.KLING_ACCESS_KEY?.trim();
+          const klingSecretKey = process.env.KLING_SECRET_KEY?.trim();
+          const runwayApiKey = process.env.RUNWAY_API_KEY;
+          if (klingApiKey || (klingAccessKey && klingSecretKey)) {
+            const provider = getVideoProvider("kling");
+            return provider.generateVideo(
+              options,
+              {
+                apiKey: klingApiKey || klingAccessKey!,
+                baseUrl:
+                  process.env.KLING_BASE_URL ||
+                  "https://api-beijing.klingai.com",
+                model: process.env.KLING_MODEL || "kling-v2-6",
+                protocol: "kling",
+                extraConfig: klingApiKey
+                  ? undefined
+                  : { secretKey: klingSecretKey! },
+              },
+              { signal }
+            );
+          }
+          if (!runwayApiKey) {
             throw new Error("未配置视频生成服务，请在 AI 模型配置页面添加配置");
           }
           const provider = getVideoProvider("runway");
           return provider.generateVideo(
             options,
             {
-              apiKey,
+              apiKey: runwayApiKey,
               baseUrl: "",
               model: "",
               protocol: "runway",
