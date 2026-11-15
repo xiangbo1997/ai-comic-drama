@@ -1,5 +1,13 @@
 # 验证记录（2026-11-13）
 
+## 2026-11-15 Git 交付完成
+
+- 业务提交 `50cfb31d3561aa0ffb093bb50550b75fa7ecff20`：`feat: ship AI production assistant and timeline editing`，144 文件，14955 行新增/2075 行删除；包含已上线时间轴、助手、生成任务与配音兼容依赖及对应测试/迁移/文档，不遗漏未跟踪的必要模块。
+- 正常 pre-commit 完成 121 份 TS/TSX 文件的 Prettier 与 ESLint 修复检查；与钩子前 index 比较 `git diff --exit-code 5d246fe^2 HEAD -- app` 退出 0，应用内容没有被钩子改动，继续与已部署源码一致。暂存差异检查通过。
+- 普通 HTTPS push 因缺少 Username 凭据失败，随后仅在单次 Git 命令映射同一 GitHub 仓库至已配置 SSH 身份；普通 push 成功，未 force，未修改远端/全局设置或既有作者身份。`git ls-remote --heads origin main` 回读 `50cfb31d3561aa0ffb093bb50550b75fa7ecff20`，与本地业务提交完全一致。
+- 业务提交后的状态仅有原有 `.env.example` 与 `.codex/export-oom-reasoning.md` 未跟踪，均未提交或改写。没有提交环境密钥、上传素材、node_modules 或构建目录，没有再部署、重启或调用付费生成。
+- 本节及计划/操作回执以独立文档提交同步，最终远端 HEAD 再由 Git 回读核对；业务代码提交和已部署版本的对应关系保持不变。
+
 ## 2026-11-15 已上线代码：Git 交付预检
 
 - 用户明确要求提交并推送。当前 main 与 origin/main 都为 `508e22b8cb06dca5ef9f6cd0ce1cfa0961cc3415`，上游无新增提交，仓库已有提交身份可用，不改全局身份或远端配置。
