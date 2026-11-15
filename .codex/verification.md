@@ -367,3 +367,34 @@
 - 新服务当前invocation日志8条、错误0；13:04:16 UTC再次只读确认活跃生成/执行/回复均0。沿用上轮2478单元、35隔离PG、26组件浏览器及相关模块行95.89%的验证；本次没有生产付费模型端到端测试，不将匿名冒烟当成已验证真实模型生成。
 - 备份与证据：`/tmp/ai-comic-deploy-assistant-bugfix-20261115T130018Z-6ymbqjri/`，含旧.next、旧.git-commit、reviewed-files/patch、application-commit、environment-sha256、source-check、build.log、deployment.json、smoke.json、journal-check.json。失败时可恢复旧构建/版本标记并启动同一服务，不回滚用户数据。
 - 本轮Git只做本地正常提交，不执行push；部署记录另作docs提交，最终Git状态及提交回执保存在同目录git-delivery.json。
+
+## 2026-11-15 可灵视频模型接入验收
+
+- 按用户要求核对官方鉴权与图生视频正文资源，新增 Kling Provider、协议/工厂/能力表、设置表单与旧配置兼容、只读连接测试、环境兜底和仅同步 Kling 预设的命令；无 Prisma schema 变更。默认 kling-v2-6，提供 kling-v2-5-turbo；支持 API Key Bearer 与旧 AK/SK HS256 JWT、std/pro、5/10秒及既有链式分段。
+- 项目 init/taskflow/governance 规则优先；对应技能目录及 sequential-thinking 工具未找到，已用人工推理、上下文、计划和回退记录替代，未安装 MCP 或改全局权限。ECC backend-patterns/security-review/coding-standards/tdd-workflow/verification-loop 仅作补充。保留本轮开始前所有 .codex 修改和服务器资源上下文。
+
+| 验证 | 结果与证据 |
+| --- | --- |
+| 全量单元/路由回归 | pnpm test：212文件、2529项全部通过；42.06秒；/tmp/ai-comic-kling-tests.log |
+| 组件浏览器 | 可灵配置3项 + 原TTS配置3项，共6项通过；涵盖API Key创建、编辑Secret Key/主密钥保留、自定义协议和移动端；/tmp/ai-comic-kling-browser.log |
+| Provider定向覆盖 | 19项通过；语句98.55%、分支94.28%、函数100%、行100%；仅新Provider，非全仓覆盖；/tmp/ai-comic-kling-coverage.log 与 /tmp/ai-comic-kling-coverage/ |
+| 类型与静态 | pnpm type-check、全量pnpm lint、变更app文件Prettier check、git diff --check通过；/tmp/ai-comic-kling-types.log、/tmp/ai-comic-kling-lint.log |
+| 独立生产构建 | pnpm build退出0；133路由，配置测试及原uploads路由均保留；569份src逐文件SHA256与工作区一致；/tmp/ai-comic-kling-build.log、/tmp/ai-comic-kling-build-check.json |
+| 生产只读核对 | 本机3100/api/health HTTP200且ok=true；未重启或替换在线.next；同上build-check.json |
+
+- 独立构建使用127.0.0.1:9的虚构测试数据库地址、测试认证/加密参数；未复制任何.env文件或用户上传目录。构建目录原为 /tmp/ai-comic-kling-build-6eqdruhj/app；验收后仅清理本轮该临时目录以节省磁盘，保留日志、覆盖报告及核对JSON；未删除其他历史构建、缓存或运行数据。
+- 异常与纠正：初版测试只mock global fetch，safeFetch使用独立Undici，曾向官方发送两次虚构access-key/secret-key请求，均401/code1002，无有效用户凭据或成功付费任务；现统一mock safeFetch并拒绝未mock网络。RED阶段旧OpenAI回退曾触发proxy.example的失败DNS解析，随后显式隔离global fetch。测试fixture协议类型与浏览器Chromium路径遗漏已修复，6项浏览器复验通过。临时脚本转义/检索正则错误在业务写入前失败后已纠正。
+- 隔离构建首轮编译成功但源文件核对发现复制过滤器误排除了src/app/uploads，初始核对记录见 /tmp/ai-comic-kling-build-check-initial.json；修正临时过滤器并补齐源文件重建后，最终133路由、569源文件全部一致。未为通过构建改业务源码或删原路由。
+- 交付边界：未执行生产seed、部署、迁移、Git提交/推送，未使用有效用户密钥进行真实付费出片。连接测试只读任务列表，不证明所选模型权限、余额或出片效果。部署后可执行 cd app && pnpm db:seed:kling 启用现有数据库预设，再在设置页填写凭据。配置说明见 docs/kling-video-integration.md；回退仅撤销本轮代码差异与追加记录，保留原有工作区修改。
+
+
+## 2026-11-15 可灵模型生产部署与Git提交验收
+
+- 授权：用户明确要求部署并提交代码；包括仅同步Kling预设以使旧数据库可选，不推送远端。沿用项目init/taskflow/governance规则及人工推理降级，ECC verification-loop只作补充；未更改全局权限或MCP。
+- 应用提交：880bdcf（feat: integrate Kling image-to-video generation），27份功能/测试/配置/说明文件；提交钩子21份代码Prettier/ESLint通过，钩子前后文件SHA无变化。沿用本轮2529项单元、6项浏览器、类型/全量lint及Provider行100%覆盖结果；本次部署不重复付费模型调用。
+- 生产配置独立重建退出0；670份生产/技能输入文件逐文件SHA与应用提交一致，保留133条路由（含uploads及配置测试路由）、29个唯一SKILL.md和21首有效MP3。未改schema或依赖锁文件；不安装依赖或替换在线node_modules。生产环境文件仅受限复制到0700目录，构建后全部删除副本，原文件摘要前后相同。
+- 2026-11-15 23:48:31 CST（15:48:31 UTC）同一systemd服务切换至880bdcf，PID2198391、active/running、NRestarts=0；停止前/停止后及发布后生成任务、助手执行/回复均0。原.next和版本标记已保留，自动回退分支未触发。
+- 只执行pnpm db:seed:kling：原有Kling提供商ID保留并启用，默认域名/协议、2.6及2.5Turbo模型、API Key/Secret Key表单已更新。其余21个提供商及全部用户AI配置的行数/指纹前后完全一致；不写用户密钥、默认模型、作品或生成任务，不运行全量seed或schema迁移。
+- 60项发布冒烟全部通过：内外health HTTP200/ok=true/commit=880bdcf；内外真实providers接口均返回启用的Kling与正确模型/字段；配置页/项目页跳登录，模型测试/保存/自定义提供商及助手写入端点匿名401；新版Kling设置JS内外HTTP200且SHA与本次构建一致；21首音乐各本机Range206和公网HEAD200，原故障曲目公网Range206；生产环境摘要不变。新invocation日志8条，匹配错误0。
+- 证据与回退：/tmp/ai-comic-deploy-kling-20261115T154323Z-q1udp5b4，含旧.next、旧.git-commit、application-commit、reviewed-files/SHA、source-check、build/seed日志、提供商原行及前后元数据、deployment/smoke/journal记录。可恢复原构建/版本标记，并只恢复本轮Kling元数据；回退SQL已在只读事务PREPARE检查语法，未执行回退写入，不恢复整个生产数据库。
+- 边界：未提交环境文件、密钥、媒体或构建产物；未推送远端，未用有效密钥真实付费出片；原服务器资源检查记录与其未跟踪上下文保留，不混入本轮功能或部署记录提交。首条探测因缺失skills目录的rg退出2、临时工具编排转义错误均未造成生产变更，已修正后继续。
