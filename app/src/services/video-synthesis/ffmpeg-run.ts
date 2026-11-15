@@ -58,30 +58,77 @@ export async function downloadFile(
 }
 
 /**
- * 执行 FFmpeg 命令
+ * 所有导出与媒体操作共用单路队列，避免多个请求叠加FFmpeg内存拖死HTTP服务。
  */
+let ffmpegActive = false;
+const ffmpegWaiters: Array<() => void> = [];
+
+function limitFFmpegThreads(args: string[]): string[] {
+  if (!args.length || args.at(-1)?.startsWith("-")) return [...args];
+  const bounded: string[] = [];
+  for (const flag of ["-filter_threads", "-filter_complex_threads"]) {
+    if (!args.includes(flag)) bounded.push(flag, "1");
+  }
+  let groupStart = 0;
+  args.forEach((arg, index) => {
+    if (arg === "-i") {
+      if (!args.slice(groupStart, index).includes("-threads")) {
+        bounded.push("-threads", "1");
+      }
+      groupStart = index + 2;
+    }
+    if (
+      index === args.length - 1 &&
+      !args.slice(groupStart).includes("-threads")
+    ) {
+      bounded.push("-threads", "2");
+    }
+    bounded.push(arg);
+  });
+  return bounded;
+}
+
 export function runFFmpeg(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const ffmpeg = spawn("ffmpeg", args);
+    const start = () => {
+      ffmpegActive = true;
+      let settled = false;
+      const finish = (error?: Error) => {
+        // 启动失败可能先发error再发close，只能释放一次并发额度。
+        if (settled) return;
+        settled = true;
+        ffmpegActive = false;
+        if (error) reject(error);
+        else resolve();
+        ffmpegWaiters.shift()?.();
+      };
+      try {
+        const ffmpeg = spawn("ffmpeg", limitFFmpegThreads(args));
 
-    let stderr = "";
-    ffmpeg.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
+        let stderr = "";
+        ffmpeg.stderr.on("data", (data) => {
+          stderr += data.toString();
+        });
 
-    ffmpeg.on("close", (code, signal) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        const reason = signal
-          ? `terminated by signal ${signal}`
-          : `exited with code ${code}`;
-        reject(new Error(`FFmpeg ${reason}: ${stderr}`));
+        ffmpeg.on("close", (code, signal) => {
+          if (code === 0) {
+            finish();
+          } else {
+            const reason = signal
+              ? `terminated by signal ${signal}`
+              : `exited with code ${code}`;
+            finish(new Error(`FFmpeg ${reason}: ${stderr}`));
+          }
+        });
+
+        ffmpeg.on("error", (err) => {
+          finish(err);
+        });
+      } catch (error) {
+        finish(error instanceof Error ? error : new Error(String(error)));
       }
-    });
-
-    ffmpeg.on("error", (err) => {
-      reject(err);
-    });
+    };
+    if (ffmpegActive) ffmpegWaiters.push(start);
+    else start();
   });
 }

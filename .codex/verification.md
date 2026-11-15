@@ -1,5 +1,16 @@
 # 验证记录（2026-11-13）
 
+## 2026-11-15 服务恢复与创作助手兼容热修复
+
+- 根因证据：原PID765765 active/running无退出，端口有积压但本机health/login与公网均超时；三个FFmpeg（1088431/1088432/1088433）运行约半小时，应用主进程wchan为mem_cgroup_handle_over_high。cgroup Current约1.84GB、High1.5GiB、Max2GiB、Swap接近1GiB上限，events high498768、OOM0，PSI full约99%。磁盘余3.8GiB，现用文件完整，与此前清理的临时隔离构建无关。
+- 只对核对PID/父进程归属的三路FFmpeg先TERM、未退出后KILL；仅这次卡死导出中断，health立即恢复（本机8.6ms、公网169ms），原应用PID未变。没有删除素材或修改生产项目；导出需用户主动重试，没有代跑。
+- 防复发：共享FFmpeg入口全局单路FIFO，默认每路解码1线程、两类滤镜1线程、输出编码2线程，保留已有限额；启动失败/同步异常/非零退出释放队列，error和close双事件只释放一次。没有扩大系统内存限额、停用其他服务或修改生成费用。
+- 助手故障独立根因：两份启用且测试SUCCESS的自定义配置保存gpt-6-sol/grok-4.7，但模型登记列表为空；UI显式回传当前模型被后端当成任意覆盖拒绝。允许当前配置已保存值，其他覆盖仍须登记，归属/启用/解密/URL与协议保护保留；没有改真实配置或密钥。
+- TDD：FFmpeg3项回归RED，配置1项RED；修复后98项相关通过，全量197文件2408项通过（38.22秒），全量type-check与lint通过，四份源码/测试格式及diff检查通过。实际源码并行提交三段1080x1920一秒视频，观测最多单路FFmpeg，子进程采样RSS峰341636KiB，全部时长1秒，故意失败后队列仍继续；真实两配置装配成功但不调用上游模型，不冒充真实对话或长片压力验收。
+- 发布版本`fb328cd-recovery-4c8475ca27f4`，完整应用摘要`4c8475ca27f46f993f1819a2358738c6ee1c7cccf96626ad024de8ad7df4cc0d`。备份`/tmp/ai-comic-deploy-recovery-20261115T100515Z/`保存旧.next/版本、源码差异、自定义格式数据库dump与可读恢复清单、构建/测试/真实验证日志及回执。无schema迁移或Prisma客户端重生；生产build成功，源码/环境指纹前后一致，失败回退未触发。
+- 服务2026-11-15 10:06:12 UTC启动，PID1247429、active/running、NRestarts=0，当前启动error日志0。29项本机/公网健康、鉴权、JS/CSS与现有界面资源一致性全部通过，状态deployed_public_smoke_verified。复核公网200约210ms；MemoryCurrent206544896字节（约197MiB）、Swap0、PSI some/full0。
+- 证据`/tmp/ai-comic-incident-real-check.json`、`/tmp/ai-comic-incident-final-tests.log`，发布目录另含real-check/tests/build/public-smoke/service-verification等记录。说明`docs/service-recovery-2026-11-15.md`；沿用项目协议及人工推理降级，ECC TDD/verification仅补充。沙箱.aws挂载错误在命令执行前阻断多次，按失败命令提权重试，未修改全局权限。
+
 ## 2026-11-15 无用产物清理完成
 
 - 用户明确要求清理。白名单盘点与删除前均检查 cwd/命令行/打开文件，六份项目临时隔离构建无进程使用：四份 ai-comic-assistant-build、ai-comic-timeline-build-eec2fp7l、comic-export-build-check。先保存可用的 build/smoke 日志、源码清单和 BUILD_ID，再移除可从 Git 重建的副本。

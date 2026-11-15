@@ -63,6 +63,20 @@ describe("LLM configuration selection", () => {
     await expect(getUserLLMConfig("u1", "c1", "not-allowed")).rejects.toThrow();
     expect(mocks.decrypt).not.toHaveBeenCalled();
   });
+  it("accepts the current saved model even when legacy model lists are empty", async () => {
+    mocks.find.mockResolvedValue({
+      ...config(),
+      selectedModel: "gpt-6-sol",
+      customModels: [],
+      provider: { ...config().provider, models: [] },
+    });
+    expect(await getUserLLMConfig("u1", "c1", "gpt-6-sol")).toMatchObject({
+      model: "gpt-6-sol",
+      protocol: "openai",
+      apiKey: "decrypted",
+    });
+    await expect(getUserLLMConfig("u1", "c1", "other-model")).rejects.toThrow();
+  });
   it("supports listed custom models with their protocol and URL guard", async () => {
     mocks.find.mockResolvedValue({
       ...config(),

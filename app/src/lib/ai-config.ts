@@ -188,7 +188,8 @@ export async function getUserLLMConfig(
 
   let selectedConfig = finalConfig;
   if (model) {
-    // 只允许服务端已登记的模型；不能把任意请求字符串直接转发给上游。
+    // 已保存的当前模型也是可信配置；旧自定义通道可能没有额外登记列表。
+    // 其他覆盖值仍必须已登记，不能把任意请求字符串转发给上游。
     const listedModels = [finalConfig.customModels, finalConfig.provider.models]
       .flatMap((value) => (Array.isArray(value) ? value : []))
       .filter(
@@ -199,11 +200,13 @@ export async function getUserLLMConfig(
           typeof value.id === "string"
       );
     const selected = listedModels.find((item) => item.id === model);
-    if (!selected) throw new Error("所选模型不在当前配置的可用模型列表中");
+    if (!selected && model !== finalConfig.selectedModel) {
+      throw new Error("所选模型不在当前配置的可用模型列表中");
+    }
     selectedConfig = {
       ...finalConfig,
       selectedModel: model,
-      apiProtocol: selected.protocol || finalConfig.apiProtocol,
+      apiProtocol: selected?.protocol || finalConfig.apiProtocol,
     };
   }
   return await assembleServiceConfig(
