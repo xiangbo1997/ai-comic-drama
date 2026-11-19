@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { canAccessShortVideo } from "@/lib/short-video/config";
 import { auth } from "@/lib/auth";
 import DashboardShell from "./dashboard-shell";
 
@@ -28,5 +29,15 @@ export default async function DashboardLayout({
     redirect("/login?banned=1");
   }
 
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <DashboardShell
+      showShortVideos={canAccessShortVideo({
+        id: session.user.id,
+        role: session.user.role,
+        status: session.user.status,
+      })}
+    >
+      {children}
+    </DashboardShell>
+  );
 }

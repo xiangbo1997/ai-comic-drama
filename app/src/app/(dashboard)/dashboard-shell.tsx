@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderOpen, Users, Coins, Cpu } from "lucide-react";
+import { FolderOpen, Users, Coins, Cpu, Clapperboard } from "lucide-react";
 import { UserMenu } from "@/components/user-menu";
 import { CreditsDisplay } from "@/components/credits-display";
 
@@ -15,10 +15,18 @@ const navItems = [
 
 export default function DashboardShell({
   children,
+  showShortVideos = false,
 }: {
   children: React.ReactNode;
+  showShortVideos?: boolean;
 }) {
   const pathname = usePathname();
+  const visibleNavItems = showShortVideos
+    ? [
+        ...navItems,
+        { href: "/short-videos", label: "抽象短视频", icon: Clapperboard },
+      ]
+    : navItems;
 
   return (
     <div className="bg-background text-foreground min-h-screen">
@@ -34,7 +42,7 @@ export default function DashboardShell({
               AI 漫剧<span className="text-primary">工作台</span>
             </Link>
             <nav className="hidden items-center gap-1 md:flex">
-              {navItems.map((item) => {
+              {visibleNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname.startsWith(item.href);
                 return (
@@ -63,7 +71,7 @@ export default function DashboardShell({
 
       {/* Mobile Nav */}
       <nav className="border-border flex justify-around border-b px-4 py-2 md:hidden">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname.startsWith(item.href);
           return (
