@@ -1,0 +1,28 @@
+[Unit]
+Description=AI Comic Short Video Worker
+After=network-online.target docker.service
+Wants=network-online.target
+# 路径与User沿用仓库现有Web服务示例，部署前须核实服务器实际值。
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/software/ai-comic-drama/app
+EnvironmentFile=/software/ai-comic-drama/app/.env.local
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=512
+ExecStartPre=/usr/bin/node /software/ai-comic-drama/app/build/short-video-worker.cjs --check
+ExecStart=/usr/bin/node /software/ai-comic-drama/app/build/short-video-worker.cjs
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=1800
+KillSignal=SIGTERM
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-comic-short-video-worker
+
+[Install]
+WantedBy=multi-user.target

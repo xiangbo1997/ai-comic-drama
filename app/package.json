@@ -23,7 +23,10 @@
     "e2e": "playwright test",
     "e2e:ui": "playwright test --ui",
     "ci": "pnpm type-check && pnpm lint && pnpm format:check && pnpm test && pnpm build",
-    "prepare": "cd .. && git config core.hooksPath app/.husky || true"
+    "prepare": "cd .. && git config core.hooksPath app/.husky || true",
+    "build:short-video-worker": "node scripts/build-short-video-worker.mjs",
+    "start:short-video-worker": "node build/short-video-worker.cjs",
+    "check:short-video-worker": "node build/short-video-worker.cjs --check"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"
