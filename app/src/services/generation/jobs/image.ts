@@ -216,7 +216,8 @@ export async function submitImageJob(
       !(await claimGenerationJob(
         task.id,
         !!options.operationKey,
-        options.executionRunId
+        options.executionRunId,
+        options.shortVideoParent
       ))
     )
       return;
@@ -239,7 +240,9 @@ export async function submitImageJob(
       }
       // 获取用户的图像生成配置
       const imageConfig = await getUserImageConfig(userId, imageConfigId);
-      const llmConfig = await getUserLLMConfig(userId, options.llmConfigId);
+      const llmConfig = options.shortVideoParent
+        ? null
+        : await getUserLLMConfig(userId, options.llmConfigId);
 
       if (imageConfigId && !imageConfig) {
         throw new Error(
@@ -627,12 +630,15 @@ export async function submitImageJob(
       // candidateIndex：多候选抽卡时每张走不同 seed 与不同缓存 key，
       // 否则第 2 张起全部命中第 1 张写入的缓存，用户为同一张图付 N 倍积分
       const generateOneCandidate = async (candidateIndex: number) => {
+        await options.beforeUpstream?.();
         upstreamStarted = true;
         const result = await orchestrateImageGeneration({
           candidateIndex,
           maxRetries: options.disableRetries ? 1 : undefined,
           disableRetries: options.disableRetries,
-          disableAuxiliaryGeneration: !!options.executionRunId,
+          disableAuxiliaryGeneration: !!(
+            options.executionRunId || options.shortVideoParent
+          ),
           prompt: finalPrompt,
           sceneId,
           projectId,
@@ -674,7 +680,9 @@ export async function submitImageJob(
           } catch (uploadError) {
             log.error(
               "Failed to save candidate, using external URL:",
-              uploadError
+              options.shortVideoParent
+                ? { taskId: task.id, code: "STORAGE_FAILED" }
+                : uploadError
             );
             // 降级：继续使用外部 URL
           }
@@ -761,6 +769,7 @@ export async function submitImageJob(
       const candidatesOutput = await persistImageResult({
         taskId: task.id,
         expectedSceneImageUrl: options.expectedSceneImageUrl,
+        idempotentTaskSettlement: !!options.shortVideoParent,
         userId,
         projectId,
         sceneId,
@@ -791,8 +800,16 @@ export async function submitImageJob(
         where: { id: task.id },
         data: {
           status: "FAILED",
-          error: error instanceof Error ? error.message : "Unknown error",
-          ...(options.executionRunId && upstreamStarted
+          error: options.shortVideoParent
+            ? "生成未完成，请核对原任务"
+            : error instanceof Error
+              ? error.message
+              : "Unknown error",
+          ...(options.shortVideoParent && !upstreamStarted
+            ? { output: { notStarted: true, unknown: false } }
+            : {}),
+          ...((options.executionRunId || options.shortVideoParent) &&
+          upstreamStarted
             ? {
                 output: {
                   unknown: true,
@@ -818,16 +835,33 @@ export async function submitImageJob(
         });
       }
 
-      log.error("Image generation task failed:", error);
+      log.error(
+        "Image generation task failed:",
+        options.shortVideoParent
+          ? {
+              taskId: task.id,
+              runId: options.shortVideoParent.runId,
+              code: "GENERATION_FAILED",
+            }
+          : error
+      );
     }
   };
 
   // 进并发闸执行（超上限排队，防单进程连接池被打爆，稳定性 P0）。
   // 兜底：run 内部 catch 自身抛错时仅记日志，残留 PROCESSING 由轮询端点
   // 的僵尸回收清扫。
-  void runWithGenerationSlot(`image:${task.id}`, run).catch((err) =>
-    log.error("Image task runner crashed:", err)
-  );
+  if (options.awaitCompletion)
+    await runWithGenerationSlot(`image:${task.id}`, run);
+  else
+    void runWithGenerationSlot(`image:${task.id}`, run).catch((err) =>
+      log.error(
+        "Image task runner crashed:",
+        options.shortVideoParent
+          ? { taskId: task.id, code: "RUNNER_FAILED" }
+          : err
+      )
+    );
 
   return { taskId: task.id, cost };
 }

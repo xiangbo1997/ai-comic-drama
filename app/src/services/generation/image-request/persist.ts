@@ -45,6 +45,7 @@ export interface PersistedCandidate {
 export interface PersistImageResultParams {
   /** 仅内部自动执行器使用：写回时确认用户没有替换图片。undefined保留手动生成语义。 */
   expectedSceneImageUrl?: string | null;
+  idempotentTaskSettlement?: boolean;
   taskId: string;
   userId: string;
   projectId: string | undefined;
@@ -105,6 +106,17 @@ export async function persistImageResult(
   } = params;
 
   return prisma.$transaction(async (tx) => {
+    if (params.idempotentTaskSettlement) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`sv-settle:${taskId}`}, 0))`;
+      const existing = await tx.generationTask.findUnique({
+        where: { id: taskId },
+      });
+      if (existing?.status === "COMPLETED")
+        return (
+          (existing.output as { candidates?: PersistedCandidate[] })
+            ?.candidates ?? []
+        );
+    }
     const candidates: PersistedCandidate[] = [];
     let conflict = false;
 

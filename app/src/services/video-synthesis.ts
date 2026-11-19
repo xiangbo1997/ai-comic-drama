@@ -775,7 +775,8 @@ async function sceneToVideoClip(
    * 仅图片镜消费——图片镜用 `-t` 钉死时长，配音更长时会切掉半句台词。
    * 视频镜不消费：它明确不截断，问题是画面拖尾静默（反向问题）。
    */
-  voiceDuration?: number
+  voiceDuration?: number,
+  mediaDownloader: typeof downloadFile = downloadFile
 ): Promise<SceneClip> {
   const { width, height } = ASPECT_RATIOS[options.aspectRatio];
   const outputPath = path.join(outputDir, `scene_${scene.order}.mp4`);
@@ -799,7 +800,7 @@ async function sceneToVideoClip(
 
   // 如果有视频，直接使用
   if (scene.videoUrl) {
-    const videoPath = await downloadFile(
+    const videoPath = await mediaDownloader(
       scene.videoUrl,
       `video_${scene.order}.mp4`,
       outputDir
@@ -845,7 +846,7 @@ async function sceneToVideoClip(
 
   // 如果只有图片，生成静态视频（图片无音轨，变速仅影响时长 → 直接用有效时长生成）
   if (scene.imageUrl) {
-    const imagePath = await downloadFile(
+    const imagePath = await mediaDownloader(
       scene.imageUrl,
       `image_${scene.order}.jpg`,
       outputDir
@@ -991,7 +992,8 @@ export async function synthesizeVideoToPath<T>(
   scenes: SceneMedia[],
   options: ExportOptions,
   consume: (outputPath: string) => Promise<T>,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  mediaDownloader: typeof downloadFile = downloadFile
 ): Promise<T> {
   // per-run 独占目录（含随机后缀）：Date.now() 单独用在同毫秒并发下会撞名，
   // 而所有素材文件名是固定的（video_0.mp4 等），撞目录即内容串台。
@@ -1018,7 +1020,7 @@ export async function synthesizeVideoToPath<T>(
         scenes.map(async (scene, i) => {
           if (!scene.audioUrl) return;
           try {
-            const probePath = await downloadFile(
+            const probePath = await mediaDownloader(
               scene.audioUrl,
               `probe_audio_${scene.order}.mp3`,
               tmpDir
@@ -1054,7 +1056,8 @@ export async function synthesizeVideoToPath<T>(
             scene,
             tmpDir,
             options,
-            voiceProbes[i + j]
+            voiceProbes[i + j],
+            mediaDownloader
           );
           clips[i + j] = clip; // 按原始 index 归位，保持分镜顺序
           doneCount += 1;
@@ -1161,7 +1164,7 @@ export async function synthesizeVideoToPath<T>(
       for (let i = 0; i < scenes.length; i += 1) {
         const scene = scenes[i];
         if (scene.audioUrl) {
-          const audioPath = await downloadFile(
+          const audioPath = await mediaDownloader(
             scene.audioUrl,
             `audio_${scene.order}.mp3`,
             tmpDir
@@ -1240,7 +1243,7 @@ export async function synthesizeVideoToPath<T>(
             const track = pickBgmTrackForCategory(plan[i].category, i);
             if (!track) continue;
             try {
-              const p = await downloadFile(
+              const p = await mediaDownloader(
                 absolutizeUrl(track.url),
                 `bgm_seg_${i}.mp3`,
                 tmpDir
@@ -1276,7 +1279,7 @@ export async function synthesizeVideoToPath<T>(
       // ── 单曲路径（未分段 / 分段失败）：保持原行为 ─────────────────
       if (preparedBgmSegments.length === 0) {
         try {
-          bgmPath = await downloadFile(
+          bgmPath = await mediaDownloader(
             absolutizeUrl(bgm.url),
             "bgm_track.mp3",
             tmpDir
@@ -1326,7 +1329,7 @@ export async function synthesizeVideoToPath<T>(
     const sfxLocalPaths: (string | null)[] = [];
     for (let i = 0; i < sfxSchedule.length; i += 1) {
       try {
-        const p = await downloadFile(
+        const p = await mediaDownloader(
           absolutizeUrl(sfxSchedule[i].url),
           `sfx_${i}.mp3`,
           tmpDir
@@ -1387,7 +1390,7 @@ export async function synthesizeVideoToPath<T>(
     let logoPath: string | null = null;
     if (options.watermark?.enabled && options.watermark.imageUrl) {
       try {
-        logoPath = await downloadFile(
+        logoPath = await mediaDownloader(
           options.watermark.imageUrl,
           `watermark_logo.png`,
           tmpDir

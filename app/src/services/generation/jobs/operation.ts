@@ -1,3 +1,7 @@
+import {
+  canAccessShortVideo,
+  shortVideoConfig,
+} from "@/lib/short-video/config";
 import { prisma } from "@/lib/prisma";
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
@@ -39,6 +43,8 @@ export async function createGenerationJob(
   options: InternalGenerationOptions = {}
 ) {
   const { data } = args;
+  if (options.executionRunId && options.shortVideoParent)
+    throw new GenerationJobError(409, { error: "生成父任务范围不能混用" });
   if (
     options.maxCost !== undefined &&
     (!Number.isSafeInteger(options.maxCost) ||
@@ -77,7 +83,10 @@ export async function createGenerationJob(
           const input = existing.input as Record<string, unknown>;
           if (
             input.userId !== userId ||
-            input.executionRunId !== options.executionRunId ||
+            (input.executionRunId ?? null) !==
+              (options.executionRunId ?? null) ||
+            (input.shortVideoRunId ?? null) !==
+              (options.shortVideoParent?.runId ?? null) ||
             (input.requestFingerprint &&
               input.requestFingerprint !== requestFingerprint) ||
             existing.type !== data.type ||
@@ -99,6 +108,9 @@ export async function createGenerationJob(
               userId,
               operationKey: options.operationKey!,
               executionRunId: options.executionRunId ?? null,
+              ...(options.shortVideoParent
+                ? { shortVideoRunId: options.shortVideoParent.runId }
+                : {}),
               requestFingerprint,
             },
           },
@@ -113,10 +125,47 @@ export async function createGenerationJob(
 export async function claimGenerationJob(
   taskId: string,
   internal: boolean,
-  executionRunId?: string
+  executionRunId?: string,
+  shortVideoParent?: { runId: string; leaseToken: string }
 ): Promise<boolean> {
+  if (executionRunId && shortVideoParent) return false;
   if (!internal) return true;
   return prisma.$transaction(async (tx) => {
+    if (shortVideoParent) {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`sv-run:${shortVideoParent.runId}`}, 0))`;
+      const run = await tx.svRun.findUnique({
+        where: { id: shortVideoParent.runId },
+        include: { user: true, video: true },
+      });
+      const child = await tx.generationTask.findUnique({
+        where: { id: taskId },
+      });
+      const input = child?.input as Record<string, unknown> | null;
+      const step = await tx.svRunStep.findFirst({
+        where: {
+          runId: shortVideoParent.runId,
+          generationTaskId: taskId,
+          status: "SUBMITTING",
+        },
+      });
+      if (
+        !run ||
+        !step ||
+        child?.projectId !== run.video.projectId ||
+        step.operationKey !== input?.operationKey ||
+        run.status !== "RUNNING" ||
+        !run.confirmedAt ||
+        run.stopRequestedAt ||
+        run.leaseToken !== shortVideoParent.leaseToken ||
+        !run.leaseUntil ||
+        run.leaseUntil <= new Date() ||
+        !shortVideoConfig().autoSubmit ||
+        !canAccessShortVideo(run.user) ||
+        input?.shortVideoRunId !== run.id ||
+        input?.userId !== run.userId
+      )
+        return false;
+    }
     if (executionRunId) {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`assistant-execution-run:${executionRunId}`},0))`;
       const run = await tx.generationTask.findUnique({

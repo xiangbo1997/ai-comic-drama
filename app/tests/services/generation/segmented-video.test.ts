@@ -236,3 +236,32 @@ describe("generateSceneVideoSegmented — 多段链式生成", () => {
     );
   });
 });
+
+describe("短视频每段提交前重新检查父任务", () => {
+  it("第一段完成后停止时，不再提交第二个付费请求，保留已完成段落凭证", async () => {
+    vi.resetAllMocks();
+    generateVideoMock.mockResolvedValue("https://provider/segment.mp4");
+    safeDownloadMock.mockResolvedValue({ buffer: Buffer.from("video") });
+    getMediaDurationMock.mockResolvedValue(8);
+    extractLastFrameMock.mockResolvedValue(Buffer.from("frame"));
+    uploadFileMock.mockResolvedValue("https://storage/frame.jpg");
+    concatVideosMock.mockResolvedValue(Buffer.from("merged"));
+    const guard = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("parent stopped"));
+    await expect(
+      generateSceneVideoSegmented({
+        ...baseArgs,
+        requestedSeconds: 20,
+        capability: getVideoModelCapability("flow2api"),
+        beforeSegment: guard,
+      })
+    ).rejects.toMatchObject({
+      failedSegmentIndex: 1,
+      completedSegments: [{ url: "https://provider/segment.mp4", seconds: 8 }],
+    });
+    expect(generateVideoMock).toHaveBeenCalledOnce();
+    expect(guard).toHaveBeenCalledTimes(2);
+  });
+});

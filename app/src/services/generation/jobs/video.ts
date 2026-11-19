@@ -451,7 +451,8 @@ export async function submitVideoJob(
       !(await claimGenerationJob(
         task.id,
         !!options.operationKey,
-        options.executionRunId
+        options.executionRunId,
+        options.shortVideoParent
       ))
     )
       return;
@@ -475,13 +476,15 @@ export async function submitVideoJob(
       // LLM 导演增强（Deliverable 2 + 镜内首尾帧分解 · 包 B）：服务端导演一次
       // 「运动 + 镜内变化幅度」，拿到 direction（含 variationType/endFrameDesc）与
       // prompt 重建闭包。任一步失败/无导演返回 null，沿用客户端 safePrompt。
-      const directed = await buildDirectedVideoPrompt({
-        userId,
-        projectId,
-        sceneId,
-        duration,
-        llmConfigId: options.llmConfigId,
-      });
+      const directed = options.shortVideoParent
+        ? null
+        : await buildDirectedVideoPrompt({
+            userId,
+            projectId,
+            sceneId,
+            duration,
+            llmConfigId: options.llmConfigId,
+          });
 
       // 镜内尾帧裁决 + 生成（包 B）：variationType==="large" 且无客户端跨镜尾帧
       // 且模型支持 FL 且有首帧图时，为本镜生成一张专属尾帧图走 FL 首尾帧插值，
@@ -492,6 +495,7 @@ export async function submitVideoJob(
         : null;
       if (
         !options.executionRunId &&
+        !options.shortVideoParent &&
         directed &&
         shouldGenerateTailFrame({
           variationType: directed.direction.variationType,
@@ -568,8 +572,8 @@ export async function submitVideoJob(
       // 高潮/动作/长镜豁免裁剪（保完整动作弧线），常规镜裁到叙事目标恢复快节奏。
       // 同时记录 cameraMovement 来源遥测（director/db/derived），供后续验证解析层
       // 13 值枚举实际到达频率（video-prompt.ts 断言「几乎恒为 null」，此处仅测不修）。
-      let exemptFromTrim = false;
-      if (sceneId) {
+      let exemptFromTrim = !!options.shortVideoParent;
+      if (sceneId && !options.shortVideoParent) {
         try {
           const sceneMeta = await prisma.scene.findUnique({
             where: { id: sceneId },
@@ -625,8 +629,10 @@ export async function submitVideoJob(
       // 目标）；超过时按 plan 拆成 N 段链式衔接（末帧→下段首帧）+ ffmpeg 拼接成单
       // 条视频。多段路径与单段裁剪路径内部已走 storage 门面落自有存储
       // （isSelfHosted=true）；单段透传路径返回 provider 临时 URL（下方转存）。
+      await options.beforeUpstream?.();
       upstreamStarted = true;
       const segResult = await generateSceneVideoSegmented({
+        beforeSegment: options.beforeUpstream,
         imageUrl,
         requestedSeconds: duration,
         capability,
@@ -661,9 +667,17 @@ export async function submitVideoJob(
             userId,
             projectId,
           });
-          log.info("Video saved to storage:", videoUrl);
+          log.info(
+            "Video saved to storage:",
+            options.shortVideoParent ? { taskId: task.id } : videoUrl
+          );
         } catch (uploadError) {
-          log.error("视频转存存储失败，降级沿用外部 URL:", uploadError);
+          log.error(
+            "视频转存存储失败，降级沿用外部 URL:",
+            options.shortVideoParent
+              ? { taskId: task.id, code: "STORAGE_FAILED" }
+              : uploadError
+          );
         }
       }
 
@@ -721,6 +735,14 @@ export async function submitVideoJob(
       // 余额不足会抛错并自动回滚 task/scene 的本次写入。
       // R2：扣费时机为「生成成功后」，失败路径（catch）下用户从未被扣，无需退款。
       await prisma.$transaction(async (tx) => {
+        if (options.shortVideoParent) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`sv-settle:${task.id}`}, 0))`;
+          if (
+            (await tx.generationTask.findUnique({ where: { id: task.id } }))
+              ?.status === "COMPLETED"
+          )
+            return;
+        }
         let conflict = false;
         if (projectId && sceneId) {
           const changed = await tx.scene.updateMany({
@@ -782,8 +804,11 @@ export async function submitVideoJob(
         });
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
+      const errorMessage = options.shortVideoParent
+        ? "生成未完成，请核对原任务"
+        : error instanceof Error
+          ? error.message
+          : "Unknown error";
 
       // 部分失败留痕：多段链式生成中途失败时，已完成段真实烧掉了 provider
       // 配额但成片不存在。把这些段落到 task.output 供运维对账 / 手工续跑，
@@ -818,8 +843,12 @@ export async function submitVideoJob(
         data: {
           status: "FAILED",
           error: errorMessage,
+          ...(options.shortVideoParent && !upstreamStarted
+            ? { output: { notStarted: true, unknown: false } }
+            : {}),
           ...(partialOutput ? { output: partialOutput } : {}),
-          ...(options.executionRunId && upstreamStarted
+          ...((options.executionRunId || options.shortVideoParent) &&
+          upstreamStarted
             ? {
                 output: {
                   unknown: true,
@@ -848,15 +877,32 @@ export async function submitVideoJob(
         });
       }
 
-      log.error("Video generation task failed:", error);
+      log.error(
+        "Video generation task failed:",
+        options.shortVideoParent
+          ? {
+              taskId: task.id,
+              runId: options.shortVideoParent.runId,
+              code: "GENERATION_FAILED",
+            }
+          : error
+      );
     }
   };
 
   // 进并发闸执行：超出全局上限时排队，避免 N 用户齐发批量把单进程连接池
   // 打爆（稳定性 P0）。POST 仍立即 202 返回，run 在后台排队/执行。
-  void runWithGenerationSlot(`video:${task.id}`, run).catch((err) =>
-    log.error("Video task runner crashed:", err)
-  );
+  if (options.awaitCompletion)
+    await runWithGenerationSlot(`video:${task.id}`, run);
+  else
+    void runWithGenerationSlot(`video:${task.id}`, run).catch((err) =>
+      log.error(
+        "Video task runner crashed:",
+        options.shortVideoParent
+          ? { taskId: task.id, code: "RUNNER_FAILED" }
+          : err
+      )
+    );
 
   return { taskId: task.id, cost: estimatedCost };
 }

@@ -92,11 +92,18 @@ export async function pruneSceneAttempts({
         createdAt: true,
         isCurrent: true,
         outputUrl: true,
+        task: { select: { input: true } },
       },
       orderBy: { createdAt: "desc" },
     });
 
-    const toPrune = selectAttemptsToPrune(attempts, keepPerScene);
+    // 短视频历史产物及未知操作依赖原凭证，不能被漫剧的候选保留策略裁剪。
+    const ordinaryAttempts = attempts.filter(
+      (a) =>
+        !(a.task?.input as { shortVideoRunId?: unknown } | null)
+          ?.shortVideoRunId
+    );
+    const toPrune = selectAttemptsToPrune(ordinaryAttempts, keepPerScene);
     if (toPrune.length === 0) continue;
 
     result.scannedScenes += 1;

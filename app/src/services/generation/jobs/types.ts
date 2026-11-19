@@ -10,6 +10,9 @@ export class GenerationJobError extends Error {
 /** 仅供服务端执行器使用，HTTP请求体不能透传这些控制字段。 */
 export interface InternalGenerationOptions {
   operationKey?: string;
+  shortVideoParent?: { runId: string; leaseToken: string };
+  awaitCompletion?: boolean;
+  beforeUpstream?: () => Promise<void>;
   executionRunId?: string;
   maxCost?: number;
   disableRetries?: boolean;

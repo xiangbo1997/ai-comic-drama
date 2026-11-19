@@ -7,6 +7,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -14,6 +15,7 @@ import { createReadStream, createWriteStream } from "fs";
 import fs from "fs/promises";
 import path from "path";
 import { pipeline } from "stream/promises";
+import { Readable } from "node:stream";
 
 import {
   DEFAULT_LOCAL_STORAGE_DIR,
@@ -266,7 +268,7 @@ function generateLocalFilePath(options: UploadOptions): {
   }
 
   return {
-    filePath: path.join(
+    filePath: path.resolve(
       /* turbopackIgnore: true */ process.cwd(),
       LOCAL_STORAGE_DIR,
       relativePath
@@ -421,4 +423,113 @@ export async function deleteFile(fileUrl: string): Promise<void> {
 // 检查是否有任何存储可用
 export function isStorageConfigured(): boolean {
   return isR2Configured() || isLocalStorageEnabled();
+}
+
+export interface StorageIdentity {
+  storageBackend: "LOCAL" | "R2";
+  storageKey: string;
+}
+function safeStorageKey(key: string) {
+  if (
+    !key ||
+    key.startsWith("/") ||
+    key.includes("\\") ||
+    key.split("/").some((p) => !p || p === "." || p === "..") ||
+    /[\x00-\x1f]/.test(key)
+  )
+    throw new Error("Invalid storage key");
+  return key;
+}
+/** 保存对象身份而不是易过期的签名URL；只接受当前存储服务自己的地址。 */
+export function storageIdentityFromUrl(url: string): StorageIdentity {
+  const prefix =
+    storageEnv.LOCAL_STORAGE_URL_PREFIX || DEFAULT_LOCAL_STORAGE_URL_PREFIX;
+  if (url.startsWith(`${prefix}/`))
+    return {
+      storageBackend: "LOCAL",
+      storageKey: safeStorageKey(
+        decodeURIComponent(url.slice(prefix.length + 1))
+      ),
+    };
+  const target = new URL(url);
+  const bases = [
+    PUBLIC_URL,
+    storageEnv.R2_ENDPOINT ? `${storageEnv.R2_ENDPOINT}/${BUCKET_NAME}` : "",
+  ].filter(Boolean);
+  for (const base of bases) {
+    const root = new URL(base.endsWith("/") ? base : `${base}/`);
+    if (
+      target.origin === root.origin &&
+      target.pathname.startsWith(root.pathname)
+    )
+      return {
+        storageBackend: "R2",
+        storageKey: safeStorageKey(
+          decodeURIComponent(target.pathname.slice(root.pathname.length))
+        ),
+      };
+  }
+  // AWS SDK可能采用virtual-hosted形式，仍严格绑定当前桶与endpoint。
+  if (storageEnv.R2_ENDPOINT) {
+    const endpoint = new URL(storageEnv.R2_ENDPOINT);
+    if (
+      target.protocol === endpoint.protocol &&
+      target.host === `${BUCKET_NAME}.${endpoint.host}`
+    )
+      return {
+        storageBackend: "R2",
+        storageKey: safeStorageKey(
+          decodeURIComponent(target.pathname.slice(1))
+        ),
+      };
+  }
+  throw new Error("URL does not belong to configured storage");
+}
+export async function storageLocalPath(key: string) {
+  safeStorageKey(key);
+  const root = await fs.realpath(
+    storageEnv.LOCAL_STORAGE_DIR || DEFAULT_LOCAL_STORAGE_DIR
+  );
+  const file = await fs.realpath(path.resolve(root, key));
+  if (!file.startsWith(root + path.sep))
+    throw new Error("Storage path outside root");
+  return file;
+}
+export async function storageAccess(identity: StorageIdentity) {
+  const key = safeStorageKey(identity.storageKey);
+  if (identity.storageBackend === "LOCAL") {
+    await storageLocalPath(key);
+    return `${storageEnv.LOCAL_STORAGE_URL_PREFIX || DEFAULT_LOCAL_STORAGE_URL_PREFIX}/${key.split("/").map(encodeURIComponent).join("/")}`;
+  }
+  await r2Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+  return getSignedUrl(
+    r2Client,
+    new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key }),
+    { expiresIn: 900 }
+  );
+}
+export async function copyStorageToPath(
+  identity: StorageIdentity,
+  destination: string
+) {
+  if (identity.storageBackend === "LOCAL") {
+    await pipeline(
+      createReadStream(await storageLocalPath(identity.storageKey)),
+      createWriteStream(destination)
+    );
+    return;
+  }
+  const response = await r2Client.send(
+    new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: safeStorageKey(identity.storageKey),
+    })
+  );
+  if (!response.Body) throw new Error("Storage object missing");
+  await pipeline(
+    Readable.fromWeb(
+      response.Body.transformToWebStream() as import("node:stream/web").ReadableStream
+    ),
+    createWriteStream(destination)
+  );
 }

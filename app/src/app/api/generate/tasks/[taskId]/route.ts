@@ -83,6 +83,7 @@ export async function GET(
     const input = (task.input ?? {}) as {
       userId?: string;
       executionRunId?: string;
+      shortVideoRunId?: string;
     };
     if (!input.userId || input.userId !== session.user.id) {
       log.warn(
@@ -94,6 +95,7 @@ export async function GET(
     // 自动制作由持久执行器核对原任务；普通超时回收不能把不明上游结果伪装成确定失败。
     if (
       !input.executionRunId &&
+      !input.shortVideoRunId &&
       task.status === "PROCESSING" &&
       Date.now() - task.updatedAt.getTime() > ZOMBIE_THRESHOLD_MS
     ) {

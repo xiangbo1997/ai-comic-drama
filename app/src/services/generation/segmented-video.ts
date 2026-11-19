@@ -38,6 +38,8 @@ const log = createLogger("services:generation:segmented-video");
 
 /** 分段生成入参 */
 export interface SegmentedVideoArgs {
+  /** 新执行器逐段核对租约/停止/预算；旧调用不传时保持原行为。 */
+  beforeSegment?: () => Promise<void>;
   /** 分镜首帧图 URL（第 1 段的 image_url） */
   imageUrl: string;
   /** 用户设定的分镜时长（秒，1–60），据此规划分段 */
@@ -237,6 +239,7 @@ export async function generateSceneVideoSegmented(
       isLast && args.capability.supportsFirstLastFrame
         ? args.lastFrameImage
         : undefined;
+    await args.beforeSegment?.();
     return generateVideo({
       imageUrl: firstFrameUrl,
       prompt: resolveSegmentPrompt(args.prompts, seg.index),

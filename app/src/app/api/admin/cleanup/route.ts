@@ -89,7 +89,8 @@ export async function POST(request: NextRequest) {
       prisma.$executeRaw`DELETE FROM "GenerationTask"
         WHERE status IN ('COMPLETED', 'FAILED') AND "updatedAt" < ${taskCutoff}
           AND COALESCE(input->>'kind', '') NOT IN (${"producer_checkpoint"}, ${"producer_scene_apply"}, ${"assistant_execution_run"})
-          AND NULLIF(input->>'executionRunId', '') IS NULL`,
+          AND NULLIF(input->>'executionRunId', '') IS NULL
+          AND NULLIF(input->>'shortVideoRunId', '') IS NULL`,
       prisma.workflowRun.deleteMany({
         where: {
           status: { in: ["COMPLETED", "FAILED"] },
@@ -112,7 +113,8 @@ export async function POST(request: NextRequest) {
     // 自主执行job的未知结果只能由所属run核对，不能降为可重复派单的普通失败。
     const zombieTasks = zombieCandidates.filter(
       (task) =>
-        !(task.input as { executionRunId?: unknown } | null)?.executionRunId
+        !(task.input as { executionRunId?: unknown } | null)?.executionRunId &&
+        !(task.input as { shortVideoRunId?: unknown } | null)?.shortVideoRunId
     );
     const sceneField: Record<
       string,
