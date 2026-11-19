@@ -280,3 +280,11 @@
 
 ## 2026-11-19 短视频开发规格入库与推送
 用户先授权提交，随后明确要求提交后推送远端。复制主规格、START-HERE及检查记录；仅调整入口路径，不添加压缩包或业务代码。不连接服务器、不调用模型、不改生产数据库。
+
+## 2026-11-19 Short video D0
+
+Read instructions/spec/code; initial clean tree. Fetch and ff-only origin/main to82865ea. No production access, credentials output, paid calls or deployment. Missing sequential-thinking/project protocol skills recorded; manual workflow fallback. Baseline checks started with logs in /tmp/short-video-baseline-*.
+
+## 2026-11-19 Short video D1-D5
+
+Implemented additive schema/SQL, authenticated API, source/script/plan/generation/artifact/worker/publication/metrics and UI. Started own PostgreSQL16 container bound127.0.0.1:55439; initialization script requires explicit local ai_comic_verify URL + isolated-only switch and never reads app DATABASE_URL. Test SQL-only diff contained dotenv banner; removed before application, recorded failure. Real FFmpeg media and ZIP tests run on isolated storage; all paid/platform calls mocked. Public official platform documentation landing pages fetched read-only for connector matrix; no account authorization assumed. Worker build emitted build/short-video-worker.cjs (ignored build output). New and old unit/regression verification in progress.

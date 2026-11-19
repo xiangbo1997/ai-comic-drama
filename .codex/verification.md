@@ -433,3 +433,7 @@
 文档交付核验范围：20章节、JSON示例解析、围栏配对、仓库内入口路径、敏感凭证与绝对工作区路径检查、git diff --check及正常提交钩子。本任务为文档变更，不运行应用构建或付费/平台发布测试。提交及远端一致性在操作命令完成后核验，不在文件自引用尚未发生的成功结果。
 
 - 实际结果：章节/JSON/围栏/入口/凭证模式检查及暂存diff检查通过；正常提交8ad6dce（7文件、590行），提交钩子执行且本次根文档无匹配任务。git push origin main成功，1919b58前进至8ad6dce。最后完成状态记录另作docs提交同步，最终HEAD与远端通过命令核对。
+
+## 2026-11-19 Short video staged checks
+
+D0 baseline: type-check/lint/format passed; 212 files/2529 tests passed. TDD contracts red recorded /tmp/short-video-red.log, green 12; boundaries/upload+original job operation tests 28 passed. D1 isolated PostgreSQL container :55439 database ai_comic_verify_short_video initialized from previous schema, existing-user sentinel preserved through additive migration. D2-D5 integration second run 15/15 passed (/tmp/short-video-pg2.log), includes true FFmpeg/storage and mocked paid calls only. Browser 4/4 passed (/tmp/short-video-browser2.log). Initial storage absolute-path issue and ambiguous browser locator fixed; no skipped baseline tests. Ongoing final type/lint/full regression/build and worker startup validation. No production DB operations, paid calls, public posts or deployments.

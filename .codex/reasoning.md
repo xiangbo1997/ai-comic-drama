@@ -165,3 +165,7 @@ sequential-thinking仍不可用，沿用人工顺序推理与现有安全/验收
 
 ## 2026-11-19 短视频开发规格入库与推送
 用户授权将已完成交接文档放入本仓库、提交并推送远端。任务仅涉及文档，无业务实现和生产变更；沿用init/taskflow/governance Skill。sequential-thinking 未提供，手工推理：先核对干净基线，再复制到docs/short-video、校验、普通提交与推送。回退使用正常revert，不重写历史。
+
+## 2026-11-19 Short video D0
+
+sequential-thinking unavailable; manual reasoning: reuse jobs receipts/CAS/billing, add distinct parent guard instead of assistant ID spoofing; immutable scripts/media/review hashes; transactional idempotency; fenced worker and conservative unknown recovery; official platform capability absent remains BLOCKED. Protocol skill paths missing; preserve workflow artifacts manually. Reversible additive schema, no production operations.

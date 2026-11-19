@@ -201,3 +201,7 @@
 - [x] 核对main分支、origin及干净工作区，基线1919b58。
 - [x] 将三份交接文档放入docs/short-video并改为仓库内入口路径。
 - [x] 完成文档和暂存差异检查，正常提交并推送origin/main；主文档提交8ad6dce已推送成功，最终状态以命令回执为准。
+
+## 2026-11-19 Short video D0-D7
+
+File-level plan: docs/short-video/implementation-plan.md. D0 baseline verified 82865ea; implement additive schema/CRUD, validated scripts/plans, existing generation adapters, fenced worker, manual review/scheduling/export, platform capability contracts, isolated tests/build/deploy rollback. Production, paid generation and public publishing excluded pending approval.

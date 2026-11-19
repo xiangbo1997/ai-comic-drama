@@ -1,0 +1,3 @@
+# Short video context — 2026-11-19
+
+Baseline origin/main=HEAD=82865ea; initial worktree clean. Task: implement full short-video specification D0-D7, preserve comic behavior. Production migrations/deployment, paid calls/public posts require final authorization and have not occurred. Dedicated isolated PostgreSQL only for DB tests. Manual reasoning fallback: sequential-thinking tool and three project protocol skill directories absent after search. Root/.codex AGENTS read; TDD/security/verification supplemental skills read. File plan: docs/short-video/implementation-plan.md. Recovery: feature flags off, stop new claims, reconcile receipts, stop worker, revert app; retain additive tables.
