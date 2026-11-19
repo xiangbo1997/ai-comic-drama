@@ -1,0 +1,25 @@
+export const script = {
+  schemaVersion: 1 as const,
+  title: "午休会议",
+  hook: "会议先休息",
+  premise: "水豚主持会议",
+  targetDurationSec: 15,
+  aspectRatio: "9:16" as const,
+  characters: [{ key: "capybara", name: "水豚", appearance: "蓝色工牌" }],
+  shots: [
+    {
+      key: "s1",
+      durationSec: 15,
+      description: "进入办公室",
+      imagePrompt: "办公室水豚",
+      videoPrompt: "推门",
+      dialogue: "",
+      narration: "",
+      subtitle: "午休",
+      characterKeys: ["capybara"],
+    },
+  ],
+  ending: "午休",
+  suggestedCaption: "原创",
+  hashtags: ["原创动画"],
+};

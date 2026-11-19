@@ -395,3 +395,48 @@ export function getRuntimeEnv(
   cache.set("runtime", value);
   return value;
 }
+
+/** 短视频可选配置；开关按调用时读取，供worker紧急停止新提交。 */
+export function getShortVideoEnv(
+  source: Record<string, string | undefined> = process.env
+) {
+  const number = (key: string, fallback: number, min: number, max: number) => {
+    const n = Number(source[key]);
+    return Number.isSafeInteger(n) && n >= min && n <= max ? n : fallback;
+  };
+  const leaseMs = number("SHORT_VIDEO_LEASE_MS", 60000, 10000, 300000);
+  const timeZone = source.SHORT_VIDEO_DEFAULT_TIMEZONE || "Asia/Shanghai";
+  let validZone = "Asia/Shanghai";
+  try {
+    new Intl.DateTimeFormat("en", { timeZone });
+    validZone = timeZone;
+  } catch {
+    /* 非法可选时区回落产品默认值，不阻断旧业务。 */
+  }
+  return {
+    enabled: source.SHORT_VIDEO_ENABLED === "true",
+    autoSubmit: source.SHORT_VIDEO_AUTO_SUBMIT_ENABLED === "true",
+    pollMs: number("SHORT_VIDEO_WORKER_POLL_MS", 10000, 1000, 60000),
+    leaseMs,
+    heartbeatMs: Math.min(
+      number("SHORT_VIDEO_HEARTBEAT_MS", 15000, 1000, 60000),
+      Math.floor(leaseMs / 3)
+    ),
+    latenessSec: number("SHORT_VIDEO_MAX_LATENESS_SEC", 600, 0, 86400),
+    uploadMaxBytes: number(
+      "SHORT_VIDEO_UPLOAD_MAX_BYTES",
+      209715200,
+      1024,
+      209715200
+    ),
+    generationConcurrency: number(
+      "SHORT_VIDEO_GENERATION_CONCURRENCY",
+      1,
+      0,
+      1
+    ),
+    composeConcurrency: number("SHORT_VIDEO_COMPOSE_CONCURRENCY", 1, 0, 1),
+    publishConcurrency: number("SHORT_VIDEO_PUBLISH_CONCURRENCY", 1, 0, 1),
+    timeZone: validZone,
+  };
+}

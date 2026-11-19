@@ -27,24 +27,38 @@ model User {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  accounts             Account[]
-  sessions             Session[]
-  projects             Project[]
-  series               Series[] // 漫剧系列（多集容器）
-  characters           Character[]
-  tags                 Tag[] // 用户自定义标签
-  checkins             Checkin[]
-  invitations          Invitation[]              @relation("Inviter") // 我邀请的人
-  orders               Order[]
-  subscriptions        Subscription[]
-  aiConfigs            UserAIConfig[]
-  generationPreference UserGenerationPreference?
-  customProviders      AIProvider[] // 用户自定义的 AI 提供商
-  workflowRuns         WorkflowRun[]
-  creditTransactions   CreditTransaction[] // 积分流水
-  auditLogs            AdminAuditLog[]           @relation("AuditActor") // 作为操作者产生的审计日志
-  mcpApiKeys           McpApiKey[] // MCP 接入密钥（剧本工作台）
-  assistantThreads     AssistantThread[]
+  accounts                  Account[]
+  sessions                  Session[]
+  projects                  Project[]
+  series                    Series[] // 漫剧系列（多集容器）
+  characters                Character[]
+  tags                      Tag[] // 用户自定义标签
+  checkins                  Checkin[]
+  invitations               Invitation[]              @relation("Inviter") // 我邀请的人
+  orders                    Order[]
+  subscriptions             Subscription[]
+  aiConfigs                 UserAIConfig[]
+  generationPreference      UserGenerationPreference?
+  customProviders           AIProvider[] // 用户自定义的 AI 提供商
+  workflowRuns              WorkflowRun[]
+  creditTransactions        CreditTransaction[] // 积分流水
+  auditLogs                 AdminAuditLog[]           @relation("AuditActor") // 作为操作者产生的审计日志
+  mcpApiKeys                McpApiKey[] // MCP 接入密钥（剧本工作台）
+  assistantThreads          AssistantThread[]
+  svSourceRecords           SvSource[]
+  svTemplateRecords         SvTemplate[]
+  svVideoRecords            SvVideo[]
+  svVideoSourceRecords      SvVideoSource[]
+  svScriptVersionRecords    SvScriptVersion[]
+  svRunRecords              SvRun[]
+  svRunStepRecords          SvRunStep[]
+  svArtifactRecords         SvArtifact[]
+  svAccountRecords          SvAccount[]
+  svPublicationRecords      SvPublication[]
+  svPublicationEventRecords SvPublicationEvent[]
+  svMetricSnapshotRecords   SvMetricSnapshot[]
+  svDiscoveryJobRecords     SvDiscoveryJob[]
+  svRequestReceiptRecords   SvRequestReceipt[]
 
   @@index([role])
   @@index([status])
@@ -261,6 +275,7 @@ model Project {
   shortDramaScripts ShortDramaScript[]
   locations         ProjectLocation[]
   assistantThread   AssistantThread?
+  shortVideo        SvVideo?
 
   @@index([userId]) // 项目列表页按 userId 查询，无此索引则全表扫描
   @@index([seriesId, episodeNumber]) // 系列分组/上下集导航按此查询
@@ -323,8 +338,8 @@ model ProjectLocation {
   id          String   @id @default(cuid())
   projectId   String
   locationKey String // 与 Scene.locationKey 对齐的地点短标签
-  description String?  // 地点环境描述（LLM 汇总，可用户改）
-  imageUrl    String?  // 空景锚图（无人物环境板）
+  description String? // 地点环境描述（LLM 汇总，可用户改）
+  imageUrl    String? // 空景锚图（无人物环境板）
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -959,4 +974,396 @@ enum WorkflowStatus {
   COMPLETED
   FAILED
   PAUSED
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvSource {
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  platform      String
+  originalUrl   String?
+  canonicalUrl  String?
+  canonicalKey  String
+  externalId    String?
+  title         String?
+  summary       String          @db.Text
+  authorDisplay String?
+  observedAt    DateTime        @default(now())
+  publishedAt   DateTime?
+  metrics       Json?
+  ingestionMode String          @default("MANUAL")
+  connectorId   String?
+  rightsNote    String?
+  rawMetadata   Json?
+  archivedAt    DateTime?
+  videos        SvVideoSource[]
+
+  @@unique([userId, platform, canonicalKey])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvTemplate {
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  name               String
+  description        String    @db.Text
+  systemInstructions String    @db.Text
+  characterPreset    Json      @default("{}")
+  stylePreset        Json      @default("{}")
+  version            Int       @default(1)
+  enabled            Boolean   @default(true)
+  defaultKey         String?
+  videos             SvVideo[]
+
+  @@unique([userId, defaultKey])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvVideo {
+  id                     String            @id @default(cuid())
+  userId                 String
+  user                   User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+  title                  String
+  brief                  String            @db.Text
+  templateId             String?
+  template               SvTemplate?       @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  projectId              String?           @unique
+  project                Project?          @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  currentScriptVersionId String?
+  currentScriptVersion   SvScriptVersion?  @relation("SvCurrentScript", fields: [currentScriptVersionId], references: [id], onDelete: Restrict, map: "SvVideo_current_script_fk")
+  currentArtifactId      String?
+  currentArtifact        SvArtifact?       @relation("SvCurrentArtifact", fields: [currentArtifactId], references: [id], onDelete: Restrict, map: "SvVideo_current_artifact_fk")
+  version                Int               @default(1)
+  scriptCounter          Int               @default(0)
+  artifactCounter        Int               @default(0)
+  archivedAt             DateTime?
+  sources                SvVideoSource[]
+  scripts                SvScriptVersion[]
+  runs                   SvRun[]
+  artifacts              SvArtifact[]
+  publications           SvPublication[]
+
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvVideoSource {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  videoId   String
+  sourceId  String
+  video     SvVideo  @relation(fields: [videoId], references: [id], onDelete: Restrict)
+  source    SvSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+
+  @@unique([videoId, sourceId])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvScriptVersion {
+  currentForVideos SvVideo[] @relation("SvCurrentScript")
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  videoId          String
+  video            SvVideo   @relation(fields: [videoId], references: [id], onDelete: Restrict)
+  version          Int
+  schemaVersion    Int       @default(1)
+  content          Json
+  inputSnapshot    Json
+  contentHash      String
+  origin           String
+  modelRef         Json?
+  runs             SvRun[]
+
+  @@unique([videoId, version])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvRun {
+  id                String           @id @default(cuid())
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  videoId           String
+  video             SvVideo          @relation(fields: [videoId], references: [id], onDelete: Restrict)
+  kind              String
+  scriptVersionId   String?
+  scriptVersion     SvScriptVersion? @relation(fields: [scriptVersionId], references: [id], onDelete: Restrict)
+  status            String           @default("PLANNED")
+  version           Int              @default(1)
+  requestId         String
+  requestHash       String
+  plan              Json
+  planHash          String
+  configFingerprint String
+  priceFingerprint  String
+  maxCredits        Int
+  spentCredits      Int              @default(0)
+  reservedCredits   Int              @default(0)
+  confirmedAt       DateTime?
+  leaseOwner        String?
+  leaseToken        String?
+  leaseUntil        DateTime?
+  heartbeatAt       DateTime?
+  stopRequestedAt   DateTime?
+  errorCode         String?
+  errorSummary      String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  steps             SvRunStep[]
+  artifacts         SvArtifact[]
+
+  @@unique([userId, requestId])
+  @@index([status, leaseUntil])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvRunStep {
+  id                 String    @id @default(cuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  runId              String
+  run                SvRun     @relation(fields: [runId], references: [id], onDelete: Restrict)
+  key                String
+  kind               String
+  status             String    @default("PENDING")
+  operationKey       String    @unique
+  requestFingerprint String
+  generationTaskId   String?   @unique
+  externalTaskId     String?
+  estimatedCredits   Int
+  actualCredits      Int?
+  settledAt          DateTime?
+  input              Json
+  output             Json?
+  errorCode          String?
+  errorSummary       String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+
+  @@unique([runId, key])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvArtifact {
+  currentForVideos SvVideo[]       @relation("SvCurrentArtifact")
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  videoId          String
+  video            SvVideo         @relation(fields: [videoId], references: [id], onDelete: Restrict)
+  runId            String?
+  run              SvRun?          @relation(fields: [runId], references: [id], onDelete: Restrict)
+  operationKey     String?         @unique
+  version          Int
+  kind             String
+  storageBackend   String
+  storageKey       String
+  mimeType         String
+  bytes            BigInt
+  sha256           String
+  durationMs       Int?
+  width            Int?
+  height           Int?
+  metadata         Json?
+  verifiedAt       DateTime?
+  archivedAt       DateTime?
+  publications     SvPublication[]
+
+  @@unique([videoId, kind, version])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvAccount {
+  id                   String          @id @default(cuid())
+  userId               String
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  platform             String
+  externalAccountId    String
+  displayName          String
+  version              Int             @default(1)
+  mode                 String          @default("MANUAL")
+  status               String          @default("MANUAL")
+  connectorId          String?
+  credentialCiphertext String?
+  credentialIv         String?
+  credentialExpiresAt  DateTime?
+  capabilitySnapshot   Json
+  lastVerifiedAt       DateTime?
+  disabledAt           DateTime?
+  publications         SvPublication[]
+
+  @@unique([userId, platform, externalAccountId])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvPublication {
+  id                   String               @id @default(cuid())
+  userId               String
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  videoId              String
+  video                SvVideo              @relation(fields: [videoId], references: [id], onDelete: Restrict)
+  accountId            String
+  account              SvAccount            @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  artifactId           String
+  artifact             SvArtifact           @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  payload              Json
+  payloadHash          String
+  version              Int                  @default(1)
+  status               String               @default("DRAFT")
+  mode                 String
+  scheduledAt          DateTime?
+  displayTimeZone      String               @default("Asia/Shanghai")
+  approvedById         String?
+  approvedAt           DateTime?
+  approvedHash         String?
+  requestId            String
+  requestHash          String
+  operationKey         String               @unique
+  leaseToken           String?
+  leaseUntil           DateTime?
+  submissionStartedAt  DateTime?
+  externalSubmissionId String?
+  externalPostId       String?
+  externalUrl          String?
+  submittedAt          DateTime?
+  publishedAt          DateTime?
+  nextCheckAt          DateTime?
+  attemptCount         Int                  @default(0)
+  errorCode            String?
+  errorSummary         String?
+  events               SvPublicationEvent[]
+  metrics              SvMetricSnapshot[]
+
+  @@unique([userId, requestId])
+  @@index([status, scheduledAt])
+  @@index([status, nextCheckAt])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvPublicationEvent {
+  id            String        @id @default(cuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  publicationId String
+  publication   SvPublication @relation(fields: [publicationId], references: [id], onDelete: Restrict)
+  eventType     String
+  fromStatus    String
+  toStatus      String
+  actorType     String
+  actorId       String?
+  detail        Json
+
+  @@index([publicationId, createdAt, id])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvMetricSnapshot {
+  id                  String        @id @default(cuid())
+  userId              String
+  user                User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  publicationId       String
+  publication         SvPublication @relation(fields: [publicationId], references: [id], onDelete: Restrict)
+  observedAt          DateTime
+  windowLabel         String
+  source              String
+  views               Int?
+  likes               Int?
+  comments            Int?
+  shares              Int?
+  saves               Int?
+  attributedFollowers Int?
+  completionRate      Float?
+  avgWatchMs          Int?
+
+  @@index([publicationId, observedAt])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvDiscoveryJob {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  platform        String
+  connectorId     String
+  keywords        Json
+  requestedAt     DateTime  @default(now())
+  status          String    @default("PENDING")
+  requestId       String
+  requestHash     String
+  leaseToken      String?
+  leaseUntil      DateTime?
+  resultSourceIds Json      @default("[]")
+  errorCode       String?
+  errorSummary    String?
+
+  @@unique([userId, requestId])
+  @@index([status, leaseUntil])
+  @@index([userId, createdAt, id])
+}
+
+// 抽象短视频独立业务；保留历史记录，不级联销毁外部操作凭证。
+model SvRequestReceipt {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  scope       String
+  requestId   String
+  requestHash String
+  responseRef Json
+  status      String   @default("COMPLETED")
+
+  @@unique([userId, scope, requestId])
+  @@index([userId, createdAt, id])
+}
+
+model SvWorker {
+  id          String    @id
+  leaseToken  String?
+  leaseUntil  DateTime?
+  heartbeatAt DateTime?
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
