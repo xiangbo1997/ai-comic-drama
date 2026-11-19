@@ -479,3 +479,8 @@ PASS authorized deployment of eef0e0f. Six existing migration checksums match, o
 - 构建后634份源码/schema/依赖锁/Skill逐文件SHA256与构建开始时一致；全量217文件2574单元测试、17项浏览器用例（含资源超时用例独立复验）、全量lint/format与核心行96.79%覆盖结果沿用上文，未变更应用源码。
 - 开发目录正在并发开发热点发现，当前19个dirty路径与本次34个整合路径无交集。共享plan.md和reasoning.md的本轮内容已迁移到专用context，保留目标目录原有修改；不整目录stash、不reset、不操作他人进程。
 - 本轮遵循项目init/taskflow/governance；sequential-thinking无可调用工具，人工推理/计划/回退见专用context；ECC技能只补充。提交和实际合并结果待后续Git回执核验。
+
+
+### Seedance整合Git交付结果
+
+正常提交 `8435b8a`（34文件），pre-commit的Prettier/ESLint通过。提交钩子后34份变更文件、634份构建输入SHA256均无变化。开发分支 `feat/ai-abstract-short-video` 从d3aa600通过ff-only合并至8435b8a；合并窗口内20个原dirty文件逐一SHA256完全相同、34份整合文件与已验收提交一致。独立制作包工作台路径未进入开发分支。未重置/stash目标工作区、未推送、未部署、未调用真实付费模型。合并证据 `/tmp/seedance-merge-result.json`；本小节与完成计划另作仅文档提交，不改变已构建源码。

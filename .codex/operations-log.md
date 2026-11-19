@@ -313,3 +313,7 @@ User explicitly authorized redeploy/go-live and continuation. Actual production 
 
 ### 2026-11-19T12:27:14.973459+00:00 Seedance整合预合并验收
 完整Next生产构建（含TypeScript）、短视频worker编译通过；634输入指纹无漂移。共享plan.md并发修改，迁移本轮计划至context-seedance-pipeline-integration-2026-11-19.md，目标原计划/推理不动。下一步正常提交并ff-only合并，仅操作互不重叠路径；不部署/推送。
+
+
+### Seedance整合已合并
+8435b8a正常提交，提交钩子通过；开发分支ff-only合入，原20个dirty文件在合并前后SHA256一致。34份交付文件及634构建输入复核通过。独立工作台未导入，不推送/部署。完成计划与Git验收另作本次文档记录。
