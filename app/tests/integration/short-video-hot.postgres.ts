@@ -71,6 +71,7 @@ async function modelConfig(owner = userId) {
       apiKeyIv: "isolated-iv",
       selectedModel: "test-search",
       testStatus: "SUCCESS",
+      lastTestedAt: new Date(),
       extraConfig: { webSearchTransport: "responses" },
     },
   });
@@ -276,6 +277,13 @@ describe("persistent free hot-topic discovery", () => {
     await sweepHotBriefs();
     expect((await readHotBrief(userId, job.id)).status).toBe("FAILED");
     expect(searchWebWithModel).not.toHaveBeenCalled();
+    await prisma.aIProvider.update({
+      where: { id: config.providerId },
+      data: { updatedAt: new Date(Date.now() + 1000) },
+    });
+    await expect(
+      createHotBrief(userId, { ...input(), searchConfigId: config.id })
+    ).rejects.toMatchObject({ code: "SEARCH_CONFIG_UNAVAILABLE" });
   });
   it("does not retry failed paid calls and reports possible usage rather than claiming no paid calls", async () => {
     const config = await modelConfig();

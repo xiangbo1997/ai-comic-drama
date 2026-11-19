@@ -18,7 +18,10 @@ import { insertScript } from "../scripts";
 import { fetchHotBoard } from "./sources";
 import { buildHotBrief } from "./ideas";
 import { getUserLLMConfig } from "@/lib/ai-config";
-import { webSearchTransport } from "@/lib/ai-web-search";
+import {
+  webSearchTransport,
+  searchConfigurationVerified,
+} from "@/lib/ai-web-search";
 import { searchWebWithModel } from "@/services/ai/web-search";
 const log = createLogger("short-video:hot-discovery");
 async function searchConfig(userId: string, id: string) {
@@ -33,7 +36,9 @@ async function searchConfig(userId: string, id: string) {
     include: { provider: true },
   });
   invariant(
-    row && webSearchTransport(row.extraConfig) === "responses",
+    row &&
+      webSearchTransport(row.extraConfig) === "responses" &&
+      searchConfigurationVerified(row),
     409,
     "SEARCH_CONFIG_UNAVAILABLE",
     "请选择共用设置中已启用并测试通过的联网搜索模型"

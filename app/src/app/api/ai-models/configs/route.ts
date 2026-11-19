@@ -8,7 +8,11 @@ import {
   encryptExtraConfig,
 } from "@/lib/encryption";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
-import { validWebSearchSetting, webSearchTransport } from "@/lib/ai-web-search";
+import {
+  validWebSearchSetting,
+  webSearchTransport,
+  searchConfigurationVerified,
+} from "@/lib/ai-web-search";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs");
@@ -62,7 +66,11 @@ export async function GET() {
       isDefault: config.isDefault,
       authType: config.authType,
       tokenExpiresAt: config.tokenExpiresAt,
-      testStatus: config.testStatus,
+      testStatus:
+        webSearchTransport(config.extraConfig) === "responses" &&
+        !searchConfigurationVerified(config)
+          ? null
+          : config.testStatus,
       lastTestedAt: config.lastTestedAt,
       hasApiKey: !!config.apiKey,
       // 先解密再掩码：展示真实 Key 的首尾若干位（旧实现误对密文掩码，无意义）

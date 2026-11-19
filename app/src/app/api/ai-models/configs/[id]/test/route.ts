@@ -6,6 +6,7 @@ import { decrypt, decryptExtraConfig } from "@/lib/encryption";
 import { AI_PROVIDER_PROTOCOLS } from "@/types/ai";
 import { preserveMaskedExtraConfig } from "../../extra-config-mask";
 import { assertSafeUrl } from "@/lib/url-guard";
+import { webSearchTransport } from "@/lib/ai-web-search";
 import {
   testProviderConnectivity,
   type ProviderCategory,
@@ -161,7 +162,23 @@ export async function POST(
       apiProtocol === (config.apiProtocol || config.provider.apiProtocol) &&
       effectiveModelId === config.selectedModel &&
       effectiveBaseUrl === (config.customBaseUrl || config.provider.baseUrl);
-    if (testsSavedConfig) {
+    let verificationStored = false;
+    if (testsSavedConfig && webSearchTransport(extraConfig) === "responses") {
+      // 联网请求可能耗时数分钟；只认证发起时那份配置，不能覆盖期间的新设置。
+      const saved = await prisma.userAIConfig.updateMany({
+        where: {
+          id,
+          userId: session.user.id,
+          updatedAt: config.updatedAt,
+          provider: { updatedAt: config.provider.updatedAt },
+        },
+        data: {
+          testStatus: testResult.success ? "SUCCESS" : "FAILED",
+          lastTestedAt: new Date(),
+        },
+      });
+      verificationStored = saved.count === 1;
+    } else if (testsSavedConfig) {
       await prisma.userAIConfig.update({
         where: { id },
         data: {
@@ -169,11 +186,17 @@ export async function POST(
           lastTestedAt: new Date(),
         },
       });
+      verificationStored = true;
     }
 
     return NextResponse.json({
-      success: testResult.success,
-      message: testResult.message,
+      success: testResult.success && (!testsSavedConfig || verificationStored),
+      message:
+        testResult.message +
+        (testsSavedConfig && !verificationStored
+          ? " 配置已变化，此次结果未标记为当前配置通过，请重新测试。"
+          : ""),
+      verificationStored,
       errorCode: testResult.errorCode,
       errorType: testResult.errorType,
       suggestion: testResult.suggestion,

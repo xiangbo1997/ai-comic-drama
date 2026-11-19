@@ -50,3 +50,14 @@ export const WebSearchResultZ = z.object({
   }),
 });
 export type WebSearchResult = z.infer<typeof WebSearchResultZ>;
+export function searchConfigurationVerified(config: {
+  testStatus: string | null;
+  lastTestedAt: Date | null;
+  provider: { updatedAt: Date };
+}) {
+  return (
+    config.testStatus === "SUCCESS" &&
+    !!config.lastTestedAt &&
+    config.lastTestedAt.getTime() >= config.provider.updatedAt.getTime()
+  );
+}

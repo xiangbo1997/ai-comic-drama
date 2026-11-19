@@ -9,7 +9,11 @@ import {
   decryptExtraConfig,
 } from "@/lib/encryption";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
-import { validWebSearchSetting, webSearchTransport } from "@/lib/ai-web-search";
+import {
+  validWebSearchSetting,
+  webSearchTransport,
+  searchConfigurationVerified,
+} from "@/lib/ai-web-search";
 import {
   maskExtraConfig,
   preserveMaskedExtraConfig,
@@ -58,7 +62,11 @@ export async function GET(
       isDefault: config.isDefault,
       authType: config.authType,
       tokenExpiresAt: config.tokenExpiresAt,
-      testStatus: config.testStatus,
+      testStatus:
+        webSearchTransport(config.extraConfig) === "responses" &&
+        !searchConfigurationVerified(config)
+          ? null
+          : config.testStatus,
       lastTestedAt: config.lastTestedAt,
       hasApiKey: !!config.apiKey,
       apiKeyMasked: config.apiKey

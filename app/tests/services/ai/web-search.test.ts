@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("@/lib/url-guard", () => ({ safeFetch: mocks.fetch }));
 import { searchWebWithModel } from "@/services/ai/web-search";
-import { validWebSearchSetting, webSearchTransport } from "@/lib/ai-web-search";
+import {
+  validWebSearchSetting,
+  webSearchTransport,
+  searchConfigurationVerified,
+} from "@/lib/ai-web-search";
 const config = {
   apiKey: "test-only-key",
   baseUrl: "https://provider.example/v1/",
@@ -168,4 +172,29 @@ it("does not retry an aborted request or accept malformed provider JSON", async 
   mocks.fetch.mockResolvedValueOnce(new Response("{invalid"));
   await expect(searchWebWithModel(config, "搜索")).rejects.toThrow();
   expect(mocks.fetch).toHaveBeenCalledTimes(2);
+});
+
+it("does not trust a search test older than its provider revision", () => {
+  const provider = { updatedAt: new Date("2026-11-19T10:00:00Z") };
+  expect(
+    searchConfigurationVerified({
+      testStatus: "SUCCESS",
+      lastTestedAt: new Date("2026-11-19T11:00:00Z"),
+      provider,
+    })
+  ).toBe(true);
+  expect(
+    searchConfigurationVerified({
+      testStatus: "SUCCESS",
+      lastTestedAt: new Date("2026-11-19T09:00:00Z"),
+      provider,
+    })
+  ).toBe(false);
+  expect(
+    searchConfigurationVerified({
+      testStatus: "SUCCESS",
+      lastTestedAt: null,
+      provider,
+    })
+  ).toBe(false);
 });
