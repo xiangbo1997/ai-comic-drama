@@ -226,3 +226,12 @@ All deployment steps completed. Application eef0e0f live at comic.cloudsentryai.
 ## 2026-11-19 Public hot discovery continuation
 
 Plan docs/short-video/hot-discovery-plan.md. New source adapters (Douyin public board, Kuaishou public aggregate, filtered XHS web candidates), deterministic reviewed idea drafts, durable HOT_BRIEF kind in existing SvDiscoveryJob JSON, authenticated routes, trends UI, isolated tests. No migration or paid APIs. Source dates distinct from fetch dates; unverified XHS remains unavailable. Build only isolated copy; if updating live version use authorized reversible deployment, no production test writes.
+
+### Public hot discovery isolated release
+
+- [x] Shared branch full serial unit219files/2589tests, isolated PG80, browser7 passed.
+- [x] Preserve concurrent integration; hot-only release worktree d992a66 from d3aa600, no schema/dependency changes.
+- [x] Read-only production audit: no in-flight tasks, current eef0e0f, env unchanged, autoSubmit=false.
+- [x] Complete isolated Web/worker build;605sources/21BGM/58skills, copied secrets removed; exact release2563unit+80PGpassed.
+- [x] First30sec worker-start timeout triggered verified automatic rollback;90sec retry d992a66 successful;68business+44assets passed.
+- [x] Section20 acceptance/release records updated, platform limitations retained; isolated test container stopped.

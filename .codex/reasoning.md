@@ -177,3 +177,7 @@ User explicitly requested redeployment/go-live, authorizing L1 production additi
 ## 2026-11-19 Hot-topic discovery continuation
 
 User requests first-step multi-platform real discovery plus grounded abstract-video ideas like supplied answer. sequential-thinking absent; manual reasoning: audit actual free/public sources first; do not reuse supplied Nov18 examples as live facts. Reuse assistant-web-search and existing SvDiscoveryJob/receipts/worker where appropriate; preserve fetch date vs source date, official vs aggregate vs search evidence. Model writing requires prior paid authorization, so build evidence-grounded deterministic idea drafts and optional confirmed existing-model path only if necessary; no implicit paid calls. Keep production untouched while implementing, test only isolated DB and build copy. Rollback removes new entry/adapters, leaves previous L1 compatible.
+
+### 2026-11-19 热点独立发布续跑
+
+sequential-thinking工具再次检索不可用，项目skills/codex-init-protocol、codex-taskflow-protocol及codex-governance-communications未发现；沿用此前人工分析、上下文、计划与验收文件，不修改全局配置。ECC verification-loop补充最终构建/鉴权/差异核对，TDD与security沿用前阶段记录。共享开发分支保留87c49f0及已并入的Seedance代码；本次授权发布从已部署基线d3aa600建立独立worktree d992a66，只包含热点18文件，不迁移数据库。构建在隔离目录，生产只读检查无在途任务，保留旧Web/worker/env/标记；失败自动回退旧构建与worker，保留所有数据库证据。收费/公开发布仍未授权且开关保持false。

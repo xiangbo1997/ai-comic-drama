@@ -321,3 +321,11 @@ User explicitly authorized redeploy/go-live and continuation. Actual production 
 ## 2026-11-19 Public hot discovery development
 
 User continued first-step discovery + grounded idea request. Existing search reused, public source capability investigated read-only with no credentials. Douyin public endpoint and Tophub Kuaishou actual source verified; direct Douyinweb empty, XHS hot406/aggregate500 and search noise recorded rather than bypassed. Excluded debug-only60s service/static shield from production design. New durableHOT_BRIEF connectorId uses existing SvDiscoveryJob keywords/resultSourceIds JSON with explicit separate handler; no DB migration. Reused paid generation/artifact/publication services unchanged. New UI and six isolatedPG persistence/API tests (80full total),14 parser/idea tests and7browser tests verified. Production service remains previous eef0e0f until source commit/build/reversible redeploy; autoSubmit remains false.
+
+### 2026-11-19 热点发布首次自动回退
+
+独立Web编译和2563单元/80PG复验成功。首次Web切换健康，但worker systemctl start的30秒脚本等待短于已有ExecStartPre检查的池退出耗时，TimeoutExpired触发自动应用回退；实际health恢复eef0e0f、旧worker SHA相同，数据库无变更。将等待增至90秒后保持同一候选源码/产物重发；无SIGKILL、无模拟成功。
+
+### 2026-11-19 热点更新完成
+
+同一d992a66候选修正发布等待后成功；68项只读业务+44项素材/旧JS校验通过。Web/worker active，无生产迁移或业务种子写入、无收费/投稿。备份short-video-hot-20261119T123134Z，实际失败自动回退证据保留；第20节与操作文档已同步，专属测试容器停止。
