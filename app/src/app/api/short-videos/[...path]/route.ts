@@ -48,6 +48,7 @@ import {
   readHotBrief,
   latestHotBrief,
   saveHotIdea,
+  saveAiHotBrief,
 } from "@/services/short-video/hot-discovery/store";
 import { addMetric, listMetrics } from "@/services/short-video/metrics";
 import {
@@ -123,6 +124,8 @@ async function handle(request: NextRequest, context: Context) {
       result = await readHotBrief(userId, id);
     else if (is("POST", "hot-briefs/:id/save-idea"))
       result = await saveHotIdea(userId, id, await body());
+    else if (is("POST", "hot-briefs/:id/save-ai"))
+      result = await saveAiHotBrief(userId, id, await body());
     else if (is("GET", "sources")) result = await listSources(userId, query);
     else if (is("POST", "sources/import"))
       result = await importSource(userId, await body());

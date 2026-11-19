@@ -21,6 +21,17 @@ vi.mock("@/services/short-video/hot-discovery/sources", async (original) => {
     >();
   return { ...actual, fetchHotBoard: vi.fn() };
 });
+vi.mock("@/services/ai/web-search", () => ({ searchWebWithModel: vi.fn() }));
+vi.mock("@/lib/ai-config", async (original) => ({
+  ...(await original<typeof import("@/lib/ai-config")>()),
+  getUserLLMConfig: vi.fn(async () => ({
+    apiKey: "test-only",
+    baseUrl: "https://search.example/v1",
+    model: "test-search",
+    protocol: "openai",
+    extraConfig: { webSearchTransport: "responses" },
+  })),
+}));
 import { NextRequest } from "next/server";
 import { GET, POST } from "@/app/api/short-videos/[...path]/route";
 import { prisma } from "@/lib/prisma";
@@ -30,6 +41,7 @@ import {
   latestHotBrief,
   saveHotIdea,
   sweepHotBriefs,
+  saveAiHotBrief,
 } from "@/services/short-video/hot-discovery/store";
 import {
   fetchHotBoard,
@@ -37,6 +49,43 @@ import {
 } from "@/services/short-video/hot-discovery/sources";
 import { sweepDiscovery } from "@/services/short-video/discovery";
 import { HotReportZ } from "@/lib/short-video/hot-discovery";
+import { searchWebWithModel } from "@/services/ai/web-search";
+const searchProviders: string[] = [];
+async function modelConfig(owner = userId) {
+  const provider = await prisma.aIProvider.create({
+    data: {
+      name: "isolated search",
+      slug: `sv-search-${randomUUID()}`,
+      category: "LLM",
+      models: [{ id: "test-search", name: "test" }],
+      baseUrl: "https://search.example/v1",
+      apiProtocol: "openai",
+    },
+  });
+  searchProviders.push(provider.id);
+  return prisma.userAIConfig.create({
+    data: {
+      userId: owner,
+      providerId: provider.id,
+      apiKey: "isolated-encrypted",
+      apiKeyIv: "isolated-iv",
+      selectedModel: "test-search",
+      testStatus: "SUCCESS",
+      extraConfig: { webSearchTransport: "responses" },
+    },
+  });
+}
+const aiResult = () => ({
+  answer: "原创选题：仙尊来渡劫，村口保安让他先登记。",
+  responseId: "resp-isolated",
+  model: "test-search",
+  retrievedAt: new Date().toISOString(),
+  toolCalls: 2,
+  sources: [
+    { title: "第三方热点快照", url: "https://data.example/hot/snapshot" },
+  ],
+  usage: { inputTokens: 200, outputTokens: 100, totalTokens: 300 },
+});
 let userId: string;
 let otherId: string;
 const users: string[] = [];
@@ -90,7 +139,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await prisma.svDiscoveryJob.updateMany({
-    where: { userId },
+    where: { userId: { in: users } },
     data: { status: "COMPLETED" },
   });
 });
@@ -108,10 +157,140 @@ afterAll(async () => {
     where: { userId: { in: users } },
   });
   await prisma.user.deleteMany({ where: { id: { in: users } } });
+  await prisma.aIProvider.deleteMany({
+    where: { id: { in: searchProviders } },
+  });
   await prisma.$disconnect();
   vi.unstubAllEnvs();
 });
 describe("persistent free hot-topic discovery", () => {
+  it("processes at most one model brief per sweep so other worker stages can run", async () => {
+    const first = await modelConfig();
+    const second = await modelConfig(otherId);
+    vi.mocked(searchWebWithModel).mockResolvedValue(aiResult());
+    await createHotBrief(userId, { ...input(), searchConfigId: first.id });
+    const waiting = await createHotBrief(otherId, {
+      ...input(),
+      searchConfigId: second.id,
+    });
+    await sweepHotBriefs();
+    expect(searchWebWithModel).toHaveBeenCalledTimes(1);
+    expect((await readHotBrief(otherId, waiting.id)).status).toBe("PENDING");
+  });
+  it("graceful shutdown before model submission leaves a pending job and makes no paid call", async () => {
+    const config = await modelConfig();
+    const job = await createHotBrief(userId, {
+      ...input(),
+      searchConfigId: config.id,
+    });
+    let stopping = false;
+    await sweepHotBriefs(
+      async () => {
+        stopping = true;
+        return board();
+      },
+      () => stopping
+    );
+    expect((await readHotBrief(userId, job.id)).status).toBe("PENDING");
+    expect(searchWebWithModel).not.toHaveBeenCalled();
+  });
+  it("uses an owned shared search config once, preserves citations/usage and atomically saves an AI brief", async () => {
+    const config = await modelConfig();
+    vi.mocked(searchWebWithModel).mockResolvedValue(aiResult());
+    const request = { ...input(), searchConfigId: config.id };
+    const job = await createHotBrief(userId, request);
+    await sweepHotBriefs();
+    await sweepHotBriefs();
+    expect(searchWebWithModel).toHaveBeenCalledTimes(1);
+    expect((await readHotBrief(userId, job.id)).report?.ai).toMatchObject({
+      responseId: "resp-isolated",
+      usage: { totalTokens: 300 },
+    });
+    expect((await createHotBrief(userId, request)).id).toBe(job.id);
+    const save = { requestId: randomUUID(), title: "村口渡劫先登记" };
+    const [a, b] = await Promise.all([
+      saveAiHotBrief(userId, job.id, save),
+      saveAiHotBrief(userId, job.id, save),
+    ]);
+    expect(a).toEqual(b);
+    const video = await prisma.svVideo.findUniqueOrThrow({
+      where: { id: a.videoId },
+      include: { sources: { include: { source: true } } },
+    });
+    expect(video.sources[0].source.rawMetadata).toMatchObject({
+      evidenceKind: "MODEL_WEB_CITATION",
+      model: "test-search",
+    });
+    expect(video.brief).toContain(aiResult().answer);
+    expect(await prisma.svRun.count({ where: { userId } })).toBe(0);
+    await expect(
+      saveAiHotBrief(otherId, job.id, { ...save, requestId: randomUUID() })
+    ).rejects.toMatchObject({ status: 404 });
+  });
+  it("does not replay an expired model submission or hide possible supplier usage", async () => {
+    const config = await modelConfig();
+    const request = { ...input(), searchConfigId: config.id };
+    const job = await createHotBrief(userId, request);
+    await prisma.svDiscoveryJob.update({
+      where: { id: job.id },
+      data: {
+        status: "RUNNING",
+        leaseToken: "old",
+        leaseUntil: new Date(0),
+        resultSourceIds: { aiOperation: { status: "SUBMITTING" } },
+      },
+    });
+    await sweepHotBriefs();
+    await sweepHotBriefs();
+    expect(searchWebWithModel).not.toHaveBeenCalled();
+    expect(await readHotBrief(userId, job.id)).toMatchObject({
+      status: "FAILED",
+      errorCode: "HOT_AI_UNKNOWN",
+    });
+    expect((await createHotBrief(userId, request)).id).toBe(job.id);
+  });
+  it("rejects another user's config, untested capability and changed pending configuration", async () => {
+    const config = await modelConfig();
+    await expect(
+      createHotBrief(otherId, { ...input(), searchConfigId: config.id })
+    ).rejects.toMatchObject({ code: "SEARCH_CONFIG_UNAVAILABLE" });
+    await prisma.userAIConfig.update({
+      where: { id: config.id },
+      data: { testStatus: null },
+    });
+    await expect(
+      createHotBrief(userId, { ...input(), searchConfigId: config.id })
+    ).rejects.toMatchObject({ code: "SEARCH_CONFIG_UNAVAILABLE" });
+    await prisma.userAIConfig.update({
+      where: { id: config.id },
+      data: { testStatus: "SUCCESS" },
+    });
+    const job = await createHotBrief(userId, {
+      ...input(),
+      searchConfigId: config.id,
+    });
+    await prisma.userAIConfig.update({
+      where: { id: config.id },
+      data: { selectedModel: "changed" },
+    });
+    await sweepHotBriefs();
+    expect((await readHotBrief(userId, job.id)).status).toBe("FAILED");
+    expect(searchWebWithModel).not.toHaveBeenCalled();
+  });
+  it("does not retry failed paid calls and reports possible usage rather than claiming no paid calls", async () => {
+    const config = await modelConfig();
+    vi.mocked(searchWebWithModel).mockRejectedValue(new Error("timeout"));
+    const job = await createHotBrief(userId, {
+      ...input(),
+      searchConfigId: config.id,
+    });
+    await sweepHotBriefs();
+    await sweepHotBriefs();
+    expect(searchWebWithModel).toHaveBeenCalledTimes(1);
+    const failed = await readHotBrief(userId, job.id);
+    expect(failed.errorSummary).toContain("可能已产生");
+    expect(failed.errorSummary).not.toContain("未产生付费");
+  });
   it("concurrent request retries create one operation, changed parameters conflict, no model submission", async () => {
     const request = input();
     const jobs = await Promise.all(

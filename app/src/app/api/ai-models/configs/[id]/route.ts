@@ -9,6 +9,7 @@ import {
   decryptExtraConfig,
 } from "@/lib/encryption";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
+import { validWebSearchSetting, webSearchTransport } from "@/lib/ai-web-search";
 import {
   maskExtraConfig,
   preserveMaskedExtraConfig,
@@ -52,6 +53,7 @@ export async function GET(
       customBaseUrl: config.customBaseUrl,
       apiProtocol: config.apiProtocol,
       customModels: config.customModels,
+      webSearchTransport: webSearchTransport(config.extraConfig),
       isEnabled: config.isEnabled,
       isDefault: config.isDefault,
       authType: config.authType,
@@ -113,6 +115,28 @@ export async function PUT(
       return NextResponse.json({ error: "配置不存在" }, { status: 404 });
     }
 
+    const effectiveExtra = {
+      ...(existingConfig.extraConfig &&
+      typeof existingConfig.extraConfig === "object"
+        ? existingConfig.extraConfig
+        : {}),
+      ...(extraConfig && typeof extraConfig === "object" ? extraConfig : {}),
+    };
+    if (
+      !validWebSearchSetting(effectiveExtra) ||
+      (webSearchTransport(effectiveExtra) !== "off" &&
+        (existingConfig.provider.category !== "LLM" ||
+          (apiProtocol ||
+            existingConfig.apiProtocol ||
+            existingConfig.provider.apiProtocol ||
+            "openai") !== "openai"))
+    ) {
+      return NextResponse.json(
+        { error: "联网搜索能力仅支持文字模型的OpenAI Responses接口" },
+        { status: 400 }
+      );
+    }
+
     // 准备更新数据
     const updateData: Record<string, unknown> = {};
 
@@ -143,10 +167,27 @@ export async function PUT(
         ...existingExtra,
         ...(restoredExtra as Record<string, unknown>),
       });
+      if (
+        (existingExtra as Record<string, unknown>).webSearchReasoningEffort !==
+          { ...existingExtra, ...(restoredExtra as Record<string, unknown>) }
+            .webSearchReasoningEffort ||
+        webSearchTransport(existingExtra) !==
+          webSearchTransport({
+            ...existingExtra,
+            ...(restoredExtra as Record<string, unknown>),
+          })
+      ) {
+        updateData.testStatus = null;
+        updateData.lastTestedAt = null;
+      }
     }
 
     if (selectedModel !== undefined) {
       updateData.selectedModel = selectedModel;
+      if (selectedModel !== existingConfig.selectedModel) {
+        updateData.testStatus = null;
+        updateData.lastTestedAt = null;
+      }
     }
 
     if (isEnabled !== undefined) {
@@ -182,10 +223,18 @@ export async function PUT(
         }
       }
       updateData.customBaseUrl = customBaseUrl || null;
+      if ((customBaseUrl || null) !== existingConfig.customBaseUrl) {
+        updateData.testStatus = null;
+        updateData.lastTestedAt = null;
+      }
     }
 
     if (apiProtocol !== undefined) {
       updateData.apiProtocol = apiProtocol || null;
+      if ((apiProtocol || null) !== existingConfig.apiProtocol) {
+        updateData.testStatus = null;
+        updateData.lastTestedAt = null;
+      }
     }
 
     if (customModels !== undefined) {

@@ -322,9 +322,9 @@ export async function sweepShortVideo(
         });
       }
     }
+    if (!shouldStop()) await sweepPublications(token);
     if (!shouldStop()) await sweepHotBriefs(undefined, shouldStop);
     if (!shouldStop()) await sweepDiscovery();
-    if (!shouldStop()) await sweepPublications(token);
   } finally {
     clearInterval(heartbeat);
     await prisma.svWorker.updateMany({

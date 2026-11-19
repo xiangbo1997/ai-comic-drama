@@ -8,6 +8,7 @@ import {
   encryptExtraConfig,
 } from "@/lib/encryption";
 import { assertSafeUrlLiteral } from "@/lib/url-guard";
+import { validWebSearchSetting, webSearchTransport } from "@/lib/ai-web-search";
 
 import { createLogger } from "@/lib/logger";
 const log = createLogger("api:ai-models:configs");
@@ -56,6 +57,7 @@ export async function GET() {
       customBaseUrl: config.customBaseUrl,
       apiProtocol: config.apiProtocol,
       customModels: config.customModels,
+      webSearchTransport: webSearchTransport(config.extraConfig),
       isEnabled: config.isEnabled,
       isDefault: config.isDefault,
       authType: config.authType,
@@ -126,6 +128,18 @@ export async function POST(request: Request) {
 
     if (!provider) {
       return NextResponse.json({ error: "提供商不存在" }, { status: 400 });
+    }
+
+    if (
+      !validWebSearchSetting(extraConfig) ||
+      (webSearchTransport(extraConfig) !== "off" &&
+        (provider.category !== "LLM" ||
+          (apiProtocol || provider.apiProtocol || "openai") !== "openai"))
+    ) {
+      return NextResponse.json(
+        { error: "联网搜索能力仅支持文字模型的OpenAI Responses接口" },
+        { status: 400 }
+      );
     }
 
     // SSRF 第一道闸：customBaseUrl 落库前拦非法协议 / 内网字面量。

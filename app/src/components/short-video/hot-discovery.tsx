@@ -8,6 +8,9 @@ import {
   type HotPlatform,
 } from "@/lib/short-video/hot-discovery";
 import { ScriptZ } from "@/lib/short-video/contracts";
+import { ModelSelector } from "@/components/ai-models/model-selector";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 const names = { DOUYIN: "抖音", KUAISHOU: "快手", XIAOHONGSHU: "小红书" };
 const fieldClass =
   "border-border bg-background w-full rounded border p-2 text-sm";
@@ -58,6 +61,9 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
   ]);
   const [style, setStyle] = useState("XIANXIA");
   const [windowDays, setWindowDays] = useState(3);
+  const [searchMode, setSearchMode] = useState("AI");
+  const [searchConfigId, setSearchConfigId] = useState("");
+  const [aiTitle, setAiTitle] = useState("AI热点原创短视频");
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -125,7 +131,13 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
     setError("");
     setSelected(null);
     setSavedVideoId("");
-    const input = { query, platforms, style, windowDays };
+    const input = {
+      query,
+      platforms,
+      style,
+      windowDays,
+      ...(searchMode === "AI" ? { searchConfigId } : {}),
+    };
     const fingerprint = JSON.stringify(input);
     let prior = requestRef.current;
     try {
@@ -160,6 +172,38 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
     }
   };
   const report = job?.report ? HotReportZ.parse(job.report) : null;
+  const saveAi = async () => {
+    if (!job || !report?.ai) return;
+    setBusy(true);
+    setError("");
+    const fingerprint = JSON.stringify({ job: job.id, title: aiTitle });
+    let requestId = saveIds.current.get(fingerprint);
+    try {
+      requestId ||=
+        sessionStorage.getItem(`hot-ai-save:${fingerprint}`) || undefined;
+    } catch {
+      /* 保留本页面幂等编号。 */
+    }
+    requestId ||= crypto.randomUUID();
+    saveIds.current.set(fingerprint, requestId);
+    try {
+      sessionStorage.setItem(`hot-ai-save:${fingerprint}`, requestId);
+    } catch {
+      /* 隐私模式不阻止保存。 */
+    }
+    try {
+      const result = await api<{ videoId: string }>(
+        `hot-briefs/${job.id}/save-ai`,
+        { requestId, title: aiTitle }
+      );
+      setSavedVideoId(result.videoId);
+      onSaved?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "收藏失败，请读取作品列表核对");
+    } finally {
+      setBusy(false);
+    }
+  };
   const choose = (idea: HotIdea) => {
     setSelected(idea);
     setScriptText(JSON.stringify(idea.script, null, 2));
@@ -208,7 +252,7 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
       <div>
         <h2 className="text-lg font-semibold">先搜热点，再决定做哪条</h2>
         <p className="text-muted-foreground mt-1 text-sm">
-          读取公开来源，为近期话题提供原创反差草案。搜索和草案不调用付费模型；无有效来源时直接显示原因。
+          AI联网搜索与改编使用共用模型设置，供应方可能收费；公开榜单模式提供规则草案。无有效来源时直接显示原因。
         </p>
       </div>
       <label className="block space-y-1">
@@ -220,6 +264,38 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
           onChange={(e) => setQuery(e.target.value)}
         />
       </label>
+      <label className="block space-y-1">
+        <span>搜索方式</span>
+        <select
+          aria-label="搜索方式"
+          className={fieldClass}
+          value={searchMode}
+          onChange={(e) => setSearchMode(e.target.value)}
+        >
+          <option value="AI">AI联网搜索与改编</option>
+          <option value="PUBLIC">仅公开榜单</option>
+        </select>
+      </label>
+      {searchMode === "AI" && (
+        <div className="space-y-2">
+          <p>联网搜索模型</p>
+          <ModelSelector
+            category="LLM"
+            capability="web-search"
+            autoSelect
+            value={searchConfigId}
+            onChange={(id) => setSearchConfigId(id)}
+            disabled={pending}
+          />
+          <p className="text-muted-foreground text-xs">
+            在
+            <a className="underline" href="/settings/ai-models">
+              共用AI模型设置
+            </a>
+            启用联网搜索，保存并测试通过后选择。一次搜索使用一次原生模型请求；刷新读取已有结果，未知结果不会自动重试。
+          </p>
+        </div>
+      )}
       <fieldset className="flex flex-wrap gap-4">
         <legend>搜索平台</legend>
         {Object.entries(names).map(([platform, name]) => (
@@ -270,7 +346,12 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
       <div className="flex flex-wrap gap-3">
         <button
           className={buttonClass}
-          disabled={pending || !platforms.length || !query.trim()}
+          disabled={
+            pending ||
+            !platforms.length ||
+            !query.trim() ||
+            (searchMode === "AI" && !searchConfigId)
+          }
           onClick={() => void search()}
         >
           {pending ? "搜索进行中…" : "搜索最新梗与改编点子"}
@@ -291,10 +372,8 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
       )}
       {job && ["PENDING", "RUNNING"].includes(job.status) && (
         <p role="status">
-          {job.status === "PENDING"
-            ? "等待后台读取公开来源"
-            : "正在核对榜单与来源时间"}
-          。可关闭页面，回来后继续读取；通常需10–30秒。长时间未更新可点击“读取最近搜索”。
+          {job.status === "PENDING" ? "等待后台读取来源" : "正在搜索与核对来源"}
+          。可关闭页面，回来后继续读取；AI搜索可能需要1–3分钟。长时间未更新可点击“读取最近搜索”。
         </p>
       )}
       {job?.status === "FAILED" && (
@@ -302,14 +381,99 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
           {job.errorSummary || "搜索未完成，可以重新创建一次搜索。"}
         </p>
       )}
+      {job && (
+        <p className="text-muted-foreground text-xs break-all">
+          搜索任务：{job.id}
+        </p>
+      )}
       {report && (
         <>
-          <p
-            className="rounded bg-slate-500/10 p-3 whitespace-pre-wrap"
-            role="status"
-          >
-            {report.summary}
-          </p>
+          {report.ai && (
+            <section aria-label="AI联网搜索结果" className="space-y-4">
+              <h3 className="font-semibold">AI联网搜索与原创改编</h3>
+              <p className="text-muted-foreground text-xs">
+                模型：{report.ai.model} · 搜索工具调用：{report.ai.toolCalls}次
+                · {displayTime(report.ai.retrievedAt)}
+              </p>
+              <div className="max-w-full space-y-3 overflow-x-auto text-sm break-words [&_p]:my-2 [&_td]:p-2 [&_td]:align-top [&_th]:p-2 [&_th]:text-left">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ href, children }) =>
+                      href && report.ai!.sources.some((s) => s.url === href) ? (
+                        <a
+                          href={href}
+                          className="text-primary underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {children}
+                        </a>
+                      ) : (
+                        <span>{children}</span>
+                      ),
+                  }}
+                >
+                  {report.ai.answer}
+                </ReactMarkdown>
+              </div>
+              <details>
+                <summary>核对搜索来源与用量</summary>
+                <ul className="list-inside list-disc space-y-2 text-sm">
+                  {report.ai.sources.map((s) => (
+                    <li key={s.url}>
+                      <a
+                        className="text-primary underline"
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {s.title}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-muted-foreground mt-2 text-xs">
+                  上游记录：输入{report.ai.usage.inputTokens ?? "未知"} / 输出
+                  {report.ai.usage.outputTokens ?? "未知"}{" "}
+                  token。供应方金额未取得；网页日期以原文为准，第三方快照不代表官方授权搜索。
+                </p>
+              </details>
+              <label className="block space-y-1">
+                <span>作品名称</span>
+                <input
+                  className={fieldClass}
+                  value={aiTitle}
+                  maxLength={80}
+                  onChange={(e) => setAiTitle(e.target.value)}
+                />
+              </label>
+              <button
+                className={buttonClass}
+                disabled={busy || !aiTitle.trim()}
+                onClick={() => void saveAi()}
+              >
+                收藏AI简报并开始创作
+              </button>
+              {savedVideoId && (
+                <button
+                  className={buttonClass}
+                  onClick={() => router.push(`/short-videos/${savedVideoId}`)}
+                >
+                  进入作品继续制作
+                </button>
+              )}
+            </section>
+          )}
+          {!report.ai && (
+            <p
+              className="rounded bg-slate-500/10 p-3 whitespace-pre-wrap"
+              role="status"
+            >
+              {report.summary}
+            </p>
+          )}
+          <h3 className="font-semibold">直接榜单读取状态</h3>
           <div className="grid gap-3 md:grid-cols-3">
             {report.sources.map((source) => (
               <article
@@ -341,6 +505,9 @@ export function HotDiscovery({ onSaved }: { onSaved?: () => void }) {
           </div>
           {!!report.ideas.length && (
             <div className="overflow-x-auto">
+              <h3 className="mb-2 font-semibold">
+                公开榜单快速草案（规则生成）
+              </h3>
               <table className="w-full text-left text-sm">
                 <thead>
                   <tr className="border-border border-b">

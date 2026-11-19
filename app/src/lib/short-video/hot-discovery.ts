@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SocialPlatformZ, ScriptZ } from "./contracts";
+import { WebSearchResultZ } from "../ai-web-search";
 export const HOT_BRIEF_CONNECTOR = "public-hot-brief-v1";
 export const HotInputZ = z
   .object({
@@ -17,6 +18,7 @@ export const HotInputZ = z
       .default(["DOUYIN", "KUAISHOU", "XIAOHONGSHU"]),
     style: z.enum(["XIANXIA", "ANIMALS", "DAILY"]).default("XIANXIA"),
     windowDays: z.number().int().min(1).max(7).default(3),
+    searchConfigId: z.string().min(1).max(100).optional(),
   })
   .strict();
 export const HotRequestZ = HotInputZ.extend({ requestId: z.uuid() });
@@ -73,5 +75,6 @@ export const HotReportZ = z.object({
   ideas: z.array(HotIdeaZ).max(8),
   recommendation: z.string().nullable(),
   notes: z.array(z.string()),
+  ai: WebSearchResultZ.optional(),
 });
 export type HotReport = z.infer<typeof HotReportZ>;

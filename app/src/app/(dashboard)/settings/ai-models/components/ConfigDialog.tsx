@@ -504,6 +504,44 @@ export function ConfigDialog({
             existingConfig={existingConfig}
           />
 
+          {provider.category === "LLM" && selectedProtocol === "openai" && (
+            <label className="block space-y-2">
+              <span className="text-sm">联网搜索能力</span>
+              <select
+                value={extraConfig.webSearchTransport || "off"}
+                onChange={(e) =>
+                  setExtraConfig((current) => ({
+                    ...current,
+                    webSearchTransport: e.target.value,
+                  }))
+                }
+                className="bg-secondary w-full rounded-lg px-4 py-2"
+              >
+                <option value="off">普通文字模型</option>
+                <option value="responses">联网搜索（Responses）</option>
+              </select>
+              {extraConfig.webSearchTransport === "responses" && (
+                <select
+                  aria-label="搜索推理强度"
+                  value={extraConfig.webSearchReasoningEffort || "auto"}
+                  onChange={(e) =>
+                    setExtraConfig((current) => ({
+                      ...current,
+                      webSearchReasoningEffort: e.target.value,
+                    }))
+                  }
+                  className="bg-secondary w-full rounded-lg px-4 py-2"
+                >
+                  <option value="auto">推理强度：模型默认</option>
+                  <option value="high">推理强度：高（模型须支持）</option>
+                </select>
+              )}
+              <span className="text-muted-foreground block text-xs">
+                启用后，测试会实际执行联网搜索并核对来源引用，供应方可能收费。保存并测试通过后可用于热点搜索。
+              </span>
+            </label>
+          )}
+
           <div>
             <label className="text-muted-foreground mb-1 block text-sm">
               API 协议
@@ -638,6 +676,12 @@ export function ConfigDialog({
                         currentProtocol!,
                         provider.category,
                         "main"
+                      ).replace(
+                        /\/chat\/completions$/,
+                        provider.category === "LLM" &&
+                          extraConfig.webSearchTransport === "responses"
+                          ? "/responses"
+                          : "/chat/completions"
                       )}
                     </code>
                   </div>

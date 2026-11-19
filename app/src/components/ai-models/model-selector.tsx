@@ -25,6 +25,8 @@ interface UserConfig {
   selectedModel: string | null;
   isDefault: boolean;
   testStatus: "SUCCESS" | "FAILED" | "PENDING" | null;
+  isEnabled?: boolean;
+  webSearchTransport?: "off" | "responses";
 }
 
 interface ModelSelectorProps {
@@ -35,6 +37,8 @@ interface ModelSelectorProps {
   disabled?: boolean;
   showMultiSelectButton?: boolean;
   size?: "sm" | "md";
+  capability?: "web-search";
+  autoSelect?: boolean;
 }
 
 // 获取用户已配置的模型
@@ -52,6 +56,8 @@ export function ModelSelector({
   disabled = false,
   showMultiSelectButton = false,
   size = "md",
+  capability,
+  autoSelect = false,
 }: ModelSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -64,7 +70,10 @@ export function ModelSelector({
 
   // 当前分类的全部配置（含未测试/测试失败的，用于空态诊断）
   const categoryConfigs: UserConfig[] = (data?.configs || []).filter(
-    (c: UserConfig) => c.provider.category === category
+    (c: UserConfig) =>
+      c.provider.category === category &&
+      c.isEnabled !== false &&
+      (!capability || c.webSearchTransport === "responses")
   );
 
   // 可选配置：仅测试成功的才允许被选中生成，避免拿一个连通性未知的配置去烧积分
@@ -86,6 +95,11 @@ export function ModelSelector({
   const selectedConfig = value
     ? configs.find((c) => c.id === value)
     : defaultConfig;
+
+  useEffect(() => {
+    if (autoSelect && !value && defaultConfig)
+      onChange?.(defaultConfig.id, defaultConfig.selectedModel || "");
+  }, [autoSelect, value, defaultConfig, onChange]);
 
   // 点击外部关闭下拉框
   useEffect(() => {

@@ -181,3 +181,7 @@ User requests first-step multi-platform real discovery plus grounded abstract-vi
 ### 2026-11-19 热点独立发布续跑
 
 sequential-thinking工具再次检索不可用，项目skills/codex-init-protocol、codex-taskflow-protocol及codex-governance-communications未发现；沿用此前人工分析、上下文、计划与验收文件，不修改全局配置。ECC verification-loop补充最终构建/鉴权/差异核对，TDD与security沿用前阶段记录。共享开发分支保留87c49f0及已并入的Seedance代码；本次授权发布从已部署基线d3aa600建立独立worktree d992a66，只包含热点18文件，不迁移数据库。构建在隔离目录，生产只读检查无在途任务，保留旧Web/worker/env/标记；失败自动回退旧构建与worker，保留所有数据库证据。收费/公开发布仍未授权且开关保持false。
+
+### 2026-11-19 用户授权效果优先的模型联网搜索
+
+人工分析/回退见context-hot-model-search-2026-11-19.md；sequential-thinking工具无可调用项。用户明确不担心付费模型，允许真实搜索/文案模型效果验证；原公开发布限制保留。先核实实际网关工具支持/真实后端/引用来源再确定接入，不凭模型名承诺质量。

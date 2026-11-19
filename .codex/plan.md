@@ -235,3 +235,10 @@ Plan docs/short-video/hot-discovery-plan.md. New source adapters (Douyin public 
 - [x] Complete isolated Web/worker build;605sources/21BGM/58skills, copied secrets removed; exact release2563unit+80PGpassed.
 - [x] First30sec worker-start timeout triggered verified automatic rollback;90sec retry d992a66 successful;68business+44assets passed.
 - [x] Section20 acceptance/release records updated, platform limitations retained; isolated test container stopped.
+
+### Shared model settings for web search
+
+- [x] Audit actual chatgpt2api/sub2api API calls; native Responses search confirmed with citations and independently fetched source pages. User paid authorization and shared-model requirement recorded.
+- [x] Shared capability contract/service/settings test/selector, preserving existing generation categories.
+- [x] Durable AI hot brief, native evidence/cost DTO, UI and save-as-brief path.
+- [ ] TDD/security/isolated regression/build; authorized reversible release and acceptance.

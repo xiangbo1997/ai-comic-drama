@@ -53,6 +53,8 @@ import {
 import { resolveVolcengineCredentials } from "./providers/tts/volcengine-config";
 import { resolveKlingCredentials } from "./providers/kling";
 import { testTTSModelListing } from "./connectivity-test-tts";
+import { webSearchTransport } from "@/lib/ai-web-search";
+import { searchWebWithModel } from "./web-search";
 
 const log = createLogger("services:ai:connectivity-test");
 
@@ -114,6 +116,31 @@ export async function testProviderConnectivity(
         apiProtocol: undefined,
         enableCustomProviderFallback: false,
       });
+    }
+    if (
+      config.category === "LLM" &&
+      webSearchTransport(config.extraConfig) === "responses"
+    ) {
+      if ((config.apiProtocol || "openai") !== "openai" || !modelId)
+        return {
+          success: false,
+          message: "联网搜索需要OpenAI兼容协议和明确模型",
+          errorType: "config",
+        };
+      const result = await searchWebWithModel(
+        {
+          apiKey: config.apiKey,
+          baseUrl: config.baseUrl || "",
+          model: modelId,
+          protocol: "openai",
+          extraConfig: config.extraConfig || {},
+        },
+        "请实际联网查找OpenAI官方网站，回答一句简介并附真实来源链接。不要只凭已有知识回答。"
+      );
+      return {
+        success: true,
+        message: `联网搜索实测通过：${result.toolCalls}次搜索工具调用，${result.sources.length}个来源引用。供应方可能收费。`,
+      };
     }
     if (modelId) {
       return await testModelAvailability(config, modelId);

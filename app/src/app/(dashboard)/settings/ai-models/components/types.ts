@@ -288,6 +288,7 @@ export interface UserConfig {
   providerId: string;
   provider: AIProvider;
   selectedModel: string | null;
+  webSearchTransport?: "off" | "responses";
   customBaseUrl: string | null;
   apiProtocol: string | null;
   customModels: CustomModel[] | null;

@@ -26,6 +26,17 @@ const provider: AIProvider = {
   ],
   configSchema: null,
 };
+if (new URLSearchParams(location.search).get("provider") === "search") {
+  Object.assign(provider, {
+    id: "search-provider",
+    name: "共用搜索模型",
+    slug: "custom-search",
+    category: "LLM",
+    baseUrl: "https://search.example/v1",
+    apiProtocol: "openai",
+    models: [{ id: "search-model", name: "搜索模型" }],
+  });
+}
 const config: UserConfig = {
   id: "tts-config",
   providerId: provider.id,

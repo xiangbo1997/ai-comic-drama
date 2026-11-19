@@ -203,6 +203,9 @@ export function ProviderCard({
                     ?.name || config.selectedModel}
                 </span>
               )}
+              {config.webSearchTransport === "responses" && (
+                <Badge className="ml-2">联网搜索</Badge>
+              )}
             </div>
           ) : (
             <p className="text-muted-foreground text-sm">未配置</p>
