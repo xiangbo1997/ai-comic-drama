@@ -209,3 +209,16 @@ File-level plan: docs/short-video/implementation-plan.md. D0 baseline verified 8
 ### Short video completion
 
 D0-D5内部实现与D7本地验证完成；D6真实平台能力维持BLOCKED，不冒充接通。最终验收docs/short-video/acceptance.md，2549单元/74隔离PG/5浏览器/真实HTTP与独立worker人工排期通过。部署、生产迁移、付费调用和公开发布尚未执行。测试进程正常停止，专属测试容器已停止并保留数据供重验。
+
+## 2026-11-19 Authorized L1 deployment
+
+1. Audit current service/config, actual DB tables/migration history, resource/inflight tasks read-only.
+2. Timestamped private backup of DB/schema/runtime/env/unit/build; restore database backup only to dedicated local verification container.
+3. Verify/rebuild isolated release using production config, preserving live.next and media; remove copied secrets after build.
+4. Apply only additive short-video SQL if absent; record actual applied checksum without fabricating Prisma history. Install worker and admin-gated L1 flags; autoSubmit=false.
+5. Stop/check inflight, switch Web build/restart with rollback on failure, start exactly one worker, verify internal/external health, old routes, capability gates and new authenticated pages; no paid/post tests.
+6. Record production outcome and rollback paths in docs and verification; commit deployment records locally.
+
+### Authorized deployment complete
+
+All deployment steps completed. Application eef0e0f live at comic.cloudsentryai.com, unique Web/worker active, admin L1 enabled and autoSubmit=false. Reviewed new migration applied, backups restored in dedicated isolated container only,44internal/external business checks+43media checks passed. Permanent rollback /backup/short-video-deploy-20261119T112715Z, no paid calls/public posts; report docs/short-video/deployment-2026-11-19.md.

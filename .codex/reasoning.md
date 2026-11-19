@@ -169,3 +169,7 @@ sequential-thinking仍不可用，沿用人工顺序推理与现有安全/验收
 ## 2026-11-19 Short video D0
 
 sequential-thinking unavailable; manual reasoning: reuse jobs receipts/CAS/billing, add distinct parent guard instead of assistant ID spoofing; immutable scripts/media/review hashes; transactional idempotency; fenced worker and conservative unknown recovery; official platform capability absent remains BLOCKED. Protocol skill paths missing; preserve workflow artifacts manually. Reversible additive schema, no production operations.
+
+## 2026-11-19 Short video deployment authorization
+
+User explicitly requested redeployment/go-live, authorizing L1 production additive migration, backup, Web/worker installation and restart. Existing limits remain: no paid calls, no platform public posting, no test/reset/db push on production. sequential-thinking remains unavailable; manual reasoning: first read-only verify actual migration history/schema and inflight receipts, create restorable DB/runtime backups, build in isolated directory with protected production env copy, apply only reviewed additive SQL transaction, install flags enabled for admins/allowlist and autoSubmit=false, atomically switch build with automatic rollback, verify health/auth/assets/worker/old paths. Rollback retains new tables and disables short-video before stopping worker and restoring old build/env. No global permission changes or new MCP installation.
