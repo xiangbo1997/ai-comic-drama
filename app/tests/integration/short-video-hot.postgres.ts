@@ -165,6 +165,25 @@ afterAll(async () => {
   vi.unstubAllEnvs();
 });
 describe("persistent free hot-topic discovery", () => {
+  it("rechecks user access before the paid request after fetching public sources", async () => {
+    const config = await modelConfig();
+    const job = await createHotBrief(userId, {
+      ...input(),
+      searchConfigId: config.id,
+    });
+    await sweepHotBriefs(async () => {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { role: "USER" },
+      });
+      return board();
+    });
+    expect(searchWebWithModel).not.toHaveBeenCalled();
+    expect(await readHotBrief(userId, job.id)).toMatchObject({
+      status: "FAILED",
+      errorSummary: expect.stringContaining("未提交"),
+    });
+  });
   it("processes at most one model brief per sweep so other worker stages can run", async () => {
     const first = await modelConfig();
     const second = await modelConfig(otherId);

@@ -33,10 +33,14 @@ async function searchConfig(userId: string, id: string) {
       testStatus: "SUCCESS",
       provider: { category: "LLM", isActive: true },
     },
-    include: { provider: true },
+    include: {
+      provider: true,
+      user: { select: { id: true, role: true, status: true } },
+    },
   });
   invariant(
     row &&
+      canAccessShortVideo(row.user) &&
       webSearchTransport(row.extraConfig) === "responses" &&
       searchConfigurationVerified(row),
     409,
@@ -189,6 +193,7 @@ export async function sweepHotBriefs(
       },
     });
     if (!claimed.count) continue;
+    let modelSubmitted = false;
     try {
       const input = HotInputZ.parse(job.keywords);
       // 固定免费公开读取可在租约失效后重新读取；不重放模型调用或平台写入。
@@ -244,6 +249,7 @@ export async function sweepHotBriefs(
           KUAISHOU: "快手",
           XIAOHONGSHU: "小红书",
         };
+        modelSubmitted = true;
         report.ai = await searchWebWithModel(
           config,
           `当前北京时间：${new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "full", timeStyle: "short" }).format(new Date())}。用户问题：${input.query}\n平台：${input.platforms.map((p) => platformNames[p]).join("、")}；来源更新窗口最近${input.windowDays}天；画风${input.style}。\n` +
@@ -301,10 +307,14 @@ export async function sweepHotBriefs(
           leaseToken: null,
           leaseUntil: null,
           errorCode: storedInput.searchConfigId
-            ? "HOT_AI_FAILED"
+            ? modelSubmitted
+              ? "HOT_AI_UNKNOWN"
+              : "SEARCH_CONFIG_CHANGED"
             : "HOT_DISCOVERY_FAILED",
           errorSummary: storedInput.searchConfigId
-            ? "模型搜索未完成或未返回可靠引用；原请求可能已产生供应方用量，系统没有自动重试。请先核对模型配置和原请求。"
+            ? modelSubmitted
+              ? "模型搜索未完成或未返回可靠引用；原请求可能已产生供应方用量，系统没有自动重试。请先核对模型配置和原请求。"
+              : "搜索配置、验证或用户权限已变化，未提交本次模型请求。请核对后重新搜索。"
             : "热点简报未完成，未产生付费调用或发布；请读取状态后重新搜索",
         },
       });
