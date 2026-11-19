@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { HotDiscovery } from "./hot-discovery";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { ScriptZ, PublicationPayloadZ } from "@/lib/short-video/contracts";
@@ -507,9 +508,10 @@ export function ShortVideoWorkbench({
           </button>
         </Panel>
       )}
+      {mode === "trends" && <HotDiscovery />}
       {mode === "trends" && (
         <>
-          <Panel title="热点来源与授权能力">
+          <Panel title="平台授权能力与手动导入">
             {caps?.platforms.map((c) => (
               <p key={c.platform}>
                 {names[c.platform]}：搜索 {c.discovery} · 发布 {c.publish} ·{" "}
@@ -542,7 +544,7 @@ export function ShortVideoWorkbench({
               disabled
               title="尚无已验证授权搜索来源"
             >
-              自动搜索暂不可用
+              平台授权搜索暂不可用
             </button>
           </Panel>
           <Panel title="导入链接或手动选题">

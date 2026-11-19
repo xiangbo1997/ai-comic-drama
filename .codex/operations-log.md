@@ -317,3 +317,7 @@ User explicitly authorized redeploy/go-live and continuation. Actual production 
 
 ### Seedance整合已合并
 8435b8a正常提交，提交钩子通过；开发分支ff-only合入，原20个dirty文件在合并前后SHA256一致。34份交付文件及634构建输入复核通过。独立工作台未导入，不推送/部署。完成计划与Git验收另作本次文档记录。
+
+## 2026-11-19 Public hot discovery development
+
+User continued first-step discovery + grounded idea request. Existing search reused, public source capability investigated read-only with no credentials. Douyin public endpoint and Tophub Kuaishou actual source verified; direct Douyinweb empty, XHS hot406/aggregate500 and search noise recorded rather than bypassed. Excluded debug-only60s service/static shield from production design. New durableHOT_BRIEF connectorId uses existing SvDiscoveryJob keywords/resultSourceIds JSON with explicit separate handler; no DB migration. Reused paid generation/artifact/publication services unchanged. New UI and six isolatedPG persistence/API tests (80full total),14 parser/idea tests and7browser tests verified. Production service remains previous eef0e0f until source commit/build/reversible redeploy; autoSubmit remains false.

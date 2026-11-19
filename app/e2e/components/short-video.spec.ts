@@ -67,7 +67,7 @@ test("manual source import preserves traceability and unavailable auto capabilit
   await page.getByRole("button", { name: "保存来源", exact: true }).click();
   await expect(page.getByRole("article").getByRole("strong")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "自动搜索暂不可用" })
+    page.getByRole("button", { name: "平台授权搜索暂不可用" })
   ).toBeDisabled();
   expect(writes).toHaveLength(1);
   expect(writes[0]).toMatchObject({

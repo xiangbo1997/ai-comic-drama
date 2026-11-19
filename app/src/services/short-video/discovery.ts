@@ -1,3 +1,4 @@
+import { HOT_BRIEF_CONNECTOR } from "@/lib/short-video/hot-discovery";
 import { prisma } from "@/lib/prisma";
 import { DiscoveryZ } from "@/lib/short-video/contracts";
 import { canonicalSource } from "@/lib/short-video/source";
@@ -61,7 +62,10 @@ export async function sweepDiscovery(
   connectors: readonly ShortVideoConnector[] = productionConnectors
 ) {
   const jobs = await prisma.svDiscoveryJob.findMany({
-    where: { status: { in: ["PENDING", "RUNNING"] } },
+    where: {
+      connectorId: { not: HOT_BRIEF_CONNECTOR },
+      status: { in: ["PENDING", "RUNNING"] },
+    },
     take: 20,
     include: { user: true },
   });

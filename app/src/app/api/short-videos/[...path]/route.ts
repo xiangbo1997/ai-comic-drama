@@ -43,6 +43,12 @@ import {
   listPublications,
   controlPublication,
 } from "@/services/short-video/publications";
+import {
+  createHotBrief,
+  readHotBrief,
+  latestHotBrief,
+  saveHotIdea,
+} from "@/services/short-video/hot-discovery/store";
 import { addMetric, listMetrics } from "@/services/short-video/metrics";
 import {
   createDiscovery,
@@ -109,7 +115,15 @@ async function handle(request: NextRequest, context: Context) {
         "仅管理员可查看worker状态"
       );
       result = await workerHealth();
-    } else if (is("GET", "sources")) result = await listSources(userId, query);
+    } else if (is("POST", "hot-briefs")) {
+      result = await createHotBrief(userId, await body());
+      status = 202;
+    } else if (is("GET", "hot-briefs")) result = await latestHotBrief(userId);
+    else if (is("GET", "hot-briefs/:id"))
+      result = await readHotBrief(userId, id);
+    else if (is("POST", "hot-briefs/:id/save-idea"))
+      result = await saveHotIdea(userId, id, await body());
+    else if (is("GET", "sources")) result = await listSources(userId, query);
     else if (is("POST", "sources/import"))
       result = await importSource(userId, await body());
     else if (is("POST", "discovery")) {

@@ -222,3 +222,7 @@ D0-D5内部实现与D7本地验证完成；D6真实平台能力维持BLOCKED，�
 ### Authorized deployment complete
 
 All deployment steps completed. Application eef0e0f live at comic.cloudsentryai.com, unique Web/worker active, admin L1 enabled and autoSubmit=false. Reviewed new migration applied, backups restored in dedicated isolated container only,44internal/external business checks+43media checks passed. Permanent rollback /backup/short-video-deploy-20261119T112715Z, no paid calls/public posts; report docs/short-video/deployment-2026-11-19.md.
+
+## 2026-11-19 Public hot discovery continuation
+
+Plan docs/short-video/hot-discovery-plan.md. New source adapters (Douyin public board, Kuaishou public aggregate, filtered XHS web candidates), deterministic reviewed idea drafts, durable HOT_BRIEF kind in existing SvDiscoveryJob JSON, authenticated routes, trends UI, isolated tests. No migration or paid APIs. Source dates distinct from fetch dates; unverified XHS remains unavailable. Build only isolated copy; if updating live version use authorized reversible deployment, no production test writes.

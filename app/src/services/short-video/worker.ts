@@ -16,6 +16,7 @@ import {
 import { ownedRun, validatePlan, verifyScenes } from "./runs";
 import { executeStep, reconcileStep, settleRunCompletion } from "./executor";
 import { sweepPublications } from "./publications";
+import { sweepHotBriefs } from "./hot-discovery/store";
 import { sweepDiscovery } from "./discovery";
 const log = createLogger("short-video:worker");
 export async function driveRun(
@@ -321,6 +322,7 @@ export async function sweepShortVideo(
         });
       }
     }
+    if (!shouldStop()) await sweepHotBriefs(undefined, shouldStop);
     if (!shouldStop()) await sweepDiscovery();
     if (!shouldStop()) await sweepPublications(token);
   } finally {

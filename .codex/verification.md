@@ -484,3 +484,7 @@ PASS authorized deployment of eef0e0f. Six existing migration checksums match, o
 ### Seedance整合Git交付结果
 
 正常提交 `8435b8a`（34文件），pre-commit的Prettier/ESLint通过。提交钩子后34份变更文件、634份构建输入SHA256均无变化。开发分支 `feat/ai-abstract-short-video` 从d3aa600通过ff-only合并至8435b8a；合并窗口内20个原dirty文件逐一SHA256完全相同、34份整合文件与已验收提交一致。独立制作包工作台路径未进入开发分支。未重置/stash目标工作区、未推送、未部署、未调用真实付费模型。合并证据 `/tmp/seedance-merge-result.json`；本小节与完成计划另作仅文档提交，不改变已构建源码。
+
+## 2026-11-19 Public hot discovery verification (pre-release)
+
+Real no-auth public source probe through existing safeFetch: Douyin49/Kuaishou50 actual items; XHS returned no valid topical web entries, explicitlyUNAVAILABLE. Original board timestamps parsed as Beijing, not index pubDate. Source/idea14 tests pass,94.31% statements/97.45%lines/88.03%branches; persistent hot store5 initial tests pass96%statements/97.77%lines/81.25%branches. Full isolated PostgreSQL after final route addition80/80 tests in6files passed. Browser7/7 (newhot2+oldshortvideo5). Baseline full unit2558 passed before extra5 behavioral cases; final full unit rerun in progress. Type check and changed-file eslint/format passed. Existing assistant-memory timing test failed once in concurrent resource load, then standalone11/11 and full80/80passed without test/code weakening. No production test/paid calls/public posts; no schema change.
