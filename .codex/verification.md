@@ -422,3 +422,8 @@
 - 审查全部 7 个待提交路径及已有 4 个未推送提交的范围；git fetch origin 成功，origin/main...HEAD 为 0/4，无远端领先提交。
 - git diff --check 与 bash -n app/deploy/backup.sh 通过。临时目录中 mock docker 执行真实备份脚本：默认保留 2 份、自定义保留 3 份、无效数量拒绝且旧文件不变、pg_dump 失败且旧文件不变，4 场景全通过；同时验证新 gzip/tar 可读及非匹配文件保留。未调用真实 Docker 或生产备份。
 - 当前业务差异仅备份 shell 与说明文档，既有应用功能提交已有历史构建/类型/测试记录，本轮无需重复应用构建或付费调用。环境/密钥/媒体/构建产物保持忽略；git add -A 后复查暂存清单，并保留正常提交钩子。
+
+### Git 交付结果
+- 正常提交 727d2e7（7 文件），pre-commit lint-staged/Prettier 成功；提交后 git diff HEAD^ HEAD --check 通过、工作区干净。
+- git push origin main 成功，远端从 8d49d2b 前进到 727d2e7，包含原有 4 个本地提交与本次全部待提交改动；推送后 ls-remote 核验与 HEAD 一致。
+- 本小节与计划完成状态作为后续 docs 提交正常推送；最终 HEAD/远端 SHA 及干净状态在命令回执和交付回复核验，不自引用写回文件。未 force push、未重写既有提交、未变更生产数据。

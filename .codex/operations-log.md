@@ -275,3 +275,4 @@
 ## 2026-11-19 全部提交并推送
 - 用户明确授权全部提交并推送；读取 root/.codex AGENTS、bootstrap 三协议和 ECC verification-loop。MCP 无配置，已记录人工推理与回退；未修改全局权限或安装 MCP。
 - 初始 main 领先 origin/main 4 个提交，7 个待提交路径；已审查完整工作区差异。git fetch origin 成功；git diff --check、bash -n app/deploy/backup.sh 通过。
+- 备份脚本 bash -n、4 个隔离场景与 diff 检查通过。提交 727d2e7 成功，原生提交钩子通过；普通 push 成功，原有 4 个提交一并发布。远端 SHA/工作区已复核，本次完成记录另作 docs 提交同步。
