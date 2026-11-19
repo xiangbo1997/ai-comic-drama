@@ -241,4 +241,12 @@ Plan docs/short-video/hot-discovery-plan.md. New source adapters (Douyin public 
 - [x] Audit actual chatgpt2api/sub2api API calls; native Responses search confirmed with citations and independently fetched source pages. User paid authorization and shared-model requirement recorded.
 - [x] Shared capability contract/service/settings test/selector, preserving existing generation categories.
 - [x] Durable AI hot brief, native evidence/cost DTO, UI and save-as-brief path.
-- [ ] TDD/security/isolated regression/build; authorized reversible release and acceptance.
+- [x] TDD/security/isolated regression/build; authorized reversible release and acceptance (c3d78e4; 2578 unit, 87 PG, 76 business + 44 asset checks).
+
+
+### 共用模型搜索恢复收尾（2026-11-19）
+- [x] 根据备份回执恢复最终版本：开发973a54d，生产c3d78e4；最终单元/隔离PG/Web/worker构建已通过。
+- [x] 线上既有默认gpt-6-sol已启用Responses/high，真实测试成功，保留原Key/模型/地址。
+- [x] 完成本机/公网只读业务、素材、服务版本检查。
+- [x] 隔离验证回退的收费任务隔离策略，保留原JSON和免费任务。
+- [x] 同步验收、部署及.codex记录；不重复付费请求、不公开投稿、不迁移。最终Git交付以提交回执核对。

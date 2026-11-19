@@ -11,3 +11,6 @@
 文件级计划docs/short-video/shared-model-search-plan.md。搜索作为LLM能力，通过既有extraConfig的webSearchTransport与可选webSearchReasoningEffort持久化，无schema变化。共享服务只接受Responses实际搜索完成记录+原生URL引用，返回正式答案及usage，safeFetch/180sec/2MiB/0重试/observeLLM。现有模型测试门面测试实际搜索；配置/协议/地址/推理强度变化使原测试失效，共用选择器可按能力过滤。HotBrief显式选择配置、保存原生分析/来源/用量，过期RUNNING收费任务标待核对而不重放；收藏简报为作品但不启动生成/发布。原规则路径保留且明确标记，AI为默认搜索方式。
 
 验证：核心新服务先RED缺文件后GREEN5项，相关28项及新配置/能力10项通过；独立PG新搜索文件10项通过（原6+新4）；浏览器12项通过（新增共用LLM能力与AI搜索、原热点/短视频/语音配置）。完整类型检查通过。新服务真实使用既有用户配置gpt-6-sol+high，53.3秒完成7次搜索工具/3来源/1275字可执行改编；usage输入45884/输出2200/总48084，供应方金额未取得。此前chatgpt2api带high请求422，去掉参数41.9秒返回重复文本、19个未解析Link引用、0个URL；现有sub2api原生Responses73.3秒/10搜索记录/4引用实际成功。3份引用页面独立GET200、话题与日期时间匹配；小红书取得第三方快照，不是官方平台授权。本轮至此4次真实模型请求（1拒绝、3成功），并非0付费调用；未公开投稿，生产代码/配置此阶段尚未切换。全量回归/发布待完成。
+
+## 最终已上线
+恢复核验生产c3d78e4、开发973a54d。完整精确版本2578单元/87隔离PG/12浏览器及Web/worker构建通过；76业务+44素材验收通过。默认gpt-6-sol Responses/high真实验证成功，累计5次模型请求（1拒绝4成功），金额未知，公开投稿0。回退隔离验证通过；备份/证据在/backup/short-video-shared-search-20261119T135738Z。恢复后未重复付费请求或发布。详见docs/short-video/deployment-shared-model-search-2026-11-19.md；上文“发布待完成”为历史阶段。

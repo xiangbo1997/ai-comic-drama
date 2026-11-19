@@ -185,3 +185,7 @@ sequential-thinking工具再次检索不可用，项目skills/codex-init-protoco
 ### 2026-11-19 用户授权效果优先的模型联网搜索
 
 人工分析/回退见context-hot-model-search-2026-11-19.md；sequential-thinking工具无可调用项。用户明确不担心付费模型，允许真实搜索/文案模型效果验证；原公开发布限制保留。先核实实际网关工具支持/真实后端/引用来源再确定接入，不凭模型名承诺质量。
+
+
+## 2026-11-19 共用模型搜索恢复收尾
+已读项目 init/taskflow/governance 与 ECC verification-loop。codex mcp list 无配置，sequential-thinking 不可调用，人工顺序分析：回执与进程恢复→确认 c3d78e4 已上线→沿用 2578 单元/87 隔离PG/12 浏览器及最终构建→只读生产验收→隔离回退证据验证→更新交付。遵循项目局部优先，不安装无关 MCP 或改全局权限。真实模型已测试成功，禁止因上下文丢失重复收费测试/发布。回退必须先保留并隔离包含 searchConfigId 的任务，以免旧worker误作免费任务重提；只在独立测试库验证。
