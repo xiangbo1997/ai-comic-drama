@@ -27,7 +27,8 @@ const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
  * v2→v3：放宽规则 4——允许 actionBeat 描述角色说话时的自然口型开合（lip flap），
  *        不再一刀切禁口型（批3 配音表演修复，与 video-prompt 的 lip flap 指令呼应）。
  */
-const KEY_PREFIX = "vdcache:scene:v3:";
+// v4：声音来源进入导演约束，画外对白不能重用旧的张嘴动作。
+const KEY_PREFIX = "vdcache:scene:v4:";
 
 function normalize(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();
@@ -47,6 +48,9 @@ function buildKey(input: VideoDirectorInput): string {
     scene.lighting ? normalize(scene.lighting) : "",
     scene.emotion ?? "",
     String(scene.duration),
+    scene.dialogue === undefined
+      ? "unspecified"
+      : normalize(scene.dialogue ?? ""),
     // 角色按 name 排序，消除数组顺序抖动
     characters
       .map((c) => `${c.name}:${normalize(c.identity)}`)

@@ -19,6 +19,10 @@ import { readFile, stat } from "fs/promises";
 import path from "path";
 import type { AIServiceConfig } from "@/types";
 import type { ObserverVerdict } from "./types";
+import {
+  CONTINUITY_DIMENSIONS,
+  normalizeScreenSide,
+} from "@/services/continuity-check";
 import type {
   ContinuityPairIssue,
   ContinuityDimension,
@@ -254,21 +258,27 @@ export interface ComparePairArgs {
   /** 前/后镜换装标注（"角色名：服装"）；有标注的服装变化属剧情需要 */
   prevOutfitNotes?: string[];
   nextOutfitNotes?: string[];
+  prevActionBeat?: string | null;
+  nextActionBeat?: string | null;
+  prevScreenSide?: unknown;
+  nextScreenSide?: unknown;
   llmConfig: AIServiceConfig;
 }
 
 const CONTINUITY_SYSTEM =
   "你是专业的漫剧「场记 / 连续性检查员」，负责比对相邻两个镜头的画面是否存在连贯性跳变。" +
-  "仅在以下 5 个维度检查：角色服装、发型、环境背景、光线、色调。" +
+  `仅在以下维度检查：${CONTINUITY_DIMENSIONS.join("、")}。` +
   "重要规则：\n" +
   "1. 「环境背景」维度——仅当两镜标注为【同一地点】时，背景不一致才算问题；异地点属正常切换，不报。\n" +
   "2. 「色调」维度——对照给定的期望色板判断整体色调是否偏离；未给期望色板时按两镜相互一致性判断。\n" +
   "3. 服装/发型——仅比对同一角色跨镜是否一致。\n" +
   "4. 剧情性变化不算问题——若两镜的画面描述或换装标注明确显示角色换装、时间跳转、天气变化等剧情意图，对应维度的变化不要报；只报与剧情设定无关的意外跳变。\n" +
+  "5. 道具状态——只检查两图清晰可辨的同一关键道具的外形、持有者和完好状态；描述/动作明确交接、损坏或放下时允许变化。出画、遮挡、视角变化或看不清不能视为道具消失，不凭空补道具。\n" +
+  "6. 空间站位——只在同一地点、共同角色明确且两图有足够空间依据时检查轴线/视线/陈设；正常正反打、合理换机位、剧情走位或过轴不报。站位文字仅是设计资料，要以图像和剧情共同判断；不能因坐标或文字不同直接报错。\n" +
   "只输出通过检查【发现问题】的维度，连贯的维度不要输出（精简）。无任何问题时输出空数组。\n" +
   "严格只输出如下 JSON（不要任何解释或 markdown 代码块标记）：\n" +
   '{"issues":[{"dimension":"角色服装","severity":"严重","description":"问题描述≤60字","fixNote":"可直接喂给重生成的中文修复指令≤40字"}]}\n' +
-  "dimension 只能取：角色服装 / 发型 / 环境背景 / 光线 / 色调；severity 只能取：严重 / 中等 / 轻微。";
+  `dimension 只能取：${CONTINUITY_DIMENSIONS.join(" / ")}；severity 只能取：严重 / 中等 / 轻微。`;
 
 /**
  * 构建相邻镜对比的用户 prompt（紧凑上下文 + 两图前后顺序说明）。
@@ -305,6 +315,22 @@ export function buildComparePrompt(args: ComparePairArgs): string {
       intentLines.push(`后镜描述：${clampText(args.nextDescription, 150)}`);
   }
   const prevOutfits = args.prevOutfitNotes?.filter(Boolean) ?? [];
+  if (args.prevActionBeat?.trim() || args.nextActionBeat?.trim()) {
+    intentLines.push(
+      `动作/道具交接依据：前镜 ${clampText(args.prevActionBeat, 150) || "未标注"}；后镜 ${clampText(args.nextActionBeat, 150) || "未标注"}`
+    );
+  }
+  if (sameLocation) {
+    const sides = (value: unknown) =>
+      Object.entries(normalizeScreenSide(value))
+        .map(([name, side]) => `${name}=${side}`)
+        .join("、") || "未标注";
+    intentLines.push(
+      `空间设计参考（不是视觉检查结论）：前镜 ${sides(args.prevScreenSide)}；后镜 ${sides(args.nextScreenSide)}。正常正反打不算越轴，以实际图像和剧情为准。`
+    );
+  } else {
+    intentLines.push("不比较跨地点的空间站位；道具仅在能确认同一物件时检查。");
+  }
   const nextOutfits = args.nextOutfitNotes?.filter(Boolean) ?? [];
   if (prevOutfits.length > 0 || nextOutfits.length > 0) {
     intentLines.push(
@@ -320,7 +346,7 @@ export function buildComparePrompt(args: ComparePairArgs): string {
     locationLine,
     paletteLine,
     ...intentLines,
-    "请比对两镜在 角色服装 / 发型 / 环境背景 / 光线 / 色调 上是否有跳变，按系统要求只输出发现问题的维度（JSON）。",
+    `请比对两镜在 ${CONTINUITY_DIMENSIONS.join(" / ")} 上是否有跳变，按系统要求只输出有明确图像证据的问题（JSON）；不确定不猜测。`,
   ].join("\n");
 }
 
@@ -387,20 +413,27 @@ export async function compareImagePairWithVision(
       choices?: Array<{ message?: { content?: string } }>;
     };
     const text = data.choices?.[0]?.message?.content ?? "";
-    return parsePairIssues(text);
+    const issues = parsePairIssues(text);
+    // 跨地点的轴线没有可比性；即使模型忽略提示词，也不把这类建议送入收费修复。
+    return (
+      issues?.filter(
+        (issue) =>
+          issue.dimension !== "空间站位" ||
+          Boolean(
+            args.prevLocationKey &&
+            args.prevLocationKey === args.nextLocationKey
+          )
+      ) ?? null
+    );
   } catch {
     // 网络 / 解析等任何异常一律降级为「跳过」，绝不阻塞整体体检
     return null;
   }
 }
 
-const VALID_DIMENSIONS: ReadonlySet<string> = new Set<ContinuityDimension>([
-  "角色服装",
-  "发型",
-  "环境背景",
-  "光线",
-  "色调",
-]);
+const VALID_DIMENSIONS: ReadonlySet<string> = new Set<ContinuityDimension>(
+  CONTINUITY_DIMENSIONS
+);
 const VALID_SEVERITIES: ReadonlySet<string> = new Set<ContinuitySeverity>([
   "严重",
   "中等",

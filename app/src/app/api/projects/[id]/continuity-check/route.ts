@@ -84,6 +84,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         imageUrl: true,
         locationKey: true,
         description: true,
+        actionBeat: true,
+        screenSide: true,
         characterOutfits: true,
         sceneCharacters: {
           select: { character: { select: { name: true } } },
@@ -98,6 +100,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       locationKey: s.locationKey,
       characterNames: s.sceneCharacters.map((c) => c.character.name),
       description: s.description,
+      actionBeat: s.actionBeat,
+      screenSide: s.screenSide,
       outfitNotes: parseOutfitEntries(s.characterOutfits).map(
         (e) => `${e.name}：${e.outfit}`
       ),
@@ -232,6 +236,10 @@ async function runContinuityCheckTask(p: {
           // 剧情意图（画面描述 + 换装标注）：抑制剧情性换装/转场误报
           prevDescription: pair.prev.description,
           nextDescription: pair.next.description,
+          prevActionBeat: pair.prev.actionBeat,
+          nextActionBeat: pair.next.actionBeat,
+          prevScreenSide: pair.prev.screenSide,
+          nextScreenSide: pair.next.screenSide,
           prevOutfitNotes: pair.prev.outfitNotes,
           nextOutfitNotes: pair.next.outfitNotes,
           llmConfig: p.llmConfig,

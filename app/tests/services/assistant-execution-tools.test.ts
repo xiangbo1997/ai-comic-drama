@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   submitVideo: vi.fn(),
   location: vi.fn(),
   review: vi.fn(),
+  videoPrompt: vi.fn(() => "video-prompt"),
 }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -58,7 +59,7 @@ vi.mock("@/services/agents/vision-reviewer", () => ({
   supportsVisionReview: () => true,
 }));
 vi.mock("@/lib/prompts", () => ({
-  buildVideoScenePrompt: () => "video-prompt",
+  buildVideoScenePrompt: mocks.videoPrompt,
 }));
 import {
   describeAssistantCapabilities,
@@ -126,6 +127,19 @@ beforeEach(() => {
   mocks.submitVideo.mockResolvedValue({ taskId: "t1", cost: 10 });
 });
 describe("server assistant generation adapters", () => {
+  it("自动视频入口传递真实声源和景别，不再漏掉口型控制", async () => {
+    mocks.scene.mockResolvedValue({
+      ...scene(),
+      imageUrl: "first",
+      dialogue: "OS: 别开门",
+      shotType: "近景",
+    });
+    mocks.task.mockResolvedValue(task({ videoUrl: "video", cost: 10 }));
+    await executeAssistantAction({ ...input, kind: "video", maxCost: 10 });
+    expect(mocks.videoPrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ dialogue: "OS: 别开门", shotType: "近景" })
+    );
+  });
   it("submits exactly one image through the shared job with server budget and CAS", async () => {
     const result = await executeAssistantAction(input);
     expect(mocks.submitImage).toHaveBeenCalledOnce();

@@ -119,6 +119,31 @@ test("打开执行页只读取已有任务，不自动计划或执行", async ({
   ).toBeEnabled();
   expect(writeRequests.get(page)).toHaveLength(0);
 });
+test("参考图缺口在原制作计划中显示，查看警告不自动开始收费任务", async ({
+  page,
+}) => {
+  await page.route("**/api/assistant/executions", (route) =>
+    route.fulfill({
+      json: {
+        execution: execution({
+          plan: {
+            ...execution().plan,
+            warnings: [
+              "角色「阿宁」缺少定妆/参考图，跨镜形象可能漂移；请先在角色页准备参考图，本计划不会额外自动生成角色图",
+              "所选图像模型不支持参考图",
+            ],
+          },
+        }),
+      },
+    })
+  );
+  await page.getByRole("button", { name: "查看执行计划", exact: true }).click();
+  await expect(page.getByText(/角色「阿宁」缺少定妆/)).toBeVisible();
+  await expect(
+    page.getByText("所选图像模型不支持参考图", { exact: true })
+  ).toBeVisible();
+  expect(writeRequests.get(page)).toHaveLength(1);
+});
 
 test("系列总览先选集，空系列说明先新建一集", async ({ page }) => {
   await page

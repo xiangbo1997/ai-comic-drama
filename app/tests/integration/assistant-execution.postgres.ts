@@ -52,6 +52,7 @@ const caps = () => ({
   locationCost: 1,
   videoCosts: { [sceneId]: 5 },
   canRepair: true,
+  supportsCharacterReferences: true,
   canInspect: true,
   canLink: true,
 });

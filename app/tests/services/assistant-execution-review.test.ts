@@ -77,6 +77,40 @@ beforeEach(() => {
   mocks.chat.mockResolvedValue('[{"pair":0,"reason":"连续动作"}]');
 });
 describe("自主执行视觉检查与衔接", () => {
+  it("道具与站位上下文传入实际检查，严重道具问题进入原修复队列", async () => {
+    const scenes = (await mocks.scenes()).map((s: object) => ({
+      ...s,
+      actionBeat: "保持右手钥匙",
+      screenSide: { 阿宁: "left" },
+    }));
+    mocks.scenes.mockResolvedValue(scenes);
+    mocks.compare.mockResolvedValue([
+      {
+        dimension: "道具状态",
+        severity: "严重",
+        description: "钥匙换手",
+        fixNote: "恢复右手钥匙",
+      },
+      {
+        dimension: "空间站位",
+        severity: "中等",
+        description: "站位不一致",
+        fixNote: "保持画面左侧",
+      },
+    ]);
+    const result = await executeReviewTool(input, "task");
+    expect(mocks.compare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prevActionBeat: "保持右手钥匙",
+        nextActionBeat: "保持右手钥匙",
+        prevScreenSide: { 阿宁: "left" },
+        nextScreenSide: { 阿宁: "left" },
+      })
+    );
+    expect(result.issues).toEqual([
+      { sceneId: "s1", anchorSceneId: "s0", note: "恢复右手钥匙" },
+    ]);
+  });
   it("检查指纹忽略自己的视频/衔接写入，但手动换图或改设定必须失效", async () => {
     const scenes = await mocks.scenes();
     const fingerprint = buildAssistantReviewFingerprint(

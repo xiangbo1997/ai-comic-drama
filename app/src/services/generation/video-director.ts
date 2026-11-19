@@ -26,6 +26,7 @@
  */
 
 import { z } from "zod";
+import { resolveDialogueDelivery } from "@/lib/dialogue-delivery";
 import { chatCompletion } from "@/services/ai";
 import { parseLooseJSON } from "@/lib/json-repair";
 import { createLogger } from "@/lib/logger";
@@ -48,6 +49,7 @@ export interface VideoDirectorInput {
     lighting?: string | null;
     emotion?: string | null;
     duration: number;
+    dialogue?: string | null;
   };
   /** 出场角色：identity ≤200 字外貌锚，仅供理解，输出禁止复述 */
   characters: Array<{ name: string; identity: string }>;
@@ -186,6 +188,14 @@ export function buildDirectorPrompt(input: VideoDirectorInput): string {
     .filter(Boolean)
     .join("\n");
   parts.push(`【本镜】\n${sceneLines}`);
+  if (scene.dialogue !== undefined) {
+    const delivery = resolveDialogueDelivery(scene.dialogue);
+    parts.push(
+      delivery === "onscreen"
+        ? "【声音来源】当面对白；可以安排自然口型动作，但不写具体台词，后期统一配音。"
+        : "【声音来源】内心独白、画外音或无对白；禁止让画面中角色张嘴说话，动作只表达原有情绪和剧情，后期统一配音。"
+    );
+  }
 
   parts.push(
     `请为【本镜】导演运动，输出 JSON：{"cameraMovement","actionBeat","atmosphere","variationType","endFrameDesc"}（variationType 为 small 时省略 endFrameDesc）。`

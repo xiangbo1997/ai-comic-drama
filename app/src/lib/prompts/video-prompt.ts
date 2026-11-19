@@ -14,6 +14,7 @@
  */
 
 import { createLogger } from "@/lib/logger";
+import { resolveDialogueDelivery } from "@/lib/dialogue-delivery";
 import { normalizeShotType } from "@/lib/shot-type-normalize";
 import { CAMERA_MOVEMENTS, type CameraMovement } from "./camera-movements";
 import { normalizeCameraAngle, type CameraAngle } from "./camera-angles";
@@ -65,6 +66,8 @@ export interface VideoScenePromptInput {
    * 镜不该动嘴）。管线仍自叠 TTS 并丢弃模型音轨，故指令始终「no audible dialogue」。
    */
   hasDialogue?: boolean;
+  /** 真实对白用于识别显式OS/VO；缺省保留旧hasDialogue兼容语义。 */
+  dialogue?: string | null;
   /**
    * 半动（limited animation）纪律（C2，默认开启）。
    *
@@ -292,7 +295,11 @@ function buildAudioDirective(input: VideoScenePromptInput): string {
   const shotVisible = input.shotType
     ? LIP_FLAP_SHOT_TYPES.has(input.shotType)
     : false;
-  return input.hasDialogue && shotVisible
+  const onscreen =
+    input.dialogue !== undefined
+      ? resolveDialogueDelivery(input.dialogue) === "onscreen"
+      : input.hasDialogue;
+  return onscreen && shotVisible
     ? AUDIO_DIRECTIVE_LIP_FLAP
     : AUDIO_DIRECTIVE_SILENT;
 }

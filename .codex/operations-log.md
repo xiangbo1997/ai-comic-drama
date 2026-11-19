@@ -296,3 +296,20 @@ Created feat/ai-abstract-short-video and separate local commits (no push). Compl
 ## 2026-11-19 L1 production deployment executed
 
 User explicitly authorized redeploy/go-live and continuation. Actual production six Prisma checksums matched; only add_short_video pending. Private backups of DB/schema/uploads/env/old build; backup restored and counts checked only in dedicated verification container, restored temporary DB removed/container stopped. Independent production-config Next build passed, source586 SHA matched,21BGM/skill trace preserved, temporary env deleted. prisma migrate deploy applied exactly new migration,15Sv tables, old counts unchanged. Switched Web to eef0e0f and enabled unique short-video systemd worker. Feature enabled only admin/allowlist, autoSubmit=false; all14 old env keys unchanged. Caddy only short-video upload210MB,others50MB. 44 internal/external business checks+43media checks passed. Old static files required Web snapshot refresh; current checks clean. No paid/model/platform requests, no public posts. Persistent rollback evidence /backup/short-video-deploy-20261119T112715Z; rollback.py syntax verified but not executed. Details docs/short-video/deployment-2026-11-19.md.
+
+
+## 2026-11-19 有价值能力整合到开发分支
+
+读取项目taskflow/governance和ECC tdd-workflow/coding-standards/verification-loop，沿用已初始化会话。新worktree /software/ai-comic-drama-seedance-integration，分支feat/seedance-pipeline-integration，基线d3aa600。研究worktree评估记录保留。只读复用已有node_modules，不运行prisma generate，实际构建隔离。
+
+资源记录：浏览器/类型/全量单元/lint并发时主机swap耗尽，既有浏览器用例出现30秒超时。停止本worktree自己的tsc与eslint进程释放内存，不停止其他应用。后续检查改为串行，浏览器失败用例待资源恢复重跑；不改断言或隐藏失败。
+
+串行核验记录：全量单元217文件2574项通过；浏览器17项首轮15通过/2项资源超时，失败两项单独重跑2/2通过。类型检查768MB堆低于当前工程需求出现V8 OOM（134），无TS诊断；待lint结束后单独用1536MB重跑，不修改源码或放宽类型规则。
+
+本轮整合未导入research分支提交，只独立复用方法。主流程语义测试包括：OS/VO识别和普通对白兼容、导演缓存声源变更失效、模型不支持参考图计划提示而不新增预算、真实VLM请求带两图/动作/站位、跨地点空间结果过滤、报告指纹随方法/动作/站位变化、自动严重问题送原修复队列。新增浏览器用例验证原警告展示与原场记合并修复。全量lint/format已通过。
+
+类型检查故障归因：类型检查已结束并给出唯一TS2322——已有PostgreSQL集成测试中describeAssistantCapabilities强类型mock缺少新增supportsCharacterReferences字段。该mock补true，与原canRepair=true配置一致。此前SIGTERM和768MB OOM属资源退出；本次已定位具体类型问题，不继续盲目重跑tsc，交由后续生产构建的完整类型阶段复核。
+
+
+### 2026-11-19T12:27:14.973459+00:00 Seedance整合预合并验收
+完整Next生产构建（含TypeScript）、短视频worker编译通过；634输入指纹无漂移。共享plan.md并发修改，迁移本轮计划至context-seedance-pipeline-integration-2026-11-19.md，目标原计划/推理不动。下一步正常提交并ff-only合并，仅操作互不重叠路径；不部署/推送。

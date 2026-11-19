@@ -165,6 +165,7 @@ export async function executeMediaGeneration(
             lighting: sceneArtifact.lighting,
             emotion: sceneArtifact.emotion,
             duration: sceneArtifact.duration,
+            dialogue: sceneArtifact.dialogue,
           },
           characters: directorCharacters,
           prevScene: prevArtifact
@@ -239,7 +240,7 @@ export async function executeMediaGeneration(
         // 镜内尾帧存在时启用 FL 文案（视频精确结束于所给尾帧画面）
         hasLastFrame: !!intraShotLastFrame,
         // 有对白 + 景别看得清嘴 → lip flap 口型指令（批3）
-        hasDialogue: !!sceneArtifact.dialogue?.trim(),
+        dialogue: sceneArtifact.dialogue,
         // 冲击节拍高能动作指令（批4）：SceneArtifact 无此字段，取 DB 已落库值，
         // 与手动路径 route.ts 对等（缺失时 impact 镜会被模型渲成缓慢漂移）。
         beatType: dbScene.beatType,

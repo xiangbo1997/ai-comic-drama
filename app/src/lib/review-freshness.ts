@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import {
   buildPairList,
   type ContinuityScene,
+  CONTINUITY_REVIEW_VERSION,
+  normalizeScreenSide,
 } from "@/services/continuity-check";
 import { extractSeriesPalette } from "@/lib/series";
 import { parseStoryBible } from "@/types/series-bible";
@@ -64,8 +66,11 @@ export function buildContinuityReviewFingerprint<T extends ContinuityScene>(
     description: text(scene.description),
     characterNames: names(scene.characterNames),
     outfitNotes: names(scene.outfitNotes),
+    actionBeat: text(scene.actionBeat),
+    screenSide: normalizeScreenSide(scene.screenSide),
   });
   return fingerprint({
+    reviewVersion: CONTINUITY_REVIEW_VERSION,
     expectedPalette: text(expectedPalette),
     pairs: buildPairList([...scenes]).map(({ prev, next }) => ({
       prev: sceneEvidence(prev),

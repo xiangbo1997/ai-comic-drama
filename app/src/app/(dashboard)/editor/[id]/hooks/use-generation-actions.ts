@@ -496,7 +496,7 @@ export function useGenerationActions(
           hasLastFrame: !!lastFrameImage,
           // 服务端仅在 LLM 导演成功时重建全字段 prompt；无 LLM 配置 / 导演失败
           // 时沿用本客户端 prompt，缺这两项会让口型指令与冲击高能指令静默丢失。
-          hasDialogue: !!scene.dialogue?.trim(),
+          dialogue: scene.dialogue,
           beatType: scene.beatType,
         }),
         // 发送真实时长（1–60，客户端仅做安全钳制）：服务端按模型能力规划分段，

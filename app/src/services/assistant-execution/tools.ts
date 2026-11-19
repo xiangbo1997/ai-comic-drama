@@ -113,6 +113,7 @@ export async function describeAssistantCapabilities(input: {
       ])
     ),
     canRepair: !!imageCap?.supportsReferenceImage,
+    supportsCharacterReferences: !!imageCap?.supportsReferenceImage,
     canInspect: !!llm && supportsVisionReview(llm),
     canLink: !!videoCap?.supportsFirstLastFrame && !!llm,
     // 凭据只参与不可逆整体散列，不返回给浏览器或放入任务资料。
@@ -275,6 +276,12 @@ export async function executeAssistantAction(
           sceneId: scene.id,
           imageUrl: scene.imageUrl,
           prompt: buildVideoScenePrompt({
+            dialogue: scene.dialogue,
+            shotType: scene.shotType,
+            cameraAngle: scene.cameraAngle,
+            lighting: scene.lighting,
+            emotion: scene.emotion,
+            beatType: scene.beatType,
             description: scene.description,
             style: project.style,
             duration: scene.duration,

@@ -94,6 +94,39 @@ export async function buildAssistantExecutionPlan(
     options,
   });
   const blockers: string[] = [];
+  const referenceWarnings: string[] = [];
+  const needsImages = project.scenes.filter((scene) => !scene.imageUrl);
+  if (needsImages.length && caps.supportsCharacterReferences === false) {
+    referenceWarnings.push(
+      "所选图像模型不支持参考图，现有角色/地点参考无法直接约束出图；建议选择支持参考图的模型，不会自动换模型或增加补图费用"
+    );
+  }
+  const checked = new Set<string>();
+  for (const scene of needsImages) {
+    const ids = new Set([
+      ...(scene.selectedCharacterIds ?? []),
+      ...(scene.selectedCharacterId ? [scene.selectedCharacterId] : []),
+      ...(scene.sceneCharacters ?? []).map((item) => item.characterId),
+    ]);
+    for (const id of ids) {
+      if (checked.has(id)) continue;
+      checked.add(id);
+      const character = project.characters.find(
+        (item) => item.characterId === id || item.character.id === id
+      )?.character;
+      if (!character)
+        referenceWarnings.push(
+          `第${scene.order + 1}镜的角色关联已失效，请重新选择角色后制作`
+        );
+      else if (
+        !character.canonicalImageUrl?.trim() &&
+        !character.referenceImages.some((url) => url.trim())
+      )
+        referenceWarnings.push(
+          `角色「${character.name}」缺少定妆/参考图，跨镜形象可能漂移；请先在角色页准备参考图，本计划不会额外自动生成角色图`
+        );
+    }
+  }
   if (!project.scenes.length)
     blockers.push("当前集尚无分镜，请先完成分镜再制作");
   if (project.scenes.length > 100)
@@ -226,6 +259,7 @@ export async function buildAssistantExecutionPlan(
     models: caps.models,
     warnings: [
       ...caps.warnings,
+      ...referenceWarnings,
       ...(legacyIds.size
         ? [
             `${legacyIds.size}个分镜的地点来自旧版剧情标题，将先校准物理地点，再按实际地点生成参考图；已有素材保留`,

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { CONTINUITY_REVIEW_VERSION } from "@/services/continuity-check";
 
 export const REVIEW_SCENE_SELECT = {
   id: true,
@@ -16,6 +17,7 @@ export const REVIEW_SCENE_SELECT = {
   videoUrl: true,
   videoLinkNext: true,
   characterOutfits: true,
+  screenSide: true,
   sceneCharacters: {
     select: { character: { select: { name: true, userId: true } } },
   },
@@ -57,7 +59,16 @@ export function buildAssistantReviewFingerprint(
     })
   );
   return createHash("sha256")
-    .update(JSON.stringify(canonical({ style, bible, scenes: inputs })))
+    .update(
+      JSON.stringify(
+        canonical({
+          reviewVersion: CONTINUITY_REVIEW_VERSION,
+          style,
+          bible,
+          scenes: inputs,
+        })
+      )
+    )
     .digest("hex");
 }
 

@@ -174,7 +174,7 @@ export function useMultiGenerate({
               hasLastFrame: !!lastFrameImage,
               // 服务端仅在 LLM 导演成功时重建全字段 prompt；无 LLM 配置 / 导演失败
               // 时沿用本客户端 prompt，缺这两项会让口型指令与冲击高能指令静默丢失。
-              hasDialogue: !!selectedScene!.dialogue?.trim(),
+              dialogue: selectedScene!.dialogue,
               beatType: selectedScene!.beatType,
             }),
             duration: clampSceneDuration(selectedScene!.duration),

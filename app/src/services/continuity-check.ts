@@ -24,6 +24,9 @@ export interface ContinuityScene {
   description?: string | null;
   /** 换装标注（"角色名：服装" 格式化短句）；有值时对应服装变化属剧情需要 */
   outfitNotes?: string[];
+  /** 已落库的动作和站位计划，供判断交接/移动是否为剧情需要。 */
+  actionBeat?: string | null;
+  screenSide?: unknown;
 }
 
 /** 一对相邻已出图分镜（前镜 prev、后镜 next） */
@@ -33,12 +36,33 @@ export interface ContinuityPair {
 }
 
 /** VLM 可检查的连贯性维度 */
-export type ContinuityDimension =
-  | "角色服装"
-  | "发型"
-  | "环境背景"
-  | "光线"
-  | "色调";
+export const CONTINUITY_DIMENSIONS = [
+  "角色服装",
+  "发型",
+  "环境背景",
+  "光线",
+  "色调",
+  "道具状态",
+  "空间站位",
+] as const;
+export type ContinuityDimension = (typeof CONTINUITY_DIMENSIONS)[number];
+// 检查维度改变后，旧五维报告必须重新检查，不能沿用旧版通过结论。
+export const CONTINUITY_REVIEW_VERSION = 2;
+
+export function normalizeScreenSide(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(
+        ([name, side]) =>
+          name.trim().length > 0 &&
+          name.length <= 80 &&
+          (side === "left" || side === "right" || side === "center")
+      )
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(0, 20)
+  );
+}
 
 /** 问题严重度（Toonflow 三档） */
 export type ContinuitySeverity = "严重" | "中等" | "轻微";

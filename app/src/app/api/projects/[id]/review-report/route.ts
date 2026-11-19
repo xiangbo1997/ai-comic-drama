@@ -94,6 +94,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
         selectedCharacterIds: true,
         selectedCharacter: { select: { name: true } },
         characterOutfits: true,
+        screenSide: true,
         sceneCharacters: { select: { character: { select: { name: true } } } },
       },
     });

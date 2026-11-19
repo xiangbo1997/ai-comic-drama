@@ -214,7 +214,7 @@ export function ContinuityCheckDialog({
           </DialogTitle>
           <DialogDescription>
             AI 逐对比对相邻分镜图片，检查角色服装 / 发型 / 环境 / 光线 /
-            色调是否跳变（使用视觉大模型，免费）。
+            色调、道具状态与空间站位是否跳变；结合剧情允许正常交接和正反打，不确定不猜测。
           </DialogDescription>
         </DialogHeader>
 

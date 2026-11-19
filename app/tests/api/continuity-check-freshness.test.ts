@@ -39,6 +39,8 @@ const scenes = [
     locationKey: "门厅",
     description: "阿宁握住钥匙，回头望向门外。",
     characterOutfits: [{ name: "阿宁", outfit: "雨衣" }],
+    actionBeat: "右手握钥匙",
+    screenSide: { 阿宁: "left" },
     sceneCharacters: [{ character: { name: "阿宁" } }],
   },
   {

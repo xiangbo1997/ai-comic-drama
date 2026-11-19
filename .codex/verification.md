@@ -445,3 +445,37 @@ PASS: full unit 215 files/2549 tests; full isolated PostgreSQL 5 files/74 tests 
 ## 2026-11-19 L1 production deployment verification
 
 PASS authorized deployment of eef0e0f. Six existing migration checksums match, one additive migration applied via migrate deploy;15Sv tables and actual receipt checked. Production backup restored only in dedicated local container; original counts1user/9projects/201scenes/243ledger/7configs preserved. Production-config isolated Web build complete (586source SHA,21BGM,skill traces), copied secrets removed. Worker --check read-only successful, unique systemd worker active, heartbeat fresh. Internal/public health200/ok/commit eef0e0f;44 auth/gate/page/API/JS checks passed plus43BGM/oldJS checks. Web/worker active NRestarts0, logs error-free; old14env values preserved, admin L1=true/autoSubmit=false. No production tests/reset/db push, no paid calls or public posts. Permanent backup/rollback /backup/short-video-deploy-20261119T112715Z, rollback not executed. Historical NOT_DEPLOYED statements above describe earlier development phase and are superseded by this authorized deployment record.
+
+
+## 2026-11-19 有价值能力整合到开发分支
+
+整合实施开始。开发分支初始干净，研究工作台不合并。待本轮最终检查后追加结果。
+
+资源记录：浏览器/类型/全量单元/lint并发时主机swap耗尽，既有浏览器用例出现30秒超时。停止本worktree自己的tsc与eslint进程释放内存，不停止其他应用。后续检查改为串行，浏览器失败用例待资源恢复重跑；不改断言或隐藏失败。
+
+串行核验记录：全量单元217文件2574项通过；浏览器17项首轮15通过/2项资源超时，失败两项单独重跑2/2通过。类型检查768MB堆低于当前工程需求出现V8 OOM（134），无TS诊断；待lint结束后单独用1536MB重跑，不修改源码或放宽类型规则。
+
+类型检查故障归因：类型检查已结束并给出唯一TS2322——已有PostgreSQL集成测试中describeAssistantCapabilities强类型mock缺少新增supportsCharacterReferences字段。该mock补true，与原canRepair=true配置一致。此前SIGTERM和768MB OOM属资源退出；本次已定位具体类型问题，不继续盲目重跑tsc，交由后续生产构建的完整类型阶段复核。
+
+
+### 整合验证进度 2026-11-19T12:21:02.565520+00:00
+
+- 功能：原自动计划参考素材/能力警告；实际图像场记扩展道具状态/空间站位，手动/自动检查与报告freshness贯通；明确OS/VO在旧编辑器/Workflow/助手视频入口禁口型，导演上下文和缓存同步。
+- 研究6ce8a9c独立工作台未导入；无新页面/数据库迁移/依赖/付费步骤。独立短视频worker原始prompt合同保持不变。
+- RED：缺少声源工具、旧场记丢弃新维度、动作/站位未进入检查/版本、计划无参考提示均复现；另用测试复现旧导演缓存重用OS张嘴动作。GREEN：相关回归通过。
+- 全量Vitest：217文件2574项全部通过（pnpm exec vitest run --maxWorkers=2）。最终定向10文件150项通过；对话/提示词/报告指纹/场记四个核心模块覆盖行96.79%、分支93.54%、函数100%，报告/tmp/seedance-integration-coverage，含dialogue-delivery HTML。
+- 浏览器：assistant-execution+continuity-production共17项；首轮15通过、2项主机内存/swap耗尽期间超时；这2项独立重跑2/2通过，未改断言。覆盖原计划显示参考图警告但不执行，以及原场记合并道具/空间建议为一次修复并传前图锚点。
+- 完整lint与format:check通过；补充PG强类型mock新增字段后，该文件单独eslint/prettier通过。
+- 类型检查先有资源中断与768MB OOM，1536MB最终查出唯一测试mock字段遗漏并修复；生产构建将作为最终完整类型验收，结果后续追加。没有禁用类型/lint或测试。
+- 原开发目录并发增加热点发现改动，整合路径与当前16个dirty路径交集为空；共享reasoning.md不进入本次整合，人工推理记录于本任务context。合并前再次核对，不stash工作区。
+- 项目init/taskflow/governance为主，ECC tdd/coding/verification为补充；sequential-thinking不可调用，人工分析与可逆回退记录已保存。
+
+
+### 整合最终构建验收 2026-11-19T12:27:14.973459+00:00
+
+- 隔离worktree执行 `NODE_OPTIONS=--max-old-space-size=1536 pnpm exec next build --webpack` 退出0：编译成功、完整TypeScript检查成功（75秒）、70个静态页生成及最终路由/追踪完成。此前PG强类型mock缺字段已被此次完整检查覆盖，未关闭任何类型检查。
+- 构建采用127.0.0.1:9虚构数据库及仅用于构建的测试配置，没有读取生产环境或迁移生产数据库。
+- `pnpm build:short-video-worker` 退出0，产物714.5KiB；只编译、不启动worker。
+- 构建后634份源码/schema/依赖锁/Skill逐文件SHA256与构建开始时一致；全量217文件2574单元测试、17项浏览器用例（含资源超时用例独立复验）、全量lint/format与核心行96.79%覆盖结果沿用上文，未变更应用源码。
+- 开发目录正在并发开发热点发现，当前19个dirty路径与本次34个整合路径无交集。共享plan.md和reasoning.md的本轮内容已迁移到专用context，保留目标目录原有修改；不整目录stash、不reset、不操作他人进程。
+- 本轮遵循项目init/taskflow/governance；sequential-thinking无可调用工具，人工推理/计划/回退见专用context；ECC技能只补充。提交和实际合并结果待后续Git回执核验。
