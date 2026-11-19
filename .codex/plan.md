@@ -205,3 +205,7 @@
 ## 2026-11-19 Short video D0-D7
 
 File-level plan: docs/short-video/implementation-plan.md. D0 baseline verified 82865ea; implement additive schema/CRUD, validated scripts/plans, existing generation adapters, fenced worker, manual review/scheduling/export, platform capability contracts, isolated tests/build/deploy rollback. Production, paid generation and public publishing excluded pending approval.
+
+### Short video completion
+
+D0-D5内部实现与D7本地验证完成；D6真实平台能力维持BLOCKED，不冒充接通。最终验收docs/short-video/acceptance.md，2549单元/74隔离PG/5浏览器/真实HTTP与独立worker人工排期通过。部署、生产迁移、付费调用和公开发布尚未执行。测试进程正常停止，专属测试容器已停止并保留数据供重验。
