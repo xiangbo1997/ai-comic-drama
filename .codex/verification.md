@@ -368,6 +368,12 @@
 - 备份与证据：`/tmp/ai-comic-deploy-assistant-bugfix-20261115T130018Z-6ymbqjri/`，含旧.next、旧.git-commit、reviewed-files/patch、application-commit、environment-sha256、source-check、build.log、deployment.json、smoke.json、journal-check.json。失败时可恢复旧构建/版本标记并启动同一服务，不回滚用户数据。
 - 本轮Git只做本地正常提交，不执行push；部署记录另作docs提交，最终Git状态及提交回执保存在同目录git-delivery.json。
 
+
+## 2026-11-15 服务器磁盘与内存只读检查（完成）
+
+采样2026-11-15 13:38–13:41 UTC：根盘96G/已用88G/余3.3G/97%，inode25%；物理内存5.8Gi、used4.1Gi、available1.7Gi；swap7.0Gi/used5.1Gi。Docker 41运行/49总计，构建缓存可回收2.38GB、镜像4.48GB、卷1.248GB。备份15份共10.1GiB，保留7份候选可回收5.39GiB；npm和测试浏览器独立块合计约1.33GiB、排除本检查进程后无其他占用。两旧构建独占文件块合计仅约48MiB。服务active/running、PID1716649、NRestarts0、3100 health ok=true/commit=edf1d2b，cgroup无OOM/high事件。根盘低优先级du完成；containerd单项55秒超时如实记录；初次3000 health404纠正至3100后成功。完整证据见context-server-resources-2026-11-15.md。init/taskflow/governance已执行只读适用流程；无sequential-thinking以人工推理代替，不修改全局MCP/权限；ECC verification-loop仅补充。无源码/数据/配置/服务变更，无删除/prune/swapoff/drop_caches；代码构建/类型/测试不适用，避免额外服务器负载。
+
+
 ## 2026-11-15 可灵视频模型接入验收
 
 - 按用户要求核对官方鉴权与图生视频正文资源，新增 Kling Provider、协议/工厂/能力表、设置表单与旧配置兼容、只读连接测试、环境兜底和仅同步 Kling 预设的命令；无 Prisma schema 变更。默认 kling-v2-6，提供 kling-v2-5-turbo；支持 API Key Bearer 与旧 AK/SK HS256 JWT、std/pro、5/10秒及既有链式分段。
@@ -398,3 +404,21 @@
 - 60项发布冒烟全部通过：内外health HTTP200/ok=true/commit=880bdcf；内外真实providers接口均返回启用的Kling与正确模型/字段；配置页/项目页跳登录，模型测试/保存/自定义提供商及助手写入端点匿名401；新版Kling设置JS内外HTTP200且SHA与本次构建一致；21首音乐各本机Range206和公网HEAD200，原故障曲目公网Range206；生产环境摘要不变。新invocation日志8条，匹配错误0。
 - 证据与回退：/tmp/ai-comic-deploy-kling-20261115T154323Z-q1udp5b4，含旧.next、旧.git-commit、application-commit、reviewed-files/SHA、source-check、build/seed日志、提供商原行及前后元数据、deployment/smoke/journal记录。可恢复原构建/版本标记，并只恢复本轮Kling元数据；回退SQL已在只读事务PREPARE检查语法，未执行回退写入，不恢复整个生产数据库。
 - 边界：未提交环境文件、密钥、媒体或构建产物；未推送远端，未用有效密钥真实付费出片；原服务器资源检查记录与其未跟踪上下文保留，不混入本轮功能或部署记录提交。首条探测因缺失skills目录的rg退出2、临时工具编排转义错误均未造成生产变更，已修正后继续。
+
+## 2026-11-17 可灵视频未生成：只读诊断完成
+- 已读取项目 init/taskflow/governance 与 ECC verification-loop（仅作为核验补充）。`codex mcp list` 无配置且未暴露 sequential-thinking；人工推理与回退已记 reasoning.md。遵循项目配置优先与最小权限，不安装无关 MCP 或改变全局权限。
+- `systemctl show ai-comic-drama.service`：active/running，启动于 2026-11-15 15:48:31 UTC。`GET http://127.0.0.1:3100/api/health`：ok=true、commit=880bdcf。
+- `journalctl -u ai-comic-drama.service --since '2026-11-17 05:14:30 UTC'`：05:15:36、05:16:32、05:16:59 UTC 可灵提交返回 HTTP 429 / code 1102 / Account balance not enough；05:15:50 UTC 提交 fetch failed，cause=read ECONNRESET。
+- PostgreSQL 通过 pg Client 与现有环境文件连接；两轮查询均 `BEGIN READ ONLY`、8 秒 statement_timeout、最终 ROLLBACK，只选择必要字段，不输出凭据/完整 input。
+- 《废丹照九天》分镜 order 0–3：当天 4 个 VIDEO_GENERATE 全 FAILED、output 均 NULL，4 个 Scene.videoStatus 全 FAILED、videoUrl 均为空；全库无 PENDING/PROCESSING 视频任务。结论为本次未交付视频，非已保存视频的展示丢失。
+- 对 4 个 taskId LEFT JOIN CreditTransaction：各 0 条流水、delta 0。GenerationTask.cost=10 为预估字段，不能作为实际扣费依据；源码 video.ts 成功事务才调用 chargeCredits，与流水一致。
+- 边界：网络重置那次上游是否收到请求/计费未知；本次没有上游查询或真实付费重试，不能宣称可灵账户一定没有扣费。未改业务代码、数据、配置、服务，未部署/重启，不需构建或单测。
+- 建议用户核对当前 API Key 对应的可灵 API 账户余额/可用额度，解决后先单镜验证；网络重置请求可在可灵任务列表核对，避免盲目重复提交。
+- 已保留原有 app/deploy/README.md、backup.sh 及所有 .codex 既有修改。本次仅 .codex 诊断记录；回退可删除本次小节及 JSON 键。
+
+
+## 2026-11-19 全部提交并推送：提交前验证
+- 已使用项目 init/taskflow/governance 协议，ECC verification-loop 仅补充核验；sequential-thinking 未暴露且 MCP 无配置，人工推理与回退见 reasoning.md。沿用项目配置与现有权限，无全局 MCP/权限变更。
+- 审查全部 7 个待提交路径及已有 4 个未推送提交的范围；git fetch origin 成功，origin/main...HEAD 为 0/4，无远端领先提交。
+- git diff --check 与 bash -n app/deploy/backup.sh 通过。临时目录中 mock docker 执行真实备份脚本：默认保留 2 份、自定义保留 3 份、无效数量拒绝且旧文件不变、pg_dump 失败且旧文件不变，4 场景全通过；同时验证新 gzip/tar 可读及非匹配文件保留。未调用真实 Docker 或生产备份。
+- 当前业务差异仅备份 shell 与说明文档，既有应用功能提交已有历史构建/类型/测试记录，本轮无需重复应用构建或付费调用。环境/密钥/媒体/构建产物保持忽略；git add -A 后复查暂存清单，并保留正常提交钩子。

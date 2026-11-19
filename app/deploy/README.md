@@ -100,7 +100,7 @@ ssh team-register-server 'mkdir -p /backup'
 crontab（`crontab -e`）：
 
 ```cron
-# 每天 03:30 备份数据库与上传目录，保留 14 天
+# 每天 03:30 备份数据库与上传目录，每类保留最新 2 份
 30 3 * * * bash /software/ai-comic-drama/app/deploy/backup.sh >> /var/log/ai-comic-backup.log 2>&1
 
 # 每小时清理过期任务/订单/僵尸状态（已有）

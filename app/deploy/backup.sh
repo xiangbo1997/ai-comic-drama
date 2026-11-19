@@ -6,23 +6,25 @@
 #   ① PostgreSQL 全库（跑在 Docker 容器 comic-postgres 里，pg_dump 走 docker exec）
 #   ② public/uploads（未迁到 R2 的历史文件；R2 上的对象由 R2 自身冗余，不在此备份）
 #
-# 保留 14 天，超期自动删除。
+# 数据库与上传文件备份各保留最新 2 份，旧备份自动删除。
 #
 # 用法（cron 见 deploy/README.md）：
 #   bash /software/ai-comic-drama/app/deploy/backup.sh
 #
-# 可用环境变量覆盖：BACKUP_DIR / RETENTION_DAYS / PG_CONTAINER / APP_DIR
+# 可用环境变量覆盖：BACKUP_DIR / RETENTION_COUNT / PG_CONTAINER / APP_DIR
 
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/software/ai-comic-drama/app}"
 BACKUP_DIR="${BACKUP_DIR:-/backup}"
-RETENTION_DAYS="${RETENTION_DAYS:-14}"
+RETENTION_COUNT="${RETENTION_COUNT:-2}"
 PG_CONTAINER="${PG_CONTAINER:-comic-postgres}"
 STAMP="$(date +%F)"
 
 log() { printf '[backup %s] %s\n' "$(date +'%F %T')" "$*"; }
 fail() { printf '[backup %s] ERROR: %s\n' "$(date +'%F %T')" "$*" >&2; exit 1; }
+
+[[ "$RETENTION_COUNT" =~ ^[1-9][0-9]*$ ]] || fail "RETENTION_COUNT 必须为正整数"
 
 mkdir -p "$BACKUP_DIR"
 
@@ -66,10 +68,17 @@ else
   log "跳过上传目录备份：${UPLOADS_DIR} 不存在"
 fi
 
-# --- ③ 清理超期备份 ---
-log "清理 ${RETENTION_DAYS} 天前的备份"
-find "$BACKUP_DIR" -maxdepth 1 -type f \
-  \( -name 'db-*.sql.gz' -o -name 'uploads-*.tar.gz' \) \
-  -mtime "+${RETENTION_DAYS}" -print -delete
+# --- ③ 按类别保留最新备份；日期格式可直接按文件名排序 ---
+log "数据库与上传文件备份各保留最新 ${RETENTION_COUNT} 份"
+for pattern in 'db-????-??-??.sql.gz' 'uploads-????-??-??.tar.gz'; do
+  mapfile -t old_files < <(
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name "$pattern" -printf '%f\n' \
+      | LC_ALL=C sort -r | tail -n "+$((RETENTION_COUNT + 1))"
+  )
+  for file in "${old_files[@]}"; do
+    log "删除旧备份：${file}"
+    rm -- "${BACKUP_DIR}/${file}"
+  done
+done
 
 log "全部完成"

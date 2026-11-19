@@ -136,9 +136,28 @@ sequential-thinking仍不可用，沿用人工顺序推理与现有安全/验收
 - 原.next与版本标记在切换时移动到私有备份目录；环境文件只比较摘要、不输出或修改。新构建、来源指纹、技能/路由/21曲音乐检查就绪后，复查活跃任务为空，再短暂停服切换，随后内外网健康、鉴权、静态资源和Range检查。
 - 失败自动恢复旧.next与旧版本标记并启动同一服务，不回滚用户数据、不迁移schema或重放付费调用。最终提交部署记录；本轮未要求推送，不执行git push。
 
+
+## 2026-11-15 服务器磁盘与内存只读检查
+
+工具目录无sequential-thinking，人工顺序分析：先df/free/PSI/cgroup，再低优先级du、Docker只读盘点、日志与缓存、构建备份/进程占用核对，区分可重建缓存与运行数据。用户请求为查看和判断可清理项，本轮不删除、不停服务、不swapoff/drop_caches、不执行prune。只追加流程记录；回退为撤销本轮记录，不改全局MCP或权限。
+
 ## 2026-11-15 可灵视频模型接入
 用户要求参考官方鉴权文档接入现有视频链路。sequential-thinking 工具不可用，项目 codex-init/taskflow/governance 技能目录未找到，采用人工推理、最小可逆修改及验证记录；已读取 ECC backend-patterns/security-review/coding-standards/tdd-workflow。沿用 Provider 工厂、safeFetch 与任务轮询，不重构任务模型。官方鉴权文档已读取其公开资源：支持 API Key Bearer，以及旧版接口 AK/SK 的 HS256 JWT；中国区域名改为 api-beijing.klingai.com。兼容旧配置 accessKey 字段，连接测试只读。回退：仅撤销本次业务差异及追加记录，保留初始修改；不运行生产 seed/迁移、部署或付费生成。
 
 
 ## 2026-11-15 可灵模型部署与Git提交
 用户明确授权部署并提交代码；包含启用可灵所必需的单提供商预设同步，不调用付费生成、不迁移schema、不推送远端。sequential-thinking工具及项目三协议技能目录仍未找到，以人工顺序分析、上下文、阶段计划和回退替代；ECC verification-loop仅补充。当前主机即生产，复用systemd与独立构建/原子目录切换，不执行指向自己的rsync部署脚本。先冻结功能提交、备份生产环境摘要与Kling提供商原行；仅对生产配置的受限副本重建。切换前复查生成任务/助手执行/回复均空闲，备份旧.next和版本标记；健康或冒烟失败恢复原构建/版本及本轮修改的预设元数据，不回滚用户作品。保留已有服务器资源排查记录，不将无关修改混入功能提交。
+
+
+## 2026-11-16T07:48:57+00:00 磁盘清理与备份保留
+用户授权：备份各保留最新两份、删除未引用镜像及临时文件。手工推理替代当前不可用的 sequential-thinking 工具；AGENTS 引用的 codex-init/taskflow/governance 技能在本仓库及本地技能目录未找到，沿用现有项目状态并记录本次上下文、计划、执行与验证。先 gzip -t 验证保留备份；镜像通过 Docker 原生 image prune -a 仅清理未被任何容器引用者。临时文件保留活跃引用、近期修改、基础设施目录及代码仓库。回退：备份脚本改动可通过定向 diff 还原；镜像/缓存可重新下载或构建。旧备份与旧临时文件删除无法撤销，执行前已获得用户明确授权。
+
+## 2026-11-17 可灵视频日志排查
+- 已读取 /software/codex-bootstrap/codex/skills 下 init/taskflow/governance 与 ECC verification-loop。codex mcp list 无配置，当前未暴露 sequential-thinking，使用人工顺序分析：提交日志 → 只读任务/分镜状态 → 错误与扣费路径 → 结论。
+- 依据项目局部配置优先及最小权限原则，不安装无关 MCP、不修改全局权限；当前无全局 settings.local.json，无需为只读排查创建。
+- 发现三次 code 1102 Account balance not enough 与一次 ECONNRESET；余额错误发生在提交阶段，网络错误不能据此证明上游绝未收到任务。
+- 范围为只读诊断，不重试付费生成、不改模型配置、不部署重启、不写业务数据库。保留初始工作区所有既有修改；回退仅移除本次 .codex 小节与 JSON 键。
+
+
+## 2026-11-19 全部提交并推送
+用户明确授权将当前全部代码提交并推送远端。已读取 bootstrap 的 codex-init-protocol、codex-taskflow-protocol、codex-governance-communications，以及 ECC verification-loop（仅补充）。工具未提供 sequential-thinking，codex mcp list 无配置，采用人工顺序推理：检查完整差异和忽略边界 → 针对备份脚本验证 → fetch 确认远端 → git add -A/正常提交 → 普通 push → 核对远端与工作区。遵循项目配置优先，不为 Git 任务安装无关 MCP 或修改全局权限。当前 main 领先原 origin/main 4 个提交，另有备份保留策略和历史诊断记录。保留所有已有变更，不强制推送，不包含忽略的环境、媒体与构建产物。失败时保留本地提交并报告；共享历史回退使用后续 revert，不 reset 或覆盖远端。

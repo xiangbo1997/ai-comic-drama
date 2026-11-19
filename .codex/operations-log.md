@@ -235,6 +235,16 @@
 - 13:03:19 UTC切换完成，PID1716649、NRestarts=0；内外健康及鉴权、新助手JS校验、21本机Range/21公网HEAD/故障音乐公网Range等51项全部通过。新invocation错误0；生产配置摘要未变，原构建/版本标记备份保留，未触发回退。
 - 备份目录/tmp/ai-comic-deploy-assistant-bugfix-20261115T130018Z-6ymbqjri/保存部署清单、构建、指纹与HTTP证据。部署前后只读确认活跃生成/执行/回复均0；无迁移或付费调用。完成后提交工作流记录，不push。
 
+
+## 2026-11-15 服务器磁盘与内存只读检查
+
+已读取根/.codex规范和bootstrap三协议，ECC verification-loop仅补充结果复核；未暴露sequential-thinking，记录人工推理。基线根盘97%余3.3GiB，主机可用内存1.7GiB，swap4.7/7.0GiB。只读盘点，不删除、不重启、不安装MCP或修改全局权限。
+
+
+## 2026-11-15 服务器磁盘与内存只读检查（完成）
+
+低优先级完整根盘du、Docker system df -v/stats、日志/备份、/proc与硬链接复核完成。确认缓存三项约3.55GiB；15份上传备份若留7份可再回收约5.39GiB；旧镜像另约4.17GiB但含回滚版本。候选均未删除。旧构建外部硬链接不计为可释放；/var/lib/containerd单项扫描55秒超时，完整根du已完成。生产3100健康、PID1716649未变。
+
 ## 2026-11-15 可灵视频模型接入
 - 所需项目技能与 sequential-thinking 缺失采用人工记录替代，不修改全局权限。
 - 已完成初版 JWT/提交/轮询与工厂接线；初版3文件21测试、类型和局部 lint 通过，后续修改仍需重验。
@@ -254,3 +264,14 @@
 - 可灵功能提交880bdcf成功，27文件；提交钩子21代码格式/lint通过且SHA无改动。生产配置下独立构建通过，670生产/技能输入一致，133路由/29技能/21首BGM完整；临时环境副本已删除，原配置摘要不变。
 - 23:48:31 CST切换成功，PID2198391、NRestarts=0；只同步Kling预设，保留提供商原ID，其余21提供商和用户AI配置指纹完全相同。60项内外HTTP/元数据/新JS/鉴权/音乐/环境冒烟全部通过，新日志8条错误0；未迁移、未调用付费生成、未push。
 - 回退证据位于/tmp/ai-comic-deploy-kling-20261115T154323Z-q1udp5b4，保留旧.next/版本和Kling原行，未触发回退。仅提交本轮Kling上下文及阶段记录；保留此前未提交的服务器资源记录。
+
+## 2026-11-17 可灵视频日志排查
+- 用户要求查看可灵生成视频没有结果；沿用现有 systemd 和 PostgreSQL 只读排查。
+- 服务 active/running，health ok、commit 880bdcf；日志发现 3 次 HTTP429/code1102 余额不足，1 次 ECONNRESET。
+- 已加载 init/taskflow/governance、ECC verification-loop；MCP 无配置，人工推理替代，不更改全局权限或在线服务。
+- 只读事务核对完成：《废丹照九天》前四分镜，2026-11-17 05:15:11–05:16:59 UTC，4 个任务均 FAILED、output 为空、分镜 videoUrl 为空；无活跃视频任务。4 个 taskId 对应 CreditTransaction 均 0 条。业务/服务/密钥未改，未触发上游生成。
+
+
+## 2026-11-19 全部提交并推送
+- 用户明确授权全部提交并推送；读取 root/.codex AGENTS、bootstrap 三协议和 ECC verification-loop。MCP 无配置，已记录人工推理与回退；未修改全局权限或安装 MCP。
+- 初始 main 领先 origin/main 4 个提交，7 个待提交路径；已审查完整工作区差异。git fetch origin 成功；git diff --check、bash -n app/deploy/backup.sh 通过。
