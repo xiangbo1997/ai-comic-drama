@@ -23,10 +23,28 @@
 
 浏览器首轮17/20：指标响应不规范与select隐式标签匹配失败。响应守卫/显式标签修复后22/22。新增JSON异常、明确新搜、刷新指标重试、检索续页后，完整组件浏览器 **85/85通过**，包含原漫剧/助手/模型/TTS/时间轴。日志`/tmp/sv-optimization-all-browser.log`，截图`/tmp/short-video-optimization-{375,1280}-*.png`。
 
-独立构建源码完整单元223文件2605/2605通过；独立PostgreSQL6文件94/94通过。修改的store/runs核心覆盖率：语句94.15%、行94.11%、分支83.83%、函数95%。全库ESLint与改动文件Prettier均通过，无错误或警告；902文件摘要一致。生产构建和上线正在进行，最终结果完成后更新。
+独立构建源码完整单元223文件2605/2605通过；独立PostgreSQL6文件94/94通过。修改的store/runs核心覆盖率：语句94.15%、行94.11%、分支83.83%、函数95%。全库ESLint与改动文件Prettier均通过，无错误或警告；902文件摘要一致。完整Web/TypeScript及worker构建通过并已上线，实际结果见下。
 
 ## 发布与回滚
 
 本机即生产，独立构建目录`/tmp/ai-comic-optimization-build-20261120T050243Z`，不在活跃app/.next运行build。本分支包含已合入的参考图/对白整合，完整回归后随本轮部署，不复用旧独立搜索发布的数量。
 
-相对线上Prisma schema、迁移、依赖/锁无差异。切换前备份Web/worker/版本/env，保留旧静态chunk，只读核对在途任务/数据计数。失败自动恢复旧产物，不改数据库结构、环境开关、数据或素材。最终SHA、备份和线上核验在实际发布后记录。
+相对线上Prisma schema、迁移、依赖/锁无差异。切换前备份Web/worker/版本/env，保留旧静态chunk，只读核对在途任务/数据计数。失败自动恢复旧产物，不改数据库结构、环境开关、数据或素材。实际发布结果见下。
+
+## 最终构建与HTTP验证
+
+应用候选提交1e3be60（实现8aa8afd＋测试夹具修正），BUILD_ID=ttvoA5--2JqTnR2P0BzyJ。首次构建因Turbopack拒绝跨root的node_modules软链接失败，改隔离目录依赖硬链接；随后类型检查发现新PG测试少传lease owner，修正并单项PG复验通过后完整构建成功。未放宽类型检查，业务源码在2605/94/85验证后未再变化。构建只使用独立库URL及占位密钥，没有复制生产密钥或连接生产库。
+
+真实Next候选进程127.0.0.1:4319＋专用PG＋编译worker完成11项HTTP检查：真实密码登录/JWT、开关、来源去重、脚本保存、multipart媒体/ffprobe/存储/SHA、hash审核/UTC排期、ZIP解包SHA、等实际排期到点worker推进、人工结果回填、指标null/0/比例、关键词＋READY筛选。未模拟排期时间。隔离模型调用0，公开投稿0。原始日志/tmp/sv-optimization-http-run.log；测试身份清理首次因Restrict外键拒绝，改按依赖顺序清理仅本轮用户/资料后成功，未涉及生产。候选HTTP进程已停止，测试凭据及cookie文件已删除，测试容器已停止。
+
+生产备份/证据目录：/backup/short-video-optimization-20261120T050925Z。旧Web/worker/env/版本与切换、回退脚本和全部验证回执已保存。rollback.py语法检查通过；健康新版本未为演示而回退。
+
+## 已上线与最终验收
+
+应用 **1e3be60已上线**，入口 https://comic.cloudsentryai.com/short-videos 。Web PID1887548、worker PID1889112均active/running，NRestarts=0，启动进程错误筛查0（原有Redis/Langfuse未配置提示保持）。切换63.73秒包含worker停机与启动前检查；旧Web按计划SIGTERM退出，非新版本崩溃。无生产迁移/db push/reset/测试种子。
+
+本机及公网84项只读业务/权限/共用模型DTO/页面JS/worker心跳通过；21BGM逐字节SHA和旧JS本机/公网共44项通过。真实公网页面375px和1280px各核验作品/热点/账号/发布中心，共8页通过，JS异常0、写请求0、页面横向溢出0。浏览器唯一拦截是将会upsert默认模板的templates GET，改由只读SELECT结果供给，避免上线冒烟写业务库；除此之外页面与请求来自真实线上版本。
+
+生产数据计数切换前后保持：1用户、9项目、201分镜、243积分流水、7模型配置；SvRun/Publication=0、Source=3、DiscoveryJob=2、Template=2，均为发布前既有数据。环境文件SHA与Web BUILD_ID、worker SHA再次匹配，代理/服务单元/付费开关未变（SHORT_VIDEO_AUTO_SUBMIT_ENABLED=false）。本轮新增付费模型调用0、平台投稿0；此前共用搜索阶段5次真实调用的历史证据继续保留，不混用数量。
+
+提交8aa8afd为功能实现，1e3be60为测试夹具租约owner补齐；交付文档另作正常提交，不重写历史或推送。平台授权自动发布仍未接通；当前可用的是热点/脚本/生成计划/素材/审核排期/人工发布包与回填反馈。完整图片/视频/配音供应方样片质量仍属未执行的真实接入验收。

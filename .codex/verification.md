@@ -537,3 +537,10 @@ Rollback backup /backup/short-video-shared-search-20261119T135738Z includes old 
 全库ESLint与改动Prettier通过；验证脚本四项exitCode均0，902文件摘要再次一致。下一步正常提交及独立构建，不推送或改写已有历史。
 
 构建首次因Turbopack禁止跨root的node_modules软链接失败，隔离依赖改为目录硬链接后编译成功；完整类型检查定位新增PG恢复测试少传租约owner（TS2554）。补齐显式随机token+owner，仅测试夹具改变；相关PG单项复验后继续同源码构建，不关闭类型检查或篡改单元/94PG/85浏览器既有结果。首次单项命令遗漏专用COMIC_POSTGRES_TEST_URL配置立即拒绝，未连接数据库；补显式独立URL重新执行。
+
+最终候选1e3be60：Web完整TS构建/worker编译通过；902源码输入、21BGM、58技能追踪一致，未使用生产密钥或数据库构建。真实隔离HTTP11项通过，实际等待排期到点后运行编译worker，不调用外部模型/平台。HTTP首次清理受Restrict外键阻止，已按依赖顺序删除本轮测试身份/数据，并移除临时cookie/凭据、停止候选进程和容器。生产只读切换前audit在途全0；基线计数1用户/9项目/201分镜/243积分流水/7模型配置，短视频0run/0publication/3source/2discovery/2template。
+
+
+### 2026-11-20 上线最终验收
+
+最终PASS：223文件2605单元；6文件94隔离PG，store/runs语句94.15%/分支83.83%；85组件浏览器＋11真实隔离HTTP；全库lint/格式/完整Web类型构建/worker构建。候选1e3be60已上线，902输入/21BGM/58技能追踪一致；84线上业务+44素材+8页面通过，当前进程无ERROR，环境SHA/BUILD_ID/worker SHA匹配。恢复租约测试仅补owner，单项1pass/30按名称未选中，不把它称作全量；此前完整94项及全量单元证据独立保留。完整证据与回退脚本在/backup/short-video-optimization-20261120T050925Z。
