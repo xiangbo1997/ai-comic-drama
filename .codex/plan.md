@@ -259,3 +259,21 @@ Plan docs/short-video/hot-discovery-plan.md. New source adapters (Douyin public 
 - [x] Stage3：相关单元、完整单元、隔离PG、浏览器完整用户流程、类型/lint/格式及独立生产构建。
 - [x] Stage4：审查差异并提交；备份旧产物、只读在途核验、可回退切换Web与worker、线上GET/资源/权限/心跳验证；记录最终SHA及限制。
       回滚：不迁移数据库，恢复旧.next、worker及.git-commit，保留素材/配置/数据。
+
+
+## 2026-11-20T05:40:14.832745+00:00 简报解析与简易创作导出
+
+- [x] Stage0：三协议已从 /software/codex-bootstrap/codex/skills 找到并读取；MCP 五项 enabled，sequential-thinking 可调用；使用现有权限，不改用户全局配置（.codex/AGENTS.md 优先）。ECC TDD/frontend/verification 仅补充。
+- [x] Stage1/2：先加提示词与导入回归，复用 Markdown；简化默认界面，跨平台复制/下载。输入为完整 brief 或当前脚本，输出纯文本和标准脚本 JSON，无模型/数据库结构变更。
+- [x] Stage3：定向单元和浏览器、类型/lint/格式、隔离构建，文档和验证记录同步。验收覆盖不截断简报、有效脚本全字段导出、不完整脚本明确提示、导出不发请求、草稿不被覆盖。回退仅撤销本任务改动。
+
+实现阶段已完成：Markdown、导出/导入、现有编辑器桥接、仙门完整示例及使用文档。Stage3进行中：最后工作区类型/改动lint/格式、两文件PG、独立源码快照Web与worker构建；验证成功后更新最终记录。
+
+完成：25相关单元、19浏览器、38隔离PG、独立Web完整类型与worker构建通过，原有上传路由已完整核验。文档simple-creation.md与仙门示例已同步；改动lint与diff最终收尾。未上线、未收费、未发布；不需要生产迁移。
+
+
+## 用户授权上线简易创作
+
+- [x] 核对线上1e3be60健康、已验证候选614源码与Schema/依赖一致，保存备份与发布脚本。
+- [ ] 正常本地提交本轮修改、记录发布提交；预检在途为0，保留旧静态资源并切换Web/worker。
+- [ ] 本机/公网/浏览器只读验收、回退文件与最新verification/使用文档同步。

@@ -12,6 +12,9 @@ import Link from "next/link";
 import { HotDiscovery } from "./hot-discovery";
 import { PublicationMetrics } from "./publication-metrics";
 import { ScriptEditor, scriptValidationMessage } from "./script-editor";
+import { CreationTools } from "./creation-tools";
+import { AssistantMarkdown } from "@/components/project-assistant/AssistantMarkdown";
+import { parseScriptInput } from "@/lib/short-video/creation";
 import { Check, RefreshCw, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRouter } from "next/navigation";
@@ -38,6 +41,7 @@ type Item = {
   templateId?: string;
   currentArtifactId?: string;
   currentScriptVersionId?: string;
+  projectId?: string;
   workflowStatus?: "DRAFT" | "SCRIPTED" | "READY";
   createdAt?: string;
   updatedAt?: string;
@@ -604,7 +608,7 @@ export function ShortVideoWorkbench({
               ? "下一步：选择成片和发布账号，创建审核快照。也可继续修改脚本，生成新版本。"
               : video.scripts?.length
                 ? "下一步：检查脚本，选择生成模型并查看预算计划。已有成片也可以直接上传。"
-                : "下一步：用表单写一个两镜头脚本，或选用模型改编。已有成片可直接上传进入审核。"}
+                : "下一步：导出改编提示词，粘贴 AI 返回的脚本后保存。也可以手写脚本；已有成片可直接上传。"}
           </p>
           <nav
             aria-label="创作步骤"
@@ -1092,129 +1096,162 @@ export function ShortVideoWorkbench({
       {mode === "detail" && video && (
         <>
           <Panel title={`作品：${video.title}`}>
-            <p>
-              {video.brief} · 版本 {video.version}
-            </p>
-            {video.sources?.map((s) => (
-              <p key={s.source.id}>来源：{s.source.summary}</p>
-            ))}
-            <Label title="更新标题">
-              <input
-                className={inputClass}
-                value={title}
-                maxLength={80}
-                onChange={(e) => setTitle(e.target.value)}
-              />
-            </Label>
-            <button
-              className={buttonClass}
-              disabled={busy || !title.trim()}
-              onClick={() =>
-                void action(async () => {
-                  await write(
-                    `videos/${id}`,
-                    { title: title.trim(), expectedVersion: video.version },
-                    "PATCH"
-                  );
-                  setNotice("作品标题已保存");
-                })
-              }
-            >
-              保存标题
-            </button>
-            <button
-              className={buttonClass}
-              disabled={busy}
-              onClick={() =>
-                void action(async () => {
-                  if (
-                    !window.confirm(
-                      "归档后作品将从列表隐藏，已有任务与发布记录仍保留。确认归档？"
-                    )
-                  )
-                    return;
-                  await write(
-                    `videos/${id}`,
-                    { archived: true, expectedVersion: video.version },
-                    "PATCH"
-                  );
-                  router.push("/short-videos");
-                })
-              }
-            >
-              归档作品
-            </button>
+            <details>
+              <summary className="cursor-pointer text-sm font-medium">
+                参考简报与来源 · 版本 {video.version}
+              </summary>
+              <div className="mt-3">
+                <AssistantMarkdown content={video.brief || "暂无参考简报"} />
+              </div>
+              {video.sources?.map((s) => (
+                <div key={s.source.id} className="mt-3">
+                  <AssistantMarkdown content={`来源：${s.source.summary}`} />
+                </div>
+              ))}
+            </details>
+            <details>
+              <summary className="cursor-pointer text-sm">
+                作品管理 · 标题与归档
+              </summary>
+              <div className="mt-3 space-y-3">
+                <Label title="更新标题">
+                  <input
+                    className={inputClass}
+                    value={title}
+                    maxLength={80}
+                    onChange={(e) => setTitle(e.target.value)}
+                  />
+                </Label>
+                <button
+                  className={buttonClass}
+                  disabled={busy || !title.trim()}
+                  onClick={() =>
+                    void action(async () => {
+                      await write(
+                        `videos/${id}`,
+                        { title: title.trim(), expectedVersion: video.version },
+                        "PATCH"
+                      );
+                      setNotice("作品标题已保存");
+                    })
+                  }
+                >
+                  保存标题
+                </button>
+                <button
+                  className={buttonClass}
+                  disabled={busy}
+                  onClick={() =>
+                    void action(async () => {
+                      if (
+                        !window.confirm(
+                          "归档后作品将从列表隐藏，已有任务与发布记录仍保留。确认归档？"
+                        )
+                      )
+                        return;
+                      await write(
+                        `videos/${id}`,
+                        { archived: true, expectedVersion: video.version },
+                        "PATCH"
+                      );
+                      router.push("/short-videos");
+                    })
+                  }
+                >
+                  归档作品
+                </button>
+              </div>
+            </details>
           </Panel>
           <Panel id="sv-script" title="1 · 脚本与版本">
-            <p>模型改编先创建计划并单独确认，不会自动开始生成视频。</p>
-            <Label title="脚本改编模板">
-              <select
-                className={inputClass}
-                value={templateId}
-                disabled={busy}
-                onChange={(event) => setTemplateId(event.target.value)}
-              >
-                <option value="">请选择模板</option>
-                {templates
-                  .filter((template) => template.enabled !== false)
-                  .map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name || template.title}
-                    </option>
-                  ))}
-              </select>
-            </Label>
-            <button
-              className={secondaryClass}
-              disabled={busy || !templateId || templateId === video.templateId}
-              onClick={() =>
-                void action(async () => {
-                  await write(
-                    `videos/${id}`,
-                    { templateId, expectedVersion: video.version },
-                    "PATCH"
-                  );
-                  setNotice("改编模板已保存，可以查看脚本改编计划");
-                })
-              }
-            >
-              保存改编模板
-            </button>
-            {modelSelect("LLM", llm, setLlm)}
-            {!models.some((model) => model.provider.category === "LLM") && (
-              <p className="text-muted-foreground text-sm">
-                还没有可用的文本模型。可先手写脚本，或前往{" "}
-                <Link
-                  href="/settings/ai-models"
-                  className="text-primary underline"
-                >
-                  AI 模型设置
-                </Link>{" "}
-                添加并验证。
-              </p>
-            )}
-            <button
-              className={buttonClass}
-              disabled={busy || !llm || !video.template}
-              onClick={() =>
-                void action(async () =>
-                  acceptRun(
-                    await write<Run>(`videos/${id}/script-runs`, {
-                      llmConfigId: llm,
-                      templateVersion: video.template!.version,
-                      expectedVideoVersion: video.version,
+            <CreationTools
+              title={video.title || "短视频"}
+              brief={video.brief || ""}
+              value={scriptText}
+              disabled={busy}
+              onImport={(value) => {
+                setScriptText(value);
+                setScriptDirty(true);
+              }}
+            />
+            <details>
+              <summary className="cursor-pointer text-sm">
+                站内模型改编（可选）
+              </summary>
+              <div className="mt-3 space-y-3">
+                <p>模型改编先创建计划并单独确认，不会自动开始生成视频。</p>
+                <Label title="脚本改编模板">
+                  <select
+                    className={inputClass}
+                    value={templateId}
+                    disabled={busy}
+                    onChange={(event) => setTemplateId(event.target.value)}
+                  >
+                    <option value="">请选择模板</option>
+                    {templates
+                      .filter((template) => template.enabled !== false)
+                      .map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name || template.title}
+                        </option>
+                      ))}
+                  </select>
+                </Label>
+                <button
+                  className={secondaryClass}
+                  disabled={
+                    busy || !templateId || templateId === video.templateId
+                  }
+                  onClick={() =>
+                    void action(async () => {
+                      await write(
+                        `videos/${id}`,
+                        { templateId, expectedVersion: video.version },
+                        "PATCH"
+                      );
+                      setNotice("改编模板已保存，可以查看脚本改编计划");
                     })
-                  )
-                )
-              }
-            >
-              查看脚本改编计划
-            </button>
-            {!video.template && (
-              <p>
-                先选择并保存上方改编模板，即可用文本模型继续创作；也可以直接手写脚本。
-              </p>
-            )}
+                  }
+                >
+                  保存改编模板
+                </button>
+                {modelSelect("LLM", llm, setLlm)}
+                {!models.some((model) => model.provider.category === "LLM") && (
+                  <p className="text-muted-foreground text-sm">
+                    还没有可用的文本模型。可先手写脚本，或前往{" "}
+                    <Link
+                      href="/settings/ai-models"
+                      className="text-primary underline"
+                    >
+                      AI 模型设置
+                    </Link>{" "}
+                    添加并验证。
+                  </p>
+                )}
+                <button
+                  className={buttonClass}
+                  disabled={busy || !llm || !video.template}
+                  onClick={() =>
+                    void action(async () =>
+                      acceptRun(
+                        await write<Run>(`videos/${id}/script-runs`, {
+                          llmConfigId: llm,
+                          templateVersion: video.template!.version,
+                          expectedVideoVersion: video.version,
+                        })
+                      )
+                    )
+                  }
+                >
+                  查看脚本改编计划
+                </button>
+                {!video.template && (
+                  <p>
+                    先选择并保存上方改编模板，即可用文本模型继续创作；也可以直接手写脚本。
+                  </p>
+                )}
+              </div>
+            </details>
             <Label title="脚本版本">
               <select
                 className={inputClass}
@@ -1272,7 +1309,7 @@ export function ShortVideoWorkbench({
               }
               onClick={() =>
                 void action(async () => {
-                  const content = ScriptZ.parse(JSON.parse(scriptText));
+                  const content = ScriptZ.parse(parseScriptInput(scriptText));
                   const saved = await write<Script>(`videos/${id}/scripts`, {
                     expectedVideoVersion: video.version,
                     content,
@@ -1285,6 +1322,57 @@ export function ShortVideoWorkbench({
             >
               保存为新版本
             </button>
+            <div className="border-border space-y-3 rounded-xl border p-4">
+              <h3 className="font-medium">用现有编辑器制作</h3>
+              <p className="text-muted-foreground text-sm">
+                共用分镜编辑、角色库、图片与视频生成、配音、时间轴、字幕、配乐和成片导出。
+                首次进入会把已保存脚本带入编辑器；后续各自在原页面保存，不自动双向同步。
+                在编辑器导出 MP4 后，回到这里上传成片即可继续审核。
+              </p>
+              {video.projectId ? (
+                <>
+                  <Link
+                    className={secondaryClass}
+                    href={`/editor/${video.projectId}`}
+                  >
+                    打开已有编辑器项目
+                  </Link>
+                  <p className="text-muted-foreground text-xs">
+                    打开已有项目会保留编辑器内的修改，当前脚本不会覆盖它。
+                  </p>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className={secondaryClass}
+                  disabled={
+                    busy ||
+                    !scriptId ||
+                    scriptDirty ||
+                    !!scriptValidationMessage(scriptText)
+                  }
+                  onClick={() =>
+                    void action(async () => {
+                      const project = await write<{ id: string }>(
+                        `videos/${id}/editor`,
+                        {
+                          scriptVersionId: scriptId,
+                          expectedVideoVersion: video.version,
+                        }
+                      );
+                      router.push(`/editor/${project.id}`);
+                    })
+                  }
+                >
+                  将已保存脚本带入编辑器
+                </button>
+              )}
+              {!video.projectId && (!scriptId || scriptDirty) && (
+                <p className="text-muted-foreground text-xs">
+                  先保存一个完整脚本版本，即可带入现有编辑器。进入本身不调用模型。
+                </p>
+              )}
+            </div>
           </Panel>
           <Panel id="sv-generation" title="2 · 生成计划与预算">
             {modelSelect("IMAGE", image, setImage)}

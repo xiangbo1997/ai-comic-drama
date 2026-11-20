@@ -5,6 +5,7 @@ import { getUserLLMConfig, getUserTTSConfig } from "@/lib/ai-config";
 import { chargeCredits } from "@/lib/credits";
 import { invariant } from "@/lib/short-video/errors";
 import { ScriptZ } from "@/lib/short-video/contracts";
+import { parseScriptInput } from "@/lib/short-video/creation";
 import {
   shortVideoConfig,
   canAccessShortVideo,
@@ -316,7 +317,7 @@ export async function executeStep(
       ],
       { config, maxTokens: 7000, timeoutMs: 90000 }
     );
-    const content = ScriptZ.parse(JSON.parse(response));
+    const content = ScriptZ.parse(parseScriptInput(response));
     await fenced(lease, async (tx, current) => {
       invariant(
         current.video.version === plan.videoVersion,

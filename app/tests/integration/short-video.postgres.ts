@@ -865,6 +865,26 @@ describe("short video isolated PostgreSQL", () => {
     expect(vi.mocked(submitImageJob)).not.toHaveBeenCalled();
     expect(vi.mocked(submitVideoJob)).not.toHaveBeenCalled();
   });
+  it("accepts one fenced JSON script from a model without repair or another model call", async () => {
+    const v = await videoDetail(userId, videoId);
+    const { id } = await createScriptPlan(userId, videoId, {
+      requestId: req(),
+      expectedVideoVersion: v.version,
+      templateVersion: 1,
+      llmConfigId: configs.LLM,
+    });
+    vi.mocked(chatCompletion).mockResolvedValue(
+      `这是脚本：\n\n\`\`\`json\n${JSON.stringify(script)}\n\`\`\``
+    );
+    await confirm(id);
+    const lease = (await acquireRunLease(id, req(), "fenced-script-test"))!;
+    await driveRun(lease);
+    expect((await readRun(userId, id)).status).toBe("COMPLETED");
+    expect(chatCompletion).toHaveBeenCalledOnce();
+    expect((await videoDetail(userId, videoId)).scripts[0].content).toEqual(
+      script
+    );
+  });
   it("rejects invalid model JSON without creating an executable script or auto repair", async () => {
     const v = await videoDetail(userId, videoId);
     const { id } = await createScriptPlan(userId, videoId, {

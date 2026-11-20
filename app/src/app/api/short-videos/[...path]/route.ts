@@ -26,6 +26,7 @@ import {
   ownedVideo,
 } from "@/services/short-video/store";
 import { saveScript } from "@/services/short-video/scripts";
+import { openVideoEditor } from "@/services/short-video/editor";
 import {
   createScriptPlan,
   createRenderPlan,
@@ -162,6 +163,8 @@ async function handle(request: NextRequest, context: Context) {
       result = await saveTemplate(userId, id, await body());
     else if (is("POST", "videos/:id/scripts"))
       result = await saveScript(userId, id, await body());
+    else if (is("POST", "videos/:id/editor"))
+      result = await openVideoEditor(userId, id, await body());
     else if (
       is("POST", "videos/:id/script-runs") ||
       is("POST", "videos/:id/render-plans")

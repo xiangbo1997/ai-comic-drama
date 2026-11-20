@@ -544,3 +544,23 @@ Rollback backup /backup/short-video-shared-search-20261119T135738Z includes old 
 ### 2026-11-20 上线最终验收
 
 最终PASS：223文件2605单元；6文件94隔离PG，store/runs语句94.15%/分支83.83%；85组件浏览器＋11真实隔离HTTP；全库lint/格式/完整Web类型构建/worker构建。候选1e3be60已上线，902输入/21BGM/58技能追踪一致；84线上业务+44素材+8页面通过，当前进程无ERROR，环境SHA/BUILD_ID/worker SHA匹配。恢复租约测试仅补owner，单项1pass/30按名称未选中，不把它称作全量；此前完整94项及全量单元证据独立保留。完整证据与回退脚本在/backup/short-video-optimization-20261120T050925Z。
+
+
+## 2026-11-20T06:03:26.595610+00:00 简报/提示词/编辑器整合：阶段记录
+
+- 前置：三协议已读、sequential-thinking已触发、MCP五项enabled；ECC TDD/frontend/security/verification为补充，不改全局权限。
+- PASS：相关单元3文件25项，creation.ts语句/行/分支100%。新editor隔离PG6项、editor.ts语句/行/分支100%。
+- PASS：浏览器19项（新5＋既有14），375/1280px、GFM安全渲染、完整TXT下载、不发付费请求、JSON围栏导入、保存/编辑器入口、复制拒绝兜底、取消替换保留草稿。已查看375px全页截图。
+- PASS：首次全库tsc --noEmit --incremental false（后续新增测试导入由最终构建再次检查）；改动ESLint首轮通过，改动Prettier最终通过，git diff --check通过。
+- FAIL（资源争用）：原32项PG＋新6项并行于Next构建/重复tsc，系统6GB RAM剩53MB、7GB swap用尽；16项原有媒体探测/5秒事务/30秒测试超时，新6项仍通过；未降低断言或扩超时。重复tsc及构建均主动SIGTERM（exit1/143），非完成构建，不记PASS。资源释放后两文件38项PG串行复验，日志/tmp/sv-simple-postgres-final.log；之后仅串行独立构建，不与tsc/PG并行。
+- TDD：creation首次缺模块RED已记录，新增围栏模型回归通过状态以最终PG日志为准。
+- 边界：生产作品写入0、付费调用0、公开发布0、schema/依赖变更0、上线0；示例ScriptZ通过，20秒两镜。
+
+
+### 2026-11-20T06:10:45.582405+00:00 简易创作最终验证
+
+最终验证：相关单元3文件25项；浏览器19项（含新5项）；串行隔离PostgreSQL2文件38项全部通过，包含真实媒体/原worker与新增编辑器API。creation.ts与editor.ts各自定向覆盖语句、行、分支100%。生产Web构建编译、完整TypeScript（77秒）、70静态页面及原/uploads路由均通过；worker构建765.6KiB通过。构建采用独立快照、Webpack单worker与内存优化，配置覆盖仅在/tmp，未修改项目next.config.ts，也未读取生产env/连接生产DB。614应用源码SHA逐一相同，manifest:/tmp/sv-simple-build-manifest.json；日志:/tmp/sv-simple-build-final.log与/tmp/sv-simple-postgres-final.log。
+资源争用导致的16个旧PG失败在释放并行构建/tsc后原断言串行38/38通过，无放宽超时或断言；首轮源码复制通配忽略uploads导致临时快照漏原路由，校验发现后主动中止第二次构建、补齐并重新完整构建，不把中止结果当成功。测试容器已停止。
+完整原创仙门示例ScriptZ通过，20秒/两镜/两角色，TXT包含可回导JSON；未写生产作品、未收费调用、未公开发布、未上线。现有编辑器首次拷贝/独立保存的限制已在UI及使用文档说明。init/taskflow/governance完成，ECC仅补充。
+
+最终改动ESLint与git diff --check均exit0；改动Prettier已通过。全部已授权本地实现与验证完成，源码保留待审diff，无部署或生产数据写入。

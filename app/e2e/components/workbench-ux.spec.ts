@@ -183,6 +183,7 @@ test("work title and publication title are independent and detail navigation is 
   await expect(
     page.getByRole("navigation", { name: "创作步骤" })
   ).toBeVisible();
+  await page.getByText("作品管理 · 标题与归档", { exact: true }).click();
   await page.getByLabel("更新标题", { exact: true }).fill("作品名称修改");
   await page.getByLabel("发布标题", { exact: true }).fill("平台标题");
   await expect(page.getByLabel("更新标题", { exact: true })).toHaveValue(
@@ -326,6 +327,7 @@ test("an AI brief draft can choose a template and continue to a script plan", as
     }
   );
   await page.goto("/short-video.html");
+  await page.getByText("站内模型改编（可选）", { exact: true }).click();
   await page.getByLabel("LLM模型").selectOption("llm");
   await expect(
     page.getByRole("button", { name: "查看脚本改编计划" })

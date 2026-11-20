@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { Plus, Trash2, Clapperboard, Users } from "lucide-react";
 import { ScriptZ, type SvScript } from "@/lib/short-video/contracts";
+import { parseScriptInput } from "@/lib/short-video/creation";
 
 const fieldClass =
   "border-input bg-background focus-visible:border-ring focus-visible:ring-ring/30 w-full min-w-0 rounded-lg border px-3 py-2 text-sm outline-none focus-visible:ring-2";
@@ -85,7 +86,7 @@ const fieldNames: Record<string, string> = {
 export function scriptValidationMessage(value: string): string | null {
   if (!value.trim()) return null;
   try {
-    const result = ScriptZ.safeParse(JSON.parse(value));
+    const result = ScriptZ.safeParse(parseScriptInput(value));
     if (result.success) return null;
     return result.error.issues
       .slice(0, 3)
@@ -140,7 +141,7 @@ export function ScriptEditor({
 }) {
   let draft: SvScript | null = null;
   try {
-    const parsed = EditableScriptZ.safeParse(JSON.parse(value));
+    const parsed = EditableScriptZ.safeParse(parseScriptInput(value));
     if (parsed.success) draft = parsed.data;
   } catch {
     // JSON 高级模式允许保留临时不完整内容，不覆盖用户输入。
@@ -156,6 +157,8 @@ export function ScriptEditor({
           <p className="font-medium">把一个笑点，拆成两个镜头</p>
           <p className="text-muted-foreground mt-1 mb-4 text-sm">
             先写开场与反转，再补画面、动作和台词。默认 20 秒竖屏，可随时调整。
+            {brief &&
+              "参考简报已完整保留在上方与导出提示词中，故事设定请只写本片剧情。"}
           </p>
           <button
             type="button"
@@ -166,7 +169,7 @@ export function ScriptEditor({
                 schemaVersion: 1,
                 title: title.slice(0, 80),
                 hook: "",
-                premise: brief.slice(0, 1000),
+                premise: "",
                 targetDurationSec: 20,
                 aspectRatio: "9:16",
                 characters: [],
