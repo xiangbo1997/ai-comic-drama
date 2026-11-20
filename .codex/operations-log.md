@@ -382,3 +382,8 @@ TDD首次creation测试因模块缺失RED，随后7/7 GREEN；补空角色/空�
 最终验证：相关单元3文件25项；浏览器19项（含新5项）；串行隔离PostgreSQL2文件38项全部通过，包含真实媒体/原worker与新增编辑器API。creation.ts与editor.ts各自定向覆盖语句、行、分支100%。生产Web构建编译、完整TypeScript（77秒）、70静态页面及原/uploads路由均通过；worker构建765.6KiB通过。构建采用独立快照、Webpack单worker与内存优化，配置覆盖仅在/tmp，未修改项目next.config.ts，也未读取生产env/连接生产DB。614应用源码SHA逐一相同，manifest:/tmp/sv-simple-build-manifest.json；日志:/tmp/sv-simple-build-final.log与/tmp/sv-simple-postgres-final.log。
 资源争用导致的16个旧PG失败在释放并行构建/tsc后原断言串行38/38通过，无放宽超时或断言；首轮源码复制通配忽略uploads导致临时快照漏原路由，校验发现后主动中止第二次构建、补齐并重新完整构建，不把中止结果当成功。测试容器已停止。
 完整原创仙门示例ScriptZ通过，20秒/两镜/两角色，TXT包含可回导JSON；未写生产作品、未收费调用、未公开发布、未上线。现有编辑器首次拷贝/独立保存的限制已在UI及使用文档说明。init/taskflow/governance完成，ECC仅补充。
+
+
+## 2026-11-20T06:22:32.610127+00:00 用户授权上线已完成
+
+用户明确“上线吧”，已部署549ab2e（原1e3be60）。624源码/Schema/依赖输入SHA与候选一致；旧静态JS保留。备份/backup/short-video-simple-20261120T061605Z，switch67.22秒成功；Web2056659/worker2058925 active/running NRestarts0，启动错误0。88本机/公网只读业务+44资源SHA+375/1280新详情GFM/完整简报TXT/本地示例导入与完整提示词下载通过；生产写请求0。env/BUILD_ID/workerSHA匹配，付费开关false。原计数1用户/9项目/201分镜/243积分/7配置/17角色与3短视频/0脚本/0素材/2run/0发布/7来源/3搜索/2模板不变。无迁移、收费调用、公开发布、生产测试种子。回退脚本已语法验证，不为演示回退健康版本。使用文档与部署验收同步。

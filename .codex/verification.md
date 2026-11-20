@@ -564,3 +564,8 @@ Rollback backup /backup/short-video-shared-search-20261119T135738Z includes old 
 完整原创仙门示例ScriptZ通过，20秒/两镜/两角色，TXT包含可回导JSON；未写生产作品、未收费调用、未公开发布、未上线。现有编辑器首次拷贝/独立保存的限制已在UI及使用文档说明。init/taskflow/governance完成，ECC仅补充。
 
 最终改动ESLint与git diff --check均exit0；改动Prettier已通过。全部已授权本地实现与验证完成，源码保留待审diff，无部署或生产数据写入。
+
+
+## 2026-11-20T06:22:32.610127+00:00 用户授权上线已完成
+
+用户明确“上线吧”，已部署549ab2e（原1e3be60）。624源码/Schema/依赖输入SHA与候选一致；旧静态JS保留。备份/backup/short-video-simple-20261120T061605Z，switch67.22秒成功；Web2056659/worker2058925 active/running NRestarts0，启动错误0。88本机/公网只读业务+44资源SHA+375/1280新详情GFM/完整简报TXT/本地示例导入与完整提示词下载通过；生产写请求0。env/BUILD_ID/workerSHA匹配，付费开关false。原计数1用户/9项目/201分镜/243积分/7配置/17角色与3短视频/0脚本/0素材/2run/0发布/7来源/3搜索/2模板不变。无迁移、收费调用、公开发布、生产测试种子。回退脚本已语法验证，不为演示回退健康版本。使用文档与部署验收同步。

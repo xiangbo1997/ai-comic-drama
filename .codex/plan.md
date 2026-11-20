@@ -275,5 +275,5 @@ Plan docs/short-video/hot-discovery-plan.md. New source adapters (Douyin public 
 ## 用户授权上线简易创作
 
 - [x] 核对线上1e3be60健康、已验证候选614源码与Schema/依赖一致，保存备份与发布脚本。
-- [ ] 正常本地提交本轮修改、记录发布提交；预检在途为0，保留旧静态资源并切换Web/worker。
-- [ ] 本机/公网/浏览器只读验收、回退文件与最新verification/使用文档同步。
+- [x] 正常本地提交本轮修改、记录发布提交；预检在途为0，保留旧静态资源并切换Web/worker。
+- [x] 本机/公网/浏览器只读验收、回退文件与最新verification/使用文档同步。
