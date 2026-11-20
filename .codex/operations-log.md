@@ -345,3 +345,16 @@ User continued first-step discovery + grounded idea request. Existing search reu
 ### 2026-11-19 共用模型搜索上线完成
 
 c3d78e4已上线并以共用模块实际验证gpt-6-sol/Responses/high，原Key/端点/默认模型保持。2578独立单元、87隔离PG、12浏览器及完整构建通过；线上76业务+44素材只读验证通过。回退隔离与能力关闭6项专用库演练通过，未回退健康生产；备份short-video-shared-search-20261119T135738Z。5次主动模型请求已真实发生，金额未知，公开投稿0；无生产数据库回归或迁移。最终第20节21项状态与限制、模型实测/操作文档同步；无推送或覆盖并行整合。
+
+## 2026-11-19T15:00:49.068568+00:00 多Agent短视频全流程优化
+
+初始化协议从/software/codex-bootstrap/codex/skills找到并读取。codex mcp list初始为空；按协议添加sequential-thinking/desktop-commander/context7/playwright/exa，均enabled但本会话不暴露调用，手工推理回退。权限使用当前danger-full-access/approval never宿主规则，不改全局settings权限策略。启动既有隔离PG容器ai-comic-short-video-verify，端口127.0.0.1:55439，生产PG未操作。
+
+### 2026-11-20T05:02:20.124864+00:00 整合与故障修复
+
+2026-11-20继续。前agent退出后恢复整合；新final_review只读审查后按分工补模板后端与2项真实PG。浏览器第一轮17/20通过，失败包括新指标读取不规范mock响应导致崩溃、select隐式label精确匹配；已加入响应数组守卫/显式label关联。Lint发现render写refs，改为effect同步，无禁用规则。第二轮22/22通过；新增异常草案、列表筛选续页、显式新搜和跨刷新指标重试后开始85项完整组件浏览器回归。
+
+
+### 2026-11-20 完整回归
+
+独立源码快照902文件与工作区摘要一致，未触及活跃.next。完整组件浏览器85/85通过；完整单元223文件2605/2605通过；独立PG6文件94/94通过，store/runs语句94.15%、行94.11%、分支83.83%、函数95%。日志/tmp/sv-optimization-{all-browser,unit,postgres}.log。全库lint/格式后提交并构建。

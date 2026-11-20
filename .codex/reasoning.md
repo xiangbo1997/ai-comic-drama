@@ -189,3 +189,11 @@ sequential-thinking工具再次检索不可用，项目skills/codex-init-protoco
 
 ## 2026-11-19 共用模型搜索恢复收尾
 已读项目 init/taskflow/governance 与 ECC verification-loop。codex mcp list 无配置，sequential-thinking 不可调用，人工顺序分析：回执与进程恢复→确认 c3d78e4 已上线→沿用 2578 单元/87 隔离PG/12 浏览器及最终构建→只读生产验收→隔离回退证据验证→更新交付。遵循项目局部优先，不安装无关 MCP 或改全局权限。真实模型已测试成功，禁止因上下文丢失重复收费测试/发布。回退必须先保留并隔离包含 searchConfigId 的任务，以免旧worker误作免费任务重提；只在独立测试库验证。
+
+## 2026-11-19T15:00:49.068568+00:00 多Agent短视频全流程优化
+
+用户明确授权多agent全面优化、完整流程验证、上线及提交。当前分支feat/ai-abstract-short-video，基线4d7beaab4036a26be45729a96c09fa09f496437b，起始工作区干净。Stage0手工推理：保持已有鉴权、计划预算与未知不重放；先修复已发现的前后端衔接问题，然后加强可视化编辑、导航、列表与错误恢复。不新增schema/依赖，不修改生产业务数据。三agent各自独占backend、workbench、hot-discovery/layout；主agent整合浏览器/隔离HTTP/全量检查/独立构建/部署。风险：本机就是生产，不能运行next build覆盖活跃.next；采用独立目录构建，排空在途任务、保留旧静态与旧Web/worker/环境，失败自动回退。sequential-thinking当前工具未暴露，采用手工日志；按init协议已补5个MCP配置但不重启本会话。付费生成与公开投稿不作为本轮上线冒烟，实际链路以隔离模型替身+真实存储/FFmpeg/DB验证，限制如实记录。
+
+### 2026-11-20T05:02:20.124864+00:00 整合与故障修复
+
+恢复后sequential-thinking已暴露并调用。另审查发现AI简报作品没有templateId导致脚本模型入口不可用；增加详情模板选择、归属/启用/版本/任务空闲防护，隔离PG先红后绿。新任务先固定读取POST返回的ID，等列表追上，避免旧列表覆盖新计划；指标重试持久化同一采集时间与收据，包含刷新后的重试。

@@ -11,3 +11,13 @@ const router = {
 export function useRouter() {
   return router;
 }
+
+export function usePathname() {
+  if (location.pathname !== "/short-video.html") return location.pathname;
+  const mode = new URLSearchParams(location.search).get("mode") || "detail";
+  return mode === "videos"
+    ? "/short-videos"
+    : mode === "detail"
+      ? "/short-videos/video-1"
+      : `/short-videos/${mode}`;
+}

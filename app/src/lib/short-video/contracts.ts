@@ -82,8 +82,13 @@ export const VideoZ = RequestZ.extend({
 export const VideoPatchZ = VersionZ.extend({
   title: text(80).min(1).optional(),
   brief: text(4000).optional(),
+  templateId: id.nullable().optional(),
   archived: z.boolean().optional(),
 }).strict();
+export const VideoListZ = z.object({
+  q: text(200).optional(),
+  status: z.enum(["DRAFT", "SCRIPTED", "READY"]).optional(),
+});
 export const TemplateFieldsZ = z.object({
   name: text(80).min(1),
   description: text(1000),

@@ -10,6 +10,7 @@ import {
   SourceZ,
   VideoZ,
   VideoPatchZ,
+  VideoListZ,
   TemplateFieldsZ,
   VersionZ,
 } from "@/lib/short-video/contracts";
@@ -326,6 +327,15 @@ export async function patchVideo(userId: string, id: string, raw: unknown) {
   await receipt(userId, `video:${id}:patch`, input, async (tx) => {
     await ownedVideo(userId, id, tx);
     await assertIdle(tx, id);
+    if (input.templateId)
+      invariant(
+        await tx.svTemplate.findFirst({
+          where: { id: input.templateId, userId, enabled: true },
+        }),
+        404,
+        "NOT_FOUND",
+        "模板不存在或已停用"
+      );
     invariant(
       (
         await tx.svVideo.updateMany({
@@ -333,6 +343,7 @@ export async function patchVideo(userId: string, id: string, raw: unknown) {
           data: {
             title: input.title,
             brief: input.brief,
+            templateId: input.templateId,
             ...(input.archived !== undefined
               ? { archivedAt: input.archived ? new Date() : null }
               : {}),
@@ -350,18 +361,87 @@ export async function listVideos(
   params: Record<string, unknown>
 ) {
   const args = pageArgs(params);
-  return page(
-    await prisma.svVideo.findMany({
-      ...args,
-      where: { ...args.where, userId, archivedAt: null },
-      include: {
-        runs: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-          select: { id: true, status: true, kind: true },
+  const filters = VideoListZ.parse(params);
+  const ready: Prisma.SvVideoWhereInput = {
+    currentArtifact: {
+      is: {
+        userId,
+        kind: "VIDEO",
+        verifiedAt: { not: null },
+        archivedAt: null,
+      },
+    },
+  };
+  const progress: Prisma.SvVideoWhereInput =
+    filters.status === "READY"
+      ? ready
+      : filters.status
+        ? {
+            NOT: ready,
+            currentScriptVersionId:
+              filters.status === "SCRIPTED" ? { not: null } : null,
+          }
+        : {};
+  const rows = await prisma.svVideo.findMany({
+    ...args,
+    where: {
+      userId,
+      archivedAt: null,
+      // 游标与检索都含OR，必须用AND组合，避免续页丢失筛选条件。
+      AND: [
+        args.where,
+        progress,
+        ...(filters.q
+          ? [
+              {
+                OR: [
+                  {
+                    title: {
+                      contains: filters.q,
+                      mode: "insensitive" as const,
+                    },
+                  },
+                  {
+                    brief: {
+                      contains: filters.q,
+                      mode: "insensitive" as const,
+                    },
+                  },
+                ],
+              },
+            ]
+          : []),
+      ],
+    },
+    include: {
+      currentArtifact: {
+        select: {
+          kind: true,
+          userId: true,
+          verifiedAt: true,
+          archivedAt: true,
         },
       },
-    }),
+      runs: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { id: true, status: true, kind: true },
+      },
+    },
+  });
+  return page(
+    rows.map(({ currentArtifact, ...row }) => ({
+      ...row,
+      workflowStatus:
+        currentArtifact?.kind === "VIDEO" &&
+        currentArtifact.userId === userId &&
+        currentArtifact.verifiedAt &&
+        !currentArtifact.archivedAt
+          ? "READY"
+          : row.currentScriptVersionId
+            ? "SCRIPTED"
+            : "DRAFT",
+    })),
     args.take
   );
 }

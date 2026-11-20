@@ -111,6 +111,7 @@ test("searches in background, shows evidence and original ideas, saves reviewed 
       .first()
   ).toHaveAttribute("href", /www.douyin.com\/search/);
   await page.getByRole("button", { name: "展开分镜" }).first().click();
+  await page.getByText("高级编辑：完整脚本 JSON", { exact: true }).click();
   const script = JSON.parse(
     await page.getByLabel("编辑结构化草案").inputValue()
   );

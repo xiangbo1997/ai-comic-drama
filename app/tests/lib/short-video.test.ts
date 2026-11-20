@@ -3,6 +3,7 @@ import {
   ScriptZ,
   MetricZ,
   PublicationPayloadZ,
+  VideoListZ,
 } from "@/lib/short-video/contracts";
 import { stableHash } from "@/lib/short-video/hash";
 import { canonicalSource, platformPostUrl } from "@/lib/short-video/source";
@@ -11,6 +12,17 @@ import { publicationTransition, dueStatus } from "@/lib/short-video/state";
 
 import { script } from "../fixtures/short-video";
 describe("short video contracts", () => {
+  it("validates workflow filters and trims user search while accepting pagination parameters", () => {
+    expect(
+      VideoListZ.parse({ q: " coffee ", status: "READY", limit: "2" })
+    ).toEqual({
+      q: "coffee",
+      status: "READY",
+    });
+    expect(VideoListZ.safeParse({ status: "RUNNING" }).success).toBe(false);
+    expect(VideoListZ.safeParse({ q: "x".repeat(201) }).success).toBe(false);
+    expect(VideoListZ.parse({ q: "  " })).toEqual({ q: "" });
+  });
   it("checks duration, unique shot keys and character references", () => {
     expect(ScriptZ.safeParse(script).success).toBe(true);
     expect(

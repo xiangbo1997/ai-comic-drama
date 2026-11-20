@@ -182,8 +182,12 @@ export async function controlRun(userId: string, id: string, raw: unknown) {
             ["UNKNOWN", "SUBMITTING", "PROCESSING"].includes(s.status)
           )
       );
+      // 关闭收费提交后，已完成模型步骤的任务仍可只用现有素材恢复本地合成。
       invariant(
-        shortVideoConfig().autoSubmit,
+        shortVideoConfig().autoSubmit ||
+          run.steps.every(
+            (s) => s.status === "COMPLETED" || s.kind === "COMPOSE"
+          ),
         409,
         "SUBMISSION_DISABLED",
         "新提交已关闭"

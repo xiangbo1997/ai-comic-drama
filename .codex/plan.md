@@ -250,3 +250,12 @@ Plan docs/short-video/hot-discovery-plan.md. New source adapters (Douyin public 
 - [x] 完成本机/公网只读业务、素材、服务版本检查。
 - [x] 隔离验证回退的收费任务隔离策略，保留原JSON和免费任务。
 - [x] 同步验收、部署及.codex记录；不重复付费请求、不公开投稿、不迁移。最终Git交付以提交回执核对。
+
+## 2026-11-19T15:00:49.068568+00:00 多Agent短视频全流程优化
+
+- [x] Stage0：审计现有代码/线上部署、读取项目三协议及ECC TDD/frontend/security/verification/e2e技能，划分agent文件所有权。
+- [x] Stage1：三agent提供文件级计划并以失败测试复现关键衔接缺陷。
+- [x] Stage2：后端恢复/列表过滤；工作台脚本表单/状态保持/正确选片；热点状态隔离/错误恢复与响应式导航。
+- [ ] Stage3：相关单元、完整单元、隔离PG、浏览器完整用户流程、类型/lint/格式及独立生产构建。
+- [ ] Stage4：审查差异并提交；备份旧产物、只读在途核验、可回退切换Web与worker、线上GET/资源/权限/心跳验证；记录最终SHA及限制。
+      回滚：不迁移数据库，恢复旧.next、worker及.git-commit，保留素材/配置/数据。

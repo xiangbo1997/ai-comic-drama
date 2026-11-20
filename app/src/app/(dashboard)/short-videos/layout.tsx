@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { Clapperboard } from "lucide-react";
+import { ShortVideoNavigation } from "@/components/short-video/navigation";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { canAccessShortVideo } from "@/lib/short-video/config";
@@ -17,31 +18,33 @@ export default async function ShortVideoLayout({
   if (!user || !canAccessShortVideo(user))
     return (
       <div className="mx-auto max-w-5xl p-6">
-        <h1 className="text-2xl font-bold">抽象短视频暂未开放</h1>
-        <p>请联系管理员为当前账号启用功能。</p>
+        <div className="border-border bg-card space-y-3 rounded-2xl border p-6">
+          <Clapperboard
+            className="text-muted-foreground size-8"
+            aria-hidden="true"
+          />
+          <h1 className="text-xl font-semibold">抽象短视频暂未开放</h1>
+          <p className="text-muted-foreground text-sm">
+            请联系管理员为当前账号启用功能。
+          </p>
+        </div>
       </div>
     );
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
-      <header>
-        <h1 className="text-2xl font-bold">AI 抽象短视频</h1>
-        <p className="text-muted-foreground mt-2">
-          原创改编 → 制作 → 审核 → 计划提交。当前平台接入状态请以账号能力为准。
-        </p>
+    <div className="mx-auto w-full max-w-7xl min-w-0 space-y-6 p-4 md:p-6 lg:p-8">
+      <header className="flex items-start gap-3">
+        <div className="bg-primary/10 text-primary hidden rounded-xl p-3 sm:block">
+          <Clapperboard className="size-6" aria-hidden="true" />
+        </div>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight">AI 抽象短视频</h1>
+          <p className="text-muted-foreground mt-2 max-w-2xl text-sm leading-relaxed">
+            从一个有趣的梗出发，完成原创改编、视频制作和审核发布。
+          </p>
+        </div>
       </header>
-      <nav aria-label="短视频导航" className="flex flex-wrap gap-4">
-        {[
-          ["/short-videos", "作品"],
-          ["/short-videos/trends", "热点与导入"],
-          ["/short-videos/publications", "发布中心"],
-          ["/short-videos/accounts", "发布账号"],
-        ].map(([href, label]) => (
-          <Link key={href} href={href} className="text-primary underline">
-            {label}
-          </Link>
-        ))}
-      </nav>
-      {children}
+      <ShortVideoNavigation />
+      <div className="min-w-0">{children}</div>
     </div>
   );
 }

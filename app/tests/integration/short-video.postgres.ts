@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -422,6 +422,95 @@ afterAll(async () => {
   vi.unstubAllEnvs();
 });
 describe("short video isolated PostgreSQL", () => {
+  it("attaches an owned template to a template-free brief and unlocks an unconfirmed script plan", async () => {
+    const draft = await createVideo(userId, {
+      requestId: req(),
+      title: "AI热点收藏",
+      brief: "联网搜索得到的原创点子",
+      sourceIds: [],
+    });
+    expect(draft.template).toBeNull();
+    const input = {
+      requestId: req(),
+      expectedVersion: draft.version,
+      templateId,
+    };
+    const updated = await patchVideo(userId, draft.id, input);
+    expect(updated.templateId).toBe(templateId);
+    expect(updated.template?.id).toBe(templateId);
+    expect(updated.version).toBe(draft.version + 1);
+    expect((await patchVideo(userId, draft.id, input)).version).toBe(
+      updated.version
+    );
+    const plan = await createScriptPlan(userId, draft.id, {
+      requestId: req(),
+      llmConfigId: configs.LLM,
+      templateVersion: updated.template!.version,
+      expectedVideoVersion: updated.version,
+    });
+    expect((await readRun(userId, plan.id)).status).toBe("PLANNED");
+    expect(chatCompletion).not.toHaveBeenCalled();
+  });
+  it("guards template changes by ownership, enabled state, video version and active tasks", async () => {
+    const before = await videoDetail(userId, videoId);
+    const foreign = (await listTemplates(otherId)).items[0];
+    await expect(
+      patchVideo(userId, videoId, {
+        requestId: req(),
+        expectedVersion: before.version,
+        templateId: foreign.id,
+      })
+    ).rejects.toMatchObject({ status: 404 });
+    await prisma.svTemplate.update({
+      where: { id: templateId },
+      data: { enabled: false },
+    });
+    await expect(
+      patchVideo(userId, videoId, {
+        requestId: req(),
+        expectedVersion: before.version,
+        templateId,
+      })
+    ).rejects.toMatchObject({ status: 404 });
+    await prisma.svTemplate.update({
+      where: { id: templateId },
+      data: { enabled: true },
+    });
+    const cleared = await patchVideo(userId, videoId, {
+      requestId: req(),
+      expectedVersion: before.version,
+      templateId: null,
+    });
+    expect(cleared.templateId).toBeNull();
+    expect(cleared.template).toBeNull();
+    await expect(
+      patchVideo(userId, videoId, {
+        requestId: req(),
+        expectedVersion: before.version,
+        templateId,
+      })
+    ).rejects.toMatchObject({ status: 409 });
+    const selected = await patchVideo(userId, videoId, {
+      requestId: req(),
+      expectedVersion: cleared.version,
+      templateId,
+    });
+    const plan = await createScriptPlan(userId, videoId, {
+      requestId: req(),
+      llmConfigId: configs.LLM,
+      templateVersion: selected.template!.version,
+      expectedVideoVersion: selected.version,
+    });
+    await confirm(plan.id);
+    await expect(
+      patchVideo(userId, videoId, {
+        requestId: req(),
+        expectedVersion: selected.version,
+        templateId: null,
+      })
+    ).rejects.toMatchObject({ code: "ACTIVE_RUN" });
+    expect((await videoDetail(userId, videoId)).templateId).toBe(templateId);
+  });
   it("deduplicates concurrent imports and refuses changed requestId input", async () => {
     const input = {
       requestId: req(),
@@ -597,6 +686,185 @@ describe("short video isolated PostgreSQL", () => {
     await driveRun(lease);
     expect(await prisma.creditTransaction.count({ where: { userId } })).toBe(2);
   }, 60000);
+  it("completes one source-to-publication journey with real composition, receipts, metrics and export SHA", async () => {
+    const source = await importSource(userId, {
+      requestId: req(),
+      platform: "DOUYIN",
+      url: "https://www.douyin.com/video/123456789",
+      summary: "原创水豚把周会变成午休仪式",
+      rightsNote: "只参考主题，不下载或复制原片",
+    });
+    videoId = (
+      await createVideo(userId, {
+        requestId: req(),
+        title: "从灵感到发布的完整链路",
+        brief: "原创水豚午休反转",
+        sourceIds: [source.id],
+        templateId,
+      })
+    ).id;
+    const id = await planRender(true);
+    const planned = await readRun(userId, id);
+    expect(planned.status).toBe("PLANNED");
+    expect(vi.mocked(submitImageJob)).not.toHaveBeenCalled();
+    vi.mocked(synthesizeSpeech).mockResolvedValue(await readFile(audioFile));
+    await confirm(id);
+    const lease = (await acquireRunLease(id, req(), "journey-test"))!;
+    await driveRun(lease);
+    const completed = await readRun(userId, id);
+    expect(completed.status).toBe("COMPLETED");
+    expect(completed.reservedCredits).toBe(0);
+    expect(completed.steps.map((s) => s.kind)).toEqual([
+      "IMAGE",
+      "VIDEO",
+      "TTS",
+      "COMPOSE",
+    ]);
+    const video = await videoDetail(userId, videoId);
+    expect(video.sources.map((s) => s.sourceId)).toEqual([source.id]);
+    expect(video.scripts).toHaveLength(1);
+    const artifact = await artifactAccess(userId, video.currentArtifactId!);
+    expect(artifact.kind).toBe("VIDEO");
+    expect(artifact.verifiedAt).toBeTruthy();
+    const ledger = await prisma.creditTransaction.findMany({
+      where: { userId },
+    });
+    expect(ledger).toHaveLength(3);
+    expect(-ledger.reduce((n, t) => n + t.delta, 0)).toBe(
+      completed.spentCredits
+    );
+    const account = await createAccount(userId, {
+      requestId: req(),
+      platform: "DOUYIN",
+      displayName: "完整链路人工账号",
+      mode: "MANUAL",
+    });
+    const publication = await createPublication(userId, {
+      requestId: req(),
+      videoId,
+      accountId: account.id,
+      artifactId: artifact.id,
+      payload,
+      mode: "MANUAL",
+    });
+    const scheduled = await schedule(publication.id);
+    expect(scheduled.approvedHash).toBe(scheduled.reviewHash);
+    // 隔离库推进到排期到点，避免真实等待；不修改生产数据或提交到外部平台。
+    await prisma.svPublication.update({
+      where: { id: publication.id },
+      data: { scheduledAt: new Date() },
+    });
+    await sweepPublications("journey-test");
+    const due = await readPublication(userId, publication.id);
+    expect(due.status).toBe("AWAITING_MANUAL");
+    const published = await controlPublication(userId, publication.id, {
+      requestId: req(),
+      expectedVersion: due.version,
+      action: "mark_manual_published",
+      externalUrl: "https://www.douyin.com/video/987654321",
+      publishedAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect(published.status).toBe("PUBLISHED");
+    expect(published.events.at(-1)?.detail).toMatchObject({
+      verification: "USER_REPORTED",
+    });
+    await addMetric(userId, publication.id, {
+      requestId: req(),
+      observedAt: new Date().toISOString(),
+      windowLabel: "CUSTOM",
+      metrics: { likes: 12 },
+    });
+    const metric = (await listMetrics(userId, publication.id, {})).items[0];
+    expect(metric.likes).toBe(12);
+    expect(metric.views).toBeNull();
+    const zip = Buffer.from(
+      await new Response(
+        await publicationExport(userId, publication.id)
+      ).arrayBuffer()
+    );
+    const exportPath = path.join(root, "journey-export.zip");
+    await writeFile(exportPath, zip);
+    const videoBytes = await promisify(execFile)(
+      "unzip",
+      ["-p", exportPath, "video.mp4"],
+      { encoding: "buffer", maxBuffer: 10 * 1024 * 1024 }
+    );
+    expect(createHash("sha256").update(videoBytes.stdout).digest("hex")).toBe(
+      artifact.sha256
+    );
+    const manifest = JSON.parse(
+      (
+        await promisify(execFile)("unzip", [
+          "-p",
+          exportPath,
+          "publication.json",
+        ])
+      ).stdout
+    );
+    expect(manifest).toMatchObject({
+      publicationId: publication.id,
+      sha256: artifact.sha256,
+      verification: "MANUAL_PACKAGE",
+    });
+    await driveRun(lease);
+    expect(await prisma.creditTransaction.count({ where: { userId } })).toBe(3);
+    expect(vi.mocked(submitImageJob)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(submitVideoJob)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(synthesizeSpeech)).toHaveBeenCalledTimes(1);
+  }, 60000);
+  it("resumes only local composition after paid submissions are disabled", async () => {
+    const id = await planRender();
+    await confirm(id);
+    const lease = await acquireRunLease(id, "compose-recovery-test");
+    expect(lease).not.toBeNull();
+    await driveRun(
+      lease!,
+      () => vi.mocked(submitVideoJob).mock.calls.length > 0
+    );
+    const generated = await readRun(userId, id);
+    expect(
+      generated.steps
+        .filter((s) => s.kind !== "COMPOSE")
+        .every((s) => s.status === "COMPLETED")
+    ).toBe(true);
+    await prisma.svRun.update({
+      where: { id },
+      data: { status: "PAUSED", errorCode: "COMPOSE_FAILED" },
+    });
+    vi.stubEnv("SHORT_VIDEO_AUTO_SUBMIT_ENABLED", "false");
+    const paused = await readRun(userId, id);
+    await expect(
+      controlRun(userId, id, {
+        requestId: req(),
+        action: "resume",
+        expectedVersion: paused.version,
+      })
+    ).resolves.toMatchObject({ status: "QUEUED" });
+    await driveRun(lease!);
+    expect(await readRun(userId, id)).toMatchObject({
+      status: "COMPLETED",
+      reservedCredits: 0,
+    });
+    expect(vi.mocked(submitImageJob)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(submitVideoJob)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(synthesizeSpeech)).not.toHaveBeenCalled();
+  });
+  it("keeps pending model steps blocked when paid submissions are disabled", async () => {
+    const id = await planRender();
+    await confirm(id);
+    await prisma.svRun.update({ where: { id }, data: { status: "PAUSED" } });
+    vi.stubEnv("SHORT_VIDEO_AUTO_SUBMIT_ENABLED", "false");
+    const paused = await readRun(userId, id);
+    await expect(
+      controlRun(userId, id, {
+        requestId: req(),
+        action: "resume",
+        expectedVersion: paused.version,
+      })
+    ).rejects.toMatchObject({ code: "SUBMISSION_DISABLED" });
+    expect(vi.mocked(submitImageJob)).not.toHaveBeenCalled();
+    expect(vi.mocked(submitVideoJob)).not.toHaveBeenCalled();
+  });
   it("rejects invalid model JSON without creating an executable script or auto repair", async () => {
     const v = await videoDetail(userId, videoId);
     const { id } = await createScriptPlan(userId, videoId, {
@@ -646,6 +914,38 @@ describe("short video isolated PostgreSQL", () => {
     await expect(artifactAccess(otherId, a.id)).rejects.toMatchObject({
       status: 404,
     });
+  });
+  it("never accepts a verified cover upload as the publication video", async () => {
+    const publication = await createManual();
+    const original = await videoDetail(userId, videoId);
+    const cover = await acceptUpload(
+      userId,
+      videoId,
+      req(),
+      imageFile,
+      "COVER",
+      "原创封面"
+    );
+    expect((await videoDetail(userId, videoId)).currentArtifactId).toBe(
+      original.currentArtifactId
+    );
+    await expect(
+      createPublication(userId, {
+        requestId: req(),
+        videoId,
+        accountId: publication.accountId,
+        artifactId: cover.id,
+        payload,
+        mode: "MANUAL",
+      })
+    ).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
+    await expect(
+      patchPublication(userId, publication.id, {
+        requestId: req(),
+        expectedVersion: publication.version,
+        artifactId: cover.id,
+      })
+    ).rejects.toMatchObject({ status: 404, code: "NOT_FOUND" });
   });
   it("approves hash snapshots, rejects unauthorized edits and expires late schedules", async () => {
     const p = await createManual();
@@ -1027,6 +1327,105 @@ describe("short video isolated PostgreSQL", () => {
         systemInstructions: "x",
       })
     ).rejects.toMatchObject({ status: 404 });
+  });
+  it("filters title and brief with workflow progress before applying cursor pagination", async () => {
+    const draft = await createVideo(userId, {
+      requestId: req(),
+      title: "Coffee draft",
+      brief: "a",
+      sourceIds: [],
+    });
+    const scripted = await createVideo(userId, {
+      requestId: req(),
+      title: "Scripted",
+      brief: "COFFEE idea",
+      sourceIds: [],
+    });
+    await saveScript(userId, scripted.id, {
+      requestId: req(),
+      expectedVideoVersion: scripted.version,
+      content: script,
+    });
+    const ready = await createVideo(userId, {
+      requestId: req(),
+      title: "Coffee ready",
+      brief: "",
+      sourceIds: [],
+    });
+    await acceptUpload(
+      userId,
+      ready.id,
+      req(),
+      videoFile,
+      "VIDEO",
+      "原创测试素材"
+    );
+    const corrupt = await createVideo(userId, {
+      requestId: req(),
+      title: "Coffee cover",
+      brief: "",
+      sourceIds: [],
+    });
+    const cover = await acceptUpload(
+      userId,
+      corrupt.id,
+      req(),
+      imageFile,
+      "COVER",
+      "原创封面"
+    );
+    await prisma.svVideo.update({
+      where: { id: corrupt.id },
+      data: { currentArtifactId: cover.id },
+    });
+    const archived = await createVideo(userId, {
+      requestId: req(),
+      title: "Coffee archived",
+      brief: "",
+      sourceIds: [],
+    });
+    await patchVideo(userId, archived.id, {
+      requestId: req(),
+      expectedVersion: archived.version,
+      archived: true,
+    });
+    const first = await listVideos(userId, { q: " coffee ", limit: 2 });
+    const second = await listVideos(userId, {
+      q: " coffee ",
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+    expect(new Set([...first.items, ...second.items].map((v) => v.id))).toEqual(
+      new Set([draft.id, scripted.id, ready.id, corrupt.id])
+    );
+    expect(
+      (await listVideos(userId, { q: "coffee", status: "DRAFT" })).items
+        .map((v) => v.id)
+        .sort()
+    ).toEqual([draft.id, corrupt.id].sort());
+    expect(
+      (await listVideos(userId, { q: "coffee", status: "SCRIPTED" })).items.map(
+        (v) => v.id
+      )
+    ).toEqual([scripted.id]);
+    expect(
+      (await listVideos(userId, { q: "coffee", status: "READY" })).items.map(
+        (v) => v.id
+      )
+    ).toEqual([ready.id]);
+    expect(
+      (await listVideos(otherId, { q: "coffee", status: "READY" })).items
+    ).toEqual([]);
+    await expect(
+      listVideos(userId, { status: "unknown" })
+    ).rejects.toHaveProperty("name", "ZodError");
+    await prisma.svArtifact.update({
+      where: { id: (await videoDetail(userId, ready.id)).currentArtifactId! },
+      data: { archivedAt: new Date() },
+    });
+    expect(
+      (await listVideos(userId, { q: "coffee", status: "READY" })).items
+    ).toEqual([]);
   });
   it("routes authenticated JSON and multipart through real services, rejects cross-user reads", async () => {
     const invoke = async (

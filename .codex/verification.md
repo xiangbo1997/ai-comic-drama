@@ -520,3 +520,18 @@ PASS exact c3d78e4 release:221files2578unit,6files87isolatedPG,12browser; core s
 Authorized switch d992a66→c3d78e4 completed62sec, WebPID1644497/workerPID1646357 active/running NRestarts0, startup errors0.76local/public read-only business/auth/modelDTO/UI/API/heartbeat/JS checks and44BGM/oldJS SHA checks passed. Original counts1user/9projects/201scenes/243ledger/7configs unchanged, SvRun/Publication/Source0 and DiscoveryJob1 preserved from pre-switch audit (user task, no deployment seed). Env SHA/proxy/units unchanged, autoSubmit=false. Production configuration writes limited to normal shared model setting and real capability test:Responses/high on existinggpt-6-sol, original key/model/base/protocol/default preserved,7.795sec1native search1citation, verificationStored=true. Five actual model requests by this task (1parameter rejection1quality failure3native successes); currency amount unknown; read-only smoke's paidCalls0 is scoped to GET stage only. No paid video/image/TTS sample, publicposts0, no production DB tests/reset/db push/migration.
 
 Rollback backup /backup/short-video-shared-search-20261119T135738Z includes old .next/worker/env/version, previous model metadata and all receipts. Reversible reviewed rollback quarantines newAI JSON/jobs before oldworker, leaves evidence/source/request IDs, disables native capability so old plain-chat tests cannot masquerade as fresh search proof. Known unchanged previous text config state restored from backup; others require retest. Dedicated PostgreSQL actual quarantine test6checks passed,0model calls, fixture cleanup done, container stopped; production rollback not performed. Section20 acceptance/deployment-shared-model-search-2026-11-19.md current. Parallel Seedance commits preserved, not in independent release. Project missing skills/sequential-thinking were recorded with manual reasoning/rollback; ECC is supplemental.
+
+## 2026-11-19T15:00:49.068568+00:00 多Agent短视频全流程优化
+
+当前阶段：检查中。初始git status干净；生产Web/worker均active，运行版本c3d78e4；现分支包含此前参考图/对白整合，因此最终部署需完整回归该分支而非仅复用旧搜索发布证据。新增测试结果待记录。
+
+### 2026-11-20T05:02:20.124864+00:00 整合与故障修复
+
+后端29项PG通过后，审查补模板衔接与防护，最新同文件31/31通过（/tmp/short-video-template-green.log或review文档）。浏览器第一轮17pass/3fail，修复后第二轮22/22通过，/tmp/sv-optimization-browser-2.log；新增边界和完整旧模块回归正在执行，不能将22作为最终完整结果。当前已变更文件ESLint无错误/警告，/tmp/sv-optimization-lint-final.log；完整生产构建尚未进行。
+
+
+### 2026-11-20 完整回归
+
+独立源码快照902文件与工作区摘要一致，未触及活跃.next。完整组件浏览器85/85通过；完整单元223文件2605/2605通过；独立PG6文件94/94通过，store/runs语句94.15%、行94.11%、分支83.83%、函数95%。日志/tmp/sv-optimization-{all-browser,unit,postgres}.log。全库lint/格式后提交并构建。
+
+全库ESLint与改动Prettier通过；验证脚本四项exitCode均0，902文件摘要再次一致。下一步正常提交及独立构建，不推送或改写已有历史。
