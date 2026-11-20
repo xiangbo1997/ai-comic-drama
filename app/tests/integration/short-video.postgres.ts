@@ -815,7 +815,7 @@ describe("short video isolated PostgreSQL", () => {
   it("resumes only local composition after paid submissions are disabled", async () => {
     const id = await planRender();
     await confirm(id);
-    const lease = await acquireRunLease(id, "compose-recovery-test");
+    const lease = await acquireRunLease(id, req(), "compose-recovery-test");
     expect(lease).not.toBeNull();
     await driveRun(
       lease!,

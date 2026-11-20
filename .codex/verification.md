@@ -535,3 +535,5 @@ Rollback backup /backup/short-video-shared-search-20261119T135738Z includes old 
 独立源码快照902文件与工作区摘要一致，未触及活跃.next。完整组件浏览器85/85通过；完整单元223文件2605/2605通过；独立PG6文件94/94通过，store/runs语句94.15%、行94.11%、分支83.83%、函数95%。日志/tmp/sv-optimization-{all-browser,unit,postgres}.log。全库lint/格式后提交并构建。
 
 全库ESLint与改动Prettier通过；验证脚本四项exitCode均0，902文件摘要再次一致。下一步正常提交及独立构建，不推送或改写已有历史。
+
+构建首次因Turbopack禁止跨root的node_modules软链接失败，隔离依赖改为目录硬链接后编译成功；完整类型检查定位新增PG恢复测试少传租约owner（TS2554）。补齐显式随机token+owner，仅测试夹具改变；相关PG单项复验后继续同源码构建，不关闭类型检查或篡改单元/94PG/85浏览器既有结果。首次单项命令遗漏专用COMIC_POSTGRES_TEST_URL配置立即拒绝，未连接数据库；补显式独立URL重新执行。
